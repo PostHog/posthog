@@ -14,7 +14,7 @@ from anthropic import APIError
 from posthog.egress.limiter.policies import Priority
 
 from ..backend.facade.contracts import MergeCheckReport
-from ..backend.logic.pull_requests import changed_files_for, decoded_text, head_texts, publication_refusal
+from ..backend.logic.pull_requests import CompanionCheck, changed_files_for, decoded_text, head_texts, publication_check
 from ..backend.logic.server_commit import BaseEntry, BaseTree, ancestor_directories
 from ..backend.logic.writer_change import WriterChangeRefused, parse_writer_change
 from ..backend.settings import DEFAULT_DOCS_PATHS, DocsSource, docs_source_for
@@ -46,6 +46,15 @@ SCORED_CRITERION_BY_TRUTH_KEY = {
     "no_public_page_fits": "no_public_page_fits",
 }
 UNSCORED_TRUTH_VALUES = frozenset({"not_applicable"})
+PUBLISH_EVAL_MISTAKE_BY_TRUTH_AND_OUTCOME = {
+    ("refuse", "publish"): "false_publish",
+    ("refuse", "flag"): "false_publish",
+    ("flag", "publish"): "missed_flag",
+    ("publish", "refuse"): "false_refuse",
+    ("flag", "refuse"): "false_refuse",
+    ("publish", "flag"): "false_flag",
+}
+PUBLISH_EVAL_MISTAKES = ("false_publish", "missed_flag", "false_refuse", "false_flag")
 
 
 def replay_command(arguments: argparse.Namespace) -> int:
@@ -308,13 +317,13 @@ def criterion_text(value: object) -> str | None:
 
 def publish_eval_command(labelled_commits_path: Path) -> int:
     github = CachedGitHub(environment_github(), GITHUB_CACHE_DIRECTORY)
-    wrong_commits_by_kind: dict[str, list[str]] = {"false_publish": [], "false_refuse": []}
+    wrong_commits_by_kind: dict[str, list[str]] = {kind: [] for kind in PUBLISH_EVAL_MISTAKES}
     labelled_commits = [json.loads(line) for line in labelled_commits_path.read_text().splitlines() if line.strip()]
     failed_commits: list[str] = []
     for labelled_commit in labelled_commits:
         repository, commit_sha = labelled_commit["repository"], labelled_commit["commit_sha"]
         try:
-            refusal = commit_publication_refusal(github, repository, commit_sha)
+            publication = commit_publication_check(github, repository, commit_sha)
         except EVAL_ROW_ERRORS as error:
             failed_commits.append(commit_sha)
             error_line = {
@@ -325,22 +334,22 @@ def publish_eval_command(labelled_commits_path: Path) -> int:
             }
             print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
             continue
-        publishes = refusal is None
+        truth = labelled_commit["truth"]
         print(  # noqa: T201 — one eval row per labelled commit
             json.dumps(
                 {
                     "commit_sha": commit_sha,
-                    "truth": labelled_commit["truth"],
-                    "publishes": publishes,
-                    "refusal": refusal,
+                    "truth": truth,
+                    "outcome": publish_outcome(publication),
+                    "refusal": publication.refusal,
+                    "flags": list(publication.flags),
                 }
             ),
             flush=True,
         )
-        if publishes and labelled_commit["truth"] == "refuse":
-            wrong_commits_by_kind["false_publish"].append(commit_sha)
-        if not publishes and labelled_commit["truth"] == "publish":
-            wrong_commits_by_kind["false_refuse"].append(commit_sha)
+        mistake = publish_eval_mistake(truth, publish_outcome(publication))
+        if mistake is not None:
+            wrong_commits_by_kind[mistake].append(commit_sha)
     summary = {
         "commits": len(labelled_commits),
         "failed": len(failed_commits),
@@ -350,22 +359,36 @@ def publish_eval_command(labelled_commits_path: Path) -> int:
     return 0
 
 
-def commit_publication_refusal(github: GitHubReader, repository: str, commit_sha: str) -> str | None:
+def publish_outcome(publication: CompanionCheck) -> str:
+    if publication.refusal is not None:
+        return "refuse"
+    return "flag" if publication.flags else "publish"
+
+
+def publish_eval_mistake(truth: str, outcome: str) -> str | None:
+    return PUBLISH_EVAL_MISTAKE_BY_TRUTH_AND_OUTCOME.get((truth, outcome))
+
+
+def refused_publication(reason: str) -> CompanionCheck:
+    return CompanionCheck(refusal=reason, flags=())
+
+
+def commit_publication_check(github: GitHubReader, repository: str, commit_sha: str) -> CompanionCheck:
     commit_files, parent_tree_sha = commit_change(github, repository, commit_sha)
     try:
         change = parse_writer_change(writer_change_manifest(github, repository, commit_files))
     except WriterChangeRefused as refused:
-        return refused.reason
+        return refused_publication(refused.reason)
     if not change.paths:
-        return "no_changes"
+        return refused_publication("no_changes")
     tree = parent_tree(github, repository, parent_tree_sha, change.paths)
     try:
         changed_files = changed_files_for(change, tree)
     except WriterChangeRefused as refused:
-        return refused.reason
+        return refused_publication(refused.reason)
     if changed_files is None:
-        return "unsafe_base_entry"
-    return publication_refusal(
+        return refused_publication("unsafe_base_entry")
+    return publication_check(
         changed_files, (DEFAULT_DOCS_PATHS.strip("/"),), repository, tree.texts, head_texts(change)
     )
 

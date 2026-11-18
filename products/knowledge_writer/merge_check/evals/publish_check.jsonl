@@ -1,6 +1,6 @@
 {"repository": "PostHog/posthog.com", "commit_sha": "62df34e9fa9d21f756681eca6079a40b9cba5e5f", "truth": "publish"}
 {"repository": "PostHog/posthog.com", "commit_sha": "8198ff3cfc0e0e841895ef626fbaacd5674c6e8f", "truth": "publish"}
-{"repository": "PostHog/posthog.com", "commit_sha": "bbd4a3f5a300727cb828a427c5399f3b3ac57347", "truth": "refuse"}
+{"repository": "PostHog/posthog.com", "commit_sha": "bbd4a3f5a300727cb828a427c5399f3b3ac57347", "truth": "flag"}
 {"repository": "PostHog/posthog.com", "commit_sha": "c407ffc6c369934cd6f5b8e7b78eb10c1ffe642d", "truth": "publish"}
 {"repository": "PostHog/posthog.com", "commit_sha": "7533e2f75310bf7c8dd701667679a4602df6ab30", "truth": "publish"}
 {"repository": "PostHog/posthog.com", "commit_sha": "581fb82ee5e51d9b53864af45a73bf95871f18e8", "truth": "publish"}
@@ -34,7 +34,7 @@
 {"repository": "PostHog/posthog.com", "commit_sha": "d67e8c65cb29920f2c1de604d35fabe09a297fe1", "truth": "publish"}
 {"repository": "PostHog/posthog.com", "commit_sha": "21d02a27a283d4bed0f4405a3d7bcdb4e54ffcca", "truth": "refuse"}
 {"repository": "PostHog/posthog.com", "commit_sha": "9713fe4ff8b3e01d65f8b922fd36b4fe3f298067", "truth": "refuse"}
-{"repository": "PostHog/posthog.com", "commit_sha": "9e202f81276250dbc9139a92f07cd1f8be6e4bdc", "truth": "refuse"}
+{"repository": "PostHog/posthog.com", "commit_sha": "9e202f81276250dbc9139a92f07cd1f8be6e4bdc", "truth": "flag"}
 {"repository": "PostHog/posthog.com", "commit_sha": "9af01685fda8dbd2c5904b29cf90c6200f46706c", "truth": "refuse"}
 {"repository": "PostHog/posthog.com", "commit_sha": "71932c2c5d4a4ef35e52d635ef70caf2c3d3364b", "truth": "refuse"}
 {"repository": "PostHog/posthog.com", "commit_sha": "3e20d4d3a91ac6946d5408890f4236bd682cfb38", "truth": "refuse"}

@@ -10,6 +10,7 @@ from uuid import UUID
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -28,11 +29,13 @@ from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
     NO_FINAL_NEWLINE_MARKER,
-    are_only_page_entries_changed,
-    are_only_page_redirects_changed,
+    NavEntryEdit,
     docs_page_key,
-    is_nav_line,
+    links_page,
+    nav_entry_edits_outside_pages,
+    nav_line_links,
     patch_hunks,
+    removed_redirects_naming_no_page,
     route_segments,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
@@ -102,6 +105,7 @@ DraftOutcome = Literal["refused", "logged", "opened", "failed"]
 CloseReason = Literal["merged", "closed_by_reviewer", "closed_stale"]
 MAX_LISTED_UNSUPPORTED_LINES = 50
 MAX_LISTED_LINE_CHARACTERS = 300
+MAX_LISTED_COMPANION_FLAGS = 50
 
 
 def link_back_block(source_urls: list[str]) -> str:
@@ -113,10 +117,16 @@ def link_back_block(source_urls: list[str]) -> str:
 class DraftFlags:
     grounding: GroundingResult
     extra_pages: tuple[str, ...]
+    companion_flags: tuple[str, ...]
 
     @property
     def is_ready_for_review(self) -> bool:
-        return self.grounding.ran and not self.grounding.unsupported_lines and not self.extra_pages
+        return (
+            self.grounding.ran
+            and not self.grounding.unsupported_lines
+            and not self.extra_pages
+            and not self.companion_flags
+        )
 
 
 def pull_request_body(request: DocsRequest, flags: DraftFlags) -> str:
@@ -143,6 +153,13 @@ def flag_sections(flags: DraftFlags) -> list[str]:
     if flags.extra_pages:
         sections.append("These existing pages changed but were not routed to this request:")
         sections.append("\n".join(f"- {page_path}" for page_path in flags.extra_pages))
+    if flags.companion_flags:
+        listed_flags = tuple(listed_line(flag) for flag in flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS])
+        unlisted_count = len(flags.companion_flags) - len(listed_flags)
+        sections.append("These nav and redirect edits are not tied to a page this change adds or removes:")
+        sections.append(fenced_block(listed_flags))
+        if unlisted_count:
+            sections.append(f"{unlisted_count} more nav and redirect edits are not listed.")
     return sections
 
 
@@ -391,21 +408,16 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> Pub
         request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, changed_files=changed_files
     )
     docs_folders = docs_folders_for(writer, task_id, team_id)
-    refusal = publication_refusal(
-        changed_files,
-        docs_folders,
-        writer.docs_repository,
-        tree.texts,
-        head_texts(change),
-    )
-    if refusal is not None:
-        refuse_draft(draft, refusal)
+    publication = publication_check(changed_files, docs_folders, writer.docs_repository, tree.texts, head_texts(change))
+    if publication.refusal is not None:
+        refuse_draft(draft, publication.refusal)
         return None
     flags = DraftFlags(
         grounding=ground_draft(source_github(team_id, source_change), source_change, changed_files),
         extra_pages=extra_pages(
             changed_files, docs_folders, routed_page_keys(writer.docs_repository, request, team_id)
         ),
+        companion_flags=publication.flags,
     )
     draft = replace(draft, flags=flags)
     is_opening_pull_requests = open_pull_requests_flag_state(Team.objects.get(id=team_id))
@@ -618,6 +630,9 @@ def capture_draft(
             if flags is not None
             else None,
             "grounding_ran": flags.grounding.ran if flags is not None else None,
+            "companion_flags": [listed_line(flag) for flag in flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS]]
+            if flags is not None
+            else None,
             "team_id": draft.team_id,
         },
     )
@@ -661,82 +676,134 @@ def drafted_files(changed_files: list[dict]) -> list[dict]:
 
 
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
-MAX_COMPANION_PATCH_CHARACTERS = 16_384
+
+
+@frozen
+class CompanionCheck:
+    refusal: str | None
+    flags: tuple[str, ...]
+
+
+SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
+COMPANION_REFUSED = CompanionCheck(refusal="changed_paths_outside_docs", flags=())
 
 
 def docs_folders_for(writer: WriterSettings, task_id: UUID, team_id: int) -> tuple[str, ...]:
     return docs_folders_of(writer, tasks_facade.read_task_state_entry(task_id, team_id, DOCS_CONTENT_ROOT_STATE_KEY))
 
 
-def publication_refusal(
+def publication_check(
     changed_files: list[dict],
     docs_folders: tuple[str, ...],
     docs_repository: str,
     base_texts: Mapping[str, str | None],
     head_texts: Mapping[str, str | None],
-) -> str | None:
-    outside_docs_refusal = companion_refusal(changed_files, docs_folders, docs_repository, base_texts, head_texts)
-    if outside_docs_refusal is not None:
-        return outside_docs_refusal
+) -> CompanionCheck:
+    companion = companion_check(changed_files, docs_folders, docs_repository, base_texts, head_texts)
+    if companion.refusal is not None:
+        return companion
     if not all(is_page_source_or_companion(changed_file["filename"]) for changed_file in changed_files):
-        return "non_page_file"
+        return CompanionCheck(refusal="non_page_file", flags=())
     if any(head_text is None for head_text in head_texts.values()):
-        return "non_text_file"
-    return None
+        return CompanionCheck(refusal="non_text_file", flags=())
+    return companion
 
 
 def is_page_source_or_companion(path: str) -> bool:
     return path.endswith(DOCS_SOURCE_EXTENSIONS) or path in COMPANION_PATHS
 
 
-def companion_refusal(
+def companion_check(
     changed_files: list[dict],
     docs_folders: tuple[str, ...],
     docs_repository: str,
     base_texts: Mapping[str, str | None],
     head_texts: Mapping[str, str | None],
-) -> str | None:
+) -> CompanionCheck:
     companion_files = [
         changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
     ]
     if not companion_files:
-        return None
+        return CompanionCheck(refusal=None, flags=())
+    if not all(is_listed_companion(changed_file) for changed_file in companion_files):
+        return COMPANION_REFUSED
     docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
     page_paths = frozenset(f"{docs_url_path}{page_key}" for page_key in changed_page_keys(changed_files, docs_folders))
     removed_page_paths = frozenset(
         f"{docs_url_path}{page_key}"
         for page_key in changed_page_keys(changed_files, docs_folders, statuses=frozenset({"removed"}))
     )
-    if not page_paths or not all(is_listed_companion(changed_file) for changed_file in companion_files):
-        return "changed_paths_outside_docs"
-    redirect_files = [changed_file for changed_file in companion_files if changed_file["filename"].endswith(".json")]
-    nav_files = [changed_file for changed_file in companion_files if changed_file not in redirect_files]
-    if not all(
-        is_nav_line(line, page_paths) for changed_file in nav_files for line in changed_lines(changed_file["patch"])
-    ):
-        return "changed_paths_outside_docs"
-    if not all(
-        are_only_page_entries_changed(
-            base_texts.get(changed_file["filename"]),
-            head_texts.get(changed_file["filename"]),
-            changed_file["patch"],
-            page_paths,
+    flags = (
+        []
+        if page_paths
+        else [
+            f"{changed_file['filename']}: edited, but this change adds or removes no page"
+            for changed_file in companion_files
+        ]
+    )
+    for changed_file in companion_files:
+        filename = changed_file["filename"]
+        base_text, head_text = base_texts.get(filename), head_texts.get(filename)
+        file_flags = (
+            redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
+            if filename.endswith(".json")
+            else nav_flags(filename, base_text, head_text, changed_file["patch"], page_paths)
         )
-        for changed_file in nav_files
-    ):
-        return "changed_paths_outside_docs"
-    if not all(
-        are_only_page_redirects_changed(
-            base_texts.get(changed_file["filename"]),
-            head_texts.get(changed_file["filename"]),
-            page_paths,
-            removed_page_paths,
-            docs_url_path,
-        )
-        for changed_file in redirect_files
-    ):
-        return "changed_paths_outside_docs"
-    return None
+        if file_flags is None:
+            return COMPANION_REFUSED
+        flags.extend(file_flags)
+    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)))
+
+
+def nav_flags(
+    filename: str, base_text: str | None, head_text: str | None, patch: str, page_paths: frozenset[str]
+) -> list[str] | None:
+    links_by_line = [nav_line_links(line) for line in changed_lines(patch)]
+    if any(links is None for links in links_by_line):
+        return None
+    if not all(is_site_path(link) for links in links_by_line for link in links or ()):
+        return None
+    edits = nav_entry_edits_outside_pages(base_text, head_text, patch, page_paths)
+    if edits is None:
+        return None
+    unchanged_page_links = dict.fromkeys(
+        link for links in links_by_line for link in links or () if not links_page(link, page_paths)
+    )
+    return [
+        *(
+            f"{filename}: changes a link to {link}, which is not a page this change adds or removes"
+            for link in unchanged_page_links
+        ),
+        *(nav_entry_flag(filename, edit) for edit in edits),
+    ]
+
+
+def is_site_path(link: str) -> bool:
+    return SITE_PATH_PATTERN.fullmatch(link) is not None
+
+
+def nav_entry_flag(filename: str, edit: NavEntryEdit) -> str:
+    when = " before this change" if edit.is_base_line else ""
+    return f"{filename} line {edit.line_number}{when}: edits a nav entry that links no page this change adds or removes: {edit.line}"
+
+
+def redirect_flags(
+    filename: str,
+    base_text: str | None,
+    head_text: str | None,
+    page_paths: frozenset[str],
+    removed_page_paths: frozenset[str],
+    docs_url_path: str,
+) -> list[str] | None:
+    removed_redirects = removed_redirects_naming_no_page(
+        base_text, head_text, page_paths, removed_page_paths, docs_url_path
+    )
+    if removed_redirects is None:
+        return None
+    return [
+        f"{filename}: removes the redirect from {redirect['source']} to {redirect['destination']}, which names no page this change adds or removes"
+        for redirect in removed_redirects
+    ]
 
 
 def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
@@ -756,12 +823,10 @@ def changed_page_keys(
 
 
 def is_listed_companion(changed_file: dict) -> bool:
-    patch = changed_file.get("patch")
     return (
         changed_file["filename"] in COMPANION_PATHS
         and changed_file.get("status") == "modified"
-        and isinstance(patch, str)
-        and len(patch) <= MAX_COMPANION_PATCH_CHARACTERS
+        and isinstance(changed_file.get("patch"), str)
     )
 
 

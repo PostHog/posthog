@@ -175,30 +175,17 @@ NEW_PAGE_FILES = {
     NEW_PAGE_PATH: f"{NEW_PAGE_HEADING}\n{NEW_PAGE_LINE}\n",
     NAV_PATH: _nav(NEW_PAGE_NAV_LINE),
 }
-MULTI_LINE_NAV_BASE = (
-    "export default [\n"
-    "  {\n"
-    "    name: 'Retention',\n"
-    "    url: '/docs/session-replay/retention',\n"
-    "  },\n"
-    "  {\n"
-    "    name: 'Pricing',\n"
-    "    url: '/pricing',\n"
-    "  },\n"
-    "]\n"
-)
-NESTED_NAV_BASE = (
-    "export default [\n"
-    "  {\n"
-    "    name: 'Pricing',\n"
-    "    url: '/pricing',\n"
-    "    children: [\n"
-    "      { name: 'Getting started' },\n"
-    "    ],\n"
-    "  },\n"
-    "]\n"
-)
 NEW_PAGE_AND_UNROUTED_PAGE_FILES = {**NEW_PAGE_FILES, SHARING_PAGE_PATH: f"{NEW_PAGE_LINE}\n"}
+NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES = {
+    **NEW_PAGE_FILES,
+    NAV_PATH: _nav(NEW_PAGE_NAV_LINE, replaced={"'/pricing'": "'/plans'"}),
+}
+UNRELATED_NAV_EDIT_FLAGS = [
+    f"{NAV_PATH}: changes a link to /pricing, which is not a page this change adds or removes",
+    f"{NAV_PATH}: changes a link to /plans, which is not a page this change adds or removes",
+    f"{NAV_PATH} line 4: edits a nav entry that links no page this change adds or removes: "
+    "{ name: 'Pricing', url: '/plans' },",
+]
 
 
 class DocsGitHub:
@@ -638,15 +625,18 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
     (_change(deleted=(WORKFLOW_PATH,)), {}, "changed_paths_outside_docs"),
     (_change({SIBLING_OF_DOCS_PATH: "x"}), {}, "changed_paths_outside_docs"),
     (_change({DOCS_PAGE_PATH: "x", "contents/docs/session-replay/build.js": "x"}), {}, "non_page_file"),
-    (
-        _new_page_with(NAV_PATH, _nav(NEW_PAGE_NAV_LINE, replaced={"'/pricing'": "'/plans'"})),
-        {},
-        "changed_paths_outside_docs",
-    ),
-    (
-        _new_page_with(NAV_PATH, _nav(NEW_PAGE_NAV_LINE), {**BASE_FILES, NEW_PAGE_PATH: "# Old presets\n"}),
-        {"base_files": {**BASE_FILES, NEW_PAGE_PATH: "# Old presets\n"}},
-        "changed_paths_outside_docs",
+    *(
+        (
+            _change({**NEW_PAGE_FILES, NAV_PATH: _nav(NEW_PAGE_NAV_LINE, replaced={"'/pricing'": link})}),
+            {},
+            "changed_paths_outside_docs",
+        )
+        for link in (
+            "'javascript:alert(1)'",
+            "'https://attacker.example/'",
+            "'//attacker.example/'",
+            "'/\t/attacker.example/'",
+        )
     ),
     (
         _new_page_with(
@@ -663,34 +653,6 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             ),
         ),
         {},
-        "changed_paths_outside_docs",
-    ),
-    (
-        _new_page_with(
-            NAV_PATH,
-            _nav(NEW_PAGE_NAV_LINE, replaced={"/docs/session-replay/retention'": "/docs/session-replay/sharing'"}),
-        ),
-        {},
-        "changed_paths_outside_docs",
-    ),
-    (
-        _new_page_with(
-            NAV_PATH,
-            MULTI_LINE_NAV_BASE.replace("[\n", f"[\n{NEW_PAGE_NAV_LINE}\n", 1).replace("'Pricing'", "'Plans'"),
-            {**BASE_FILES, NAV_PATH: MULTI_LINE_NAV_BASE},
-        ),
-        {"base_files": {**BASE_FILES, NAV_PATH: MULTI_LINE_NAV_BASE}},
-        "changed_paths_outside_docs",
-    ),
-    (
-        _new_page_with(
-            NAV_PATH,
-            NESTED_NAV_BASE.replace("[\n", f"[\n{NEW_PAGE_NAV_LINE}\n", 1).replace(
-                "'Getting started'", "'Visit attacker.example'"
-            ),
-            {**BASE_FILES, NAV_PATH: NESTED_NAV_BASE},
-        ),
-        {"base_files": {**BASE_FILES, NAV_PATH: NESTED_NAV_BASE}},
         "changed_paths_outside_docs",
     ),
     (
@@ -743,7 +705,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             SUPPORTED_QUOTES,
             False,
             [],
-            (True, [], []),
+            (True, [], [], []),
             id="human_author_is_asked_to_review_a_grounded_change_ready_for_review",
         ),
         pytest.param(
@@ -755,7 +717,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             None,
             True,
             [GROUNDING_DID_NOT_RUN],
-            (False, [], []),
+            (False, [], [], []),
             id="bot_author_is_asked_nothing_and_a_failed_grounding_call_opens_a_draft",
         ),
         pytest.param(
@@ -767,7 +729,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
             True,
             [NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH],
-            (True, [NEW_PAGE_HEADING, NEW_PAGE_LINE], [SHARING_PAGE_PATH]),
+            (True, [NEW_PAGE_HEADING, NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
             id="failed_request_is_recorded_and_unquoted_lines_and_an_unrouted_page_open_a_draft",
         ),
         pytest.param(
@@ -779,7 +741,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             SUPPORTED_QUOTES,
             True,
             [SHARING_PAGE_PATH],
-            (None, None, None),
+            (None, None, None, None),
             id="worker_killed_mid_review_is_asked_once_on_retry_and_an_unrouted_page_opens_a_draft",
         ),
         pytest.param(
@@ -791,7 +753,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             SUPPORTED_QUOTES,
             False,
             [],
-            (True, [], []),
+            (True, [], [], []),
             id="pull_request_whose_create_response_was_lost_is_adopted_and_review_is_asked_once",
         ),
         pytest.param(
@@ -803,8 +765,20 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             SUPPORTED_QUOTES,
             False,
             [],
-            (True, [], []),
+            (True, [], [], []),
             id="review_request_whose_response_was_lost_is_read_back_as_requested",
+        ),
+        pytest.param(
+            "octo-person",
+            {},
+            OPENED,
+            ("octo-person", None, None),
+            NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES,
+            SUPPORTED_QUOTES,
+            True,
+            UNRELATED_NAV_EDIT_FLAGS,
+            (True, [], [], UNRELATED_NAV_EDIT_FLAGS),
+            id="nav_edit_to_an_entry_linking_no_changed_page_opens_a_draft_listing_it",
         ),
     ],
 )
@@ -822,7 +796,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     quotes: Mapping[str, str] | None,
     expected_draft: bool,
     expected_body_flags: list[str],
-    expected_event_flags: tuple[bool | None, list[str] | None, list[str] | None],
+    expected_event_flags: tuple[bool | None, list[str] | None, list[str] | None, list[str] | None],
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(quotes))
@@ -914,7 +888,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     assert create_pull_request.call_args.kwargs["draft"] is expected_draft
     assert LINK_BACK_START in body
     assert COMMIT_URL in body
-    flaggable = (GROUNDING_DID_NOT_RUN, NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH)
+    flaggable = (GROUNDING_DID_NOT_RUN, NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH, *UNRELATED_NAV_EDIT_FLAGS)
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
@@ -932,6 +906,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         draft_properties["grounding_ran"],
         draft_properties["unsupported_lines"],
         draft_properties["extra_pages"],
+        draft_properties["companion_flags"],
     ) == expected_event_flags
     assert (
         draft_properties["review_requested"],

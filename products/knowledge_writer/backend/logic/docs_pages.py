@@ -1,5 +1,7 @@
 import re
 import json
+import string
+from bisect import bisect_right
 from collections import Counter
 from collections.abc import Sequence
 
@@ -25,7 +27,7 @@ OPENING_BRACKET_BY_CLOSING = {"}": "{", "]": "[", ")": "("}
 STRING_QUOTES = frozenset("'\"`")
 REDIRECT_KEYS = frozenset({"source", "destination", "permanent", "statusCode"})
 LITERAL_PATH_PATTERN = re.compile(r"[A-Za-z0-9_\-./]*(?::ext\(\\\.md\)\?)?")
-PAGE_PATH_END_PATTERN = r"(?![A-Za-z0-9_\-/])"
+PAGE_PATH_CONTINUATION_CHARACTERS = frozenset(f"{string.ascii_letters}{string.digits}_-/")
 
 
 def page_segments(source_path: str) -> list[str]:
@@ -54,36 +56,50 @@ def without_docs_extension(token: str) -> str:
     return token
 
 
-def is_nav_line(line: str, page_paths: frozenset[str]) -> bool:
+def nav_line_links(line: str) -> tuple[str, ...] | None:
     code, position, previous_kind, pending_key = line.rstrip(), 0, "start", None
+    links: list[str] = []
     while position < len(code):
         token = NAV_LINE_TOKEN_PATTERN.match(code, position)
         if token is None or token.end() == position:
-            return False
+            return None
         position = token.end()
         current_kind = nav_token_kind(token)
         if not can_follow(previous_kind, current_kind):
-            return False
-        if pending_key in NAV_LINK_KEYS and not links_page(token, page_paths):
-            return False
+            return None
+        link = string_literal(token)
+        if pending_key in NAV_LINK_KEYS and link is None:
+            return None
+        if pending_key in NAV_LINK_KEYS and link is not None:
+            links.append(link)
         previous_kind, pending_key = current_kind, token.group("key")
-    return pending_key not in NAV_LINK_KEYS
+    if pending_key in NAV_LINK_KEYS:
+        return None
+    return tuple(links)
 
 
-def are_only_page_entries_changed(
+@frozen
+class NavEntryEdit:
+    line_number: int
+    line: str
+    is_base_line: bool
+
+
+def nav_entry_edits_outside_pages(
     base_text: str | None, head_text: str | None, patch: str, page_paths: frozenset[str]
-) -> bool:
+) -> tuple[NavEntryEdit, ...] | None:
     if base_text is None or head_text is None:
-        return False
+        return None
     base_nav, head_nav = read_nav_text(base_text, page_paths), read_nav_text(head_text, page_paths)
     hunks = patch_hunks(patch, base_nav.lines, head_nav.lines)
     if hunks is None:
-        return False
-    return all(
-        is_hunk_inside_page_entries(hunks, hunk_index, base_nav, head_nav)
+        return None
+    edits = (
+        hunk_edit_outside_page_entries(hunks, hunk_index, base_nav, head_nav)
         for hunk_index, hunk in enumerate(hunks)
         if hunk[0] != "equal"
     )
+    return tuple(dict.fromkeys(edit for edit in edits if edit is not None))
 
 
 @frozen
@@ -95,13 +111,14 @@ class NavText:
     array_separator_positions: frozenset[int]
     parent_by_object: dict[int, int | None]
     end_by_object: dict[int, int]
-    objects_with_links: frozenset[int]
+    linked_entry_by_object: dict[int, int | None]
     objects_linking_pages: frozenset[int]
 
 
 def read_nav_text(text: str, page_paths: frozenset[str]) -> NavText:
     object_by_position, array_separator_positions, parent_by_object, end_by_object = nav_objects(text)
     links = list(NAV_LINK_PAIR_PATTERN.finditer(text))
+    objects_with_links = frozenset(owner for link in links if (owner := object_by_position[link.start()]) is not None)
     return NavText(
         text=text,
         lines=text.split("\n"),
@@ -110,13 +127,11 @@ def read_nav_text(text: str, page_paths: frozenset[str]) -> NavText:
         array_separator_positions=array_separator_positions,
         parent_by_object=parent_by_object,
         end_by_object=end_by_object,
-        objects_with_links=frozenset(
-            owner for link in links if (owner := object_by_position[link.start()]) is not None
-        ),
+        linked_entry_by_object=linked_entries(parent_by_object, objects_with_links),
         objects_linking_pages=frozenset(
             owner
             for link in links
-            if links_page(link, page_paths) and (owner := object_by_position[link.start()]) is not None
+            if links_page(string_literal(link), page_paths) and (owner := object_by_position[link.start()]) is not None
         ),
     )
 
@@ -224,14 +239,24 @@ def hunk_tag(is_change: bool, base_line_count: int, head_line_count: int) -> str
     return "delete" if base_line_count else "insert"
 
 
-def is_hunk_inside_page_entries(
+def linked_entries(
+    parent_by_object: dict[int, int | None], objects_with_links: frozenset[int]
+) -> dict[int, int | None]:
+    linked_entry_by_object: dict[int, int | None] = {}
+    for nav_object, parent in parent_by_object.items():
+        inherited = linked_entry_by_object[parent] if parent is not None else None
+        linked_entry_by_object[nav_object] = nav_object if nav_object in objects_with_links else inherited
+    return linked_entry_by_object
+
+
+def hunk_edit_outside_page_entries(
     hunks: Sequence[tuple[str, int, int, int, int]], hunk_index: int, base_nav: NavText, head_nav: NavText
-) -> bool:
+) -> NavEntryEdit | None:
     tag, base_start, base_end, head_start, head_end = hunks[hunk_index]
     if tag == "replace":
-        return are_lines_inside_page_entries(
-            base_nav, base_start, base_end, is_replacement=True
-        ) and are_lines_inside_page_entries(head_nav, head_start, head_end, is_replacement=True)
+        return first_edit_outside_page_entries(
+            head_nav, head_start, head_end, is_replacement=True, is_base=False
+        ) or first_edit_outside_page_entries(base_nav, base_start, base_end, is_replacement=True, is_base=True)
     is_deletion = tag == "delete"
     nav, start, end = (base_nav, base_start, base_end) if is_deletion else (head_nav, head_start, head_end)
     previous_hunk = hunks[hunk_index - 1] if hunk_index > 0 else ("equal", 0, 0, 0, 0)
@@ -240,57 +265,106 @@ def is_hunk_inside_page_entries(
     )
     lowest_start = previous_hunk[1] if is_deletion else previous_hunk[3]
     highest_end = next_hunk[2] if is_deletion else next_hunk[4]
-    return any(
-        are_lines_inside_page_entries(nav, slid_start, slid_end, is_replacement=False)
-        for slid_start, slid_end in slid_line_ranges(nav.lines, start, end, lowest_start, highest_end)
-    )
+    slid_starts = slid_line_starts(nav.lines, start, end, lowest_start, highest_end)
+    if is_any_window_inside_page_entries(nav, slid_starts, end - start):
+        return None
+    return first_edit_outside_page_entries(nav, start, end, is_replacement=False, is_base=is_deletion)
 
 
-def slid_line_ranges(
-    lines: list[str], start: int, end: int, lowest_start: int, highest_end: int
-) -> list[tuple[int, int]]:
-    ranges = [(start, end)]
+def slid_line_starts(lines: list[str], start: int, end: int, lowest_start: int, highest_end: int) -> range:
     upper_start, upper_end = start, end
     while upper_start > lowest_start and lines[upper_start - 1] == lines[upper_end - 1]:
         upper_start, upper_end = upper_start - 1, upper_end - 1
-        ranges.append((upper_start, upper_end))
     lower_start, lower_end = start, end
     while lower_end < highest_end and lines[lower_start] == lines[lower_end]:
         lower_start, lower_end = lower_start + 1, lower_end + 1
-        ranges.append((lower_start, lower_end))
-    return ranges
+    return range(upper_start, lower_start + 1)
 
 
-def are_lines_inside_page_entries(nav: NavText, start: int, end: int, *, is_replacement: bool) -> bool:
-    first_position, last_position = nav.line_starts[start], nav.line_starts[end]
-    edited_objects = {
+@frozen(frozen=False)
+class EntryWindow:
+    nav: NavText
+    is_replacement: bool
+    start: int
+    end: int
+    edited_count_by_object: Counter[int | None]
+    outside_object_count: int = 0
+
+    def include_next_line(self) -> None:
+        self.move(edited_object_counts(self.nav, self.end), start=self.start, end=self.end + 1, sign=1)
+
+    def drop_first_line(self) -> None:
+        self.move(edited_object_counts(self.nav, self.start), start=self.start + 1, end=self.end, sign=-1)
+
+    def move(self, touched: Counter[int | None], *, start: int, end: int, sign: int) -> None:
+        outside_before = sum(self.is_outside(edited_object) for edited_object in touched)
+        self.start, self.end = start, end
+        for edited_object, count in touched.items():
+            self.edited_count_by_object[edited_object] += sign * count
+        outside_after = sum(self.is_outside(edited_object) for edited_object in touched)
+        self.outside_object_count += outside_after - outside_before
+
+    def is_outside(self, edited_object: int | None) -> bool:
+        if self.edited_count_by_object[edited_object] <= 0:
+            return False
+        return not is_page_entry_edit(self.nav, edited_object, self.start, self.end, is_replacement=self.is_replacement)
+
+
+def is_any_window_inside_page_entries(nav: NavText, slid_starts: range, line_count: int) -> bool:
+    window = EntryWindow(
+        nav=nav, is_replacement=False, start=slid_starts.start, end=slid_starts.start, edited_count_by_object=Counter()
+    )
+    for _ in range(line_count):
+        window.include_next_line()
+    if window.outside_object_count == 0:
+        return True
+    for _ in slid_starts[1:]:
+        window.include_next_line()
+        window.drop_first_line()
+        if window.outside_object_count == 0:
+            return True
+    return False
+
+
+def edited_object_counts(nav: NavText, line_index: int) -> Counter[int | None]:
+    return Counter(
         nav.object_by_position[position]
-        for position in range(first_position, last_position)
-        if not nav.text[position].isspace() and position not in nav.array_separator_positions
-    }
-    return all(
-        edited_object is not None
-        and is_page_entry_edit(nav, edited_object, first_position, last_position, is_replacement=is_replacement)
-        for edited_object in edited_objects
+        for position in range(nav.line_starts[line_index], nav.line_starts[line_index + 1])
+        if is_edited_position(nav, position)
     )
 
 
-def nearest_linked_entry(nav: NavText, nav_object: int) -> int | None:
-    entry: int | None = nav_object
-    while entry is not None and entry not in nav.objects_with_links:
-        entry = nav.parent_by_object[entry]
-    return entry
+def is_edited_position(nav: NavText, position: int) -> bool:
+    return not nav.text[position].isspace() and position not in nav.array_separator_positions
 
 
-def is_page_entry_edit(
-    nav: NavText, edited_object: int, first_position: int, last_position: int, *, is_replacement: bool
-) -> bool:
-    linked_entry = nearest_linked_entry(nav, edited_object)
+def first_edit_outside_page_entries(
+    nav: NavText, start: int, end: int, *, is_replacement: bool, is_base: bool
+) -> NavEntryEdit | None:
+    outside_position = next(
+        (
+            position
+            for position in range(nav.line_starts[start], nav.line_starts[end])
+            if is_edited_position(nav, position)
+            and not is_page_entry_edit(nav, nav.object_by_position[position], start, end, is_replacement=is_replacement)
+        ),
+        None,
+    )
+    if outside_position is None:
+        return None
+    line_index = bisect_right(nav.line_starts, outside_position) - 1
+    return NavEntryEdit(line_number=line_index + 1, line=nav.lines[line_index].strip(), is_base_line=is_base)
+
+
+def is_page_entry_edit(nav: NavText, edited_object: int | None, start: int, end: int, *, is_replacement: bool) -> bool:
+    if edited_object is None:
+        return False
+    linked_entry = nav.linked_entry_by_object[edited_object]
     if linked_entry in nav.objects_linking_pages:
         return True
     if linked_entry == edited_object or (linked_entry is not None and is_replacement):
         return False
-    return first_position <= edited_object and nav.end_by_object[edited_object] < last_position
+    return nav.line_starts[start] <= edited_object and nav.end_by_object[edited_object] < nav.line_starts[end]
 
 
 def nav_objects(text: str) -> tuple[list[int | None], frozenset[int], dict[int, int | None], dict[int, int]]:
@@ -370,20 +444,26 @@ def can_follow(previous: str, current: str) -> bool:
     return current != ","
 
 
-def links_page(token: re.Match, page_paths: frozenset[str]) -> bool:
-    literal = token.group("single") if token.group("single") is not None else token.group("double")
+def string_literal(token: re.Match) -> str | None:
+    return token.group("single") if token.group("single") is not None else token.group("double")
+
+
+def links_page(literal: str | None, page_paths: frozenset[str]) -> bool:
     return literal is not None and literal.split("#", 1)[0] in page_paths
 
 
-def names_page(path: object, page_paths: frozenset[str]) -> bool:
-    return isinstance(path, str) and any(
-        re.match(f"{re.escape(page)}{PAGE_PATH_END_PATTERN}", path) for page in page_paths
+def names_page(path: object, page_paths: frozenset[str], longest_page_path_length: int) -> bool:
+    if not isinstance(path, str):
+        return False
+    prefix_ends = range(min(len(path), longest_page_path_length) + 1)
+    return any(
+        path[:prefix_end] in page_paths
+        for prefix_end in prefix_ends
+        if prefix_end == len(path) or path[prefix_end] not in PAGE_PATH_CONTINUATION_CHARACTERS
     )
 
 
-def is_page_redirect(
-    redirect: object, named_page_paths: frozenset[str], source_page_paths: frozenset[str], docs_url_path: str
-) -> bool:
+def is_literal_site_redirect(redirect: object, docs_url_path: str) -> bool:
     if not isinstance(redirect, dict) or not set(redirect) <= REDIRECT_KEYS:
         return False
     source, destination = redirect.get("source"), redirect.get("destination")
@@ -391,36 +471,46 @@ def is_page_redirect(
         return False
     if not source.startswith(docs_url_path) or not destination.startswith(docs_url_path) or "\\" in destination:
         return False
-    if LITERAL_PATH_PATTERN.fullmatch(source) is None:
-        return False
-    return names_page(source, source_page_paths) or names_page(destination, named_page_paths)
+    return LITERAL_PATH_PATTERN.fullmatch(source) is not None
 
 
-def are_only_page_redirects_changed(
+def removed_redirects_naming_no_page(
     base_text: str | None,
     head_text: str | None,
     page_paths: frozenset[str],
     removed_page_paths: frozenset[str],
     docs_url_path: str,
-) -> bool:
+) -> tuple[dict, ...] | None:
     base, head = parsed_json_object(base_text), parsed_json_object(head_text)
     if base is None or head is None:
-        return False
+        return None
     if {key: value for key, value in base.items() if key != "redirects"} != {
         key: value for key, value in head.items() if key != "redirects"
     }:
-        return False
+        return None
     base_redirects, head_redirects = base.get("redirects", []), head.get("redirects", [])
     if not isinstance(base_redirects, list) or not isinstance(head_redirects, list):
-        return False
+        return None
     base_rules, head_rules = canonical_rules(base_redirects), canonical_rules(head_redirects)
     removed, added = Counter(base_rules) - Counter(head_rules), Counter(head_rules) - Counter(base_rules)
     if without_rules(base_rules, removed) != without_rules(head_rules, added):
-        return False
-    return all(
-        is_page_redirect(json.loads(rule), page_paths, page_paths, docs_url_path) for rule in removed.elements()
-    ) and all(
-        is_page_redirect(json.loads(rule), frozenset(), removed_page_paths, docs_url_path) for rule in added.elements()
+        return None
+    removed_redirects = [json.loads(rule) for rule in removed.elements()]
+    added_redirects = [json.loads(rule) for rule in added.elements()]
+    if not all(
+        is_literal_site_redirect(redirect, docs_url_path) for redirect in [*removed_redirects, *added_redirects]
+    ):
+        return None
+    longest_page_path_length = max(map(len, page_paths), default=0)
+    if not all(
+        names_page(redirect["source"], removed_page_paths, longest_page_path_length) for redirect in added_redirects
+    ):
+        return None
+    return tuple(
+        redirect
+        for redirect in removed_redirects
+        if not names_page(redirect["source"], page_paths, longest_page_path_length)
+        and not names_page(redirect["destination"], page_paths, longest_page_path_length)
     )
 
 
