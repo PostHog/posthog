@@ -20,13 +20,14 @@ import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
-import { NotebookCellStaleness } from './components/NotebookCellStaleness'
 import { notebookDataframeHintLogic } from './components/notebookDataframeHintLogic'
 import { NotebookDataframeHintPopover } from './components/NotebookDataframeHintPopover'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookJupyterCellOutput } from './components/NotebookJupyterCellOutput'
 import { getCellLabel } from './components/NotebookNodeTitle'
+import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE } from './notebookNodeSQLV2Logic'
@@ -167,10 +168,14 @@ const Component = ({
         pageResult,
         pageLoading,
         operationBlockReason,
+        isStale,
+        staleReason,
+        isChainRunning,
+        staleDownstreamCount,
         pendingKernelStart,
         result: runResult,
     } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
     const isJupyterMode = !!useNotebookJupyterCommands()
     const { executionCounts } = useValues(notebookJupyterLogic({ shortId: notebookShortId }))
 
@@ -351,7 +356,19 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
-                <NotebookCellStaleness logic={dataLogic} />
+                {isStale ? (
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
+                    </div>
+                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
+                        <NotebookRunDownstreamBanner
+                            count={staleDownstreamCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                        />
+                    </div>
+                ) : null}
                 {isRunning && pendingKernelStart ? (
                     <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
