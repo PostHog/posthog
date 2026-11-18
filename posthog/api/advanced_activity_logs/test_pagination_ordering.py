@@ -4,6 +4,7 @@ from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.db.models import Q
 from django.utils import timezone
@@ -167,6 +168,7 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             ("numbered_ascending", "?page=1&page_size=3&ordering=created_at"),
         ]
     )
+    @patch("posthog.api.advanced_activity_logs.viewset.POSITION_CHUNK_SIZE", 2)
     def test_org_level_logs_page_in_order_without_loss_or_repeats(self, _name: str, query: str):
         self.team.receive_org_level_activity_logs = True
         self.team.save()
@@ -206,9 +208,10 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             assert response.status_code == 200, response.json()
             body = response.json()
             if "count" in body:
-                assert body["count"] == 11
+                assert body["count"] == len(expected)
             seen.extend(row["item_id"] for row in body["results"])
             url = body["next"]
 
-        assert len(expected) == 11
+        assert {str(index) for index in range(11)} <= set(expected)
+        assert "other-team" not in expected
         assert seen == expected

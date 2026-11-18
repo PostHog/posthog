@@ -3,8 +3,9 @@ import json
 import heapq
 import hashlib
 import logging
+import itertools
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from functools import cached_property
 from operator import attrgetter
@@ -133,6 +134,9 @@ def select_merged_cursor_rows(querysets: Sequence[QuerySet[ActivityLog]], page: 
     return rows[page.offset : page.offset + page.limit]
 
 
+POSITION_CHUNK_SIZE = 1000
+
+
 class MergedActivityLogQuerysets:
     def __init__(self, querysets: Sequence[QuerySet[ActivityLog]], ordering: Sequence[str]) -> None:
         self.querysets = querysets
@@ -141,13 +145,28 @@ class MergedActivityLogQuerysets:
     def count(self) -> int:
         return sum(queryset.count() for queryset in self.querysets)
 
+    def _iter_positions(self, queryset: QuerySet[ActivityLog]) -> Iterator[tuple[Any, ...]]:
+        positions = queryset.values_list(*(term.lstrip("-") for term in self.ordering))
+        after: tuple[str | None, ...] = ()
+        while True:
+            chunk = cast(
+                list[tuple[Any, ...]],
+                select_cursor_rows(
+                    positions,
+                    CursorPageRequest(ordering=tuple(self.ordering), after=after, offset=0, limit=POSITION_CHUNK_SIZE),
+                ),
+            )
+            yield from chunk
+            if len(chunk) < POSITION_CHUNK_SIZE:
+                return
+            after = tuple(None if value is None else str(value) for value in chunk[-1])
+
     def __getitem__(self, window: slice) -> list[ActivityLog]:
-        fields = [term.lstrip("-") for term in self.ordering]
-        position_lists = [
-            list(queryset.order_by(*self.ordering).values_list(*fields)[: window.stop]) for queryset in self.querysets
-        ]
-        positions = list(heapq.merge(*position_lists, reverse=self.ordering[0].startswith("-")))[window]
-        page_ids = [position[-1] for position in positions]
+        merged = heapq.merge(
+            *(self._iter_positions(queryset) for queryset in self.querysets),
+            reverse=self.ordering[0].startswith("-"),
+        )
+        page_ids = [position[-1] for position in itertools.islice(merged, window.start, window.stop)]
         rows_by_id: dict[Any, ActivityLog] = {}
         for queryset in self.querysets:
             rows_by_id.update((row.id, row) for row in queryset.filter(id__in=page_ids))
