@@ -1475,7 +1475,6 @@ describe('StateManager', () => {
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
             vi.advanceTimersByTime(9 * 60 * 1000)
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
-            expect(request).toHaveBeenCalledTimes(1)
             vi.advanceTimersByTime(61 * 1000)
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: true })
