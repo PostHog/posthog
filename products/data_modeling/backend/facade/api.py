@@ -16,6 +16,7 @@ _LAZY = {
     "humanize_cadence": "logic.freshness",
     "get_model_usage": "logic.usage",
     "node_lineage_counts": "graph",
+    "node_lineage": "graph",
     "delete_metric_node": "logic.metric_dag_sync",
     "mark_metric_node_degraded": "logic.metric_dag_sync",
     "sync_metric_to_dag": "logic.metric_dag_sync",

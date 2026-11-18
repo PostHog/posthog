@@ -91,6 +91,12 @@ class NodeLineageCounts:
 
 
 @frozen
+class NodeLineage:
+    node_ids: frozenset[str]
+    counts: dict[str, NodeLineageCounts]
+
+
+@frozen
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None

@@ -678,23 +678,26 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIn(str(view_b.id), node_ids)
         self.assertIn(str(view_c.id), node_ids)
 
-    def test_lineage_counts_neighbours_without_one_query_per_node(self):
+    def test_lineage_query_count_does_not_grow_with_nodes_or_depth(self):
         view_b = self._view_node("view_b")
         Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=view_b)
-        Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=self._view_node("child_0"))
+        parent = self._view_node("child_0")
+        Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=parent)
         url = f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={view_b.id}"
         self.client.get(url)
         with CaptureQueriesContext(connection) as baseline:
             self.client.get(url)
 
         for index in range(1, 4):
-            Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=self._view_node(f"child_{index}"))
+            child = self._view_node(f"child_{index}")
+            Edge.objects.create(team=self.team, dag=self.dag, source=parent, target=child)
+            parent = child
         with CaptureQueriesContext(connection) as larger:
             response = self.client.get(url)
 
         counts = {node["name"]: (node["upstream_count"], node["downstream_count"]) for node in response.json()["nodes"]}
         self.assertEqual(counts["view_b"], (1, 4))
-        self.assertEqual(counts["child_0"], (2, 0))
+        self.assertEqual(counts["child_0"], (2, 3))
         self.assertEqual(len(larger.captured_queries), len(baseline.captured_queries))
 
     def test_lineage_no_dependencies(self):
