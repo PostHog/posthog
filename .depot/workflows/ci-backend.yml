@@ -3357,8 +3357,10 @@ jobs:
               retry: 1
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
+            # Only the events_json rows can run product tests. Core, POE and compat rows run posthog/
+            # and ee/ alone, and no test there reaches the canvas builder.
             - name: Set up Node.js for canvas builder
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.json-targets && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
@@ -3366,7 +3368,7 @@ jobs:
             # A single `npm ci` on an empty npm cache intermittently fails with EEXIST or ENOENT on a
             # `_cacache/tmp` file, with no other process using the cache.
             - name: Install canvas builder dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.json-targets }}
               shell: bash
               retry: 2
               run: |
