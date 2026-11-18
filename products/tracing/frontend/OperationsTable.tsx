@@ -152,6 +152,7 @@ function buildColumns(
                         className="font-mono"
                         // The row's own click opens the operation; this link opens the whole service.
                         onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
                         data-attr="tracing-operations-service-link"
                     >
                         {row.service_name}
