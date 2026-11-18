@@ -79,7 +79,11 @@ export function TabsChrome(): ReactElement {
                   Linking.openURL(webUrl).catch(() => undefined)
               }
             : null
-    const navList = pinRow || openWeb ? { pin: pinRow, onOpenWeb: openWeb } : null
+    const showInternalUsersToggle = tab === 'web_analytics'
+    const navList =
+        pinRow || openWeb || showInternalUsersToggle
+            ? { pin: pinRow, onOpenWeb: openWeb, showInternalUsersToggle }
+            : null
 
     return (
         <>

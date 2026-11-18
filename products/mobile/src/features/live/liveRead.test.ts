@@ -74,47 +74,61 @@ describe('Live reads', () => {
         expect(() => liveMobileMetrics({ results: [] }, now)).toThrow('did not finish')
     })
 
-    it('scopes Web activity and its country drilldown while All keeps project activity', async () => {
-        const queries: Record<string, Record<string, unknown>> = {}
-        const input = {
-            previous: EMPTY_LIVE_SNAPSHOT,
-            now: 1800000000000,
-            signal: new AbortController().signal,
-            pathCleaning: true,
-            countUsersOnline: true,
-            run: async (key: string, query: Record<string, unknown>) => {
-                queries[key] = query
-                return { results: [] }
-            },
-        }
-        await readLiveSnapshot({ ...input, profile: { kind: 'web' } })
-        expect(queries.usersPageviews?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
-        expect(queries.geo?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
-        expect(queries.usersOnline?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
-        expect(queries.paths?.properties).toEqual({
-            type: 'AND',
-            values: [
-                {
-                    type: 'OR',
-                    values: [
-                        { key: '$lib', type: 'event', operator: 'exact', value: ['web', 'js', 'posthog-js', ''] },
-                        { key: '$lib', type: 'event', operator: 'is_not_set' },
-                    ],
+    it.each([false, true])(
+        'scopes Live and its country drilldown by audience and internal users (exclude internal: %s)',
+        async (filterTestAccounts) => {
+            const queries: Record<string, Record<string, unknown>> = {}
+            const requests: Record<string, unknown>[] = []
+            const input = {
+                previous: EMPTY_LIVE_SNAPSHOT,
+                now: 1800000000000,
+                signal: new AbortController().signal,
+                pathCleaning: true,
+                countUsersOnline: true,
+                filterTestAccounts,
+                run: async (key: string, query: Record<string, unknown>) => {
+                    queries[key] = query
+                    requests.push(query)
+                    return { results: [] }
                 },
-            ],
-        })
-        await readLiveWorld({ ...input, webOnly: true })
-        expect(queries.geo?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
-        await readLiveSnapshot({ ...input, profile: { kind: 'mixed' } })
-        expect(queries.usersPageviews?.query).not.toContain('properties.$lib')
-        expect(queries.geo?.query).not.toContain('properties.$lib')
-        expect(queries.usersOnline?.query).not.toContain('properties.$lib')
-        await readLiveSnapshot({ ...input, profile: { kind: 'mobile' } })
-        expect(queries.mobileMetrics).toBeUndefined()
-        for (const key of ['usersPageviews', 'geo', 'recentEvents', 'mobileSessions', 'screens', 'usersOnline']) {
-            expect(queries[key]?.query).toContain(
-                "event = '$screen' AND (properties.$lib IS NULL OR properties.$lib = '') AND lower(properties.$os)"
-            )
+            }
+            await readLiveSnapshot({ ...input, profile: { kind: 'web' } })
+            expect(queries.usersPageviews?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
+            expect(queries.geo?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
+            expect(queries.usersOnline?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
+            expect(queries.paths?.properties).toEqual({
+                type: 'AND',
+                values: [
+                    {
+                        type: 'OR',
+                        values: [
+                            { key: '$lib', type: 'event', operator: 'exact', value: ['web', 'js', 'posthog-js', ''] },
+                            { key: '$lib', type: 'event', operator: 'is_not_set' },
+                        ],
+                    },
+                ],
+            })
+            await readLiveWorld({ ...input, webOnly: true })
+            expect(queries.geo?.query).toContain("properties.$lib IN ('web', 'js', 'posthog-js')")
+            await readLiveSnapshot({ ...input, profile: { kind: 'mixed' } })
+            expect(queries.usersPageviews?.query).not.toContain('properties.$lib')
+            expect(queries.geo?.query).not.toContain('properties.$lib')
+            expect(queries.usersOnline?.query).not.toContain('properties.$lib')
+            await readLiveSnapshot({ ...input, profile: { kind: 'mobile' } })
+            expect(queries.mobileMetrics).toBeUndefined()
+            for (const key of ['usersPageviews', 'geo', 'recentEvents', 'mobileSessions', 'screens', 'usersOnline']) {
+                expect(queries[key]?.query).toContain(
+                    "event = '$screen' AND (properties.$lib IS NULL OR properties.$lib = '') AND lower(properties.$os)"
+                )
+            }
+            for (const query of requests) {
+                if (query.kind === 'HogQLQuery') {
+                    expect(query.filters).toEqual(filterTestAccounts ? { filterTestAccounts: true } : undefined)
+                    if (filterTestAccounts) expect(query.query).toContain('AND {filters}')
+                } else {
+                    expect(query.filterTestAccounts).toBe(filterTestAccounts)
+                }
+            }
         }
-    })
+    )
 })
