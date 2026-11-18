@@ -209,6 +209,9 @@ export function safeEmailStyle(value: unknown): EmailBlockStyle | null {
     if (safeSides(raw.padding)) {
         style.padding = safeSides(raw.padding)
     }
+    if (safeSides(raw.borderSides)) {
+        style.borderSides = safeSides(raw.borderSides)
+    }
     const phone = raw.phone && raw.phone !== value ? safeEmailStyle(raw.phone) : null
     const phoneStyle = Object.fromEntries(
         PHONE_KEYS.filter((key) => phone?.[key] !== undefined).map((key) => [key, phone?.[key]])
@@ -607,9 +610,25 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
     const radius = px(style.borderRadius, ctx.page.buttonBorderRadius)
     const paddingX = px(style.innerPaddingX, BUTTON_PADDING_X)
     const paddingY = px(style.innerPaddingY, BUTTON_PADDING_Y)
-    const border = style.borderWidth
-        ? `${px(style.borderWidth)}px solid ${safeColor(style.borderColor, background)}`
-        : undefined
+    const borderColor = safeColor(style.borderColor, background)
+    const borderSides = style.borderSides
+    const border = !borderSides && style.borderWidth ? `${px(style.borderWidth)}px solid ${borderColor}` : undefined
+    const sideBorders = borderSides
+        ? Object.fromEntries(
+              (['top', 'right', 'bottom', 'left'] as const).map((side) => [
+                  `border-${side}`,
+                  px(borderSides[side]) ? `${px(borderSides[side])}px solid ${borderColor}` : undefined,
+              ])
+          )
+        : {}
+    // Word draws one stroke around its rounded shape, so a button with uneven sides gets the thinnest of them.
+    const strokeWidth = borderSides
+        ? Math.min(
+              ...Object.values(borderSides)
+                  .map((width) => px(width))
+                  .filter((width) => width > 0)
+          )
+        : px(style.borderWidth)
     const label = renderInline(node.content, { ...ctx, page: { ...ctx.page, linkColor: color } })
     if (!label) {
         return ''
@@ -633,6 +652,7 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
         'border-radius': `${radius}px`,
         'mso-padding-alt': `${paddingY}px ${paddingX}px`,
         border,
+        ...sideBorders,
     })
     const anchor = href
         ? `<a href="${escapeAttribute(href)}" target="_blank" style="${linkCss}">${label}</a>`
@@ -650,7 +670,7 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
                       ? Math.round((ctx.contentWidth * fullWidth) / 100)
                       : Math.ceil(labelText.length * buttonFontSize * 0.62) + paddingX * 2
                   const arc = Math.min(50, Math.round((radius / Math.min(height, width)) * 100))
-                  return `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${escapeAttribute(href)}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="${arc}%" ${style.borderWidth ? `strokecolor="${safeColor(style.borderColor, background)}" strokeweight="${px(style.borderWidth)}px"` : 'stroke="f"'} fillcolor="${background}"><w:anchorlock/><center style="color:${color};font-family:${safeFont(style.fontFamily ?? ctx.page.fontFamily).replace(/'/g, '')};font-size:${buttonFontSize}px;font-weight:${px(style.fontWeight, 600)}">${escapeText(labelText)}</center></v:roundrect><![endif]-->`
+                  return `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${escapeAttribute(href)}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="${arc}%" ${Number.isFinite(strokeWidth) && strokeWidth > 0 ? `strokecolor="${borderColor}" strokeweight="${strokeWidth}px"` : 'stroke="f"'} fillcolor="${background}"><w:anchorlock/><center style="color:${color};font-family:${safeFont(style.fontFamily ?? ctx.page.fontFamily).replace(/'/g, '')};font-size:${buttonFontSize}px;font-weight:${px(style.fontWeight, 600)}">${escapeText(labelText)}</center></v:roundrect><![endif]-->`
               })()
             : ''
     const tableWidth = fullWidth ? ` width="${fullWidth}%"` : ''

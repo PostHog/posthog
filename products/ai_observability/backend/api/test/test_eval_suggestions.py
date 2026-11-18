@@ -43,7 +43,7 @@ SUGGESTIONS_MODULE = "products.ai_observability.backend.logic.eval_suggestions.s
 BACKFILLS_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
 
 CHECK_DRAFT = {
-    "name": "Turns that end on a failed call",
+    "name": "Tool or model calls that never succeed",
     "description": "Finds failed calls nobody retried",
     "evaluation_type": "hog",
     "evaluation_config": {"source": "return true"},

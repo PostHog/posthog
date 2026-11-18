@@ -175,21 +175,25 @@ export const ClustersWaitingForData: ProductEmptyStateStory = productEmptyStateS
     'waiting-for-data'
 )
 
-export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
-    businessKnowledgeEmptyState,
-    'needs-setup',
-    {
-        mocks: {
-            get: {
-                '/api/projects/:team_id/business_knowledge/sources/': [200, emptyEntityList],
-                '/api/projects/:team_id/business_knowledge/repositories/status/': [
-                    200,
-                    { connected: false, integration_id: null, integration_name: '', repos: [] },
-                ],
-            },
+const businessKnowledgeNeedsSetup = productEmptyStateStory(businessKnowledgeEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/business_knowledge/sources/': [200, emptyEntityList],
+            '/api/projects/:team_id/business_knowledge/repositories/status/': [
+                200,
+                { connected: false, integration_id: null, integration_name: '', repos: [] },
+            ],
         },
-    }
-)
+    },
+})
+// With the flag on, the setup card also shows the step that connects a customer's own agent.
+export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = {
+    ...businessKnowledgeNeedsSetup,
+    parameters: {
+        ...businessKnowledgeNeedsSetup.parameters,
+        featureFlags: [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MCP],
+    },
+}
 
 export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },

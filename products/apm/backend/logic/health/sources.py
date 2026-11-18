@@ -86,7 +86,7 @@ def _apdex(points: float | None, span_count: int) -> float | None:
     return float(points) / span_count if points is not None and span_count else None
 
 
-def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
+def window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
     return parse_expr(
         f"timestamp >= {{date_from}} AND timestamp < {{date_to}} AND {_TIME_BUCKET_DATE_RANGE_WHERE}",
         placeholders={"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
@@ -122,7 +122,7 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
+            "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
@@ -153,7 +153,7 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
+            "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "service_where": (
@@ -180,7 +180,7 @@ def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: s
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
+            "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "limit": ast.Constant(value=MAP_TRACE_LIMIT),
@@ -220,7 +220,7 @@ def _service_edges_query(
         LIMIT {limit}
         """,
         placeholders={
-            "where": _window_where(date_from, date_to),
+            "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids]),
@@ -252,7 +252,7 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -
             "bucket_seconds": ast.Constant(
                 value=max(1, int((date_to - date_from).total_seconds() // SPARKLINE_POINTS))
             ),
-            "where": _window_where(date_from, date_to),
+            "where": window_where(date_from, date_to),
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
         },
@@ -264,7 +264,7 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str) -
 def _environments_query(date_from: datetime, date_to: datetime) -> ast.SelectQuery:
     query = parse_select(
         "SELECT {env_expr} AS environment FROM posthog.trace_spans WHERE {where} GROUP BY environment ORDER BY environment LIMIT 50",
-        placeholders={"env_expr": environment_expr(), "where": _window_where(date_from, date_to)},
+        placeholders={"env_expr": environment_expr(), "where": window_where(date_from, date_to)},
     )
     assert isinstance(query, ast.SelectQuery)
     return query
