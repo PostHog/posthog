@@ -710,7 +710,7 @@ class CatalogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: PendingReviewCountsSerializer},
     )
     def pending_review(self, request: Request, **kwargs) -> Response:
-        """How many items wait in each review queue, counted as the list of that queue shows them to you."""
+        """How many items wait in each review queue, as its list shows them to you, up to a minute behind an access change."""
         counts = api.pending_review_counts(self.team, cast(User, request.user), self.user_access_control)
         return Response(PendingReviewCountsSerializer(counts).data)
 

@@ -185,7 +185,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
@@ -253,6 +252,46 @@ export const StatusBlock: Story = {
     },
 }
 
+export const StatusBlockWithEditableDecisions: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: function RenderStatusBlockWithEditableDecisions() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            repo_slug: 'example-org/web-app',
+            pull_requests: [],
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection
+                        report={report}
+                        onPriorityChange={setPriority}
+                        decisionAttributions={{
+                            repository: {
+                                person: null,
+                                setAt: '2026-06-09T09:00:00Z',
+                                reason: 'The stack trace points at files under src/checkout/ in this repository.',
+                                previousValue: null,
+                            },
+                            priority: {
+                                person: MOCK_SECOND_BASIC_USER,
+                                setAt: '2026-06-10T08:00:00Z',
+                                reason: null,
+                                previousValue: 'P3',
+                            },
+                        }}
+                    />
+                </div>
+            </Frame>
+        )
+    },
+}
+
 export const Report: Story = {
     render: () => (
         <Frame>
@@ -276,16 +315,6 @@ export const ReportReadyToImplement: Story = {
             />
         </Frame>
     ),
-}
-
-export const ReportWithoutPostHogAiAccess: Story = {
-    ...ReportReadyToImplement,
-    parameters: {
-        featureFlags: {
-            ...ReportReadyToImplement.parameters?.featureFlags,
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false,
-        },
-    },
 }
 
 export const ReportImplementButtonInHeader: Story = {

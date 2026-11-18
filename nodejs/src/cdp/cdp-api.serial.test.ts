@@ -3334,22 +3334,23 @@ describe('CDP API', () => {
                     )
                     expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
-                    expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
-                    expect(await claimFingerprint(sent.body.invocation_id)).not.toEqual(unkeyedFingerprint())
+                    expect(await claimFingerprint(sent.body.invocation_id)).toEqual(
+                        new EncryptedFields(hub.CDP_SEALED_STATE_KEYS).sign(FINGERPRINT_PURPOSE, unkeyedFingerprint())
+                    )
                 })
 
                 it.each([
-                    ['a keyed signature', () => {}],
+                    ['a signature under the shared keys it was signed with before the sealed state keys', () => {}],
                     [
                         'a keyed signature under a key that has since rotated',
                         () => {
-                            api['deps'].encryptedFields = new EncryptedFields(
+                            api['fingerprintSigner'] = new EncryptedFields(
                                 `11beef0011beef0011beef0011beef11,${hub.ENCRYPTION_SALT_KEYS}`
                             )
                         },
                     ],
                 ])('replays a retry whose claim holds %s', async (_, rotateKeys) => {
-                    const encryptedFields = api['deps'].encryptedFields
+                    const fingerprintSigner = api['fingerprintSigner']
                     try {
                         const sent = await sendKeyed()
                         await cyclotron.query('UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1', [
@@ -3367,7 +3368,7 @@ describe('CDP API', () => {
                         expect(retry.body).toEqual({ ...sent.body, replayed: true })
                         expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                     } finally {
-                        api['deps'].encryptedFields = encryptedFields
+                        api['fingerprintSigner'] = fingerprintSigner
                     }
                 })
 

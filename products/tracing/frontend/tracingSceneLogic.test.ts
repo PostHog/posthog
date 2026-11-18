@@ -40,10 +40,6 @@ describe('tracingSceneLogic', () => {
         return tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID })
     }
 
-    const enableOperationsView = (): void => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true })
-    }
-
     it.each([
         ['an uppercase hex trace id', '4BF92F3577B34DA6A3CE929D0E0E4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
         ['a lowercase hex trace id', '4bf92f3577b34da6a3ce929d0e0e4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
@@ -168,11 +164,11 @@ describe('tracingSceneLogic', () => {
     })
 
     it.each([
-        ['operations', FEATURE_FLAGS.TRACING_OPERATIONS_VIEW, undefined],
+        ['operations', undefined, undefined],
         ['endpoints', FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW, true],
     ] as const)('opens the %s view from a deep link and fetches its aggregate', (view, flag, groupByEndpoint) => {
         const aggregate = jest.spyOn(api.tracing, 'aggregate')
-        featureFlagLogic.actions.setFeatureFlags([], { [flag]: true })
+        featureFlagLogic.actions.setFeatureFlags([], flag ? { [flag]: true } : {})
         mountAt({ view })
         expect(logic.values.activeTracingTab).toBe(view)
         expect(aggregate).toHaveBeenLastCalledWith(
@@ -181,8 +177,8 @@ describe('tracingSceneLogic', () => {
         )
     })
 
-    it.each(['operations', 'endpoints'])('ignores ?view=%s when its flag is off', (view) => {
-        const filtersLogic = mountAt({ view })
+    it('ignores ?view=endpoints when its flag is off', () => {
+        const filtersLogic = mountAt({ view: 'endpoints' })
         expect(logic.values.activeTracingTab).toBe('traces')
         expect(filtersLogic.values.viewMode).toBe('spans')
     })
@@ -196,22 +192,9 @@ describe('tracingSceneLogic', () => {
         expect(router.values.searchParams).not.toHaveProperty('view')
     })
 
-    it('reconciles the operations tab when the flag resolves after a ?view=operations deep link', () => {
-        // Flag not yet loaded: the deep link reads as the default traces view.
-        mountAt({ view: 'operations' })
-        expect(logic.values.activeTracingTab).toBe('traces')
-
-        // Flag resolves late — the tab and URL reconcile without a navigation.
-        enableOperationsView()
-        expect(logic.values.activeTracingTab).toBe('operations')
-        expect(logic.values.displayMode).toBe('operations')
-        expect(router.values.searchParams.view).toBe('operations')
-    })
-
     it('refetches the Operations aggregation when the impact flag resolves late', () => {
         // Flags load asynchronously, so rows can arrive while the flag is still off. Without the
         // refetch the Sessions and Users columns render over rows that carry no impact fields.
-        enableOperationsView()
         mountAt({ view: 'operations' })
         tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }).actions.fetchAggregationSuccess({
             current: [{ service_name: 'web', name: 'GET /', count: 1 }],
@@ -220,26 +203,13 @@ describe('tracingSceneLogic', () => {
         const aggregate = jest.spyOn(api.tracing, 'aggregate')
 
         featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true,
             [FEATURE_FLAGS.TRACING_IMPACT_STRIP]: true,
         })
 
         expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({ includeImpact: true }), expect.anything())
     })
 
-    it('resets the operations tab to traces when the flag is disabled mid-session', () => {
-        enableOperationsView()
-        mountAt({ view: 'operations' })
-        expect(logic.values.activeTracingTab).toBe('operations')
-
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        expect(logic.values.activeTracingTab).toBe('traces')
-        expect(logic.values.displayMode).toBe('spans')
-        expect(router.values.searchParams).not.toHaveProperty('view')
-    })
-
     it('writes the operations mode to the URL without clobbering the spans granularity', () => {
-        enableOperationsView()
         const filtersLogic = mountAt({ view: 'spans' })
         expect(logic.values.displayMode).toBe('spans')
 
@@ -325,7 +295,6 @@ describe('tracingSceneLogic', () => {
     // two dispatches and the operations table would silently divide by the narrow compare sub-window.
     it('keeps the operations aggregate on the full range when a filter changes while comparing', async () => {
         silenceKeaLoadersErrors()
-        enableOperationsView()
         const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
         expect(filtersLogic.values.compareActive).toBe(true)
 
@@ -380,7 +349,6 @@ describe('tracingSceneLogic', () => {
     // scene's full-range refetch the operations table would divide by the narrow compare sub-window.
     it('keeps the operations aggregate on the full range when filters are restored while comparing', async () => {
         silenceKeaLoadersErrors()
-        enableOperationsView()
         const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
         expect(filtersLogic.values.compareActive).toBe(true)
 

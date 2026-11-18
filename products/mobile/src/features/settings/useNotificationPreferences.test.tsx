@@ -1,14 +1,20 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
+import * as Notifications from 'expo-notifications'
 import type { ReactNode } from 'react'
-
 import {
     DEFAULT_NOTIFICATION_PREFERENCES,
     getNotificationPreferences,
     setNotificationPreference,
 } from '@/api/notificationPreferences'
+import { track } from '@/lib/analytics'
 import { useNotificationPreferences } from './useNotificationPreferences'
 
+jest.mock('expo-notifications', () => ({
+    getAllScheduledNotificationsAsync: jest.fn(),
+    cancelScheduledNotificationAsync: jest.fn(),
+}))
+jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 jest.mock('@/api/notificationPreferences', () => ({
     ...jest.requireActual('@/api/notificationPreferences'),
     getNotificationPreferences: jest.fn(),
@@ -34,6 +40,7 @@ describe('notification preferences', () => {
     beforeEach(() => {
         jest.resetAllMocks()
         mockMode = 'live'
+        jest.mocked(Notifications.getAllScheduledNotificationsAsync).mockResolvedValue([])
     })
 
     test('loads saved preferences and persists a changed category', async () => {
@@ -43,15 +50,15 @@ describe('notification preferences', () => {
                 resolveLoad = resolve
             })
         )
-        const saved = { ...DEFAULT_NOTIFICATION_PREFERENCES, mobile_push_tasks_enabled: false }
+        const saved = { ...DEFAULT_NOTIFICATION_PREFERENCES, mobile_push_chat_enabled: false }
         jest.mocked(setNotificationPreference).mockResolvedValue(saved)
         const { result } = setup()
         expect(result.current.loading).toBe(true)
         expect(result.current.preferences).toBeUndefined()
         await act(async () => resolveLoad(DEFAULT_NOTIFICATION_PREFERENCES))
         await waitFor(() => expect(result.current.preferences).toEqual(DEFAULT_NOTIFICATION_PREFERENCES))
-        await act(async () => result.current.change('mobile_push_tasks_enabled', false))
-        expect(setNotificationPreference).toHaveBeenCalledWith('mobile_push_tasks_enabled', false)
+        await act(async () => result.current.change('mobile_push_chat_enabled', false))
+        expect(setNotificationPreference).toHaveBeenCalledWith('mobile_push_chat_enabled', false)
         await waitFor(() => expect(result.current.preferences).toEqual(saved))
     })
 
@@ -79,7 +86,47 @@ describe('notification preferences', () => {
         expect(result.current.preferences).toEqual(DEFAULT_NOTIFICATION_PREFERENCES)
         expect(result.current.saveError).toContain("Couldn't save")
         expect(result.current.saving).toBe(false)
+        expect(Notifications.getAllScheduledNotificationsAsync).not.toHaveBeenCalled()
+        expect(track).toHaveBeenCalledWith(
+            'mobile_notification_preference_failed',
+            expect.objectContaining({ reason: 'save' })
+        )
     })
+
+    test.each(['mobile_push_enabled', 'mobile_push_snooze_enabled'] as const)(
+        'turning off %s cancels scheduled reminders without removing snoozes',
+        async (key) => {
+            jest.mocked(getNotificationPreferences).mockResolvedValue(DEFAULT_NOTIFICATION_PREFERENCES)
+            jest.mocked(setNotificationPreference).mockResolvedValue({
+                ...DEFAULT_NOTIFICATION_PREFERENCES,
+                [key]: false,
+            })
+            jest.mocked(Notifications.getAllScheduledNotificationsAsync).mockResolvedValue([
+                {
+                    identifier: 'snoozed-report',
+                    trigger: null,
+                    content: {
+                        title: null,
+                        subtitle: null,
+                        body: null,
+                        categoryIdentifier: null,
+                        sound: null,
+                        threadIdentifier: null,
+                        data: { notificationKind: 'snooze_reminder' },
+                    },
+                },
+            ])
+            const { result } = setup()
+            await waitFor(() => expect(result.current.loading).toBe(false))
+            await act(async () => result.current.change(key, false))
+            expect(result.current.preferences?.[key]).toBe(false)
+            expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('snoozed-report')
+            expect(track).toHaveBeenCalledWith(
+                'mobile_notification_preference_changed',
+                expect.objectContaining({ preference: key, enabled: false })
+            )
+        }
+    )
 
     test('demo changes stay on the device without account requests', async () => {
         mockMode = 'demo'
