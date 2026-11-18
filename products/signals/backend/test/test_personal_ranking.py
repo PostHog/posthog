@@ -580,6 +580,8 @@ class TestPrompt(SimpleTestCase):
         assert f"Use only facts from the person block, {reason_sources}." in prompt
         # The reason rules forbid claims, so no example reason may cite one.
         assert "you claimed" not in prompt
+        # Products and watched objects can order reports, but only themes, owned objects and the focus earn "top".
+        assert "an object they only watch, or a product in their `Works in` line" in prompt
 
 
 class TestConfig(SimpleTestCase):

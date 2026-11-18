@@ -14,7 +14,7 @@ from products.signals.backend.personal_ranking.candidates import Candidate, Need
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 from products.signals.backend.personal_ranking.inbox_activity import InboxActivityBlock
 
-PROMPT_VERSION = 11
+PROMPT_VERSION = 12
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -126,16 +126,16 @@ Read every candidate. Rank only the best {config.rank_top}, fold the duplicates,
 To pick and order the best {config.rank_top}:
 - Put first the reports whose `needs you` line says waiting on their input or claimed by them. Most candidates name them as suggested reviewer, so that fact alone does not move a report up.
 - The status in a report's first line, such as `pending_input`, is the report's own state, not a fact about this person. A report with no `needs you` line does not need them, whatever its status.
-- Then the reports that match their themes, the objects they own or watch, and the products they work in.
+- Then the reports that match their themes, the objects they own or watch, and the products they work in. A product they work in or an object they only watch can move a report up, but it does not make the report "top".
 - Use the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
 - When the person has a focus, it outranks their usual themes.
 
 Output:
 - `ranked`: at most {config.rank_top} entries, the best candidates that you do not fold, with `ref` (such as "c3"), `rank` (1 is first, no gaps, no repeats) and `tier`.
-- `tier`: "top" for at most {config.top_max} reports they should look at today. A "top" report needs to be waiting on their input or claimed by them, or to match one of their themes, an object they own, or the focus. Being a suggested reviewer is not enough. "worth_a_look" for at most {config.worth_a_look_max} other useful reports. "later" for the rest. A lower rank never has a better tier.
+- `tier`: "top" for at most {config.top_max} reports they should look at today. A "top" report needs to be waiting on their input or claimed by them, or to be clearly about one of their themes, an object they own, or the focus. These are not enough for "top": being a suggested reviewer, a high lift or priority, an object they only watch, or a product in their `Works in` line. A clear match is about the theme, the object or the focus itself, not only the same product or a nearby topic, and it does not need several steps of inference. When the match is not clear, use "worth_a_look". "worth_a_look" for at most {config.worth_a_look_max} other useful reports. "later" for the rest. A lower rank never has a better tier.
 - `reason`: why this report fits this person, in plain words. Start with the theme, object, product or focus that matched, as in "Breaks the checkout funnel you tune each week." Do not mention suggested reviewer, claims, lift or probability: the card already shows them. Mention waiting on their input only when the report's `needs you` line states it and it is the main reason for the rank, and never at the start. A "top" reason never argues against its tier: if it has to hedge, give the report a lower tier. Never quote the profile. Use only facts from the person block, the focus{activity_source} and this candidate's own block. Never use a detail from another candidate, also not from a candidate that you fold into this one. At most {reasons.top} characters for "top", {reasons.worth_a_look} for "worth_a_look", {reasons.later} for "later". A reason over its limit is cut off, so stay well under it. A "later" reason is a short phrase, as in "Near your feature flag work." Every entry needs a reason.
-- `matched`: the theme label that matched (as written in the person block) and the needs-you kinds from the report's `needs you` line (empty when it has none), or null when nothing matched.
+- `matched`: the theme label that matched (as written in the Themes list, never a product or an object) and the needs-you kinds from the report's `needs you` line (empty when it has none), or null when nothing matched.
 - `next_step`: one short action for ranks 1 to {min(limit, config.rank_top)}, at most {config.next_step_max_chars} characters, else null.
 - `folded`: any candidate, ranked or not, that repeats another candidate (a digest series or a duplicate) goes here, not in `ranked`, with `into` (the ref it repeats) and a short reason.
 
