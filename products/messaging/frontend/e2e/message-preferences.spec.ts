@@ -231,8 +231,11 @@ test.describe('Message preferences page', () => {
     })
 
     test('a refused topic save turns the topic back on', async ({ browser, page, playwrightSetup }) => {
-        const { path, productNewsId } = await createPreferencesPage(page, playwrightSetup)
-        const { context, recipientPage, productNews, status } = await openAsRecipient(browser, path)
+        const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
+            page,
+            playwrightSetup
+        )
+        const { context, recipientPage, productNews, eventInvites, status } = await openAsRecipient(browser, path)
 
         try {
             await recipientPage.route(
@@ -245,6 +248,12 @@ test.describe('Message preferences page', () => {
             await expect(productNews).toBeChecked()
             await expect(productNews).toBeEnabled()
             await expect(status(productNewsId)).toHaveText('Subscribed')
+
+            await eventInvites.click()
+            await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+            await expect
+                .poll(() => storedPreferences())
+                .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
         } finally {
             await context.close()
         }
