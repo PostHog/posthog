@@ -7,6 +7,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
+from django.utils import timezone
 
 import httpx
 import httpx_sse
@@ -336,6 +337,26 @@ async def _mark_error_unless_run_is_terminal(
     return False
 
 
+async def _record_liveness(
+    task_run: TaskRunModel | None,
+    *,
+    heartbeat: bool = False,
+    agent_status: TaskRunModel.AgentStatus | None = None,
+) -> None:
+    if task_run is None:
+        return
+    try:
+        await asyncio.to_thread(
+            TaskRunModel.write_liveness,
+            task_run.id,
+            task_run.team_id,
+            heartbeat_at=timezone.now() if heartbeat else None,
+            agent_status=agent_status,
+        )
+    except Exception as e:
+        logger.warning("relay_liveness_write_failed", run_id=str(task_run.id), error=str(e))
+
+
 async def _background_heartbeat(
     stop_event: asyncio.Event,
     workflow_handle: temporalio.client.WorkflowHandle | None = None,
@@ -345,6 +366,7 @@ async def _background_heartbeat(
     inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
     open_tool_calls: set[str] | None = None,
     run_id: str | None = None,
+    task_run: TaskRunModel | None = None,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -396,6 +418,7 @@ async def _background_heartbeat(
                     )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
+                await _record_liveness(task_run, heartbeat=True, agent_status=TaskRunModel.AgentStatus.BUSY)
 
 
 def _agent_has_work_in_flight(agent_active: list[bool] | None, open_tool_calls: set[str] | None) -> bool:
@@ -493,6 +516,7 @@ async def _relay_loop(
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             open_tool_calls=open_tool_calls,
             run_id=run_id,
+            task_run=task_run,
         )
     )
 
@@ -578,6 +602,7 @@ async def _relay_loop(
                                         )
                                     else:
                                         await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
+                                        await _record_liveness(task_run, agent_status=TaskRunModel.AgentStatus.READY)
                                         await _signal_safely(
                                             workflow_handle,
                                             "agent_turn_completed",
@@ -623,6 +648,7 @@ async def _relay_loop(
                                 agent_active[0] = True
                                 if workflow_handle is not None:
                                     await _signal_safely(workflow_handle, "agent_state_changed", arg=True)
+                                    await _record_liveness(task_run, agent_status=TaskRunModel.AgentStatus.BUSY)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
@@ -674,6 +700,9 @@ async def _relay_loop(
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)
                                     )
+                                await _record_liveness(
+                                    task_run, heartbeat=True, agent_status=TaskRunModel.AgentStatus.BUSY
+                                )
 
                             if _is_terminal_event(event_data):
                                 await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
