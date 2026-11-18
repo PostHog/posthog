@@ -289,6 +289,8 @@ class PropertySwapper(CloningVisitor):
                 constant_type = dataclasses.replace(
                     value_type.field_type.resolve_constant_type(self.context), nullable=True
                 )
+                if constant_type == value_type.resolve_constant_type(self.context):
+                    return result
             else:
                 constant_type = value_type.resolve_constant_type(self.context)
             if result.type.constant_type != constant_type:
