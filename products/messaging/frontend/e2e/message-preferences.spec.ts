@@ -280,7 +280,8 @@ test.describe('Message preferences page', () => {
             // Each save is held until the test releases it, so the topic save always commits first.
             const topicSaved = recipientPage.waitForResponse(UPDATE_URL)
             heldSaves[0]()
-            await topicSaved
+            // A failed topic save would leave the all-marketing save to store the new topic choice on its own
+            expect((await topicSaved).ok()).toBe(true)
             await expect.poll(() => heldSaves.length).toBe(2)
             const allOffSaved = recipientPage.waitForResponse(UPDATE_URL)
             heldSaves[1]()
