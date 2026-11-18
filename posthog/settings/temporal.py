@@ -97,6 +97,8 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+AGENT_EGRESS_PROBE_CONFIG_DIR: str = get_from_env("AGENT_EGRESS_PROBE_CONFIG_DIR", "")
+AGENT_EGRESS_OBSERVATION_CONFIG: str = get_from_env("AGENT_EGRESS_OBSERVATION_CONFIG", "")
 # Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
 # SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
 # allowlist, and the box never needs to reach the hogland control plane.
@@ -509,12 +511,6 @@ if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
     )
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
-# The XGBoost-based session surfacing scoring sweep runs on the session-replay
-# worker (it's the only OpenMP user there; that worker sets OMP_NUM_THREADS=1).
-# Sharing the queue means start_temporal_worker aggregates its workflow +
-# activities onto the replay worker and warmup() runs on replay-worker boot —
-# no dedicated pod needed (see surfacing_scoring_sweep/README.md).
-SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 # The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
 # there. Without both, the send sends no digest and fails the run.

@@ -12,6 +12,13 @@ from posthog.sync import database_sync_to_async_pool
 from products.ai_observability.backend.facade.evaluation_runtime import consented_team_ids
 
 AnalysisLevel = Literal["trace", "generation", "evaluation"]
+CLUSTERING_OPT_IN_PATCH_ID = "ai-observability-clustering-opt-in"
+
+
+def enabled_clustering_team_ids(team_ids: list[int] | None = None) -> set[int]:
+    from products.ai_observability.backend.facade.api import eligible_clustering_team_ids
+
+    return eligible_clustering_team_ids(team_ids)
 
 
 @dataclass
@@ -45,9 +52,10 @@ class TeamAIConsentInput:
 
 @activity.defn
 async def check_ai_data_processing_consent_activity(inputs: TeamAIConsentInput) -> bool:
-    """Report whether the team's organization approved third-party AI data processing."""
+    """Require both clustering opt-in and organization AI data processing approval."""
     consented = await database_sync_to_async_pool(consented_team_ids)([inputs.team_id])
-    return inputs.team_id in consented
+    enabled = await database_sync_to_async_pool(enabled_clustering_team_ids)([inputs.team_id])
+    return inputs.team_id in consented and inputs.team_id in enabled
 
 
 @dataclass
@@ -78,7 +86,9 @@ async def fetch_all_clustering_jobs_activity(
     def _fetch_jobs() -> dict[int, list[JobConfig]]:
         from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
-        jobs = ClusteringJob.objects.filter(team_id__in=inputs.team_ids, enabled=True).order_by("created_at")
+        jobs = ClusteringJob.objects.filter(
+            team_id__in=inputs.team_ids, enabled=True, team__clustering_config__enabled=True
+        ).order_by("created_at")
         result: dict[int, list[JobConfig]] = {}
         for job in jobs:
             result.setdefault(job.team_id, []).append(
@@ -98,6 +108,7 @@ def resolve_level_jobs_for_team(
     team_jobs: list[JobConfig],
     analysis_level: AnalysisLevel,
     legacy_event_filters: list[dict[str, Any]],
+    allow_legacy_fallback: bool = True,
 ) -> list[JobConfig]:
     """Pick jobs matching the analysis level, with legacy fallback.
 
@@ -108,7 +119,7 @@ def resolve_level_jobs_for_team(
     if level_jobs:
         return level_jobs
 
-    if team_jobs:
+    if team_jobs or not allow_legacy_fallback:
         return []
 
     return [JobConfig(job_id="", name="", analysis_level=analysis_level, event_filters=legacy_event_filters)]

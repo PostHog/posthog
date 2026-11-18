@@ -10,11 +10,36 @@
 import * as zod from 'zod'
 
 /**
+ * @summary Create a developer mode token attributed to you
+ */
+export const aiGatewayDevTokensCreateBodyCapUsdRegExp = new RegExp('^-?\\d{0,8}(?:\\.\\d{0,2})?$')
+
+export const AiGatewayDevTokensCreateBody = /* @__PURE__ */ zod.object({
+    cap_usd: zod
+        .stringFormat('decimal', aiGatewayDevTokensCreateBodyCapUsdRegExp)
+        .nullish()
+        .describe('Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.'),
+    ttl_seconds: zod
+        .number()
+        .nullish()
+        .describe('Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.'),
+})
+
+/**
  * @summary Authorize a CLI login by its PKCE challenge
  */
+export const aiGatewayDevTokensCliAuthorizeCreateBodyCapUsdRegExp = new RegExp('^-?\\d{0,8}(?:\\.\\d{0,2})?$')
 export const aiGatewayDevTokensCliAuthorizeCreateBodyCodeChallengeRegExp = new RegExp('^[A-Za-z0-9_-]{43}$')
 
 export const AiGatewayDevTokensCliAuthorizeCreateBody = /* @__PURE__ */ zod.object({
+    cap_usd: zod
+        .stringFormat('decimal', aiGatewayDevTokensCliAuthorizeCreateBodyCapUsdRegExp)
+        .nullish()
+        .describe('Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.'),
+    ttl_seconds: zod
+        .number()
+        .nullish()
+        .describe('Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.'),
     code_challenge: zod
         .string()
         .regex(aiGatewayDevTokensCliAuthorizeCreateBodyCodeChallengeRegExp)

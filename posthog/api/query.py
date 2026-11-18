@@ -115,6 +115,10 @@ from products.customer_analytics.backend.facade.constants import (
     BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
     BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
 )
+from products.experiments.backend.facade.warehouse_native_access import (
+    WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX,
+    validate_warehouse_native_connection_access,
+)
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
 from products.metrics.backend.facade.api import derived_metric_resources
@@ -584,6 +588,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
             except ExposedHogQLError as error:
                 raise PermissionDenied(str(error)) from error
+        for label in query_status.labels or []:
+            if label.startswith(WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX):
+                validate_warehouse_native_connection_access(
+                    self.team,
+                    request.user if isinstance(request.user, User) else None,
+                    label.removeprefix(WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX),
+                )
         managed_connection_id = next(
             (
                 label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
