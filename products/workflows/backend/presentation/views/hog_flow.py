@@ -7457,6 +7457,7 @@ class HogFlowViewSet(
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
             email_rate_limit=params.get("email_sending_rate_limit"),
+            use_cached_counts=True,
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.
