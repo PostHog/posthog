@@ -1,0 +1,1180 @@
+import { VideoView } from 'expo-video'
+import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import Animated, {
+    Easing,
+    FadeIn,
+    FadeOut,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withSequence,
+    withTiming,
+} from 'react-native-reanimated'
+import { scheduleOnRN } from 'react-native-worklets'
+
+import { pickReusableExport } from '@/api/replayVideo'
+import { formatRelativeAgo } from '@/lib/dates'
+import { haptic } from '@/lib/haptics'
+import { plural } from '@/model/adapters/text'
+import { FadeEdge } from '@/ui/FadeEdge'
+import { PlayIcon } from '@/ui/icons/PlayIcon'
+import { createStyles } from '@/ui/theme'
+
+import { useFrameUrl } from '../hooks'
+import type { SessionSummary } from '../replayModel'
+import { countryFlag, formatOffset } from '../sessionAdapters'
+import { sessionSecondsForVideoSeconds, videoSecondsForSessionSeconds } from '../video/videoTime'
+import { FeedRail } from './FeedRail'
+import { FeedScrubber, type ScrubberTick } from './FeedScrubber'
+import {
+    compactDuration,
+    feedMetaLine,
+    feedMoments,
+    type RenderSpec,
+    renderKey,
+    renderViewport,
+    sessionStartSeconds,
+} from './feedAdapters'
+import { trackFeedAutoAdvanced, trackFeedEventJump, trackFeedItemShown } from './feedAnalytics'
+import {
+    type FeedEvent,
+    type FeedItem,
+    type FeedSettings,
+    type FeedSource,
+    type FeedTimeline,
+    type FeedUnit,
+    HOLD_SPEED,
+    type Moment,
+} from './feedModel'
+import { feedColors, feedTextShadow, type TickKind, tickColors } from './feedStyle'
+import { type LadderState, RenderLadder } from './RenderLadder'
+import { startRender, useRenderQueue } from './renderQueue'
+import { UpNextCard } from './UpNextCard'
+import { useFeedTimeline } from './useFeed'
+import type { PoolPlayer, PoolSource } from './usePlayerPool'
+
+/** A card renders only after this long on screen, or on a tap of Play, so a swipe past never spends the video cap. */
+export const DWELL_MS = 1500
+const EMPTY_TIMELINE: FeedTimeline = { events: [], browser: null, os: null, viewport: null }
+const JUMP_SECONDS = 10
+
+export interface FeedCardHandle {
+    seekToSession: (seconds: number) => void
+}
+
+interface FeedCardProps {
+    item: FeedItem
+    index: number
+    width: number
+    height: number
+    insets: { top: number; bottom: number }
+    active: boolean
+    near: boolean
+    pool: PoolPlayer | null
+    unit: FeedUnit
+    source: FeedSource
+    settings: FeedSettings
+    next: FeedItem | null
+    nextReady: { index: number; title: string } | null
+    onSource: (index: number, source: PoolSource | null) => void
+    onAdvance: (index: number) => void
+    onJumpTo: (index: number) => void
+    onUnit: (unit: FeedUnit) => void
+    onSpeed: () => void
+    onChat: (item: FeedItem) => void
+    onInfo: (item: FeedItem, timeline: FeedTimeline | null) => void
+    onOpenWeb: (item: FeedItem, seconds: number) => void
+    onRecheck: () => void
+    registerHandle: (index: number, handle: FeedCardHandle | null) => void
+}
+
+export function itemTitle(item: FeedItem): string {
+    if (item.summary?.title) {
+        return item.summary.title
+    }
+    const { clickCount, consoleErrorCount } = item.recording
+    return ['Session', plural(clickCount, 'click'), consoleErrorCount ? plural(consoleErrorCount, 'error') : null]
+        .filter(Boolean)
+        .join(' · ')
+}
+
+function tickKind(event: FeedEvent): TickKind | null {
+    switch (event.kind) {
+        case 'rageclick':
+        case 'deadclick':
+            return 'rage'
+        case 'exception':
+            return 'error'
+        case 'custom':
+            return 'custom'
+        default:
+            return null
+    }
+}
+
+function posterChapter(summary: SessionSummary | null, seconds: number): number | null {
+    const ms = seconds * 1000
+    const chapter =
+        summary?.chapters.find(
+            (item) => item.hasFrame && item.startMs <= ms && (item.endMs === null || ms < item.endMs)
+        ) ?? summary?.chapters.find((item) => item.hasFrame && item.isKeyMoment)
+    return chapter ? chapter.index : null
+}
+
+function signed(seconds: number): string {
+    const sign = seconds < 0 ? '-' : '+'
+    return `${sign}${formatOffset(Math.abs(seconds) * 1000)}`
+}
+
+function FeedCardBody({
+    item,
+    index,
+    width,
+    height,
+    insets,
+    active,
+    near,
+    pool,
+    unit,
+    source,
+    settings,
+    next,
+    nextReady,
+    onSource,
+    onAdvance,
+    onJumpTo,
+    onUnit,
+    onSpeed,
+    onChat,
+    onInfo,
+    onOpenWeb,
+    onRecheck,
+    registerHandle,
+}: FeedCardProps): ReactElement {
+    const styles = useStyles()
+    const reduceMotion = useReducedMotion()
+    const { recording, summary } = item
+    const { sessionId, durationSeconds } = recording
+    const timeline = useFeedTimeline(item, near)
+    const moments = useMemo(
+        () => feedMoments(timeline ?? EMPTY_TIMELINE, summary, durationSeconds, settings, source),
+        [timeline, summary, durationSeconds, settings, source]
+    )
+    const [momentIndex, setMomentIndex] = useState(0)
+    const safeIndex = Math.min(momentIndex, moments.length - 1)
+    const moment = moments[safeIndex] as Moment
+    const domain =
+        unit === 'moment' ? { start: moment.startSeconds, end: moment.endSeconds } : { start: 0, end: durationSeconds }
+    const startSeconds = unit === 'moment' ? moment.startSeconds : sessionStartSeconds(moments, summary, settings)
+
+    // Each card listens to its own two jobs only, so one render's progress does not re-render every card.
+    const fullJob = useRenderQueue((state) => state.jobs[`${sessionId}:full`])
+    const limitMessage = useRenderQueue((state) => state.limitMessage)
+    const fullKnown = useMemo(
+        () => pickReusableExport(item.exports, durationSeconds)?.has_content === true,
+        [item.exports, durationSeconds]
+    )
+    const useFull = unit === 'session' || fullKnown || fullJob?.state.status === 'ready'
+    const spec: RenderSpec = useFull
+        ? { kind: 'full', sessionId, durationSeconds }
+        : {
+              kind: 'clip',
+              sessionId,
+              durationSeconds,
+              startSeconds: moment.startSeconds,
+              endSeconds: moment.endSeconds,
+          }
+    const key = renderKey(spec)
+    const job = useRenderQueue((state) => state.jobs[key]) ?? null
+    const viewport = renderViewport(timeline?.viewport ?? null)
+    const specRef = useRef(spec)
+    specRef.current = spec
+    const viewportRef = useRef(viewport)
+    viewportRef.current = viewport
+
+    // Attaching a video that exists or is rendering costs nothing, so neighbours do it before they are on screen.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `key` names the spec, which the ref holds.
+    useEffect(() => {
+        if (near && !recording.ongoing) {
+            startRender({
+                spec: specRef.current,
+                known: item.exports,
+                allowCreate: false,
+                trigger: 'reuse',
+                viewport: viewportRef.current,
+            })
+        }
+    }, [near, key, recording.ongoing, item.exports])
+
+    const canRender = !recording.ongoing && limitMessage === null && (spec.kind === 'full' || timeline !== null)
+    const requestRender = useCallback((trigger: 'dwell' | 'tap'): void => {
+        startRender({ spec: specRef.current, known: null, allowCreate: true, trigger, viewport: viewportRef.current })
+    }, [])
+    useEffect(() => {
+        if (!active || job !== null || !canRender) {
+            return undefined
+        }
+        const timer = setTimeout(() => requestRender('dwell'), DWELL_MS)
+        return () => clearTimeout(timer)
+    }, [active, job, canRender, requestRender])
+
+    const ready = job?.state.status === 'ready' ? job.state : null
+    const sourceKey = ready ? `${key}#${ready.exportId}` : null
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the key names the source; the object is new each render.
+    useEffect(() => {
+        onSource(index, ready && sourceKey ? { key: sourceKey, source: ready.source } : null)
+    }, [index, sourceKey, onSource])
+    useEffect(() => () => onSource(index, null), [index, onSource])
+
+    const loaded = pool !== null && pool.key === sourceKey && pool.loaded
+    const player = loaded ? pool.player : null
+    const context = ready?.context
+    const contextRef = useRef(context)
+    contextRef.current = context
+
+    const aspect =
+        context?.width && context.height
+            ? context.width / context.height
+            : timeline?.viewport
+              ? timeline.viewport.width / timeline.viewport.height
+              : 1.6
+    const portrait = aspect < 1
+    // A phone session fills the card, or with "Whole screen" sits between the chrome and the caption so nothing
+    // covers its own header and tab bar. A desktop page is letterboxed a little above the middle.
+    const framed = portrait && settings.phoneFit === 'whole'
+    const bleed = portrait && !framed
+    const frame = (() => {
+        if (bleed) {
+            return { top: 0, height, left: 0, width }
+        }
+        if (framed) {
+            const top = insets.top + 54
+            const frameHeight = Math.max(200, height - top - (Math.max(insets.bottom - 8, 10) + 52) - 132)
+            const frameWidth = Math.min(width - 32, frameHeight * aspect)
+            return { top, height: frameWidth / aspect, left: (width - frameWidth) / 2, width: frameWidth }
+        }
+        const frameHeight = width / aspect
+        return {
+            top: Math.max(insets.top + 96, (height - frameHeight) / 2 - height * 0.1),
+            height: frameHeight,
+            left: 0,
+            width,
+        }
+    })()
+
+    const position = useSharedValue(startSeconds)
+    const [paused, setPaused] = useState(false)
+    const pausedRef = useRef(false)
+    pausedRef.current = paused
+    const [ended, setEnded] = useState(false)
+    const endedRef = useRef(false)
+    endedRef.current = ended
+    const [countdownCancelled, setCountdownCancelled] = useState(false)
+    const [holding, setHolding] = useState(false)
+    const [firstFrame, setFirstFrame] = useState(false)
+    const [nowSeconds, setNowSeconds] = useState(startSeconds)
+    const pendingSeek = useRef<number | null>(null)
+    const scrubbing = useRef<{ wasPlaying: boolean } | null>(null)
+    const domainRef = useRef(domain)
+    domainRef.current = domain
+    const unitRef = useRef(unit)
+    unitRef.current = unit
+    const overrideStart = useRef<number | null>(null)
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: a new video means a new first frame.
+    useEffect(() => {
+        setFirstFrame(false)
+    }, [sourceKey])
+
+    const seekSession = useCallback(
+        (seconds: number): void => {
+            position.value = seconds
+            setNowSeconds(seconds)
+            if (!player) {
+                return
+            }
+            const videoSeconds = videoSecondsForSessionSeconds(seconds, contextRef.current)
+            if (player.status === 'readyToPlay') {
+                player.currentTime = videoSeconds
+                pendingSeek.current = null
+            } else {
+                pendingSeek.current = videoSeconds
+            }
+        },
+        [player, position]
+    )
+
+    const play = useCallback((): void => {
+        if (!player) {
+            return
+        }
+        player.playbackRate = settings.speed
+        player.play()
+    }, [player, settings.speed])
+
+    const startKey = `${unit}:${moment.key}:${unit === 'session' ? startSeconds : ''}`
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `startKey` names the start; the rest are read through refs.
+    useEffect(() => {
+        if (!player) {
+            return
+        }
+        if (!active) {
+            player.pause()
+            seekSession(startSeconds)
+            setEnded(false)
+            setPaused(false)
+            setCountdownCancelled(false)
+            return
+        }
+        const start = overrideStart.current ?? startSeconds
+        overrideStart.current = null
+        seekSession(start)
+        setEnded(false)
+        if (!pausedRef.current) {
+            play()
+        }
+    }, [active, player, startKey])
+
+    useEffect(() => {
+        if (player && active && !holding) {
+            player.playbackRate = settings.speed
+        }
+    }, [player, active, holding, settings.speed])
+
+    // Gestures and the end-of-window timer reach the newest handlers through this ref.
+    const handlers = useRef<{
+        togglePause: () => void
+        jump: (direction: 1 | -1) => void
+        hold: (on: boolean) => void
+        stepMoment: (direction: 1 | -1) => void
+    } | null>(null)
+
+    const finishWindow = useCallback((): void => {
+        if (endedRef.current || !player) {
+            return
+        }
+        player.pause()
+        if (unitRef.current === 'moment' && safeIndex < moments.length - 1) {
+            trackFeedAutoAdvanced({ sessionId, to: 'moment', skipped: 0 })
+            handlers.current?.stepMoment(1)
+            return
+        }
+        endedRef.current = true
+        setEnded(true)
+        setCountdownCancelled(false)
+    }, [player, safeIndex, moments.length, sessionId])
+
+    useEffect(() => {
+        if (!player || !active) {
+            return undefined
+        }
+        const time = player.addListener('timeUpdate', ({ currentTime }) => {
+            if (scrubbing.current) {
+                return
+            }
+            const seconds = sessionSecondsForVideoSeconds(currentTime, contextRef.current)
+            const jump = Math.abs(seconds - position.value) > 1.5
+            position.value = jump ? seconds : withTiming(seconds, { duration: 250, easing: Easing.linear })
+            setNowSeconds(Math.floor(seconds))
+            if (player.playing) {
+                setFirstFrame(true)
+            }
+            if (unitRef.current === 'moment' && player.playing && seconds >= domainRef.current.end - 0.15) {
+                finishWindow()
+            }
+        })
+        const end = player.addListener('playToEnd', () => finishWindow())
+        return () => {
+            time.remove()
+            end.remove()
+        }
+    }, [player, active, position, finishWindow])
+
+    // A neighbour seeks to its start while off screen too, so it arrives on the right frame.
+    useEffect(() => {
+        if (!player) {
+            return undefined
+        }
+        const apply = (): void => {
+            if (pendingSeek.current !== null && player.status === 'readyToPlay') {
+                player.currentTime = pendingSeek.current
+                pendingSeek.current = null
+            }
+        }
+        const status = player.addListener('statusChange', apply)
+        const load = player.addListener('sourceLoad', apply)
+        apply()
+        return () => {
+            status.remove()
+            load.remove()
+        }
+    }, [player])
+
+    const slide = useSharedValue(0)
+    const fade = useSharedValue(1)
+    const stepMoment = (direction: 1 | -1): void => {
+        const target = Math.min(moments.length - 1, Math.max(0, safeIndex + direction))
+        if (target === safeIndex) {
+            return
+        }
+        haptic('selection')
+        if (!reduceMotion) {
+            slide.value = withSequence(
+                withTiming(-direction * width * 0.18, { duration: 120 }),
+                withTiming(direction * width * 0.18, { duration: 0 }),
+                withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) })
+            )
+            fade.value = withSequence(withTiming(0.2, { duration: 120 }), withTiming(1, { duration: 200 }))
+        }
+        setEnded(false)
+        endedRef.current = false
+        setMomentIndex(target)
+    }
+    const stageStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slide.value }], opacity: fade.value }))
+
+    const togglePause = (): void => {
+        if (!player || ended) {
+            return
+        }
+        if (paused) {
+            play()
+            setPaused(false)
+        } else {
+            player.pause()
+            setPaused(true)
+        }
+    }
+
+    const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
+    const showToast = useCallback((text: string): void => {
+        setToast((previous) => ({ id: (previous?.id ?? 0) + 1, text }))
+    }, [])
+    useEffect(() => {
+        if (!toast) {
+            return undefined
+        }
+        const timer = setTimeout(() => setToast(null), 1800)
+        return () => clearTimeout(timer)
+    }, [toast])
+
+    const jump = (direction: 1 | -1): void => {
+        if (!player) {
+            return
+        }
+        const now = position.value
+        // A moment is short, so its clicks count as events; a whole session has too many of them.
+        const candidates = (timeline?.events ?? []).filter(
+            (event) =>
+                (unit === 'moment' || event.kind !== 'click') &&
+                event.seconds >= domain.start &&
+                event.seconds <= domain.end
+        )
+        const target =
+            direction > 0
+                ? candidates.find((event) => event.seconds > now + 1.5)
+                : [...candidates].reverse().find((event) => event.seconds < now - 2.5)
+        haptic('light')
+        if (target) {
+            seekSession(Math.max(domain.start, target.seconds - 1))
+            showToast(`${formatOffset(target.seconds * 1000)} · ${target.label}`)
+            trackFeedEventJump({
+                sessionId,
+                direction: direction > 0 ? 'next' : 'previous',
+                kind: target.kind,
+                via: 'double_tap',
+            })
+        } else {
+            seekSession(Math.min(domain.end, Math.max(domain.start, now + direction * JUMP_SECONDS)))
+            showToast(direction > 0 ? `+${JUMP_SECONDS} s` : `-${JUMP_SECONDS} s`)
+            trackFeedEventJump({
+                sessionId,
+                direction: direction > 0 ? 'next' : 'previous',
+                kind: 'seconds',
+                via: 'double_tap',
+            })
+        }
+        if (ended) {
+            setEnded(false)
+            endedRef.current = false
+            play()
+        }
+    }
+
+    const hold = (on: boolean): void => {
+        if (!player) {
+            return
+        }
+        if (on === holding) {
+            return
+        }
+        setHolding(on)
+        if (on) {
+            haptic('light')
+            player.playbackRate = HOLD_SPEED
+            player.play()
+        } else {
+            player.playbackRate = settings.speed
+            if (pausedRef.current) {
+                player.pause()
+            }
+        }
+    }
+
+    handlers.current = { togglePause, jump, hold, stepMoment }
+    const dispatch = useCallback((action: 'toggle' | 'jump' | 'hold' | 'step', value: number): void => {
+        const current = handlers.current
+        if (!current) {
+            return
+        }
+        if (action === 'toggle') {
+            current.togglePause()
+        } else if (action === 'jump') {
+            current.jump(value > 0 ? 1 : -1)
+        } else if (action === 'hold') {
+            current.hold(value > 0)
+        } else {
+            current.stepMoment(value > 0 ? 1 : -1)
+        }
+    }, [])
+    const canSwipeMoments = unit === 'moment' && moments.length > 1
+    const gesture = useMemo(() => {
+        const half = width / 2
+        const singleTap = Gesture.Tap()
+            .maxDuration(260)
+            .onEnd((_event, success) => {
+                'worklet'
+                if (success) {
+                    scheduleOnRN(dispatch, 'toggle', 0)
+                }
+            })
+        const doubleTap = Gesture.Tap()
+            .numberOfTaps(2)
+            .maxDelay(240)
+            .onEnd((event, success) => {
+                'worklet'
+                if (success) {
+                    scheduleOnRN(dispatch, 'jump', event.x > half ? 1 : -1)
+                }
+            })
+        const longPress = Gesture.LongPress()
+            .minDuration(320)
+            .maxDistance(18)
+            .onStart(() => {
+                'worklet'
+                scheduleOnRN(dispatch, 'hold', 1)
+            })
+            .onFinalize(() => {
+                'worklet'
+                scheduleOnRN(dispatch, 'hold', 0)
+            })
+        const swipe = Gesture.Pan()
+            .enabled(canSwipeMoments)
+            .activeOffsetX([-22, 22])
+            .failOffsetY([-14, 14])
+            .onUpdate((event) => {
+                'worklet'
+                slide.value = event.translationX * 0.35
+            })
+            .onEnd((event) => {
+                'worklet'
+                const far = Math.abs(event.translationX) > 64 || Math.abs(event.velocityX) > 600
+                if (far) {
+                    scheduleOnRN(dispatch, 'step', event.translationX < 0 ? 1 : -1)
+                } else {
+                    slide.value = withTiming(0, { duration: 160 })
+                }
+            })
+        return Gesture.Race(swipe, Gesture.Exclusive(longPress, doubleTap, singleTap))
+    }, [width, canSwipeMoments, dispatch, slide])
+
+    const seekFromInfo = useCallback(
+        (seconds: number): void => {
+            if (unitRef.current === 'moment') {
+                const inside = moments.findIndex((item) => seconds >= item.startSeconds && seconds <= item.endSeconds)
+                if (inside >= 0) {
+                    overrideStart.current = seconds
+                    if (inside === safeIndex) {
+                        seekSession(seconds)
+                        overrideStart.current = null
+                        play()
+                    } else {
+                        setMomentIndex(inside)
+                    }
+                    return
+                }
+                overrideStart.current = seconds
+                onUnit('session')
+                return
+            }
+            seekSession(seconds)
+            if (endedRef.current) {
+                setEnded(false)
+                endedRef.current = false
+            }
+            play()
+        },
+        [moments, safeIndex, seekSession, play, onUnit]
+    )
+    useEffect(() => {
+        if (!active) {
+            return undefined
+        }
+        registerHandle(index, { seekToSession: seekFromInfo })
+        return () => registerHandle(index, null)
+    }, [active, index, registerHandle, seekFromInfo])
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: one event per arrival on screen.
+    useEffect(() => {
+        if (active) {
+            trackFeedItemShown({
+                sessionId,
+                position: index,
+                ready: item.readyAtLoad,
+                unit,
+                source,
+                moments: moments.length,
+            })
+        }
+    }, [active])
+
+    let ladder: LadderState | null = null
+    if (recording.ongoing) {
+        ladder = { kind: 'recording', shownSeconds: durationSeconds }
+    } else if (!loaded || !firstFrame) {
+        const state = job?.state
+        if (state?.status === 'preparing') {
+            ladder = { kind: 'preparing', clip: spec.kind === 'clip', startedAt: state.startedAt }
+        } else if (state?.status === 'checking' && job?.created) {
+            ladder = { kind: 'preparing', clip: spec.kind === 'clip', startedAt: Date.now() }
+        } else if (state?.status === 'error') {
+            ladder =
+                state.kind === 'limit_reached'
+                    ? { kind: 'limit', message: state.message }
+                    : { kind: 'failed', message: state.message }
+        } else if (!job && limitMessage !== null) {
+            ladder = { kind: 'limit', message: limitMessage }
+        } else if (!job && active) {
+            ladder = { kind: 'waiting' }
+        }
+    }
+
+    const posterIndex = posterChapter(summary, unit === 'moment' ? moment.anchorSeconds : startSeconds)
+    const poster = useFrameUrl(near ? (summary?.observationId ?? null) : null, posterIndex)
+    const posterUri = poster.data ?? null
+    const showVideo = loaded && firstFrame
+    const posterStyle = useAnimatedStyle(
+        () => ({ opacity: withTiming(showVideo ? 0 : 1, { duration: 180 }) }),
+        [showVideo]
+    )
+
+    const ticks = useMemo((): ScrubberTick[] => {
+        const fromEvents = (timeline?.events ?? []).flatMap((event): ScrubberTick[] => {
+            const kind = tickKind(event)
+            return kind && event.seconds >= domain.start && event.seconds <= domain.end
+                ? [{ key: event.key, seconds: event.seconds, kind, label: event.label }]
+                : []
+        })
+        const keyMs = summary?.keyMomentMs
+        if (typeof keyMs === 'number' && keyMs / 1000 >= domain.start && keyMs / 1000 <= domain.end) {
+            fromEvents.push({ key: 'key', seconds: keyMs / 1000, kind: 'key', label: 'Key moment' })
+        }
+        return fromEvents
+    }, [timeline, summary, domain.start, domain.end])
+
+    const onScrubStart = useCallback((): void => {
+        scrubbing.current = { wasPlaying: player?.playing ?? false }
+        player?.pause()
+    }, [player])
+    const lastScrubSeek = useRef(0)
+    const onScrub = useCallback(
+        (seconds: number): void => {
+            setNowSeconds(seconds)
+            const now = Date.now()
+            if (player && now - lastScrubSeek.current > 90) {
+                lastScrubSeek.current = now
+                player.currentTime = videoSecondsForSessionSeconds(seconds, contextRef.current)
+            }
+        },
+        [player]
+    )
+    const onScrubEnd = useCallback(
+        (seconds: number, tick: ScrubberTick | null): void => {
+            const wasPlaying = scrubbing.current?.wasPlaying ?? false
+            scrubbing.current = null
+            seekSession(seconds)
+            if (tick) {
+                trackFeedEventJump({ sessionId, direction: 'next', kind: tick.kind, via: 'scrubber' })
+            }
+            if (wasPlaying && !pausedRef.current) {
+                play()
+            }
+        },
+        [seekSession, play, sessionId]
+    )
+
+    const nextInfo = useMemo(
+        () =>
+            next
+                ? {
+                      title: itemTitle(next),
+                      person: next.recording.personLabel,
+                      durationSeconds: next.recording.durationSeconds,
+                  }
+                : null,
+        [next]
+    )
+    const replay = useCallback((): void => {
+        setEnded(false)
+        endedRef.current = false
+        setCountdownCancelled(false)
+        seekSession(unitRef.current === 'moment' ? domainRef.current.start : 0)
+        play()
+    }, [seekSession, play])
+    const advance = useCallback((): void => onAdvance(index), [onAdvance, index])
+
+    const scrubberBottom = Math.max(insets.bottom - 8, 10)
+    const captionBottom = scrubberBottom + 52
+    const flag = countryFlag(recording.countryCode)
+    const ago = recording.startedAt ? formatRelativeAgo(recording.startedAt, new Date()) : null
+    const [expanded, setExpanded] = useState(false)
+    const anchorColor =
+        moment.kind === 'exception' ? tickColors.error : moment.kind === 'key' ? tickColors.key : tickColors.rage
+
+    return (
+        <View style={[styles.card, { width, height }]} testID={`feed-card-${index}`}>
+            <Animated.View style={[StyleSheet.absoluteFill, stageStyle]}>
+                {!bleed && posterUri ? (
+                    <Image
+                        source={{ uri: posterUri }}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode="cover"
+                        blurRadius={36}
+                        accessibilityIgnoresInvertColors
+                    />
+                ) : null}
+                {!bleed ? <View style={[StyleSheet.absoluteFill, styles.ambientDim]} /> : null}
+                <View
+                    style={[
+                        styles.frame,
+                        { top: frame.top, height: frame.height, left: frame.left, width: frame.width },
+                        framed && styles.framedPhone,
+                    ]}
+                >
+                    {player ? (
+                        <VideoView
+                            player={player}
+                            style={StyleSheet.absoluteFill}
+                            nativeControls={false}
+                            contentFit={bleed ? 'cover' : 'contain'}
+                            allowsPictureInPicture={false}
+                            onFirstFrameRender={() => setFirstFrame(true)}
+                            testID={active ? 'feed-video' : undefined}
+                        />
+                    ) : null}
+                    <Animated.View style={[StyleSheet.absoluteFill, posterStyle]} pointerEvents="none">
+                        {posterUri ? (
+                            <Image
+                                source={{ uri: posterUri }}
+                                style={StyleSheet.absoluteFill}
+                                resizeMode={bleed ? 'cover' : 'contain'}
+                                accessibilityIgnoresInvertColors
+                            />
+                        ) : (
+                            <View style={[StyleSheet.absoluteFill, styles.textPoster]}>
+                                <Text style={styles.textPosterPath} numberOfLines={1}>
+                                    {recording.startPath ?? ''}
+                                </Text>
+                            </View>
+                        )}
+                    </Animated.View>
+                </View>
+            </Animated.View>
+            <View style={[styles.fadeTop, { height: insets.top + 110 }]} pointerEvents="none">
+                <FadeEdge direction="down" solid={0} color="#000000" opacity={0.55} />
+            </View>
+            <View style={[styles.fadeBottom, { height: height * 0.46 }]} pointerEvents="none">
+                <FadeEdge direction="up" solid={0.1} color="#000000" opacity={0.78} curve="smooth" />
+            </View>
+
+            <GestureDetector gesture={gesture}>
+                <View style={StyleSheet.absoluteFill} collapsable={false} />
+            </GestureDetector>
+
+            {ladder ? (
+                <View
+                    style={[styles.ladder, { top: frame.top, height: bleed ? height * 0.62 : frame.height }]}
+                    pointerEvents="box-none"
+                >
+                    <RenderLadder
+                        state={ladder}
+                        onPlay={() => requestRender('tap')}
+                        onRetry={() => requestRender('tap')}
+                        onOpenWeb={() => onOpenWeb(item, startSeconds)}
+                        onCheckAgain={onRecheck}
+                        nextReady={
+                            nextReady ? { title: nextReady.title, onPress: () => onJumpTo(nextReady.index) } : null
+                        }
+                    />
+                </View>
+            ) : null}
+
+            {active && paused && showVideo && !ended ? (
+                <View
+                    style={[styles.pausedGlyph, { top: frame.top + frame.height / 2 - 34, left: width / 2 - 34 }]}
+                    pointerEvents="none"
+                >
+                    <PlayIcon size={28} color={feedColors.text} />
+                </View>
+            ) : null}
+
+            {unit === 'moment' && moments.length > 1 ? (
+                <View style={[styles.dots, { top: insets.top + 58 }]} pointerEvents="none" testID="feed-moment-dots">
+                    {moments.map((item, position) => (
+                        <View key={item.key} style={[styles.dot, position === safeIndex && styles.dotOn]} />
+                    ))}
+                    <Text style={styles.dotsLabel}>{`Moment ${safeIndex + 1} of ${moments.length}`}</Text>
+                </View>
+            ) : null}
+
+            {holding ? (
+                <Animated.View
+                    entering={FadeIn.duration(120)}
+                    exiting={FadeOut.duration(120)}
+                    style={[styles.holdChip, { top: insets.top + 88 }]}
+                    pointerEvents="none"
+                    testID="feed-hold-chip"
+                >
+                    <Text style={styles.holdText}>{`${HOLD_SPEED}× speed`}</Text>
+                </Animated.View>
+            ) : null}
+
+            {toast ? (
+                <Animated.View
+                    key={toast.id}
+                    entering={FadeIn.duration(140)}
+                    exiting={FadeOut.duration(180)}
+                    style={[styles.toast, { top: insets.top + 88 }]}
+                    pointerEvents="none"
+                    testID="feed-toast"
+                >
+                    <Text style={styles.toastText} numberOfLines={2}>
+                        {toast.text}
+                    </Text>
+                </Animated.View>
+            ) : null}
+
+            <View style={[styles.rail, { bottom: captionBottom }]} pointerEvents="box-none">
+                <FeedRail
+                    unit={unit}
+                    speed={settings.speed}
+                    onUnit={() => onUnit(unit === 'moment' ? 'session' : 'moment')}
+                    onSpeed={onSpeed}
+                    onChat={() => onChat(item)}
+                    onInfo={() => onInfo(item, timeline)}
+                />
+            </View>
+
+            <View style={[styles.caption, { bottom: captionBottom }]} pointerEvents="box-none">
+                <Text style={styles.person} numberOfLines={1}>
+                    {[flag, recording.personLabel].filter(Boolean).join(' ')}
+                    {ago ? <Text style={styles.personAgo}>{` · ${ago}`}</Text> : null}
+                </Text>
+                <Pressable
+                    onPress={() => setExpanded((open) => !open)}
+                    accessibilityRole="button"
+                    accessibilityLabel={expanded ? 'Show less' : 'Show the summary'}
+                >
+                    <Text style={styles.title} numberOfLines={expanded ? 4 : 2}>
+                        {itemTitle(item)}
+                    </Text>
+                    {expanded && summary?.text ? (
+                        <Text style={styles.summary} numberOfLines={7}>
+                            {summary.text}
+                        </Text>
+                    ) : null}
+                </Pressable>
+                <Text style={styles.meta} numberOfLines={1}>
+                    {feedMetaLine({ timeline, durationSeconds, keyMomentMs: summary?.keyMomentMs ?? null })}
+                </Text>
+                {unit === 'moment' ? (
+                    <View style={styles.anchorRow}>
+                        <View style={[styles.anchorDot, { backgroundColor: anchorColor }]} />
+                        <Text style={styles.anchor} numberOfLines={1}>
+                            {moment.label}
+                        </Text>
+                    </View>
+                ) : (
+                    <Text style={styles.wholeSession} numberOfLines={1}>
+                        {`Whole session · ${compactDuration(durationSeconds)}`}
+                    </Text>
+                )}
+            </View>
+
+            <View style={[styles.scrubber, { bottom: scrubberBottom }]} pointerEvents="box-none">
+                <FeedScrubber
+                    start={domain.start}
+                    end={domain.end}
+                    position={position}
+                    ticks={ticks}
+                    expanded={(paused && active) || ended}
+                    leftLabel={
+                        unit === 'moment'
+                            ? signed(domain.start - moment.anchorSeconds)
+                            : formatOffset(nowSeconds * 1000)
+                    }
+                    rightLabel={
+                        unit === 'moment'
+                            ? signed(domain.end - moment.anchorSeconds)
+                            : formatOffset(durationSeconds * 1000)
+                    }
+                    idleLabel={formatOffset(nowSeconds * 1000)}
+                    onScrubStart={onScrubStart}
+                    onScrub={onScrub}
+                    onScrubEnd={onScrubEnd}
+                />
+            </View>
+
+            {active && ended ? (
+                <View style={styles.upNext} pointerEvents="box-none">
+                    <UpNextCard
+                        next={nextInfo}
+                        countdown={settings.autoplayNext && nextInfo !== null && !countdownCancelled}
+                        onPlay={advance}
+                        onCancel={() => setCountdownCancelled(true)}
+                        onReplay={replay}
+                    />
+                </View>
+            ) : null}
+        </View>
+    )
+}
+
+function sameItemTitle(a: FeedItem | null, b: FeedItem | null): boolean {
+    return a?.recording.sessionId === b?.recording.sessionId && a?.summary?.title === b?.summary?.title
+}
+
+/** The screen re-renders on every page change; a card re-renders only when something it shows changed. */
+export const FeedCard = memo(FeedCardBody, (previous, next) => {
+    for (const key of Object.keys(next) as (keyof FeedCardProps)[]) {
+        if (key === 'pool') {
+            const a = previous.pool
+            const b = next.pool
+            if (a?.player !== b?.player || a?.key !== b?.key || a?.loaded !== b?.loaded) {
+                return false
+            }
+        } else if (key === 'insets') {
+            if (previous.insets.top !== next.insets.top || previous.insets.bottom !== next.insets.bottom) {
+                return false
+            }
+        } else if (key === 'next') {
+            if (!sameItemTitle(previous.next, next.next)) {
+                return false
+            }
+        } else if (key === 'nextReady') {
+            if (
+                previous.nextReady?.index !== next.nextReady?.index ||
+                previous.nextReady?.title !== next.nextReady?.title
+            ) {
+                return false
+            }
+        } else if (previous[key] !== next[key]) {
+            return false
+        }
+    }
+    return true
+})
+
+const useStyles = createStyles(() => ({
+    card: {
+        backgroundColor: feedColors.stage,
+        overflow: 'hidden',
+    },
+    ambientDim: {
+        backgroundColor: feedColors.ambientDim,
+    },
+    frame: {
+        position: 'absolute',
+        backgroundColor: feedColors.stage,
+        overflow: 'hidden',
+    },
+    framedPhone: {
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: feedColors.glassBorder,
+    },
+    textPoster: {
+        backgroundColor: '#15161A',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    textPosterPath: {
+        fontSize: 13,
+        color: feedColors.textFaint,
+        fontWeight: '600',
+    },
+    fadeTop: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+    },
+    fadeBottom: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+    },
+    ladder: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+    },
+    pausedGlyph: {
+        position: 'absolute',
+        width: 68,
+        height: 68,
+        borderRadius: 34,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingLeft: 4,
+        backgroundColor: feedColors.glass,
+    },
+    dots: {
+        position: 'absolute',
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        height: 26,
+        paddingHorizontal: 10,
+        borderRadius: 13,
+        backgroundColor: feedColors.glass,
+    },
+    dot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: 'rgba(255,255,255,0.4)',
+    },
+    dotOn: {
+        width: 16,
+        backgroundColor: feedColors.text,
+    },
+    dotsLabel: {
+        marginLeft: 4,
+        fontSize: 12,
+        fontWeight: '600',
+        color: feedColors.text,
+    },
+    holdChip: {
+        position: 'absolute',
+        alignSelf: 'center',
+        height: 32,
+        paddingHorizontal: 14,
+        borderRadius: 16,
+        justifyContent: 'center',
+        backgroundColor: feedColors.glassStrong,
+    },
+    holdText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: feedColors.text,
+    },
+    toast: {
+        position: 'absolute',
+        alignSelf: 'center',
+        maxWidth: 320,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: 18,
+        backgroundColor: feedColors.glassStrong,
+        borderWidth: 1,
+        borderColor: feedColors.glassBorder,
+    },
+    toastText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: feedColors.text,
+        textAlign: 'center',
+    },
+    rail: {
+        position: 'absolute',
+        right: 6,
+    },
+    caption: {
+        position: 'absolute',
+        left: 16,
+        right: 84,
+        gap: 4,
+    },
+    person: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: feedColors.text,
+        ...feedTextShadow,
+    },
+    personAgo: {
+        fontWeight: '500',
+        color: feedColors.textMuted,
+    },
+    title: {
+        fontSize: 17,
+        fontWeight: '700',
+        lineHeight: 22,
+        color: feedColors.text,
+        ...feedTextShadow,
+    },
+    summary: {
+        marginTop: 4,
+        fontSize: 14,
+        lineHeight: 19,
+        color: feedColors.textMuted,
+        ...feedTextShadow,
+    },
+    meta: {
+        fontSize: 13,
+        color: feedColors.textMuted,
+        ...feedTextShadow,
+    },
+    anchorRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+        marginTop: 2,
+    },
+    anchorDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    anchor: {
+        flexShrink: 1,
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#FFD2B8',
+        ...feedTextShadow,
+    },
+    wholeSession: {
+        marginTop: 2,
+        fontSize: 13,
+        fontWeight: '600',
+        color: feedColors.textMuted,
+        ...feedTextShadow,
+    },
+    scrubber: {
+        position: 'absolute',
+        left: 16,
+        right: 16,
+    },
+    upNext: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+}))
