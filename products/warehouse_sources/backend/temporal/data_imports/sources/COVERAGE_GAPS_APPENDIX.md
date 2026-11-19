@@ -843,10 +843,10 @@ Diffed against: <https://docs.arcade.software/kb/leverage/advanced-features/rest
 - [x] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
 - [x] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
 - [x] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
-- [ ] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
-- [ ] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
-- [ ] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)
-- [ ] `Companies (POST /insights, type=companies)` — connects company engagement to individual demos and selected date ranges (medium)
+- [x] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
+- [x] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
+- [x] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)
+- [x] `Companies (POST /insights, type=companies)` — connects company engagement to individual demos and selected date ranges (medium)
 
 Note: Read every documented insight type and compared it with overviewPlays and companiesForLeads in the source settings. Analytical reads use POST /insights, with the type field selecting the report. Most missing reports need requests for each flow and date range. Excluded provisioning writes and team memberships, which GET /teams already embeds.
 
