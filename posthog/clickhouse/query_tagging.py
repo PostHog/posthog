@@ -251,6 +251,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.ACCOUNTS_TABLE_QUERY
             | NodeKind.ACCOUNT_USERS_QUERY
             | NodeKind.ACCOUNT_ACTIVITY_MATRIX_QUERY
+            | NodeKind.ACCOUNT_AGENT_ACTIVITY_QUERY
             | NodeKind.BOOK_ACTIVITY_MATRIX_QUERY
             | NodeKind.BOOK_ACTIVITY_PEOPLE_QUERY
             | NodeKind.BOOK_ACTIVITY_FIRSTS_QUERY
