@@ -15,6 +15,7 @@ from django.contrib.auth import (
     logout as auth_logout,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_login_failed
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
@@ -109,7 +110,13 @@ from posthog.utils import (
     get_short_user_agent,
     get_trusted_client_ip,
 )
-from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+from posthog.workos_radar import (
+    RadarAction,
+    RadarAuthMethod,
+    SuspiciousAttemptBlocked,
+    evaluate_auth_attempt,
+    radar_client_id_for_login,
+)
 
 from products.security.backend.facade.api import (
     REFUSAL_CODE as SECURITY_REFUSAL_CODE,
@@ -320,9 +327,24 @@ def require_verified_email_for_login(user: User) -> None:
     raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
+class _BrowserTokenField(serializers.Field):
+    """A token the login page may send. A value that is not a string reads as empty, so it never fails a login."""
+
+    def to_internal_value(self, data: Any) -> str:
+        return data if isinstance(data, str) else ""
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    radar_signals_id = _BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this login.",
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -384,14 +406,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        evaluate_auth_attempt(
-            request=request._request,
-            email=validated_data["email"],
-            action=RadarAction.SIGNIN,
-            auth_method=RadarAuthMethod.PASSWORD,
-            user_id=str(existing_user.distinct_id) if existing_user else None,
-        )
-
         axes_request = getattr(request, "_request", request)
         was_authenticated_before_login_attempt = bool(
             getattr(request, "user", None)
@@ -406,6 +420,29 @@ class LoginSerializer(serializers.Serializer):
         # Check if axes has locked out this IP/user before attempting authentication
         if handler.is_locked(axes_request, credentials=axes_credentials):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
+        # A re-auth comes from a signed-in session, so Radar has nothing to add to it. The login
+        # form cannot show a Turnstile challenge, so only a block verdict refuses the login.
+        if not was_authenticated_before_login_attempt:
+            try:
+                evaluate_auth_attempt(
+                    request=request._request,
+                    # Radar knows the account by its stored address, not the variant spelling the lookup folded
+                    email=existing_user.email if existing_user else validated_data["email"],
+                    action=RadarAction.SIGNIN,
+                    auth_method=RadarAuthMethod.PASSWORD,
+                    user_id=str(existing_user.distinct_id) if existing_user else None,
+                    challenge_allowed=False,
+                    call_site="login",
+                    signals_id=str(validated_data.get("radar_signals_id") or ""),
+                    account_id=str(existing_user.uuid) if existing_user else None,
+                )
+            except SuspiciousAttemptBlocked:
+                # Counts toward the lockout above, so a repeating caller stops costing Radar calls
+                user_login_failed.send(
+                    sender=__name__, credentials={"email": validated_data["email"]}, request=axes_request
+                )
+                raise
 
         user = cast(
             User | None,
@@ -533,13 +570,16 @@ class LoginPrecheckSerializer(serializers.Serializer):
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
         oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
-        return {
+        response: dict[str, Any] = {
             "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
             "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
+        if radar_client_id := radar_client_id_for_login():
+            response["radar_client_id"] = radar_client_id
+        return response
 
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
