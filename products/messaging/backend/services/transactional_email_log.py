@@ -794,7 +794,6 @@ def _escaped_literal_bytes(value: str) -> int:
 
 def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
-    start_ms, end_ms = _events_range_ms([send.since for send in sends], window)
     response = execute_hogql_query(
         """
         SELECT DISTINCT sends.message_id
@@ -817,8 +816,7 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
         placeholders={
             "revenue": ast.Constant(value=None),
             "event": ast.Constant(value=event),
-            "start_ms": ast.Constant(value=start_ms),
-            "end_ms": ast.Constant(value=end_ms),
+            **_events_range_placeholders([send.since for send in sends], window),
             "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
             "message_ids": ast.Constant(value=[send.message_id for send in sends]),
             "recipients": ast.Constant(value=[send.recipient for send in sends]),
@@ -879,8 +877,11 @@ def _epoch_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
 
-def _events_range_ms(sent_at: list[datetime], window: timedelta) -> tuple[int, int]:
-    return _epoch_ms(min(sent_at)), _epoch_ms(max(sent_at) + window + timedelta(seconds=1))
+def _events_range_placeholders(sent_at: list[datetime], window: timedelta) -> dict[str, ast.Expr]:
+    return {
+        "start_ms": ast.Constant(value=_epoch_ms(min(sent_at))),
+        "end_ms": ast.Constant(value=_epoch_ms(max(sent_at) + window + timedelta(seconds=1))),
+    }
 
 
 @frozen
@@ -912,7 +913,6 @@ def _conversions(
         else ast.Constant(value=None)
     )
     recipients = list(first_send)
-    start_ms, end_ms = _events_range_ms(list(first_send.values()), window)
     response = execute_hogql_query(
         """
         SELECT conversions.recipient, min(conversions.timestamp), sum(conversions.value)
@@ -933,8 +933,7 @@ def _conversions(
         placeholders={
             "revenue": revenue,
             "event": ast.Constant(value=event),
-            "start_ms": ast.Constant(value=start_ms),
-            "end_ms": ast.Constant(value=end_ms),
+            **_events_range_placeholders(list(first_send.values()), window),
             "distinct_ids": ast.Constant(value=distinct_ids),
             "recipients": ast.Constant(value=recipients),
             "sent_at_ms": ast.Constant(value=[_epoch_ms(first_send[recipient]) for recipient in recipients]),
