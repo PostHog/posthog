@@ -2687,11 +2687,10 @@ CREATE TABLE posthog.sharded_series_values_preaggregated (
   job_id UUID,
   time_window_start DateTime64(6, 'UTC'),
   series_key String,
-  breakdown_value Array(String),
   value Float64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.series_values_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, series_key, breakdown_value, time_window_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.series_values_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, series_key, time_window_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_session_replay_embeddings (
   session_id String,
   team_id Int64,
@@ -7431,7 +7430,6 @@ CREATE TABLE posthog.series_values_preaggregated (
   job_id UUID,
   time_window_start DateTime64(6, 'UTC'),
   series_key String,
-  breakdown_value Array(String),
   value Float64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)

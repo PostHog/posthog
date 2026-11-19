@@ -10184,9 +10184,6 @@ SQL
     column "series_key" {
       type = "String"
     }
-    column "breakdown_value" {
-      type = "Array(String)"
-    }
     column "value" {
       type = "Float64"
     }
@@ -13691,7 +13688,7 @@ SQL
   }
 
   table "sharded_series_values_preaggregated" {
-    order_by     = ["team_id", "job_id", "series_key", "breakdown_value", "time_window_start"]
+    order_by     = ["team_id", "job_id", "series_key", "time_window_start"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -13709,9 +13706,6 @@ SQL
     }
     column "series_key" {
       type = "String"
-    }
-    column "breakdown_value" {
-      type = "Array(String)"
     }
     column "value" {
       type = "Float64"

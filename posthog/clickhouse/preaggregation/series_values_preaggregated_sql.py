@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS {table_name}
     job_id UUID,
     time_window_start DateTime64(6, 'UTC'),
     series_key String,
-    breakdown_value Array(String),
     value Float64,
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
     expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
@@ -37,7 +36,7 @@ def SHARDED_SERIES_VALUES_PREAGGREGATED_TABLE_SQL():
         SERIES_VALUES_PREAGGREGATED_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMMDD(expires_at)
-ORDER BY (team_id, job_id, series_key, breakdown_value, time_window_start)
+ORDER BY (team_id, job_id, series_key, time_window_start)
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
 """

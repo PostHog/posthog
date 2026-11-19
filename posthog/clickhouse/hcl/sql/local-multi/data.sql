@@ -872,7 +872,6 @@ CREATE TABLE posthog.series_values_preaggregated (
   job_id UUID,
   time_window_start DateTime64(6, 'UTC'),
   series_key String,
-  breakdown_value Array(String),
   value Float64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)

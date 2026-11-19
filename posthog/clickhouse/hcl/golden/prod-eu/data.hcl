@@ -4682,9 +4682,6 @@ database "posthog" {
     column "series_key" {
       type = "String"
     }
-    column "breakdown_value" {
-      type = "Array(String)"
-    }
     column "value" {
       type = "Float64"
     }
