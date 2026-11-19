@@ -1,12 +1,13 @@
 import { Collapsible } from '@base-ui/react/collapsible'
-import type { MouseEvent, ReactNode } from 'react'
+import { type MouseEvent, type ReactNode, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
-import { IconStack, IconStackItem } from '@posthog/quill'
+import { IconStack, IconStackItem, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import type { TodayRowIcon } from './todayRowIcons'
+import { TodayRowMeta } from './TodayRowMeta'
 import { isPlainClick, navigateWithCrossfade } from './todayViewTransition'
 
 function isExternalHref(href: string): boolean {
@@ -27,6 +28,8 @@ interface TodayRowProps {
     title: string
     label?: string
     facts: string[]
+    /** Why the personal ranking placed the row, shown after the facts. */
+    reason?: string | null
     to?: string
     onOpen?: () => void
     expansion?: TodayRowExpansion
@@ -43,6 +46,7 @@ export function TodayRow({
     title,
     label,
     facts,
+    reason,
     to,
     onOpen,
     expansion,
@@ -54,6 +58,7 @@ export function TodayRow({
 }: TodayRowProps): JSX.Element {
     const external = !!to && isExternalHref(to)
     const expanded = !!expansion?.expanded
+    const [reasonTruncated, setReasonTruncated] = useState(false)
     const openReport = (event: MouseEvent<HTMLElement>): void => {
         onOpen?.()
         if (to && reportId && isPlainClick(event)) {
@@ -61,45 +66,51 @@ export function TodayRow({
             navigateWithCrossfade(to)
         }
     }
+    const titleControl = expansion ? (
+        <Collapsible.Trigger
+            className="TodayRow__title TodayRow__link TodayRow__toggle"
+            data-today-report={reportId}
+            data-attr={`${dataAttr}-toggle`}
+        >
+            {title}
+        </Collapsible.Trigger>
+    ) : to ? (
+        <LinkPrimitive
+            to={to}
+            target={external ? '_blank' : undefined}
+            className="TodayRow__title TodayRow__link"
+            onClick={openReport}
+            data-today-report={reportId}
+            data-attr={dataAttr}
+        >
+            {title}
+        </LinkPrimitive>
+    ) : (
+        <span className="TodayRow__title">{title}</span>
+    )
     const content = (
         <>
             <IconStack className="TodayRow__icons">
                 <IconStackItem color={icon.color}>{icon.glyph}</IconStackItem>
             </IconStack>
             <div className="min-w-0">
-                {expansion ? (
-                    <Collapsible.Trigger
-                        className="TodayRow__title TodayRow__link TodayRow__toggle"
-                        data-today-report={reportId}
-                        data-attr={`${dataAttr}-toggle`}
-                    >
-                        {title}
-                    </Collapsible.Trigger>
-                ) : to ? (
-                    <LinkPrimitive
-                        to={to}
-                        target={external ? '_blank' : undefined}
-                        className="TodayRow__title TodayRow__link"
-                        onClick={openReport}
-                        data-today-report={reportId}
-                        data-attr={dataAttr}
-                    >
-                        {title}
-                    </LinkPrimitive>
+                {reason ? (
+                    <Tooltip disabled={!reasonTruncated}>
+                        <TooltipTrigger render={titleControl} />
+                        <TooltipContent align="start" className="max-w-80">
+                            {reason}
+                        </TooltipContent>
+                    </Tooltip>
                 ) : (
-                    <span className="TodayRow__title">{title}</span>
+                    titleControl
                 )}
-                <p className="TodayRow__meta">
-                    {[label, ...facts].filter(Boolean).map((part, index) => (
-                        <span
-                            key={`${index}-${part}`}
-                            className={index === 0 && label ? 'TodayRow__label' : undefined}
-                            data-tone={index === 0 && label ? tone : undefined}
-                        >
-                            {index === 0 ? part : ` · ${part}`}
-                        </span>
-                    ))}
-                </p>
+                <TodayRowMeta
+                    tone={tone}
+                    label={label}
+                    facts={facts}
+                    reason={reason}
+                    onTruncatedChange={setReasonTruncated}
+                />
             </div>
             <div className="TodayRow__end">
                 {actions && !done && !expanded && <div className="TodayRow__actions">{actions}</div>}

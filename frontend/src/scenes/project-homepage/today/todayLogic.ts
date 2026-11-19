@@ -31,7 +31,9 @@ import { TeamPublicType, TeamType, UserType } from '~/types'
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
 import {
+    NO_TODAY_REPORT_RANKING,
     TodayReportList,
+    TodayReportRanking,
     TodayReportSnapshot,
     captureTodayReportAction,
     captureTodayReportsImpressed,
@@ -91,6 +93,8 @@ export interface TodayReportOpenContext {
     rank: number | null
     listSize: number | null
     source: TodayReportOpenSource | 'step'
+    /** Read from the list row, because the report page loads the report without its personal fields. */
+    ranking?: TodayReportRanking
 }
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
@@ -104,6 +108,8 @@ export interface TodayReports {
     count: number
     /** The personal ranking that ordered the list, so the reports past it keep the same order. */
     rankingId?: string | null
+    /** The ranker that ordered the list, null when the response names none. */
+    rankerId?: string | null
 }
 
 export interface TodayMoreReports {
@@ -111,6 +117,7 @@ export interface TodayMoreReports {
     results: SignalReport[]
     count: number
     hasMore: boolean
+    rankerId?: string | null
 }
 
 /** The report a Today report page shows, read from a path such as `/project/1/home/reports/abc`. */
@@ -144,13 +151,25 @@ async function currentReportContext(
     return { report: current ?? report, canAct: !!current && isActionCapableReport(current) }
 }
 
-export function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
+function todayReportRanking(report: SignalReport, rankerId: string | null | undefined): TodayReportRanking {
+    return {
+        rankerId: rankerId ?? null,
+        personalTier: report.personal_tier ?? null,
+        personalReasonShown: !!report.personal_reason,
+    }
+}
+
+export function signalReportSnapshot(
+    report: SignalReport,
+    ranking: TodayReportRanking = NO_TODAY_REPORT_RANKING
+): TodayReportSnapshot {
     return {
         reportId: report.id,
         priority: report.priority ?? null,
         hasPr: reportPullRequests(report).length > 0,
         signalCount: report.signal_count,
         sourceProducts: report.source_products ?? [],
+        ...ranking,
     }
 }
 
@@ -564,6 +583,7 @@ export const todayLogic = kea<todayLogicType>([
                         results: response.results as unknown as SignalReport[],
                         count: response.count,
                         rankingId: response.ranking_id,
+                        rankerId: response.ranker ?? null,
                     }
                 },
             },
@@ -590,6 +610,7 @@ export const todayLogic = kea<todayLogicType>([
                         results,
                         count: response.count,
                         hasMore: response.results.length === MORE_REPORTS_PAGE_SIZE && results.length < response.count,
+                        rankerId: response.ranker ?? null,
                     }
                 },
             },
@@ -847,6 +868,11 @@ export const todayLogic = kea<todayLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        const rowRanking = (report: SignalReport, source: TodayReportOpenSource): TodayReportRanking =>
+            todayReportRanking(
+                report,
+                source === 'more' ? values.currentMoreReports?.rankerId : values.topReports?.rankerId
+            )
         // The ranking dataset reads these as the home's exposure log: one impression per report per mount,
         // like the Inbox list.
         const impress = (list: TodayReportList, ranked: TodayRankedReport[], listSize: number): void => {
@@ -872,7 +898,7 @@ export const todayLogic = kea<todayLogicType>([
             impress(
                 'briefing',
                 reportRows(rows, 'list').map((row, index) => ({
-                    report: signalReportSnapshot(row.report),
+                    report: signalReportSnapshot(row.report, rowRanking(row.report, 'list')),
                     rank: index + 1,
                 })),
                 values.reports.length
@@ -880,7 +906,10 @@ export const todayLogic = kea<todayLogicType>([
             const moreRows = reportRows(rows, 'more')
             impress(
                 'sidebar_more',
-                moreRows.map((row, index) => ({ report: signalReportSnapshot(row.report), rank: index + 1 })),
+                moreRows.map((row, index) => ({
+                    report: signalReportSnapshot(row.report, rowRanking(row.report, 'more')),
+                    rank: index + 1,
+                })),
                 moreRows.length
             )
         }
@@ -1032,12 +1061,14 @@ export const todayLogic = kea<todayLogicType>([
             reportOpened: ({ report, source }) => {
                 const listRows = reportRows(values.forYouRows.rows, source)
                 const rank = listRows.findIndex((row) => row.report.id === report.id) + 1
+                const ranking = rowRanking(report, source)
                 actions.setReportOpenContext({
                     reportId: report.id,
                     list: source === 'more' ? 'sidebar_more' : 'briefing',
                     rank: rank || null,
                     listSize: listRows.length,
                     source,
+                    ranking,
                 })
                 if (values.useSampleData) {
                     return
@@ -1048,6 +1079,9 @@ export const todayLogic = kea<todayLogicType>([
                     priority: report.priority ?? null,
                     has_pr: !!report.implementation_pr_url,
                     source,
+                    ranker_id: ranking.rankerId,
+                    personal_tier: ranking.personalTier,
+                    personal_reason_shown: ranking.personalReasonShown,
                 })
             },
         }

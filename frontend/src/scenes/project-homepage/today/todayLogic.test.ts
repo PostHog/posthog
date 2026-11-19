@@ -220,8 +220,8 @@ describe('todayLogic', () => {
 
     it('sends the Inbox ranking label events for the reports the home shows and acts on', async () => {
         const capture = jest.spyOn(posthog, 'capture')
-        const report = makeReport({ id: 'a' })
-        listResponse = [200, { results: [report], count: 1 }]
+        const report = makeReport({ id: 'a', personal_tier: 'top', personal_reason: 'You own this area.' })
+        listResponse = [200, { results: [report], count: 1, ranker: 'personal' }]
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -251,7 +251,15 @@ describe('todayLogic', () => {
                     expect.objectContaining({
                         surface: 'today',
                         list: 'briefing',
-                        impressions: [expect.objectContaining({ report_id: 'a', rank: 1 })],
+                        impressions: [
+                            expect.objectContaining({
+                                report_id: 'a',
+                                rank: 1,
+                                ranker_id: 'personal',
+                                personal_tier: 'top',
+                                personal_reason_shown: true,
+                            }),
+                        ],
                     }),
                     undefined,
                 ],
@@ -263,6 +271,9 @@ describe('todayLogic', () => {
                         open_method: 'click',
                         list: 'briefing',
                         rank: 1,
+                        ranker_id: 'personal',
+                        personal_tier: 'top',
+                        personal_reason_shown: true,
                     }),
                     undefined,
                 ],
@@ -272,6 +283,15 @@ describe('todayLogic', () => {
                     undefined,
                 ],
             ])
+        )
+        expect(capture).toHaveBeenCalledWith(
+            'today report opened',
+            expect.objectContaining({
+                report_id: 'a',
+                ranker_id: 'personal',
+                personal_tier: 'top',
+                personal_reason_shown: true,
+            })
         )
     })
 

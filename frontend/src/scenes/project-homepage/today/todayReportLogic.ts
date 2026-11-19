@@ -562,7 +562,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 return
             }
             captureTodayReportOpened({
-                report: signalReportSnapshot(report),
+                report: signalReportSnapshot(report, context?.ranking),
                 openMethod: context ? 'click' : 'deeplink',
                 linkSource,
                 list: context?.list ?? null,
