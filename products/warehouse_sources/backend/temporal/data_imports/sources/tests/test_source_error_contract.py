@@ -181,7 +181,6 @@ ONE_AUTH_STATUS_CLASSIFIED: dict[str, str] = {
     "Discourse": "403",
     "Expo": "401",
     "Faire": "401",
-    "FusionAuth": "401",
     "GooglePageSpeedInsights": "403",
     "GoogleWebfonts": "403",
     "Healthchecks": "401",

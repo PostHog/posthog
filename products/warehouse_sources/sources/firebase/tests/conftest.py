@@ -1,8 +1,10 @@
 import json
-from collections.abc import Iterator
+import threading
+from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
 import pytest
+from unittest import mock
 
 import requests
 import structlog
@@ -116,6 +118,38 @@ class FakeSession:
     def as_session(self) -> requests.Session:
         """Hand this fake to helpers that take a real `requests.Session`."""
         return cast("requests.Session", self)
+
+
+class RoutedSession:
+    """Thread-safe stand-in for the tracked session that answers each request by its URL.
+
+    `FakeSession` hands out queued responses in call order, which only holds while requests run one
+    at a time. Discovery probes collections concurrently, so its tests answer by URL instead.
+    """
+
+    def __init__(self, route: Callable[[str, str, dict[str, Any]], FakeResponse]) -> None:
+        self._route = route
+        self._lock = threading.Lock()
+        self.requests: list[tuple[str, str, dict[str, Any]]] = []
+
+    def request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
+        with self._lock:
+            self.requests.append((method, url, kwargs))
+        return self._route(method, url, kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> FakeResponse:
+        return FakeResponse(payload=TOKEN_PAYLOAD)
+
+    def as_session(self) -> requests.Session:
+        return cast("requests.Session", self)
+
+
+@pytest.fixture(autouse=True)
+def _discover_one_collection_at_a_time() -> Iterator[None]:
+    # `FakeSession` answers in call order, so tests built on it need discovery to run serially.
+    # Tests of the concurrent path patch this back up with a `RoutedSession`.
+    with mock.patch("products.warehouse_sources.sources.firebase.firebase.FIRESTORE_DISCOVERY_CONCURRENCY", 1):
+        yield
 
 
 class FakeResumeManager(ResumableSourceManager[FirebaseResumeConfig]):

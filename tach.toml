@@ -91,6 +91,7 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
+    "products.growth",
     "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
@@ -1741,7 +1742,7 @@ from = [
 
 [[modules]]
 path = "products.apm"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.tracing"]
 layer = "modules"
 
 [[modules]]

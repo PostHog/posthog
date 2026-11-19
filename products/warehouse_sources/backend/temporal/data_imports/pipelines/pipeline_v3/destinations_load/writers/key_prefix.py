@@ -8,23 +8,21 @@ from __future__ import annotations
 
 import datetime as dt
 
-from products.batch_exports.backend.facade.key_prefix import datetime_template_variables, render_key_prefix_template
+from products.batch_exports.backend.facade.destinations.s3 import render_key_prefix
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
-
-
-def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table: str) -> str:
-    """Fill the prefix the way a batch export fills its key prefix, with times from the run's start in UTC."""
-    variables = {"table": table}
-    if run_started_at is not None:
-        variables |= datetime_template_variables(run_started_at.astimezone(dt.UTC))
-    return render_key_prefix_template(prefix, variables)
 
 
 def run_object_prefix(ctx: DestinationRunContext) -> str:
     """The folder every object of the run goes under, ending in a slash."""
     raw_prefix: str = (ctx.config or {}).get("prefix") or ""
-    prefix = render_key_prefix(raw_prefix, run_started_at=ctx.run_started_at, table=ctx.table_name).strip("/")
+    # Batch exports' renderer returns the prefix as typed when it cannot fill it.
+    rendered_prefix = (
+        render_key_prefix(raw_prefix, at=ctx.run_started_at.astimezone(dt.UTC), table=ctx.table_name)
+        if ctx.run_started_at is not None
+        else raw_prefix
+    )
     # A prefix that places `{table}` itself already gives each table its own folder.
-    table_folder = "" if "{table}" in raw_prefix else ctx.table_name
-    parts = [p for p in (prefix, table_folder, ctx.run_uuid) if p]
+    filled_table = rendered_prefix != raw_prefix and "{table}" in raw_prefix
+    table_folder = "" if filled_table else ctx.table_name
+    parts = [p for p in (rendered_prefix.strip("/"), table_folder, ctx.run_uuid) if p]
     return f"{'/'.join(parts)}/"

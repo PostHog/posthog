@@ -11,6 +11,7 @@ from time import perf_counter
 from types import UnionType
 from typing import (
     Any,
+    ClassVar,
     Generic,
     Literal,
     NamedTuple,
@@ -168,9 +169,11 @@ from posthog.caching.utils import (
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    QueryLane,
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
@@ -328,6 +331,18 @@ class QueryIdentity:
 
     query_hash: str
     runtime_hash: str
+
+
+@frozen
+class CacheKeyIgnoredField:
+    name: str
+    when_value_in: tuple[object, ...] | None = None
+
+    def strip(self, query: dict[str, Any]) -> None:
+        if self.name not in query:
+            return
+        if self.when_value_in is None or query[self.name] in self.when_value_in:
+            del query[self.name]
 
 
 @frozen
@@ -2045,6 +2060,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    cache_key_ignored_fields: ClassVar[tuple[CacheKeyIgnoredField, ...]] = ()
 
     def __init__(
         self,
@@ -2516,6 +2532,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
         raise build_failure_exception(failure, with_scan=self._scan_replay_visible(failure, user))
 
+    def _query_lane(self, dashboard_id: Optional[int]) -> QueryLane:
+        """Which per-organization app limits this run takes its slots from."""
+        return QueryLane.ANALYTICS
+
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
 
@@ -2552,16 +2572,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
-                limiter_stack.enter_context(
-                    get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
+                if self._query_lane(dashboard_id) == QueryLane.TELEMETRY:
+                    limiter_stack.enter_context(
+                        get_app_telemetry_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
                     )
-                )
+                else:
+                    limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
+                    )
             self._phase = RunPhase(name="calculate", stats=get_active_query_stats())
             query_start_time = perf_counter()
             query_result = self.calculate()
@@ -3318,6 +3348,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
+        for ignored_field in self.cache_key_ignored_fields:
+            ignored_field.strip(query)
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
         query = strip_events_route_modifiers(query, drop_empty=True)
 

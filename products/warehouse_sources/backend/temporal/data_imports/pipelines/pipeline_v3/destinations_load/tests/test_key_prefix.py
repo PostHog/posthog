@@ -47,8 +47,8 @@ def _ctx(prefix: str | None, run_started_at: dt.datetime | None = STARTED, **con
             dt.datetime(2026, 3, 5, 1, 0, tzinfo=dt.timezone(dt.timedelta(hours=2))),
             "2026/03/04/charges/run-a1/",
         ),
-        ("{year}/{data_interval_end}/", STARTED, "2026/{data_interval_end}/charges/run-a1/"),
-        ("{year}/{table}/", None, "{year}/charges/run-a1/"),
+        ("{year}/{foo}/", STARTED, "{year}/{foo}/charges/run-a1/"),
+        ("{year}/{table}/", None, "{year}/{table}/charges/run-a1/"),
     ],
     ids=["no_prefix", "plain", "date_and_table", "time", "utc", "unknown_variable", "no_start_time"],
 )

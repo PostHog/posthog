@@ -28,6 +28,7 @@ import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getEuUserId, getUserAdminUrl } from 'lib/utils/userAdmin'
+import { flagCallsOnlyInFlagEvaluations } from 'scenes/feature-flags/flagEvaluationsTable'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -61,6 +62,7 @@ import { MergeSplitPerson } from '../components/MergeSplitPerson'
 import { PersonCohorts } from '../components/PersonCohorts'
 import { PersonDeleteModal } from '../components/PersonDeleteModal'
 import { PersonEmailsTab } from '../components/PersonEmailsTab'
+import { PersonFlagCallsTab } from '../components/PersonFlagCallsTab'
 import { PersonLogsTab } from '../components/PersonLogsTab'
 import PersonProfileCanvas from '../components/PersonProfileCanvas'
 import { PersonPushNotificationsTab } from '../components/PersonPushNotificationsTab'
@@ -417,6 +419,13 @@ export function PersonScene(): JSX.Element | null {
                             />
                         ),
                     },
+                    flagCallsOnlyInFlagEvaluations(currentTeam)
+                        ? {
+                              key: PersonsTabType.FLAG_CALLS,
+                              label: <span data-attr="persons-flag-calls-tab">Flag calls</span>,
+                              content: <PersonFlagCallsTab />,
+                          }
+                        : false,
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
                         label: <span data-attr="person-session-recordings-tab">Recordings</span>,
