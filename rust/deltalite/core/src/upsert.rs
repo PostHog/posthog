@@ -1192,8 +1192,9 @@ async fn upsert_inner(
     let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
 
     // Every row was older than its stored row, so the rewritten files hold what the live
-    // ones hold. Their writes stay unreferenced, like those of a failed commit.
+    // ones hold: drop them instead of committing a rewrite that changes nothing.
     if !opts.order_columns.is_empty() && stats.rows_updated + stats.rows_inserted == 0 {
+        delete_uncommitted(table, &actions).await;
         stats.files_added = 0;
         stats.files_removed = 0;
         stats.plan_ms = plan_ms;
@@ -1244,6 +1245,20 @@ async fn upsert_inner(
         "upsert committed"
     );
     Ok((stats, committed.state))
+}
+
+/// Best-effort delete of the files `actions` added, which no commit references.
+async fn delete_uncommitted(table: &DeltaTable, actions: &[Action]) {
+    let store = table.object_store();
+    for action in actions {
+        let Action::Add(add) = action else { continue };
+        let Ok(path) = Path::from_url_path(&add.path) else {
+            continue;
+        };
+        if let Err(e) = object_store::ObjectStoreExt::delete(&store, &path).await {
+            warn!(path = %add.path, error = %e, "could not delete an uncommitted file");
+        }
+    }
 }
 
 /// The order columns must be table and source columns, and hold no null in the source.

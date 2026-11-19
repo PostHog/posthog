@@ -46,7 +46,7 @@
 //! record keys only.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -1505,6 +1505,7 @@ async fn probe_file(
     spec: &ProbeSpec<'_>,
     opts: &HistoryUpsertOptions,
     budgets: &Budgets,
+    retained: &Retained,
 ) -> Result<(FileProbe, Arc<ParquetMetaData>)> {
     let (builder, held_fetch) = open_builder(store, &f, budgets).await?;
     let metadata = builder.metadata().clone();
@@ -1586,10 +1587,20 @@ async fn probe_file(
             } else {
                 probe.newer = probe.newer || plan.newest_order(group) > order.as_ref();
             }
+            if !spec.closed {
+                probe.seen.push(e);
+                continue;
+            }
             match next_after {
-                None => probe.seen.push(e),
+                None => {
+                    retained.add(e.resident_bytes())?;
+                    probe.seen.push(e);
+                }
                 Some(slot) => {
-                    keep_lowest(&mut probe.seen, &mut probe.next_after, slot, e);
+                    let (added, removed) =
+                        keep_lowest(&mut probe.seen, &mut probe.next_after, slot, e);
+                    retained.sub(removed);
+                    retained.add(added)?;
                 }
             }
         }
@@ -1650,6 +1661,45 @@ struct ProbedFile {
     groups: Vec<u32>,
 }
 
+/// Resident bytes of the versions the probes keep, checked against the source guard as
+/// each version is kept, so concurrent probes stop before they outgrow it.
+struct Retained {
+    bytes: AtomicUsize,
+    footprint: usize,
+    ceiling: Option<usize>,
+}
+
+impl Retained {
+    fn new(footprint: usize, opts: &HistoryUpsertOptions) -> Self {
+        Self {
+            bytes: AtomicUsize::new(0),
+            footprint,
+            ceiling: resolve_max_source_bytes(opts.max_source_bytes),
+        }
+    }
+
+    fn add(&self, n: usize) -> Result<()> {
+        let held = self.bytes.fetch_add(n, Ordering::Relaxed) + n;
+        match self.ceiling {
+            Some(max) if self.footprint.saturating_add(held) > max => {
+                Err(Error::SourceTooLarge(format!(
+                    "history upsert is too large: ~{} MB of source plus ~{} MB of existing \
+                     versions read for its keys exceeds the {} MB ceiling. Split the source \
+                     by key_buckets, or raise max_source_bytes.",
+                    self.footprint >> 20,
+                    held >> 20,
+                    max >> 20
+                )))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn sub(&self, n: usize) {
+        self.bytes.fetch_sub(n, Ordering::Relaxed);
+    }
+}
+
 /// What every probe of one call found.
 #[derive(Default)]
 struct Probed {
@@ -1662,7 +1712,6 @@ struct Probed {
     next_after: HashMap<(u32, u32), usize>,
     /// Files that kept their footer for the rewrite.
     footers: usize,
-    bytes: usize,
 }
 
 impl Existing {
@@ -1687,10 +1736,11 @@ async fn probe_files(
     opts: &HistoryUpsertOptions,
     budgets: &Budgets,
     probed: &mut Probed,
+    retained: &Retained,
 ) -> Result<()> {
     let results = futures::stream::iter(files.into_iter().map(|f| {
         let store = store.clone();
-        async move { probe_file(&store, f, plan, spec, opts, budgets).await }
+        async move { probe_file(&store, f, plan, spec, opts, budgets, retained).await }
     }))
     .buffered(opts.probe_concurrency.max(1));
     futures::pin_mut!(results);
@@ -1721,14 +1771,13 @@ async fn probe_files(
                 continue;
             }
             match slot_of.remove(&at) {
-                None => {
-                    probed.bytes += e.resident_bytes();
-                    probed.existing.push(e);
-                }
+                None => probed.existing.push(e),
                 Some(slot) => {
+                    // Counted when its file kept it; give back whichever candidate loses.
+                    let kept = e.resident_bytes();
                     let (added, removed) =
                         keep_lowest(&mut probed.existing, &mut probed.next_after, slot, e);
-                    probed.bytes = probed.bytes + added - removed;
+                    retained.sub(removed + kept - added);
                 }
             }
         }
@@ -1739,22 +1788,6 @@ async fn probe_files(
             partition: partition.to_string(),
             groups,
         });
-        if !spec.closed {
-            continue;
-        }
-        if let Some(max) = resolve_max_source_bytes(opts.max_source_bytes) {
-            let total = plan.footprint_bytes.saturating_add(probed.bytes);
-            if total > max {
-                return Err(Error::SourceTooLarge(format!(
-                    "history upsert is too large: ~{} MB of source plus ~{} MB of existing \
-                     versions read for its keys exceeds the {} MB ceiling. Split the source \
-                     by key_buckets, or raise max_source_bytes.",
-                    plan.footprint_bytes >> 20,
-                    probed.bytes >> 20,
-                    max >> 20
-                )));
-            }
-        }
     }
     Ok(())
 }
@@ -2037,6 +2070,7 @@ async fn history_inner(
     let probe_started = Instant::now();
     stats.files_probed = candidates.len();
     let mut probed = Probed::default();
+    let retained = Retained::new(plan.footprint_bytes, opts);
     let spec = ProbeSpec::new(&table_schema, &cols, opts, None);
     probe_files(
         &store,
@@ -2047,6 +2081,7 @@ async fn history_inner(
         opts,
         &budgets,
         &mut probed,
+        &retained,
     )
     .await?;
     let current_files = probed.files.len();
@@ -2073,6 +2108,7 @@ async fn history_inner(
                     opts,
                     &budgets,
                     &mut probed,
+                    &retained,
                 )
                 .await?;
             }

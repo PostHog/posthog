@@ -287,12 +287,23 @@ async fn the_order_guard_keeps_a_stored_row_newer_than_the_source_row() {
     };
     upsert_with(&mut handle, &keys("old", 0..10), 5, guarded()).await;
 
-    let version = handle.version();
+    let parquet_files = || {
+        walkdir(dir.path())
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|e| e == "parquet"))
+            .count()
+    };
+    let (version, files) = (handle.version(), parquet_files());
     let older = upsert_with(&mut handle, &keys("old", 0..5), 4, guarded()).await;
     assert_eq!(
         handle.version(),
         version,
         "a batch of only older rows makes no commit"
+    );
+    assert_eq!(
+        parquet_files(),
+        files,
+        "and leaves no uncommitted file behind"
     );
     let equal = upsert_with(&mut handle, &keys("old", 5..8), 5, guarded()).await;
     let mixed = upsert_with(
@@ -322,4 +333,17 @@ async fn the_order_guard_keeps_a_stored_row_newer_than_the_source_row() {
         .map(v_of),
         [5, 5, 5, 6, 6, 0]
     );
+}
+
+fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(walkdir(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
 }
