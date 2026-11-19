@@ -54,6 +54,8 @@ from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
 
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
 _IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
 _IDP_EC_PRIVATE_KEY_PEM = (
@@ -1401,3 +1403,20 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual([organization["id"] for organization in resp.json()["results"]], [str(self.organization.id)])
+
+    def test_a_staff_users_token_cannot_change_global_dashboard_templates(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        template = DashboardTemplate.objects.create(template_name="Global", scope=DashboardTemplate.Scope.GLOBAL)
+
+        token = self._mint_access_token(scope="dashboard_template:write")
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{template.id}/",
+            {"template_name": "Changed"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        template.refresh_from_db()
+        self.assertEqual(template.template_name, "Global")
