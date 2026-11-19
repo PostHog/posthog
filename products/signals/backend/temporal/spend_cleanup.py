@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.utils import timezone
 
-from dateutil.relativedelta import relativedelta
 from temporalio import activity, workflow
 from temporalio.client import (
     Client,
@@ -20,9 +19,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+from products.signals.backend.facade.constants import SIGNAL_SPEND_RETENTION
 from products.signals.backend.models import SignalSpend
 
-SPEND_RETENTION = relativedelta(months=3)
 _DELETE_BATCH_SIZE = 10_000
 
 CLEANUP_WORKFLOW_NAME = "signal-spend-cleanup"
@@ -44,7 +43,7 @@ def _delete_expired_spend_batch(cutoff: datetime) -> int:
 
 @activity.defn
 async def delete_expired_spend_activity() -> int:
-    cutoff = timezone.now() - SPEND_RETENTION
+    cutoff = timezone.now() - SIGNAL_SPEND_RETENTION
     deleted = 0
     async with Heartbeater():
         while True:

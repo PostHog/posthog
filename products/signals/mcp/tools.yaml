@@ -1044,7 +1044,9 @@ tools:
         title: Get monthly Self-driving usage
         description: >
             Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month.
-            Usage is available from October 2026 onward. Returns credits by signal source (processing, research, and
+            Usage starts in October 2026 and receipts expire three calendar months after creation. Months that include
+            expired history are rejected; choose the current month or either of the two previous months. Returns
+            credits by signal source (processing, research, and
             downstream report implementation) and by scout (execution costs, including runs that produce no report). The
             two breakdowns are additive: their totals sum to total_credits. Implementation uses the report's current
             triggering source. Missing source metadata stays in a null-source bucket. Finalized costs belong to the
