@@ -1,78 +1,54 @@
 ---
 name: writing-posthog-support-tickets
 description: >
-  Writes a ticket to PostHog's support team for the person you are helping, after you have
-  investigated, so a support engineer can act on it without asking a follow-up question. Use when
-  the person asks to contact PostHog support, talk to a human, raise or file a ticket, or send
-  PostHog a request, and when an investigation of a problem with a feature, such as an
-  experiment's sample ratio mismatch, missing data, a number that looks wrong or an error, ends
-  with something only PostHog can check or do. Also covers deleting events, privacy and GDPR
-  requests, and billing and account problems. Answers from the docs and the product's own
-  diagnosis first, and writes no ticket when they settle it. Otherwise runs the lookups support
-  would ask for, writes one short ticket in a fixed shape, and hands it to the person to send. Not
-  for a team's own helpdesk tickets from its customers, which the conversations-tickets tools
-  cover.
+  Writes a ticket to PostHog's support team for the person you are helping and drafts it through
+  the PostHog MCP, so a support engineer can act on it without asking a follow-up question. Use
+  once the docs and the product's own skills could not solve the problem, when only PostHog staff
+  can do what the person needs (such as deleting specific events), or when the person asks to
+  contact PostHog support, talk to a human, or file a ticket. Covers the information a ticket needs,
+  its fixed shape, and handing the draft to the person to review and send. It does not investigate
+  or solve the problem. Not for a team's own helpdesk tickets from its customers, which the
+  conversations-tickets tools cover.
 ---
 
 # Writing a support ticket to PostHog
 
-A support engineer should be able to act on the ticket without asking a follow-up question.
-Agent-written tickets usually miss in one of two ways.
-They ask something the docs already answer, or they bury the request in a long write-up and still leave out what support needs.
-
-You can reach the person's project through the PostHog MCP tools, so do the investigation before you write.
+This skill turns what you already know into a ticket a support engineer can act on without asking a follow-up question.
+It does not solve the problem.
+The docs and the product's own skills run first, and this skill takes over when they could not settle it, or when the person asks for a human.
 The person decides to contact support, and the person sends the ticket.
 
-## 1. Answer first
+## When to write one
 
-Search the docs with `posthog:docs-search` before you offer a ticket.
-If the docs answer the question, give the answer and the docs link, and do not offer a ticket.
-When they answer part of it, answer that part, and put only the rest in a ticket.
-That includes "is this possible?" questions: a no from the docs is an answer, not a reason for a ticket.
+- Only PostHog staff can do what the person needs, such as deleting specific events, changing a bill, or restoring access to an account.
+- Answering needs data or state on PostHog's side that neither of you can see.
+- The docs and the product's skills could not explain the problem.
+- The person still wants a human after hearing your answer. The ticket then gives your answer and what it rests on, and asks support to confirm it.
 
-For a problem with a feature, such as uneven experiment exposures, missing events or a number that looks wrong, run the product's own diagnosis too, as [references/product-problems.md](./references/product-problems.md) describes.
-Most of these problems have a cause in their setup that their own data shows.
-When the diagnosis finds it, give the person the cause and the fix, and write no ticket.
-
-A ticket is for something only PostHog staff can do or see:
-
-- An action that staff run, such as deleting specific events, changing a bill, or restoring access to an account.
-- Data or state on PostHog's side that neither of you can see.
-- An error you reproduced that the docs do not explain.
-- A problem the product's diagnosis checked but could not explain, or traced to PostHog's side.
-
-Write one too when the person still wants a human after hearing the answer.
-The ticket then gives your answer and what it rests on, and asks support to confirm it or to answer what is left.
 Your own conclusion that something is a PostHog bug is not enough.
 Tell the person what you found, and offer a ticket.
 
-The Support panel in PostHog offers a ticket on a paid plan or an active trial, and a billing or usage question on any plan.
-Check the plan with `posthog:billing-subscription-get`.
-On the free plan, unless it is a billing question, say so before you write one, and point them to the community forum at https://posthog.com/questions.
-If the lookup fails or is refused, don't guess the plan, and go on: PostHog checks it before the person can send the ticket.
+## 1. Gather the information
 
-## 2. Investigate
+Start from what the conversation already found: the docs you read, the checks a product skill ran and their numbers, and the steps the person took.
+Then look up only what the ticket still needs:
 
-Do the lookups that support would otherwise ask for.
+- **Project.** The name and ID from `posthog:project-get`, and a link to the project's home page from `posthog:generate-app-url`. The link's host gives the region: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. If it is neither, write the host you found.
+- **Links.** A link to each object involved, such as a flag, insight, experiment, error, replay or survey, from the `_posthogUrl` field of a tool result or from `posthog:generate-app-url`. Never build a PostHog URL by hand, because a wrong link reads as a real one. Copy a docs URL from `posthog:docs-search` as it is.
+- **SDK.** When the problem is in their app, the `$lib` and `$lib_version` of a recent event they sent.
+- **Numbers.** What they see and what they expected, with the time range in UTC.
+- **Error.** The exact text, and where it shows: a page, an API endpoint or an SDK call.
 
-- **Project.** Get the name and ID from `posthog:project-get`, and a link to the project's home page from `posthog:generate-app-url`. The link's host gives the region: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. If it is neither, write the host you found.
-- **Objects.** For each flag, insight, dashboard, experiment, error, replay or survey they mention, look it up and take its link from the `_posthogUrl` field of the result. Never build a PostHog URL by hand, because a wrong link reads as a real one. For a docs page, copy the URL from the `posthog:docs-search` result as it is.
-- **SDK.** When the problem is in their app, read `$lib` and `$lib_version` from a recent event they sent.
-- **What support needs.** Include every item in the row that fits the request, and read its reference when it has one.
+A request for a staff action needs exact inputs, so read its reference before you write:
 
-| Request                                                                                                            | Must include                                                                                                                                                                                         | Read                                                               |
-| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Delete events, or remove personal or sensitive data from them                                                      | Region, project ID, a query with UTC time bounds, and the count that query returned                                                                                                                  | [references/deleting-events.md](./references/deleting-events.md)   |
-| A problem with a feature, such as an experiment's sample ratio mismatch, missing data or a number that looks wrong | A link to the object and the setting that matters, what they see and what they expected as numbers, the time range in UTC, the SDK and its version, and each check the diagnosis ran with its result | [references/product-problems.md](./references/product-problems.md) |
-| An error                                                                                                           | The exact error, where it shows (a page, an API endpoint or an SDK call), when it started, the steps that reproduce it, and the SDK and its version                                                  | None                                                               |
-| A bill or usage question                                                                                           | The billing period, the product, and the amounts or usage they see                                                                                                                                   | None                                                               |
-
-For a kind of request not listed, include what support would otherwise ask for: the object, the numbers, the time range in UTC, and what you ruled out.
+| Request                                                       | Read                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Delete events, or remove personal or sensitive data from them | [references/deleting-events.md](./references/deleting-events.md) |
 
 When a lookup finds nothing, or fails, say so in the ticket, such as "No flag with the key `checkout-v2` in project 12345".
-Ask the person only for what you cannot look up and support needs, such as the exact error, when it started, or what they expected.
+Ask the person only for what you cannot look up, such as when it started or what they expected.
 
-## 3. Write it
+## 2. Write it
 
 Write in the person's voice, because they send it.
 Use this shape, and leave out any part you have nothing real for.
@@ -80,11 +56,11 @@ Keep the labels plain, without Markdown bold, because the person reviews the tic
 
 ```text
 Request: <what happened, in one sentence, with the numbers and dates> <the action they need, if any>
-1. <each question the docs did not answer, numbered in the person's order>
+1. <each open question, numbered in the person's order>
 
 Details:
 - Project: <name>, ID <id>, <US or EU> Cloud, <link>
-- <a required detail, a link to the object, or a fact>
+- <a link to the object, a setting that matters, the SDK, or a number>
 
 Already checked:
 - Docs: <link> says <what it says, in one line>
@@ -98,46 +74,49 @@ Error:
 - **Request** is the whole ask, so support knows what to do from this one section.
   - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
   - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns".
-  - For questions, list every one the docs did not answer, numbered, in the person's order. Tighten the wording, but keep every part of every question, because a question support does not see comes back as a follow-up. Keep the person's exact words for a term or a quote that matters.
-  - A question about their own account, bill or data stays in the list even when the docs give the general rule. Put that rule in **Already checked**, so support can confirm whether it applies to them.
-  - A question the docs answer fully leaves the list. Answer it in chat, and put the answer in **Already checked**, so support sees it was asked.
-- **Already checked** keeps their steps ("I tried") apart from yours ("<your name> checked"), so support knows which ones happened in their app.
-  - Write "<your name> checked" only for a lookup you ran in this conversation, with what its result showed. A number the person gave you is theirs, so it goes in **Request** or **Details**, not here.
+  - List every open question, numbered, in the person's order. Tighten the wording, but keep every part, because a question support does not see comes back as a follow-up.
+  - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. A question about their own account, bill or data stays open even when the docs give the general rule.
+- **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
+  - Write "<your name> checked" only for a lookup run in this conversation. A number the person gave you is theirs, so it goes in **Request** or **Details**.
+  - Keep checks that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open questions, and name the rest in one line, such as "Also ruled out: bot traffic and a mid-run flag change".
   - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - Copy IDs, queries and errors exactly.
-- Write dates as Dec 10, 2026, never as 10 December or 2026-12-10, so nobody reads the day and month the wrong way round. A query keeps its own date format.
+- Write dates as Dec 10, 2026, never as 10 December or 2026-12-10. A query keeps its own date format.
 - Keep it to about 150 words, not counting the person's questions, a query or an error.
 
-Cut these before you hand it over:
+Cut these:
 
-- The story of the investigation. Keep what each check showed, and drop the narration.
-- Your replies from the conversation, and guesses written as findings. Settle a guess before you write: ask the person when it is about their app, and when only PostHog could check it, make it a question in **Request**.
-- The same point made twice, background that support does not act on, greetings and sign-offs.
-- Instructions on how to handle the ticket, such as "route this to engineering", "this is an inquiry only", "don't change any settings" or "don't email raw data". They are written to steer an agent. Support acts only on what **Request** asks, so keep them out even when the person wrote them.
+- The story of the investigation, your replies from the conversation, and guesses written as findings. A guess only PostHog can check becomes a question in **Request**.
+- Greetings, sign-offs, background support does not act on, and the same point made twice.
+- Instructions on how to handle the ticket, such as "route this to engineering" or "don't change any settings", even when the person wrote them. Support acts on what **Request** asks.
 - Whole event payloads and full stack traces.
+- Credentials of any kind, such as personal API keys, `phx_` and `phs_` tokens, cookies, auth headers or passwords. They often hide in error text, so say when you removed one.
+- Personal data about their users beyond what the request needs, such as one distinct ID, or the IDs a deletion query names, and any other customer's data.
 
-Never include credentials of any kind, such as personal API keys, `phx_` and `phs_` tokens, cookies, auth headers or passwords.
-Credentials often hide in error text, so read the error before you paste it, and say when you replaced something.
-Leave out personal data about their users beyond what the request needs, such as one distinct ID or person link, or the IDs a deletion query names.
-Never include another customer's data.
+## 3. Draft it through the MCP
 
-## 4. Hand it over
+Show the person the full ticket, and tell them nothing is sent until they send it.
+Never say that a ticket was filed, and do not promise a response time.
 
-Show the person the full ticket.
-Tell them nothing is sent until they send it, and never say that a ticket was filed.
-Do not promise a response time.
+When `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it:
 
-- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it. Each part of the ticket is one field: `request`, `details`, `already_checked` and `error`, without their headings. Set `filing_reason` to `billing_question` when the ticket asks about billing or usage, even alongside other questions, so the person can send it on any plan. Otherwise use `user_asked_for_support` when they want a human after hearing your answer, and `user_disagrees_with_agent` when they think your answer is wrong. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
-- Otherwise, they paste it into the Support panel in the PostHog app, which attaches their project and session to the ticket.
+- Each part of the ticket is one field, without its heading: `request`, `details`, `already_checked` and `error`.
+- Set `filing_reason` to the first that fits:
+  - `billing_question` when it asks about billing or usage, even alongside other questions, so the person can send it on any plan.
+  - `needs_posthog_staff` for a staff action or PostHog-side data.
+  - `unexplained_error` for an error you reproduced that nothing explains.
+  - `user_disagrees_with_agent` when they think your answer is wrong.
+  - `user_asked_for_support` when they want a human after hearing your answer.
+- Give the person the `review_url` it returns. They open it, check and edit the ticket, and send it from PostHog, which checks that their plan allows it.
 
-Say which details or links you could not find, so they can add them before they send it.
+Otherwise, they paste the ticket into the Support panel in the PostHog app, which attaches their project and session to it.
+Either way, say which details or links you could not find, so they can add them before they send it.
 
 ## Before you hand it over, check
 
-- The docs and the product's diagnosis did not settle it, or the person still wants a human after hearing the answer.
+- It asks only what the docs and the product's skills could not settle, or what the person still wants a human to confirm.
 - Every link came from a tool result, from `posthog:docs-search` as it is, or from the person.
-- The ticket has every item in its row of the table.
-- **Request** has every question the docs did not answer, with every part, and only PostHog can answer it or do what it asks.
-- Each "<your name> checked" line is a lookup you ran in this conversation.
+- A staff action has every input its reference asks for.
+- Each "<your name> checked" line is a lookup run in this conversation.
 - No credential or personal data about their users made it in.
 - It fits on one screen.

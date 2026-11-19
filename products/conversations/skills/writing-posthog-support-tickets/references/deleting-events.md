@@ -1,20 +1,11 @@
 # Deleting events
 
-Deleting events cannot be undone, and support runs a deletion only when there is no self-serve route.
+Deleting events cannot be undone, so support needs the exact scope before they run anything.
 A ticket with everything below lets support start the request the day they read it.
 A ticket without it gets a reply asking for each missing item.
 
-## Check the self-serve routes first
-
-Tell the person when one of these fits, and write no ticket unless they still need one:
-
-- **Erasing a known person.** They can delete the person together with their events, which removes all of that person's events. It does not fit when some of the person's other events must stay.
-- **Deleting recordings.** They can delete recordings themselves.
-- **Deleting events by age.** On a paid plan, they can shorten [events retention](https://posthog.com/docs/data/events-retention) in their settings. It fits only when every event older than a date should go. The free plan keeps events for a fixed 1 year. [Recording retention](https://posthog.com/docs/session-replay/recording-retention) is a separate setting, and it applies only to new recordings.
-- **Removing a property and keeping the events.** Support cannot usually do this. Tell the person before you write anything, unless they already said that deleting the events is fine. If they still want to ask, write the ticket as a request to delete those events, with everything below, and say in **Request** that they would rather keep the events if PostHog can remove only the properties.
-
-Do not offer other workarounds from memory. Check them with `posthog:docs-search` first.
-When the docs show a self-serve route that is not listed here, tell the person about it first, and write the ticket only if they cannot use it.
+When the person would rather keep the events and remove only some properties, say so in **Request**.
+Support usually cannot do that, so the ticket still asks to delete the events, with everything below.
 
 ## What the ticket must include
 
