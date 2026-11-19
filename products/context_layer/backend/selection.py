@@ -26,7 +26,6 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.ph_client import get_feature_flag_or_none
 
-from products.context_layer.backend.thread_context import SplitPrompt, split_thread_context
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
 
@@ -41,6 +40,10 @@ MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
 CONFIG_VERSION = "context-selection-v14"
+# The Slack app renders the thread in a tagged block before the request. Thread participants' text sits inside
+# the block, so a tag they forge comes before the real closing tag, and the request is the text after the last one.
+_SLACK_THREAD_CLOSINGS = ("</slack_thread_context>", "</slack_thread_context_update>")
+_SLACK_EMPTY_REQUEST = "Task from Slack"
 type SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
 SOURCE_ENDPOINTS: dict[SourceKind, tuple[str, int]] = {
     "skill": ("llm_skills/search/", 10),
@@ -109,22 +112,6 @@ class SelectionRunNotFound(LookupError):
 
 class SelectionUnavailable(RuntimeError):
     pass
-
-
-def search_query(request: str, subject: str, history: str) -> str:
-    request = normalize_search_term(request)
-    history = normalize_search_term(history)
-    budget = MAX_SEARCH_LENGTH * 3 // 4 if subject or history else MAX_SEARCH_LENGTH
-    query = request[-budget:]
-    # The searches send the query in a URL, so only the thread's opening line joins it, not replies
-    # where people paste logs or keys.
-    room = MAX_SEARCH_LENGTH - len(query) - 3
-    if subject and room > 0:
-        query += " / " + subject[:room]
-    room = MAX_SEARCH_LENGTH - len(query) - 1
-    if history and room > 0:
-        query += "\n" + history[-room:]
-    return normalize_search_term(query)
 
 
 def elapsed_ms(started: float) -> int:
@@ -216,14 +203,20 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
-        # Only the Slack app renders thread blocks and strips their tags from what people type, so a tag in
-        # any other prompt is the user's own text.
-        from_slack = run.task.origin_product == Task.OriginProduct.SLACK
-        split = split_thread_context(selection.prompt) if from_slack else SplitPrompt(request=selection.prompt)
-        self.request = split.request
-        self.thread = split.thread
-        self.history = split_thread_context(selection.history).request if from_slack else selection.history
-        self.query = search_query(self.request, split.subject, self.history)
+        self.request = selection.prompt
+        self.thread = ""
+        if run.task.origin_product == Task.OriginProduct.SLACK:
+            prompt = selection.prompt
+            cut = max((prompt.rfind(tag) + len(tag) for tag in _SLACK_THREAD_CLOSINGS if tag in prompt), default=0)
+            request = prompt[cut:].strip()
+            # A mention without text has no request after the block, so the whole prompt stands in for it.
+            if cut and request not in ("", _SLACK_EMPTY_REQUEST):
+                self.request, self.thread = request, prompt[:cut]
+        history = normalize_search_term(selection.history)
+        request_budget = MAX_SEARCH_LENGTH * 3 // 4 if history else MAX_SEARCH_LENGTH
+        self.query = normalize_search_term(self.request)[-request_budget:]
+        if history:
+            self.query += "\n" + history[-(MAX_SEARCH_LENGTH - len(self.query) - 1) :]
 
     def search(self, kind: SourceKind, deadline: float) -> list[Candidate]:
         started = time.monotonic()
@@ -293,12 +286,6 @@ class ContextSelector:
             url=url,
         )
 
-    def decision_state(self) -> dict[str, JsonValue]:
-        state: dict[str, JsonValue] = {"user_request": self.request, "history": self.history}
-        if self.thread:
-            state["thread"] = [{"author": message.author, "body": message.body} for message in self.thread]
-        return state
-
     @staticmethod
     def source_text(payload: dict[str, object]) -> str:
         text = json.dumps(payload, ensure_ascii=False, default=str)
@@ -362,6 +349,12 @@ class ContextSelector:
                 "team_id": str(self.run.team_id),
             },
         )
+
+    def decision_state(self) -> dict[str, JsonValue]:
+        state: dict[str, JsonValue] = {"user_request": self.request, "history": self.selection.history}
+        if self.thread:
+            state["thread"] = self.thread
+        return state
 
     def gate(self, deadline: float) -> float:
         client = self.decision_client(deadline, "gate")

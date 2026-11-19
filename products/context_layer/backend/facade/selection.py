@@ -7,7 +7,6 @@ from products.context_layer.backend.selection import (
     SelectionUnavailable,
     prepare_context_selection,
 )
-from products.context_layer.backend.thread_context import SplitPrompt, ThreadMessage, split_thread_context
 
 __all__ = [
     "MAX_HISTORY_CHARS",
@@ -17,7 +16,4 @@ __all__ = [
     "SelectionRunNotFound",
     "SelectionUnavailable",
     "prepare_context_selection",
-    "SplitPrompt",
-    "ThreadMessage",
-    "split_thread_context",
 ]
