@@ -157,7 +157,7 @@ class AnomalySeriesPointSerializer(serializers.Serializer):
 
 class AnomalySeriesRefSerializer(serializers.Serializer):
     insight_id = serializers.IntegerField(help_text="The numeric id of the insight, from an anomaly search row.")
-    series_key = serializers.CharField(help_text="The `series_key` of an anomaly search row.")
+    series_key = serializers.CharField(max_length=64, help_text="The `series_key` of an anomaly search row.")
     interval = serializers.ChoiceField(
         choices=AnomalyInterval.choices,
         help_text="The `interval` of the anomaly search row. It sets the length of the chart window.",

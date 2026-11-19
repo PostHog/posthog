@@ -16526,7 +16526,10 @@ export namespace Schemas {
     export interface AnomalySeriesRef {
       /** The numeric id of the insight, from an anomaly search row. */
       insight_id: number;
-      /** The `series_key` of an anomaly search row. */
+      /**
+         * The `series_key` of an anomaly search row.
+         * @maxLength 64
+         */
       series_key: string;
       /** The `interval` of the anomaly search row. It sets the length of the chart window.
        *
