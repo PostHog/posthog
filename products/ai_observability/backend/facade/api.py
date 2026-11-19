@@ -1,5 +1,6 @@
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
@@ -107,6 +108,12 @@ from ..logic.traces.trace_export import (
     TraceExportState,
     TraceExportWriter,
 )
+from ..logic.traces.trace_metrics import BucketSize, bucket_size_for, bucket_starts, previous_window, tiles_of
+from ..logic.traces.trace_metrics_queries import (
+    TraceMetricsRows,
+    TraceMetricsTooHeavyError as TraceMetricsTooHeavyError,
+)
+from ..logic.traces.trace_metrics_store import cached_trace_metrics
 from ..logic.traces.trace_queries import (
     PageTraceRows,
     PersonRow,
@@ -220,6 +227,50 @@ def load_trace_list(
         items=_list_items(team, user, selection.window, page.positions, loaded),
         counts=_to_list_counts(page.counts) if cursor is None else None,
         next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+    )
+
+
+def load_trace_metrics(team: Team, user: User, selection: TraceSelection) -> Callable[[], contracts.TraceMetrics]:
+    """Reads the totals of the selected window and of the period of the same length before it, and returns the step
+    that builds them into tiles. Raises `TraceMetricsTooHeavyError` when the range is too long to compute.
+
+    The read is cached for a few minutes, so a dashboard that refreshes does not query ClickHouse again. The step runs
+    no query.
+    """
+    # Buckets start at midnight in the project's zone, so every step works on the window in that zone.
+    zone = team.timezone_info
+    window = TraceWindow(start=selection.window.start.astimezone(zone), end=selection.window.end.astimezone(zone))
+    size = bucket_size_for(window)
+    rows = cached_trace_metrics(team, user, replace(selection, window=window), size)
+    return lambda: _to_trace_metrics(window, size, rows)
+
+
+def _to_trace_metrics(window: TraceWindow, size: BucketSize, rows: TraceMetricsRows) -> contracts.TraceMetrics:
+    previous = previous_window(window)
+    starts = bucket_starts(window, size)
+    return contracts.TraceMetrics(
+        date_from=window.start,
+        date_to=window.end,
+        previous_date_from=previous.start,
+        previous_date_to=previous.end,
+        bucket_size=contracts.TraceMetricBucketSize(size.value),
+        bucket_starts=starts,
+        tiles=[
+            contracts.TraceMetricTile(
+                key=contracts.TraceMetricKey(tile.key.value),
+                label=tile.label,
+                value=tile.value,
+                previous=tile.previous,
+                change=tile.change,
+                change_unit=contracts.TraceMetricChangeUnit(tile.change_unit.value),
+                change_tone=contracts.TraceMetricChangeTone(tile.change_tone.value),
+                status=contracts.TraceMetricStatus(tile.status.value),
+                docs_url=tile.setup.docs_url if tile.setup else None,
+                setup_label=tile.setup.label if tile.setup else None,
+                series=tile.series,
+            )
+            for tile in tiles_of(rows.current, rows.previous, rows.buckets, starts)
+        ],
     )
 
 

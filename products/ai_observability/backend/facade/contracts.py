@@ -1073,3 +1073,90 @@ class EvalSuggestionAccepted:
 
 class EvalSuggestionNotFoundError(Exception):
     """No suggestion with this id in the team, or it names an evaluation the user cannot read."""
+
+
+class TraceMetricKey(LabeledStrEnum):
+    COST = "cost"
+    USERS = "users"
+    SESSIONS = "sessions"
+    TRACES = "traces"
+    ERROR_RATE = "error_rate"
+    P95_LATENCY = "p95_latency"
+
+
+class TraceMetricChangeUnit(LabeledStrEnum):
+    PERCENT = "percent"
+    POINTS = "points"
+    SECONDS = "seconds"
+
+
+class TraceMetricChangeTone(LabeledStrEnum):
+    GOOD = "good"
+    BAD = "bad"
+    NEUTRAL = "neutral"
+
+
+class TraceMetricStatus(LabeledStrEnum):
+    OK = "ok"
+    NOT_SET_UP = "not_set_up"
+
+
+class TraceMetricBucketSize(LabeledStrEnum):
+    HOUR = "hour"
+    DAY = "day"
+
+
+class TraceMetricTile(Contract):
+    key: TraceMetricKey = Field(description="The metric this tile shows.")
+    label: str = Field(description="The metric's display name.")
+    value: float | None = Field(
+        description="The metric over the date range. Cost is in USD, error rate is a fraction from 0 to 1, p95 latency "
+        "is in seconds. Null when the range has nothing to compute it from."
+    )
+    previous: float | None = Field(
+        description="The metric over the period of the same length right before the date range, or null."
+    )
+    change: float | None = Field(
+        description="How far the value moved from the previous period, in `changeUnit`. Null when either side is null, "
+        "or when a percent change has a previous value of zero."
+    )
+    change_unit: TraceMetricChangeUnit = Field(description="The unit of `change`.")
+    change_tone: TraceMetricChangeTone = Field(
+        description="Whether the change is good or bad news. A rising error rate or p95 latency is `bad` and a falling "
+        "one `good`. Every other metric, and no change, is `neutral`."
+    )
+    status: TraceMetricStatus = Field(
+        description="`not_set_up` when the project has traces in the range but none carries the data this metric "
+        "needs, such as no cost, no latency, no session or no identified user."
+    )
+    docs_url: str | None = Field(
+        description="The docs page that explains how to capture this metric. Set only when `status` is `not_set_up`."
+    )
+    setup_label: str | None = Field(
+        description="The text of the link to `docsUrl`, such as Identify users. Set only when `status` is `not_set_up`."
+    )
+    series: list[float | None] = Field(
+        description="The metric over the traces that started in each bucket, in the order of `bucketStarts`. Null "
+        "where a bucket has nothing to compute it from."
+    )
+
+
+class TraceMetrics(Contract):
+    date_from: datetime = Field(description="The start of the date range.")
+    date_to: datetime = Field(description="The end of the date range.")
+    previous_date_from: datetime = Field(description="The start of the previous period the tiles compare against.")
+    previous_date_to: datetime = Field(description="The end of the previous period, which is `dateFrom`.")
+    bucket_size: TraceMetricBucketSize = Field(description="The width of each bucket.")
+    bucket_starts: list[datetime] = Field(
+        description="The start of each hour or day of the date range in the project's time zone, oldest first, with "
+        "no gaps."
+    )
+    tiles: list[TraceMetricTile] = Field(description="One tile for each metric.")
+
+
+TRACE_METRICS_RANGE_TOO_LONG_DETAIL = "This range is too long to compute. Try a shorter one."
+
+
+class TraceMetricsRangeTooLong(Contract):
+    detail: str = Field(default=TRACE_METRICS_RANGE_TOO_LONG_DETAIL, description="What went wrong, for a person.")
+    code: Literal["range_too_long"] = Field(default="range_too_long", description="A stable code to branch on.")

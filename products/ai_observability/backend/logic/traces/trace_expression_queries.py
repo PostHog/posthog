@@ -20,6 +20,7 @@ class TraceColumns:
     distinct_id: ast.Expr
     person: ast.Expr
     session_id: ast.Expr
+    properties: ast.Expr
     ingestion_source: ast.Expr
     total_cost: ast.Expr
 
@@ -39,6 +40,7 @@ AI_EVENTS_COLUMNS = TraceColumns(
     distinct_id=_field("distinct_id"),
     person=_field("distinct_id"),
     session_id=_field("session_id"),
+    properties=_field("properties"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
     total_cost=_field("total_cost_usd"),
 )
@@ -53,6 +55,7 @@ EVENTS_COLUMNS = TraceColumns(
     distinct_id=_field("distinct_id"),
     person=_field("person_id"),
     session_id=_field("properties", "$ai_session_id"),
+    properties=_field("properties"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
     total_cost=ast.Call(name="toFloat", args=[_field("properties", "$ai_total_cost_usd")]),
 )
@@ -158,6 +161,20 @@ def event_has_session(columns: TraceColumns) -> ast.Expr:
     return _compare(ast.CompareOperationOp.NotEq, _if_null(columns.session_id, ""), _constant(""))
 
 
+def event_declines_session(columns: TraceColumns) -> ast.Expr:
+    """An explicit null `$ai_session_id` says the workload finishes in one trace, an answer rather than a gap. JSONType
+    reads absent and null alike, so JSONHas separates them, and an empty string (usually an unset variable) stays out."""
+    key = _constant("$ai_session_id")
+    return ast.And(
+        exprs=[
+            ast.Call(name="JSONHas", args=[columns.properties, key]),
+            _compare(
+                ast.CompareOperationOp.Eq, ast.Call(name="JSONType", args=[columns.properties, key]), _constant("Null")
+            ),
+        ]
+    )
+
+
 def trace_session_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
     """The session a trace belongs to: the earliest trace event's non-empty session id, and the smallest one among
     events at the same time. NULL when no trace event carries one."""
@@ -168,10 +185,25 @@ def trace_session_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
     return ast.Call(name="nullIf", args=[earliest, _constant("")])
 
 
+def event_is_otel(columns: TraceColumns) -> ast.Expr:
+    return _compare(ast.CompareOperationOp.Eq, _if_null(columns.ingestion_source, ""), _constant("otel"))
+
+
 def event_identified(columns: TraceColumns) -> ast.Expr:
     return ast.And(
         exprs=[
             _compare(ast.CompareOperationOp.NotEq, columns.distinct_id, _if_null(columns.trace_id, "")),
-            _compare(ast.CompareOperationOp.NotEq, _if_null(columns.ingestion_source, ""), _constant("otel")),
+            ast.Not(expr=event_is_otel(columns)),
+        ]
+    )
+
+
+def generation_identified(columns: TraceColumns) -> ast.Expr:
+    """A generation that names a user. Feedback and metric events carry real user ids even when the generations do
+    not, so only a generation shows that the SDK identifies users."""
+    return ast.And(
+        exprs=[
+            _compare(ast.CompareOperationOp.Eq, columns.event, _constant("$ai_generation")),
+            event_identified(columns),
         ]
     )
