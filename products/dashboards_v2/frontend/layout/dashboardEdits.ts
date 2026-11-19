@@ -1,16 +1,18 @@
 import {
     type ContentWidget,
     type Dashboard,
+    type DashboardAppearance,
     GRID,
     type SectionTile,
     type SectionWidget,
     type Tile,
     type TilePlace,
     type Widget,
+    gapPxOf,
     isSection,
 } from './dashboardTypes'
 import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
-import { widgetSize } from './widgetSizes'
+import { minRows, widgetSize } from './widgetSizes'
 
 export type DashboardEdit =
     | { edit: 'placeTiles'; grid: string; places: Record<string, TilePlace> }
@@ -22,6 +24,7 @@ export type DashboardEdit =
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
+    | { edit: 'setAppearance'; patch: DashboardAppearance }
 
 function minWidthOf(tile: Tile): number {
     if (!isSection(tile)) {
@@ -58,13 +61,14 @@ function sectionRows(section: SectionWidget): number {
 }
 
 /** Brings one grid into shape, innermost first because a section's height comes from what is inside it. */
-function settleGrid(tiles: Tile[], cols: number): Tile[] {
+function settleGrid(tiles: Tile[], cols: number, fitGapPx: number | null): Tile[] {
     const sized = tiles.map((tile) => {
         const w = Math.max(1, Math.min(cols, tile.place.w))
         if (!isSection(tile)) {
-            return { ...tile, place: { ...tile.place, w } }
+            const h = fitGapPx === null ? tile.place.h : Math.max(tile.place.h, minRows(tile.widget, fitGapPx))
+            return { ...tile, place: { ...tile.place, w, h } }
         }
-        const widget = { ...tile.widget, tiles: settleGrid(tile.widget.tiles, w) }
+        const widget = { ...tile.widget, tiles: settleGrid(tile.widget.tiles, w, fitGapPx) }
         return { ...tile, widget, place: { ...tile.place, w, h: sectionRows(widget) } }
     })
     return withPlaces(sized, placeTiles(toPlacedItems(sized), cols))
@@ -99,12 +103,12 @@ function stackSection(tile: SectionTile, cols: number, y: number): Tile {
     return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
 }
 
-/** The dashboard as one person sees it, with sections they opened or closed for themselves. Never saved. */
+/**
+ * The dashboard as one person sees it, with sections they opened or closed for themselves and every tile tall enough
+ * for its parts at the current spacing. Never saved, so switching spacing back restores the saved heights.
+ */
 export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>): Dashboard {
     const ids = Object.keys(folds)
-    if (ids.length === 0) {
-        return dashboard
-    }
     const folded = ids.reduce(
         (next, id) =>
             changeTileEverywhere(next, id, (tile) =>
@@ -112,11 +116,15 @@ export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>):
             ),
         dashboard
     )
-    return settleDashboard(folded)
+    return settleDashboard(folded, true)
 }
 
-export function settleDashboard(dashboard: Dashboard): Dashboard {
-    return { ...dashboard, tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns) })) }
+export function settleDashboard(dashboard: Dashboard, fitParts = false): Dashboard {
+    const fitGapPx = fitParts ? gapPxOf(dashboard) : null
+    return {
+        ...dashboard,
+        tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns, fitGapPx) })),
+    }
 }
 
 function everyTile(tiles: Tile[]): Tile[] {
@@ -181,10 +189,10 @@ function newId(dashboard: Dashboard, prefix: string): string {
  * Puts `tile` into a grid at a cell, by the same rules a drag inside that grid follows. The grid shows this
  * result as its preview while a tile from elsewhere hovers over it, so the preview and the drop cannot differ.
  */
-export function dropIntoGrid(tiles: Tile[], cols: number, tile: Tile, x: number, y: number): Tile[] {
+export function dropIntoGrid(tiles: Tile[], cols: number, gapPx: number, tile: Tile, x: number, y: number): Tile[] {
     const w = Math.min(tile.place.w, cols)
     // A section that lands narrower reflows its own tiles, which changes its height, so the preview uses the result.
-    const [sized] = settleGrid([{ ...tile, place: { ...tile.place, w } }], w)
+    const [sized] = settleGrid([{ ...tile, place: { ...tile.place, w } }], w, gapPx)
     const dropped = { ...sized, place: { ...sized.place, x: Math.max(0, Math.min(cols - w, x)), y: Math.max(0, y) } }
     const next = [...tiles, dropped]
     const placed = placeTiles(toPlacedItems(next), cols, {
@@ -205,7 +213,9 @@ function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'mo
         return dashboard
     }
     const y = edit.y ?? bottomOf(target.tiles.map((other) => other.place))
-    return changeGrid(without, edit.grid, (tiles) => dropIntoGrid(tiles, target.cols, tile, edit.x ?? 0, y))
+    return changeGrid(without, edit.grid, (tiles) =>
+        dropIntoGrid(tiles, target.cols, gapPxOf(without), tile, edit.x ?? 0, y)
+    )
 }
 
 function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addTile' }>): Dashboard {
@@ -263,6 +273,8 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
                 return dashboard
             }
             return { ...dashboard, tabs: dashboard.tabs.filter((tab) => tab.id !== edit.id) }
+        case 'setAppearance':
+            return { ...dashboard, appearance: { ...dashboard.appearance, ...edit.patch } }
     }
 }
 

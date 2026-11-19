@@ -20,6 +20,7 @@ export const DASHBOARD_V2_REQUIRED_LEVEL: Record<DashboardV2Action, AccessContro
     addTab: AccessControlLevel.Editor,
     renameTab: AccessControlLevel.Editor,
     removeTab: AccessControlLevel.Editor,
+    setAppearance: AccessControlLevel.Editor,
     undo: AccessControlLevel.Editor,
     redo: AccessControlLevel.Editor,
 }
