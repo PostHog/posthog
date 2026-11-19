@@ -44,7 +44,8 @@ _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
-_CODE_ELEMENT = re.compile(r"<\s*(?:script|style)", re.IGNORECASE)
+# A script, a style or an HTML comment, after which PostHog stops trusting where the text sits.
+_UNCLEAR_CONTEXT = re.compile(r"<\s*(?:script|style)|<!--", re.IGNORECASE)
 _IDENTIFIER = re.compile(r"^[A-Za-z_][\w-]*$")
 # Text every Handlebars or Go parser would read as an argument, such as "x", 5 or true.
 _LITERAL_ARGUMENT = re.compile(r"""^(?:"[^"\\{}%]*"|'[^'\\{}%]*'|-?\d+(?:\.\d+)?|true|false)$""")
@@ -156,8 +157,8 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     if any(part.go_value_in_tag for part in parts):
         notes.append(
             "Go templates escape a value by where it lands, such as a link's address or a script, and PostHog can't. "
-            "Values inside HTML tags, and every value after a script or style starts, stay as plain text, so rewrite "
-            "them in Liquid."
+            "Values inside HTML tags, and every value after a script, style or HTML comment starts, stay as plain "
+            "text, so rewrite them in Liquid."
         )
     if engine == "go":
         notes.append(
@@ -265,7 +266,7 @@ class _Converter:
         self.has_tags = False
         self.go_variables: dict[str, str] = {}
         self.tag = _TagState()
-        self.after_code = False
+        self.unclear_context = False
         self.go_value_in_tag = False
         # Per open block: the tag state where it opened, and where each earlier branch ended.
         self.tag_branches: list[tuple[_TagState, list[_TagState]]] = []
@@ -326,9 +327,9 @@ class _Converter:
         )
 
     def _track_tag(self, text: str) -> None:
-        # Go escapes values in a script or style as code. Once either opens, every later Go value is left for a person,
-        # since telling where the element really ends is easy to get wrong.
-        self.after_code = self.after_code or bool(_CODE_ELEMENT.search(text))
+        # Go escapes values in a script or style as code, and an HTML comment can hide a quote that throws off the tag
+        # tracking. After any of them, every later Go value is left for a person rather than guessed.
+        self.unclear_context = self.unclear_context or bool(_UNCLEAR_CONTEXT.search(text))
         # A `>` inside a quoted attribute value doesn't close the tag. Long values, such as an inline image, are only
         # scanned for a quote, never copied.
         in_tag, quote = self.tag.in_tag, self.tag.quote
@@ -654,7 +655,7 @@ class _Converter:
             return self._unsupported(token)
         if not self.is_html:
             return f"{{{{ {path} }}}}"
-        if self.tag.in_tag or self.after_code:
+        if self.tag.in_tag or self.unclear_context:
             # Go escapes a value by where it lands, such as a link's address, an attribute name or a script, and
             # Liquid can't, so a person rewrites these.
             self.go_value_in_tag = True
@@ -777,7 +778,8 @@ class _Converter:
 
     def _unsupported(self, token: str) -> str:
         self.unsupported.append(token)
-        return _literal(token)
+        # The tag shows as text, so markup inside it, such as `<script>`, can't become a real element.
+        return _literal(token.replace("<", "&lt;").replace(">", "&gt;") if self.is_html else token)
 
 
 def _escaped(path: str) -> str:

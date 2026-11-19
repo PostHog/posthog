@@ -29,7 +29,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     @parameterized.expand(
         [
             ("helper_with_arguments", "{{lookup a b}}", "{% raw %}{{lookup a b}}{% endraw %}"),
-            ("partial", "{{> footer}}", "{% raw %}{{> footer}}{% endraw %}"),
+            ("partial", "{{> footer}}", "{% raw %}{{&gt; footer}}{% endraw %}"),
             (
                 "subexpression_keeps_body",
                 "{{#if (eq a b)}}x{{/if}}",
@@ -153,6 +153,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("script_after_a_stray_less_than", "a<3 <script>var x = {{.X}};</script>", "{{.X}}"),
             ("after_a_script_ends", "<script>x</script><p>{{.X}}</p>", "{{.X}}"),
             ("after_many_scripts", "<SCRIPT></SCRIPT>" * 10000 + "{{.X}}", "{{.X}}"),
+            ("after_an_html_comment", '<!-- " --><a href="{{.U}}">x</a>', "{{.U}}"),
         ]
     )
     def test_a_go_value_where_go_escapes_by_context_stays_text(self, _name: str, source: str, value: str) -> None:
@@ -161,6 +162,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert f"{{% raw %}}{value}{{% endraw %}}" in converted.html
         assert "variables." not in converted.html
         assert any("rewrite them in Liquid" in note for note in converted.notes)
+
+    def test_markup_inside_a_tag_that_cannot_convert_stays_text(self) -> None:
+        converted = convert_text('{{printf "<script>" .x}} {{.User}}', engine="go")
+
+        assert "<script>" not in converted.text
+        assert '{% raw %}{{printf "&lt;script&gt;" .x}}{% endraw %}' in converted.text
 
     def test_a_go_value_in_page_text_converts(self) -> None:
         converted = convert_text("<p>{{.Name}}</p>", engine="go")
