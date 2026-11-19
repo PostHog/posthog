@@ -37,14 +37,14 @@ export interface ContentWidget {
     format?: 'number' | 'currency' | 'percentage'
     /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt?: string
-    footer?: ContentWidgetFooter
+    /** The pieces placed in the tile's footer, shown in this order. No pieces means no footer. */
+    footer?: TileFooterItem[]
 }
 
-export interface ContentWidgetFooter {
-    text?: string
-    showUpdatedAt?: boolean
-    link?: { label: string; url: string }
-}
+export type TileFooterItem =
+    | { type: 'text'; text: string }
+    | { type: 'updatedAt' }
+    | { type: 'link'; label: string; url: string }
 
 /**
  * A grid inside a tile. Its cells line up with the cells of the grid it sits in: one row for the header, then its

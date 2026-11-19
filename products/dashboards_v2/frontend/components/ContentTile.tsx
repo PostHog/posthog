@@ -54,7 +54,9 @@ export function ContentTile({
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} />
                 </CardContent>
-                {widget.footer && <ContentTileFooter footer={widget.footer} refreshedAt={widget.refreshedAt} />}
+                {widget.footer?.length ? (
+                    <ContentTileFooter items={widget.footer} refreshedAt={widget.refreshedAt} />
+                ) : null}
             </Card>
         </TileContextMenu>
     )
