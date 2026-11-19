@@ -584,6 +584,28 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 5, "converted": 3, "revenue": 62.0, "median_hours_to_convert": 5.0}
 
+    def test_leaves_out_a_send_and_its_conversion_from_before_a_fractional_date_from(self, _flag):
+        date_from = NOW - timedelta(hours=2) + timedelta(milliseconds=500)
+        create_person(team=self.team, distinct_ids=["just-before"])
+        self._record_distinct_id(
+            str(UUIDT()), "just-before", "just-before@example.com", date_from - timedelta(milliseconds=400)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="just-before",
+            timestamp=date_from - timedelta(milliseconds=200),
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            self._url("results/"),
+            {"workflow_id": str(self.workflow_id), "event": "purchase", "date_from": date_from.isoformat()},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["recipients"] == 0
+
     def test_counts_a_conversion_whose_window_ends_in_the_repeated_daylight_saving_hour(self, _flag):
         self.team.timezone = "Europe/London"
         self.team.save()
@@ -788,18 +810,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert counts_of(response.json()) == expected
 
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
-        self._welcomed: list[str] = []
+        welcomed: list[str] = []
         with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": "0"}}):
-            few = self._queries_naming_the_sends_after_adding(3)
-            more = self._queries_naming_the_sends_after_adding(3)
+            few = self._impact_queries_after_adding_sends(welcomed, 3)
+            more = self._impact_queries_after_adding_sends(welcomed, 3)
 
         assert few > 0
         assert more == few
 
-    def _queries_naming_the_sends_after_adding(self, count: int) -> int:
+    def _impact_queries_after_adding_sends(self, welcomed: list[str], count: int) -> int:
         for _ in range(count):
-            name = f"welcome-{len(self._welcomed)}"
-            self._welcomed.append(name)
+            name = f"welcome-{len(welcomed)}"
+            welcomed.append(name)
             create_person(team=self.team, distinct_ids=[name])
             message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
@@ -809,7 +831,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert impact["without_click"] == {"sends": len(self._welcomed), "converted": len(self._welcomed)}
+        assert impact["without_click"] == {"sends": len(welcomed), "converted": len(welcomed)}
         sync_execute("SYSTEM FLUSH LOGS")
         [(queries,)] = sync_execute(
             """

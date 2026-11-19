@@ -589,8 +589,6 @@ def transactional_email_results(
             [distinct_id for _, distinct_ids in batch for distinct_id in distinct_ids],
             batch_first_send,
             window,
-            min(batch_first_send.values()),
-            max(batch_first_send.values()) + window + timedelta(seconds=1),
         )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
     revenue = sum(conversion.revenue for conversion in conversions.values())
@@ -796,8 +794,7 @@ def _escaped_literal_bytes(value: str) -> int:
 
 def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
-    start = min(send.since for send in sends)
-    end = max(send.since for send in sends) + window + timedelta(seconds=1)
+    start_ms, end_ms = _events_range_ms([send.since for send in sends], window)
     response = execute_hogql_query(
         """
         SELECT DISTINCT sends.message_id
@@ -820,8 +817,8 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
         placeholders={
             "revenue": ast.Constant(value=None),
             "event": ast.Constant(value=event),
-            "start_ms": ast.Constant(value=_epoch_ms(start)),
-            "end_ms": ast.Constant(value=_epoch_ms(end)),
+            "start_ms": ast.Constant(value=start_ms),
+            "end_ms": ast.Constant(value=end_ms),
             "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
             "message_ids": ast.Constant(value=[send.message_id for send in sends]),
             "recipients": ast.Constant(value=[send.recipient for send in sends]),
@@ -882,6 +879,10 @@ def _epoch_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
 
+def _events_range_ms(sent_at: list[datetime], window: timedelta) -> tuple[int, int]:
+    return _epoch_ms(min(sent_at)), _epoch_ms(max(sent_at) + window + timedelta(seconds=1))
+
+
 @frozen
 class _Conversion:
     first_at: datetime
@@ -896,8 +897,6 @@ def _conversions(
     distinct_ids: list[str],
     first_send: dict[str, datetime],
     window: timedelta,
-    start: datetime,
-    end: datetime,
 ) -> dict[str, _Conversion]:
     """Each recipient's first conversion within `window` of their first send, and the revenue of those conversions.
 
@@ -913,6 +912,7 @@ def _conversions(
         else ast.Constant(value=None)
     )
     recipients = list(first_send)
+    start_ms, end_ms = _events_range_ms(list(first_send.values()), window)
     response = execute_hogql_query(
         """
         SELECT conversions.recipient, min(conversions.timestamp), sum(conversions.value)
@@ -933,8 +933,8 @@ def _conversions(
         placeholders={
             "revenue": revenue,
             "event": ast.Constant(value=event),
-            "start_ms": ast.Constant(value=_epoch_ms(start)),
-            "end_ms": ast.Constant(value=_epoch_ms(end)),
+            "start_ms": ast.Constant(value=start_ms),
+            "end_ms": ast.Constant(value=end_ms),
             "distinct_ids": ast.Constant(value=distinct_ids),
             "recipients": ast.Constant(value=recipients),
             "sent_at_ms": ast.Constant(value=[_epoch_ms(first_send[recipient]) for recipient in recipients]),

@@ -259,8 +259,8 @@ def fetch_first_email_sends(
             {
                 "team_id": team_id,
                 "function_id": function_id,
-                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-                "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f"),
                 "limit": limit,
             },
             workload=Workload.ONLINE,
