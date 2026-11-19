@@ -86,6 +86,8 @@ from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, get_bound_logger, log_with_activity_context
 from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
+    CLONE_ONLY_GITHUB_TOKEN_SCOPE,
+    SCOPED_SANDBOX_GITHUB_PERMISSIONS,
     format_allowed_domains_for_log,
     get_actor_distinct_id,
     get_pr_authorship_mode,
@@ -260,9 +262,13 @@ class TaskProcessingContext:
         return (self.state or {}).get("github_read_access") is True
 
     @property
-    def github_token_scope(self) -> Literal["read", "push"] | None:
+    def github_token_scope(self) -> Literal["read", "push", "clone"] | None:
         scope = (self.state or {}).get("github_token_scope")
-        return scope if scope in ("read", "push") else None
+        return scope if scope in SCOPED_SANDBOX_GITHUB_PERMISSIONS else None
+
+    @property
+    def has_clone_only_github_scope(self) -> bool:
+        return self.github_token_scope == CLONE_ONLY_GITHUB_TOKEN_SCOPE
 
     @property
     def sandbox_environment_id(self) -> str | None:

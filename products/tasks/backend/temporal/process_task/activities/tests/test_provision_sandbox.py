@@ -1109,6 +1109,28 @@ def test_retried_clone_resolves_a_fresh_github_token(
         apply_credentials.assert_not_called()
 
 
+@pytest.mark.parametrize("attempt", [1, 2], ids=["first_attempt", "retry_with_fresh_token"])
+def test_clone_only_scope_pins_the_commit_and_leaves_no_token_in_the_sandbox(mocker, activity_environment, attempt):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
+    sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="fresh-token")
+    mocker.patch.object(provision_sandbox_module, "_prepare_posthog_desktop_cloud_task")
+    set_remote = mocker.patch.object(provision_sandbox_module, "set_git_remote_token", return_value=True)
+    apply_credentials = mocker.patch.object(provision_sandbox_module, "apply_github_credentials_to_sandbox")
+    context = _clone_context(state={"github_token_scope": "clone", "clone_commit_sha": "a" * 40})
+
+    async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox, _clone_input(context, github_token="clone-token")
+    )
+
+    (checkout_command,) = [call.args[0] for call in sandbox.execute.call_args_list]
+    assert f"git fetch -q --no-tags --depth 1 origin -- {'a' * 40}" in checkout_command
+    assert "git checkout -q --detach FETCH_HEAD" in checkout_command
+    set_remote.assert_called_once_with(sandbox, "acme/repo", None)
+    apply_credentials.assert_not_called()
+
+
 def test_retried_clone_fails_transiently_when_no_fresh_token_is_available(mocker, activity_environment):
     activity_environment.info = dataclasses.replace(activity_environment.info, attempt=2)
     sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))

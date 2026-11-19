@@ -309,6 +309,22 @@ def test_build_environment_variables_marks_only_an_idle_same_run_resume_as_idle(
     assert env.get("POSTHOG_RESUME_IDLE") == expected_idle
 
 
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@pytest.mark.parametrize(
+    "state, expected_github_token",
+    [({"github_token_scope": "read"}, "ghs_token"), ({"github_token_scope": "clone"}, None)],
+    ids=["read_scope", "clone_only_scope"],
+)
+def test_build_environment_variables_puts_the_github_token_in_the_env_unless_clone_only(
+    _api, _jwt, _git, state, expected_github_token
+):
+    env = _build_environment_variables(_context(state=state), MagicMock(), "ghs_token", "access-token")
+
+    assert (env.get("GITHUB_TOKEN"), env.get("GH_TOKEN")) == (expected_github_token, expected_github_token)
+
+
 @patch(f"{_PROVISION}.emit_agent_log")
 @patch(f"{_PROVISION}.get_sandbox_class_for_sandbox_id")
 @pytest.mark.parametrize(

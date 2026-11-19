@@ -1253,9 +1253,18 @@ PUSH_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
 }
 
 
+CLONE_ONLY_GITHUB_TOKEN_SCOPE = "clone"
+
+CLONE_ONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "read",
+    "metadata": "read",
+}
+
+
 SCOPED_SANDBOX_GITHUB_PERMISSIONS: dict[str, dict[str, str]] = {
     "read": READONLY_SANDBOX_GITHUB_PERMISSIONS,
     "push": PUSH_SANDBOX_GITHUB_PERMISSIONS,
+    CLONE_ONLY_GITHUB_TOKEN_SCOPE: CLONE_ONLY_SANDBOX_GITHUB_PERMISSIONS,
 }
 
 
@@ -1557,9 +1566,10 @@ def _resolve_sandbox_github_token(
                 logger.warning("loop_github_token_owner_ineligible", extra={"run_id": run_id, "task_id": str(task.id)})
                 return None
 
-    scoped_permissions = SCOPED_SANDBOX_GITHUB_PERMISSIONS.get((state or {}).get("github_token_scope", ""))
-    if scoped_permissions is not None:
-        if github_integration_id is None:
+    github_token_scope = (state or {}).get("github_token_scope")
+    if github_token_scope is not None:
+        scoped_permissions = SCOPED_SANDBOX_GITHUB_PERMISSIONS.get(github_token_scope)
+        if scoped_permissions is None or github_integration_id is None:
             return None
         return get_scoped_github_token(installation_team_id, github_integration_id, repositories, scoped_permissions)
 

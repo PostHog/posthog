@@ -29,6 +29,7 @@ from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
+    CLONE_ONLY_SANDBOX_GITHUB_PERMISSIONS,
     POSTHOG_MCP_DESCRIPTION,
     PUSH_SANDBOX_GITHUB_PERMISSIONS,
     READONLY_SANDBOX_GITHUB_PERMISSIONS,
@@ -1443,6 +1444,8 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             ("bot_authored_push", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
             ("user_authored_push", "user", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
             ("bot_authored_read", "bot", "read", READONLY_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("user_authored_clone", "user", "clone", CLONE_ONLY_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("unknown_scope_fails_closed", "bot", "Clone", None, 123),
             ("no_attached_installation", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, None),
         ]
     )
@@ -1462,7 +1465,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             team_id=1,
         )
 
-        if integration_id is None:
+        if integration_id is None or permissions is None:
             assert result is None
             mock_scoped.assert_not_called()
         else:

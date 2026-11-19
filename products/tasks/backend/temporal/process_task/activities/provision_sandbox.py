@@ -658,7 +658,7 @@ def _build_environment_variables(
                     f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                 )
 
-    if github_token:
+    if github_token and not ctx.has_clone_only_github_scope:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
     if gitlab_token:
@@ -1381,7 +1381,9 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     next_retry_delay=retry_delay,
                 )
 
-        if github_token != input.github_token:
+        if ctx.has_clone_only_github_scope:
+            _pin_clone_only_checkout(ctx, sandbox, input.repository, github_token)
+        elif github_token != input.github_token:
             with sandbox_credential_lock(sandbox.id) as acquired:
                 applied = acquired and apply_github_credentials_to_sandbox(sandbox, [input.repository], github_token)
             if not applied:
@@ -1412,6 +1414,38 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
             _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+
+
+def _pin_clone_only_checkout(
+    ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str, github_token: str
+) -> None:
+    repo_path = sandbox_repo_path(repository)
+    clone_commit_sha = (ctx.state or {}).get("clone_commit_sha")
+    if not clone_commit_sha:
+        raise RepositoryAccessError(
+            f"A clone-only run of {repository} needs the commit to check out",
+            {"repository": repository, "sandbox_id": sandbox.id},
+        )
+    checkout_result = sandbox.execute(
+        f"cd {shlex.quote(repo_path)} && "
+        f"git fetch -q --no-tags --depth 1 origin -- {shlex.quote(clone_commit_sha)} && "
+        "git checkout -q --detach FETCH_HEAD",
+        timeout_seconds=5 * 60,
+    )
+    if checkout_result.exit_code != 0:
+        raise RepositoryCloneError(
+            f"Could not check out {clone_commit_sha} in {repository}",
+            {"repository": repository, "sandbox_id": sandbox.id, "exit_code": checkout_result.exit_code},
+            cause=RuntimeError(_redact_clone_output(checkout_result.stderr, github_token, None)[:200]),
+            next_retry_delay=_clone_retry_delay(activity.info().attempt),
+        )
+    if not set_git_remote_token(sandbox, repository, None):
+        raise RepositoryCloneError(
+            f"Could not remove the clone credential from {repository}",
+            {"repository": repository, "sandbox_id": sandbox.id},
+            cause=RuntimeError("git remote set-url failed"),
+            next_retry_delay=_clone_retry_delay(activity.info().attempt),
+        )
 
 
 def _clone_retry_delay(attempt: int) -> timedelta | None:
@@ -1605,7 +1639,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
             # read-only run must never regain the write-capable token on resume, cloned repos or
             # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
             github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
-        elif ctx.has_github_credentials:
+        elif ctx.has_github_credentials and not ctx.has_clone_only_github_scope:
             try:
                 github_token = (
                     get_sandbox_github_token(

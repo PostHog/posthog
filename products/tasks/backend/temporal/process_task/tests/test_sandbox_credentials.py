@@ -402,9 +402,16 @@ class TestBuildSandboxCredentials:
         credentials = build_sandbox_credentials(_context())
         assert [c.kind for c in credentials] == ["github"]
 
-    def test_empty_without_github_credentials(self):
-        ctx = _context(github_integration_id=None, github_user_integration_id=None)
-        assert build_sandbox_credentials(ctx) == []
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"github_integration_id": None, "github_user_integration_id": None},
+            {"state": {"github_token_scope": "clone"}},
+        ],
+        ids=["no_github_credentials", "clone_only_scope"],
+    )
+    def test_empty_without_a_github_token_to_keep_fresh(self, overrides):
+        assert build_sandbox_credentials(_context(**overrides)) == []
 
 
 MODULE = "products.tasks.backend.temporal.process_task.sandbox_credentials"
