@@ -181,6 +181,7 @@ jobs:
                       # (UI app snapshots), but never the integration tests, which drive the
                       # Python backend. WF009 keeps the list in step with what MCP imports.
                       mcp-typescript:
+                        - 'packages/sdk/**'
                         - 'packages/quill/**'
                         - 'products/notebooks/**'
                         - 'products/product_analytics/frontend/insights/**'
@@ -310,7 +311,7 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/sdk... --filter='./products/*' install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
@@ -323,6 +324,12 @@ jobs:
               run: |
                   pnpm build
                   pnpm exec tsx scripts/copy-instructions.ts
+
+            - name: Test the TypeScript SDK and its installed package
+              run: |
+                  pnpm --filter=@posthog/sdk build
+                  pnpm --filter=@posthog/sdk test
+                  pnpm --filter=@posthog/sdk check:package
 
             - name: Run unit tests
               run: |

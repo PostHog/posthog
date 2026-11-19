@@ -2,6 +2,10 @@
 
 This directory contains PostHog's MCP (Model Context Protocol) server. The protocol is served by the **Hono runtime** (Node, deployed to our k8s clusters). A thin **Cloudflare Worker** sits in front of it as a stateless edge router that terminates OAuth, validates tokens, and proxies `/mcp` traffic to the regional Hono deployment.
 
+## TypeScript SDK
+
+The [SDK](../../packages/sdk/README.md) generates typed methods and offline discovery from the tool registry. Each method calls the embedded CLI tool library with the registered tool name. Its npm package bundles the same executor as `hog api`.
+
 ## Overview
 
 ```mermaid

@@ -1,5 +1,5 @@
 import { build, type Metafile } from 'esbuild'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
 import { copyInstructions, PROMPTS } from './copy-instructions'
@@ -38,6 +38,14 @@ Promise.all(
                 outfile.replace(/\.mjs$/, '.metafile.json'),
                 JSON.stringify(withTrackedSources(result.metafile))
             )
+            if (entry === 'src/cli/library.ts') {
+                const declarations = readFileSync(resolve(process.cwd(), 'src/cli/library-types.ts'), 'utf8')
+                writeFileSync(
+                    outfile.replace(/\.mjs$/, '.d.mts'),
+                    declarations +
+                        '\nexport declare function createApiToolLibrary(options?: ApiToolLibraryOptions): ApiToolLibrary\n'
+                )
+            }
             console.info(`Built the PostHog CLI library -> ${outfile}`)
         })
     )

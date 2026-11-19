@@ -5,6 +5,7 @@ export interface CliConfig {
     host: string
     organizationId?: string
     projectId?: string
+    initialProjectId?: string
     version: number
 }
 

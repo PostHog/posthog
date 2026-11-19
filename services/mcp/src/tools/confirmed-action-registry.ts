@@ -1,15 +1,4 @@
-/**
- * Process-level singleton holding the `SignedStateCodec` and `PayloadStash`
- * that generated `confirmed_action` handlers call into.
- *
- * The Hono entrypoint installs these at boot via `setConfirmedActionRuntime`.
- * Generated code calls `getConfirmedActionRuntime()` from every prepare/execute
- * handler. Tests can install a custom codec + stash via `setConfirmedActionRuntime`
- * before exercising the generated code.
- *
- * Pattern matches how UI apps + tool catalogs are wired today — globals
- * installed once, read by many.
- */
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import type { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
 
@@ -18,6 +7,9 @@ export interface ConfirmedActionRuntime {
     stash: PayloadStash
 }
 
+/** Embedded calls can interleave. Their signing state must stay with the calling client. */
+export const embeddedConfirmations = new AsyncLocalStorage<ConfirmedActionRuntime>()
+
 let installed: ConfirmedActionRuntime | undefined
 
 export function setConfirmedActionRuntime(runtime: ConfirmedActionRuntime | undefined): void {
@@ -25,12 +17,13 @@ export function setConfirmedActionRuntime(runtime: ConfirmedActionRuntime | unde
 }
 
 export function getConfirmedActionRuntime(): ConfirmedActionRuntime {
-    if (!installed) {
+    const runtime = embeddedConfirmations.getStore() ?? installed
+    if (!runtime) {
         throw new Error(
             'ConfirmedActionRuntime not installed. The confirmed_action paradigm is disabled on this server — ' +
                 'set MCP_SIGNED_STATE_KEY to at least 32 bytes and restart. ' +
                 '(In tests, call setConfirmedActionRuntime({codec, stash}) before exercising prepare/execute handlers.)'
         )
     }
-    return installed
+    return runtime
 }
