@@ -554,8 +554,8 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 
 
 # Django's parser also takes week dates, offsets with seconds and digits past the microsecond, and reads some of
-# them as an earlier time than the caller wrote. Only this shape reaches it, which is also the shape the generated
-# clients' `date-time` validator takes, so a client and the API agree on which times are valid.
+# them as an earlier time than the caller wrote. Only this shape reaches it, the same syntax the generated clients'
+# `date-time` validator checks.
 SCHEDULED_AT_SHAPE = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.(?P<fraction>\d+))?)?(?:Z|[+-]\d{2}:(?P<offset_minutes>\d{2}))?",
     re.ASCII,
