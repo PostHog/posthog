@@ -243,6 +243,16 @@ function tileGroupLoadProperties(
     return { ...tileGroupProperties(groupDisplay, tiles), collapsed_group_count: collapsedTileGroupKeys.length }
 }
 
+/** Where a tile's load spent its time, apart from refresh_duration_ms. */
+interface TileLoadTiming {
+    // From the tile joining the load queue to its first request starting.
+    queueWaitMs: number
+    // From the request that returned the result starting to its response. Earlier capacity retries and their
+    // backoff are not in it, so a cache hit stays fast here even when the tile waited for capacity.
+    requestMs: number | undefined
+    dashboardV2Ui: boolean
+}
+
 function reportDashboardTileRefreshed(
     dashboardId: number,
     tile: DashboardTile,
@@ -252,6 +262,7 @@ function reportDashboardTileRefreshed(
     refreshDurationMs: number,
     individualRefresh: boolean,
     requestTiming: ApiRequestTiming | undefined,
+    loadTiming: TileLoadTiming,
     filterChange?: PendingFilterChange,
     isAutomatic = false
 ): void {
@@ -271,6 +282,9 @@ function reportDashboardTileRefreshed(
         filters: filtersForAnalytics(filters),
         variables,
         refresh_duration_ms: refreshDurationMs,
+        queue_wait_ms: loadTiming.queueWaitMs,
+        request_ms: loadTiming.requestMs,
+        dashboard_v2_ui: loadTiming.dashboardV2Ui,
         individual_refresh: individualRefresh,
         ...flattenRequestTiming(requestTiming, ''),
         ...sanitizedQuery,
@@ -315,6 +329,7 @@ interface InsightTileRefresh {
     queue: TaskQueue
     telemetryQueue: TaskQueue
     tileLoads: TileLoads<TileLoadRefresh>
+    dashboardV2Ui: boolean
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
@@ -374,12 +389,14 @@ async function refreshInsightTile(
         queue: analyticsQueue,
         telemetryQueue,
         tileLoads,
+        dashboardV2Ui,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
     const queue = isTelemetryInsight(insight) ? telemetryQueue : analyticsQueue
     const queryId = uuid()
-    let queryStartTime = performance.now()
+    const enqueuedAt = performance.now()
+    let queryStartTime = enqueuedAt
     let requestTiming: ApiRequestTiming | undefined
     const { signal, finish } = tileLoads.start([tile.id], refreshSignal, { forceRefresh, settings })
 
@@ -421,6 +438,11 @@ async function refreshInsightTile(
             Math.floor(performance.now() - queryStartTime),
             false,
             requestTiming,
+            {
+                queueWaitMs: Math.floor(queryStartTime - enqueuedAt),
+                requestMs: requestTiming ? Math.floor(requestTiming.request_total_ms) : undefined,
+                dashboardV2Ui,
+            },
             undefined,
             isAutomatic
         )
@@ -5043,6 +5065,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     $update_person_last_seen_at: false,
                     loadingMilliseconds: loadingMilliseconds,
                     dashboardId: props.id,
+                    dashboard_v2_ui: values.dashboardV2Enabled,
                 })
             }
         },
@@ -5331,6 +5354,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action,
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                dashboard_v2_ui: values.dashboardV2Enabled,
                 ...tileGroupLoadProperties(values.tileGroupDisplay, values.tiles, values.collapsedTileGroupKeys),
             })
             if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
@@ -5924,6 +5948,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     Math.floor(performance.now() - refreshStartTime),
                     true,
                     requestTiming,
+                    {
+                        // A single-tile refresh skips the load queue.
+                        queueWaitMs: 0,
+                        requestMs: requestTiming ? Math.floor(requestTiming.request_total_ms) : undefined,
+                        dashboardV2Ui: values.dashboardV2Enabled,
+                    },
                     currentFilterChange
                 )
                 if (currentFilterChange?.remainingInsightIds.size === 0) {
@@ -6082,6 +6112,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     settings: settingsToRefresh,
                     signal: cache.abortController.signal,
                     ...insightTileQueues(cache, values.dashboardV2Enabled),
+                    dashboardV2Ui: values.dashboardV2Enabled,
                     tileLoads: tileLoads(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
@@ -6239,7 +6270,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     urlVariables,
                                     Math.floor(performance.now() - startedAt),
                                     false,
-                                    undefined
+                                    undefined,
+                                    {
+                                        // Shared-query tiles skip the load queue and arrive on one open stream.
+                                        queueWaitMs: 0,
+                                        requestMs: Math.floor(performance.now() - startedAt),
+                                        dashboardV2Ui: values.dashboardV2Enabled,
+                                    }
                                 )
                                 settleTile(tile, refreshedInsight.is_cached ? 'cached' : 'refreshed')
                             }
@@ -6323,6 +6360,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: action,
                     force_refresh: !!forceRefresh,
                     refresh_duration_ms: refreshDurationMs,
+                    dashboard_v2_ui: values.dashboardV2Enabled,
                     total_tile_count: totalTileCount,
                     tiles_stale_count: tilesStaleCount,
                     tiles_deferred_count: staleTiles.length - tilesStaleCount,
@@ -6365,6 +6403,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     primary_interaction_id: dashboardQueryId,
                     time_to_see_data_ms: Math.floor(performance.now() - startTime),
                     api_response_bytes: responseBytes,
+                    dashboard_v2_ui: values.dashboardV2Enabled,
                     insights_fetched: sortedTilesToRefresh.length,
                     insights_fetched_cached: tilesRefreshedCachedCount,
                     ...tileGroupProps,
@@ -6589,6 +6628,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 settings,
                 signal: cache.abortController.signal,
                 ...insightTileQueues(cache, values.dashboardV2Enabled),
+                dashboardV2Ui: values.dashboardV2Enabled,
                 tileLoads: tileLoads(cache),
             }
             await Promise.all(tiles.map((tile) => refreshInsightTile(tile, tileRefresh)))
@@ -6642,6 +6682,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 settings: waiting.settings,
                 signal: cache.groupAbortController.signal,
                 ...insightTileQueues(cache, values.dashboardV2Enabled),
+                dashboardV2Ui: values.dashboardV2Enabled,
                 tileLoads: tileLoads(cache),
             }
             await Promise.all(
