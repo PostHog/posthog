@@ -1,1 +1,1 @@
-0389_drop_surfacing_score_from_session_replay_events
+0390_query_log_archive_log_comment
