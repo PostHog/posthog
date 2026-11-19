@@ -617,6 +617,15 @@ def _request_criteria_text(deletion_request: DeletionRequestContext) -> str:
     return "this request's team, time range and events"
 
 
+def _uncopied_rows_counted(
+    deletion_request: DeletionRequestContext, target: DeletionTarget, uncopied_predicate: UncopiedRowsPredicate
+) -> str | None:
+    """What the refusal for ``target``'s rows with no events copy counts, None when it applies the predicate."""
+    if uncopied_predicate.compiled is not None:
+        return None
+    return f"{_request_criteria_text(deletion_request)}, and have no copy in {target.copied_from}"
+
+
 def _same_criteria(criteria: tuple[str, dict]) -> Callable[[DeletionTarget], tuple[str, dict]]:
     return lambda _target: criteria
 
@@ -797,9 +806,7 @@ def _event_removal_placements(
                 deletion_request,
                 _same_criteria(window),
                 reason=reason,
-                counted=None
-                if uncopied_predicate.compiled is not None
-                else f"{_request_criteria_text(deletion_request)}, and have no copy in {target.copied_from}",
+                counted=_uncopied_rows_counted(deletion_request, target, uncopied_predicate),
             )
     return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
