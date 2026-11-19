@@ -92,4 +92,15 @@ describe('recentObjectsForHome', () => {
             ['d', 'frequent', 'Dashboards/d'],
         ])
     })
+
+    it('shows a pinned object with its latest recent metadata', () => {
+        const pin = { id: 'x', path: 'Dashboards/Pinned name', type: 'dashboard', ref: 'x' }
+        const recent = { ...pin, path: 'Dashboards/Recent name', last_viewed_at: '2026-11-19T10:00:00Z' }
+        const frequent = { ...pin, path: 'Dashboards/Frequent name', last_viewed_at: '2026-11-01T10:00:00Z' }
+        expect(jumpBackObjectsForHome([recent], [frequent], 8, [pin])[0]).toMatchObject({
+            path: 'Dashboards/Recent name',
+            last_viewed_at: '2026-11-19T10:00:00Z',
+            jumpBackReason: 'pinned',
+        })
+    })
 })

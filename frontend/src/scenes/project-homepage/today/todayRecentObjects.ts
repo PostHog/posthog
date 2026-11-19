@@ -41,7 +41,12 @@ export function jumpBackObjectsForHome(
     limit: number,
     pinned: FileSystemEntry[] = []
 ): JumpBackObject[] {
-    const current = new Map([...frequent, ...recents].reverse().map((entry) => [objectKey(entry), entry]))
+    const current = new Map<string, FileSystemEntry>()
+    for (const entry of [...recents, ...frequent]) {
+        if (!current.has(objectKey(entry))) {
+            current.set(objectKey(entry), entry)
+        }
+    }
     const pinnedObjects: FileSystemEntry[] = []
     for (const entry of pinned) {
         const key = objectKey(entry)

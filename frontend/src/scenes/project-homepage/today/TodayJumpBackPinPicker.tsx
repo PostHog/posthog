@@ -44,7 +44,11 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
     const triggerRef = useRef<HTMLButtonElement>(null)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
-    const { pinSearchResults: objects, pinSearchResultsLoading: loading } = useValues(todayJumpBackPinLogic)
+    const {
+        pinSearchResults: objects,
+        pinSearchResultsLoading: loading,
+        pinSearchFailed: failed,
+    } = useValues(todayJumpBackPinLogic)
     const { loadPinSearchResults } = useActions(todayJumpBackPinLogic)
     const [pinnedOnOpen, setPinnedOnOpen] = useState<FileSystemEntry[]>([])
 
@@ -70,7 +74,7 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
             searching
                 ? [
                       { kind: 'products' as const, items: take(products) },
-                      { kind: 'items' as const, items: loading ? [] : take(objects.map(pinOption)) },
+                      { kind: 'items' as const, items: loading || failed ? [] : take(objects.map(pinOption)) },
                   ]
                 : [
                       { kind: 'pinned' as const, items: take([...pinnedOnOpen, ...pinnedObjects].map(pinOption)) },
@@ -78,7 +82,7 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                   ]
         ).filter((group) => group.items.length > 0)
         return { groups: result, optionsByKey: byKey }
-    }, [featureFlags, objects, loading, search, searching, pinnedOnOpen, pinnedObjects, recentObjects])
+    }, [featureFlags, objects, loading, failed, search, searching, pinnedOnOpen, pinnedObjects, recentObjects])
 
     if (!jumpBackPinScope) {
         return null
@@ -151,7 +155,13 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                     )}
                 </ComboboxList>
                 <ComboboxEmpty>
-                    {searching ? (loading ? 'Searching…' : 'Nothing matches') : 'Search for a product or item to pin'}
+                    {!searching
+                        ? 'Search for a product or item to pin'
+                        : loading
+                          ? 'Searching…'
+                          : failed
+                            ? 'Search failed. Change the search to try again.'
+                            : 'Nothing matches'}
                 </ComboboxEmpty>
             </ComboboxContent>
         </Combobox>
