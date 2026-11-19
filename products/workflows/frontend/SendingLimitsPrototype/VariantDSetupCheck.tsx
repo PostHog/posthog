@@ -2,7 +2,7 @@
 // check runs when the sender is verified and sets the starting allowance. It runs again daily, which
 // is how a blocklist listing pauses a sender later. Never merge.
 import { IconCheck, IconRefresh, IconWarning, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -12,6 +12,7 @@ import { PrototypeNote } from './PrototypeNote'
 import { ReputationShell } from './ReputationShell'
 import {
     DOMAIN_CHECKS,
+    DomainBand,
     DomainCheck,
     DomainProfileKey,
     SendingState,
@@ -22,6 +23,8 @@ import { SetupShell } from './SetupShell'
 
 const fmt = humanFriendlyNumber
 
+const BAND_TAG: Record<DomainBand, LemonTagType> = { Hold: 'danger', Starter: 'muted', Established: 'success' }
+
 function Signal({ signal }: { signal: DomainCheck['signals'][number] }): JSX.Element {
     return (
         <div className="flex items-center gap-3 text-sm">
@@ -30,6 +33,8 @@ function Signal({ signal }: { signal: DomainCheck['signals'][number] }): JSX.Ele
                     <IconCheck className="text-success" />
                 ) : signal.ok === 'warn' ? (
                     <IconWarning className="text-warning" />
+                ) : signal.ok === 'unknown' ? (
+                    <IconWarning className="text-secondary" />
                 ) : (
                     <IconX className="text-danger" />
                 )}
@@ -47,7 +52,10 @@ function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: 
             data-attr="email-domain-health-check"
         >
             <div className="flex items-center justify-between">
-                <h3 className="m-0">Domain check</h3>
+                <span className="flex items-center gap-2">
+                    <h3 className="m-0">Domain check</h3>
+                    <LemonTag type={BAND_TAG[check.band]}>{check.band}</LemonTag>
+                </span>
                 <span className="text-xs text-secondary">Checked {checkedOn}</span>
             </div>
             <div className="flex flex-col gap-2">
@@ -58,7 +66,9 @@ function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: 
             <div className="border-t pt-3 flex flex-col gap-1">
                 <span className="text-xs text-secondary">Starting allowance</span>
                 <span className="text-xl font-semibold">
-                    {check.startPerDay === null ? "Can't send yet" : `${fmt(check.startPerDay)} emails a day`}
+                    {check.startPerDay === null
+                        ? 'On hold'
+                        : `${check.band === 'Established' ? 'Up to ' : ''}${fmt(check.startPerDay)} emails a day`}
                 </span>
                 <span className="text-sm">{check.verdict}</span>
             </div>
@@ -102,8 +112,15 @@ interface VariantDProps {
 
 export function VariantDSetupCheck({ surface, state, domainProfile, setDomainProfile }: VariantDProps): JSX.Element {
     // A blocked sender in this variant is one the daily re-check found on a blocklist.
+    // Only the new-sender state lets you pick a domain. Later states assume a domain that was not on hold.
+    const picked = DOMAIN_CHECKS[domainProfile]
     const check =
-        state.key === 'blocked' ? { ...DOMAIN_CHECKS.listed, domain: state.domain } : DOMAIN_CHECKS[domainProfile]
+        state.key === 'blocked'
+            ? { ...DOMAIN_CHECKS.listed, domain: state.domain }
+            : state.key === 'new' || picked.band !== 'Hold'
+              ? picked
+              : DOMAIN_CHECKS.starter
+    const onHold = check.startPerDay === null
     const domain = state.key === 'new' ? check.domain : state.domain
     const startPerDay = check.startPerDay ?? 0
     const todayPerDay = state.key === 'new' ? startPerDay : Math.max(state.allowancePerDay, startPerDay)
@@ -111,23 +128,24 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
         state.key === 'blocked' ? 'Dec 9, in the daily re-check' : state.key === 'new' ? 'just now' : 'Dec 3'
 
     if (surface === 'setup') {
-        const listed = check.startPerDay === null
+        const listed = onHold
         return (
             <SetupShell
                 domain={domain}
                 tone={listed ? 'warning' : 'success'}
-                title={listed ? <>{domain} can't send yet</> : undefined}
+                title={listed ? <>{domain} is on hold</> : undefined}
                 lead={
                     listed
-                        ? 'The settings are in place, but the domain check found a problem.'
+                        ? 'The settings are in place, but the domain check put sending on hold.'
                         : `All 3 settings are in place. You can send up to ${fmt(startPerDay)} emails a day to start.`
                 }
             >
                 {state.key === 'new' && <ProfilePicker value={domainProfile} onChange={setDomainProfile} />}
                 <DomainCheckCard check={{ ...check, domain }} checkedOn={checkedOn} />
                 <PrototypeNote>
-                    The check sits on the ready step, next to today's sending tips (below). Account history uses the
-                    same signal as the automatic lift for paying teams with clean rates.
+                    The check sits on the ready step, next to today's sending tips (below). It reads domain age, MX
+                    records, other senders in SPF and blocklists, and sorts the domain into Hold, Starter or
+                    Established. A failed lookup lands in Starter, and setup never fails on it.
                 </PrototypeNote>
             </SetupShell>
         )
@@ -181,18 +199,33 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
     }
 
     const { broadcast } = state
-    const blocked = state.key === 'blocked'
+    const blocked = state.key === 'blocked' || onHold
     const stopped = broadcast.sample?.verdict === 'stopped'
     const days = state.key === 'new' ? Math.ceil(broadcast.audience / Math.max(startPerDay, 1)) : sendDays(state)
+    // Above the Starter band the first send is a sample, because an aged domain can be bought.
+    const sampleFirst = state.key === 'new' && check.band === 'Established'
     return (
         <BroadcastShell
             state={state}
-            launchDisabledReason={blocked ? 'Email sending is paused for this project' : undefined}
+            launchDisabledReason={
+                blocked
+                    ? onHold && state.key === 'new'
+                        ? 'Sending from this domain is on hold'
+                        : 'Email sending is paused for this project'
+                    : undefined
+            }
             recipientsHint={
                 blocked ? (
                     <div className="text-danger text-xs">
-                        Email sending is paused: {state.domain} is on a spam blocklist.{' '}
+                        {onHold && state.key === 'new'
+                            ? `Sending from ${domain} is on hold.`
+                            : `Email sending is paused: ${state.domain} is on a spam blocklist.`}{' '}
                         <Link>See the domain check</Link>.
+                    </div>
+                ) : sampleFirst ? (
+                    <div className="text-xs">
+                        This is your first broadcast, so {fmt(Math.round(broadcast.audience * 0.05))} people get it
+                        first. We wait an hour and check how many emails bounce, then send to the rest today.
                     </div>
                 ) : broadcast.audience > todayPerDay ? (
                     <div className="text-xs">
@@ -221,11 +254,13 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
                     )}
                     {blocked && (
                         <LemonBanner type="error">
-                            Paused: {state.domain} showed up on a spam blocklist on Dec 9.{' '}
+                            {onHold && state.key === 'new'
+                                ? `On hold: ${check.verdict}`
+                                : `Paused: ${state.domain} showed up on a spam blocklist on Dec 9.`}{' '}
                             <Link>See the domain check</Link>.
                         </LemonBanner>
                     )}
-                    {!blocked && !stopped && broadcast.sentSoFar < broadcast.audience && (
+                    {!blocked && !stopped && !sampleFirst && broadcast.sentSoFar < broadcast.audience && (
                         <span className="text-sm text-secondary">The rest goes out over the next {days - 1} days.</span>
                     )}
                 </>

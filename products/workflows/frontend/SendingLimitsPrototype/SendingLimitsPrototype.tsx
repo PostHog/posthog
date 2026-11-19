@@ -56,7 +56,7 @@ export function SendingLimitsPrototype(): JSX.Element {
     const [variant, setVariant] = useUrlState<VariantKey>('variant', VARIANT_KEYS, 'A')
     const [surface, setSurface] = useUrlState<SurfaceKey>('surface', SURFACE_KEYS, 'broadcast')
     const [stateKey, setStateKey] = useUrlState<StateKey>('state', STATE_KEYS, 'capped')
-    const [domainProfile, setDomainProfile] = useUrlState<DomainProfileKey>('domain', DOMAIN_KEYS, 'default')
+    const [domainProfile, setDomainProfile] = useUrlState<DomainProfileKey>('domain', DOMAIN_KEYS, 'starter')
     const state = STATES[stateKey]
     const primarySurface = VARIANTS.find((v) => v.key === variant)?.primarySurface
 

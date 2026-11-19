@@ -6,7 +6,8 @@
 export type VariantKey = 'A' | 'B' | 'C' | 'D'
 export type StateKey = 'new' | 'warming' | 'capped' | 'moved-down' | 'blocked'
 export type SurfaceKey = 'setup' | 'reputation' | 'broadcast'
-export type DomainProfileKey = 'established' | 'default' | 'brand-new' | 'listed'
+export type DomainProfileKey = 'established' | 'starter' | 'lookup-failed' | 'brand-new' | 'listed'
+export type DomainBand = 'Hold' | 'Starter' | 'Established'
 
 export interface AllowanceMove {
     date: string
@@ -309,70 +310,89 @@ export interface DomainCheck {
     key: DomainProfileKey
     label: string
     domain: string
-    signals: { label: string; ok: boolean | 'warn'; detail: string }[]
+    band: DomainBand
+    signals: { label: string; ok: boolean | 'warn' | 'unknown'; detail: string }[]
+    // null while the sender is on hold.
     startPerDay: number | null
     verdict: string
 }
 
-// Variant D: the health check that sets the starting allowance.
+// Variant D: the check reads domain age (RDAP), MX records, other senders in SPF and blocklists. It
+// sorts a domain into three bands. A failed lookup never fails setup; it lands in Starter.
 export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
     established: {
         key: 'established',
-        label: 'Established domain',
+        label: 'Established',
         domain: 'mail.example.com',
+        band: 'Established',
         signals: [
             { label: 'Domain age', ok: true, detail: 'Registered 9 years ago' },
-            { label: 'DMARC', ok: true, detail: 'Published, policy quarantine' },
-            { label: 'Blocklists', ok: true, detail: 'Not listed' },
+            { label: 'Receives email', ok: true, detail: 'MX records found' },
             { label: 'Already sends email', ok: true, detail: 'SPF names 2 other email services' },
-            { label: 'Account history', ok: true, detail: 'Paid plan, no sending problems on record' },
+            { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: 10000,
         verdict:
-            'Your domain has a long, clean history and your account is on a paid plan, so you start at 10,000 emails per day.',
+            'This domain has sent email for years, so you start at up to 10,000 emails a day. Your first broadcast goes out as a small sample first, so we can check it before the rest.',
     },
-    default: {
-        key: 'default',
-        label: 'Typical domain',
+    starter: {
+        key: 'starter',
+        label: 'Starter',
         domain: 'news.example.org',
+        band: 'Starter',
         signals: [
-            { label: 'Domain age', ok: true, detail: 'Registered 2 years ago' },
-            { label: 'DMARC', ok: 'warn', detail: 'Not published' },
-            { label: 'Blocklists', ok: true, detail: 'Not listed' },
+            { label: 'Domain age', ok: 'warn', detail: 'Registered 1 year ago' },
+            { label: 'Receives email', ok: true, detail: 'MX records found' },
             { label: 'Already sends email', ok: 'warn', detail: 'No other email services in SPF' },
-            { label: 'Account history', ok: 'warn', detail: 'No paid plan yet' },
+            { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: 1000,
-        verdict: 'You start at 1,000 emails per day. Publish a DMARC record to start higher.',
+        verdict:
+            'You start at 1,000 emails a day. This grows each day you send without many bounces or spam complaints.',
+    },
+    'lookup-failed': {
+        key: 'lookup-failed',
+        label: 'Lookup failed',
+        domain: 'shop.example.net',
+        band: 'Starter',
+        signals: [
+            { label: 'Domain age', ok: 'unknown', detail: "Couldn't look up the registration date" },
+            { label: 'Receives email', ok: true, detail: 'MX records found' },
+            { label: 'Already sends email', ok: true, detail: 'SPF names 1 other email service' },
+            { label: 'Blocklists', ok: true, detail: 'Not listed' },
+        ],
+        startPerDay: 1000,
+        verdict:
+            "We couldn't check everything, so you start at 1,000 emails a day. This grows each day you send without many bounces or spam complaints.",
     },
     'brand-new': {
         key: 'brand-new',
-        label: 'Brand-new domain',
+        label: 'Hold: new domain',
         domain: 'launch.example.net',
+        band: 'Hold',
         signals: [
-            { label: 'Domain age', ok: 'warn', detail: 'Registered 6 days ago' },
-            { label: 'DMARC', ok: 'warn', detail: 'Not published' },
-            { label: 'Blocklists', ok: true, detail: 'Not listed' },
+            { label: 'Domain age', ok: false, detail: 'Registered 6 days ago' },
+            { label: 'Receives email', ok: 'warn', detail: 'No MX records' },
             { label: 'Already sends email', ok: 'warn', detail: 'No other email services in SPF' },
-            { label: 'Account history', ok: 'warn', detail: 'No paid plan yet' },
-        ],
-        startPerDay: 100,
-        verdict: 'Inboxes distrust new domains, so you start at 100 emails per day. This grows as you send.',
-    },
-    listed: {
-        key: 'listed',
-        label: 'Blocklisted domain',
-        domain: 'deals.example.com',
-        signals: [
-            { label: 'Domain age', ok: true, detail: 'Registered 4 years ago' },
-            { label: 'DMARC', ok: true, detail: 'Published, policy none' },
-            { label: 'Blocklists', ok: false, detail: 'Listed on Spamhaus DBL' },
-            { label: 'Already sends email', ok: true, detail: 'SPF names 1 other email service' },
-            { label: 'Account history', ok: true, detail: 'Paid plan' },
+            { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: null,
         verdict:
-            "This domain is on a spam blocklist, so it can't send yet. Ask Spamhaus to delist it, then check again.",
+            'Inboxes treat domains younger than 30 days as spam, so this domain is on hold until Dec 4. Test emails still work.',
+    },
+    listed: {
+        key: 'listed',
+        label: 'Hold: blocklisted',
+        domain: 'deals.example.com',
+        band: 'Hold',
+        signals: [
+            { label: 'Domain age', ok: true, detail: 'Registered 4 years ago' },
+            { label: 'Receives email', ok: true, detail: 'MX records found' },
+            { label: 'Already sends email', ok: true, detail: 'SPF names 1 other email service' },
+            { label: 'Blocklists', ok: false, detail: 'Listed on Spamhaus DBL' },
+        ],
+        startPerDay: null,
+        verdict: "This domain is on a spam blocklist, so it's on hold. Ask Spamhaus to delist it, then check again.",
     },
 }
 
