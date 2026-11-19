@@ -443,8 +443,10 @@ def delete_user(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
     deleted_user_id = obj.pk
     name = f"{obj.first_name} {obj.last_name}".strip() or obj.email
     email = obj.email
-    distinct_id, analytics_metadata = obj.distinct_id, obj.get_analytics_metadata()
     with transaction.atomic():
+        # Reading the metadata can save a fallback current_team, which must roll back with a failed delete.
+        distinct_id, analytics_metadata = obj.distinct_id, obj.get_analytics_metadata()
+
         # An account in no organization has nowhere to scope an ActivityLog row, so the admin log takes the reason.
         LogEntry.objects.log_actions(
             user_id=cast(User, request.user).pk,
