@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -31,6 +31,7 @@ import {
 } from './businessKnowledgeLogic'
 import { KnowledgeSourceNameCell } from './KnowledgeSourceNameCell'
 import { RefreshStatusCell } from './RefreshStatusCell'
+import { SourceFilters } from './SourceFilters'
 import { SourceLibrariesCell } from './SourceLibrariesCell'
 import { SourceUsageCell } from './SourceUsageCell'
 
@@ -53,19 +54,10 @@ export function BusinessKnowledgeScene(): JSX.Element {
         searchTerm,
         sourceTypeFilter,
         addedByFilter,
-        libraries,
         libraryScope,
         selectedLibrary,
     } = useValues(businessKnowledgeLogic)
-    const {
-        openCreateModal,
-        deleteSource,
-        refreshSource,
-        setSearchTerm,
-        setSourceTypeFilter,
-        setAddedByFilter,
-        setLibraryScope,
-    } = useActions(businessKnowledgeLogic)
+    const { openCreateModal, deleteSource, refreshSource } = useActions(businessKnowledgeLogic)
     const { push } = useActions(router)
 
     if (!isEnabled) {
@@ -111,47 +103,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 description={`${readyCount} ready · ${pluralize(totalChunks, 'chunk')} indexed`}
                 className="gap-y-2"
             >
-                <div className="flex flex-wrap gap-2 items-center">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search by name or URL"
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        className="max-w-80"
-                    />
-                    <LemonSelect
-                        value={sourceTypeFilter}
-                        onChange={setSourceTypeFilter}
-                        options={[
-                            { value: 'all', label: 'All types' },
-                            { value: 'text', label: 'Text' },
-                            { value: 'url', label: 'URL' },
-                            { value: 'file', label: 'File' },
-                        ]}
-                    />
-                    <LemonSelect
-                        value={addedByFilter}
-                        onChange={setAddedByFilter}
-                        options={[
-                            { value: 'all', label: 'All sources' },
-                            { value: 'human', label: 'Human' },
-                            { value: 'learned', label: 'Learned' },
-                        ]}
-                        data-attr="business-knowledge-added-by-filter"
-                    />
-                    {libraries.length > 0 && (
-                        <LemonSelect
-                            value={libraryScope}
-                            onChange={setLibraryScope}
-                            options={[
-                                { value: LIBRARY_SCOPE_ALL, label: 'All libraries' },
-                                ...libraries.map((library) => ({ value: library.id, label: library.name })),
-                                { value: LIBRARY_SCOPE_UNFILED, label: 'No library' },
-                            ]}
-                            data-attr="business-knowledge-library-filter"
-                        />
-                    )}
-                </div>
+                <SourceFilters />
 
                 <LemonTable<KnowledgeSource>
                     dataSource={sources}

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
@@ -7,14 +8,13 @@ import { Button } from '@posthog/quill'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { CreateKnowledgeSourceModal } from '../../components/CreateKnowledgeSourceModal/CreateKnowledgeSourceModal'
-import { REFRESH_INTERVAL_OPTIONS, businessKnowledgeLogic } from '../sources/businessKnowledgeLogic'
 import { KnowledgeLibraryLogicProps, knowledgeLibraryLogic } from './knowledgeLibraryLogic'
 import { LibraryConnectAgentSection } from './LibraryConnectAgentSection'
 import { LibraryEditModal } from './LibraryEditModal'
@@ -33,7 +33,7 @@ export function KnowledgeLibraryScene(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { library, libraryLoading, libraryNotFound, saving } = useValues(knowledgeLibraryLogic)
     const { loadLibrary, openDialog, deleteLibrary } = useActions(knowledgeLibraryLogic)
-    const { openCreateModal, setCreateLibraryIds } = useActions(businessKnowledgeLogic)
+    const { push } = useActions(router)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -62,11 +62,8 @@ export function KnowledgeLibraryScene(): JSX.Element {
         )
     }
 
-    const addSourceToLibrary = (): void => {
-        openCreateModal()
-        // Opening the modal resets its libraries, so this library goes in after.
-        setCreateLibraryIds([library.id])
-    }
+    // pinned: the Sources tab reads `library` and `new` from this URL.
+    const newSourceUrl = combineUrl(urls.businessKnowledge(), { library: library.id }, { new: 1 }).url
 
     return (
         <SceneContent>
@@ -119,7 +116,7 @@ export function KnowledgeLibraryScene(): JSX.Element {
                         {todayRailNav ? (
                             <Button
                                 variant="primary"
-                                onClick={addSourceToLibrary}
+                                onClick={() => push(newSourceUrl)}
                                 data-attr="business-knowledge-library-new-source"
                             >
                                 <IconPlus />
@@ -130,7 +127,7 @@ export function KnowledgeLibraryScene(): JSX.Element {
                                 type="primary"
                                 size="small"
                                 icon={<IconPlusSmall />}
-                                onClick={addSourceToLibrary}
+                                to={newSourceUrl}
                                 data-attr="business-knowledge-library-new-source"
                             >
                                 New source
@@ -144,7 +141,6 @@ export function KnowledgeLibraryScene(): JSX.Element {
             <LibraryRepositoriesSection />
             <SceneDivider />
             <LibraryConnectAgentSection libraryId={library.id} />
-            <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
             <LibraryEditModal />
         </SceneContent>
     )

@@ -712,11 +712,18 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.businessKnowledge()]: (_, searchParams) => {
+        [urls.businessKnowledge()]: (_, searchParams, hashParams) => {
             const raw = searchParams.library
             const next = typeof raw === 'string' && raw.length > 0 ? raw : LIBRARY_SCOPE_ALL
             if (next !== values.libraryScope) {
                 actions.setLibraryScope(next)
+            }
+            // pinned: a library page links here with `#new` to add a source to that library.
+            if (hashParams.new) {
+                actions.openCreateModal()
+                // Drop the flag, or a reload opens the modal again.
+                const { new: _new, ...restHashParams } = hashParams
+                router.actions.replace(urls.businessKnowledge(), searchParams, restHashParams)
             }
         },
     })),

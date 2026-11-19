@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInputSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -11,9 +11,9 @@ import { KnowledgeSourceNameCell } from '../sources/KnowledgeSourceNameCell'
 import { knowledgeLibraryLogic } from './knowledgeLibraryLogic'
 
 export function LibrarySourcesSection(): JSX.Element {
-    const { sources, sourcesLoading, addableSources, projectSourcesLoading, changingSourceIds } =
+    const { sources, sourcesLoading, addableSources, projectSourcesLoading, projectSourcesFailed, changingSourceIds } =
         useValues(knowledgeLibraryLogic)
-    const { addSource, removeSource, loadSources } = useActions(knowledgeLibraryLogic)
+    const { addSource, removeSource, loadSources, loadProjectSources } = useActions(knowledgeLibraryLogic)
 
     return (
         <SceneSection
@@ -27,12 +27,21 @@ export function LibrarySourcesSection(): JSX.Element {
                     value={[]}
                     options={addableSources.map((source) => ({ key: source.id, label: source.name }))}
                     onChange={([sourceId]) => sourceId && addSource(sourceId)}
+                    onInputChange={loadProjectSources}
+                    disableFiltering
+                    emptyStateComponent={<span className="p-2 text-secondary">No other sources match.</span>}
                     loading={projectSourcesLoading || changingSourceIds.length > 0}
                     disabled={changingSourceIds.length > 0}
                     placeholder="Add an existing source"
                     data-attr="business-knowledge-library-add-source"
                 />
             </div>
+            {projectSourcesFailed && (
+                <p className="m-0 text-secondary">
+                    Couldn't load the sources you can add.{' '}
+                    <Link onClick={() => loadProjectSources(undefined)}>Try again</Link>
+                </p>
+            )}
             {!sources && !sourcesLoading ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadSources() }}>
                     Couldn't load the sources in this library. Try again.

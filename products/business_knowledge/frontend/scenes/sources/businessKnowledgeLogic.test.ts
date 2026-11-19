@@ -132,6 +132,18 @@ describe('businessKnowledgeLogic', () => {
         })
     })
 
+    it('opens the add-source modal for the library a library page links to', async () => {
+        const libraryId = '22222222-2222-2222-2222-222222222222'
+
+        router.actions.push('/business-knowledge', { library: libraryId }, { new: 1 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isCreateModalOpen).toBe(true)
+        expect(logic.values.createLibraryIds).toEqual([libraryId])
+        expect(router.values.hashParams.new).toBeUndefined()
+        expect(router.values.searchParams.library).toEqual(libraryId)
+    })
+
     it('falls back to all when the url library is unknown', async () => {
         logic.unmount()
         mockedApi.listLibraries.mockResolvedValue([
