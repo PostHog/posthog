@@ -77,7 +77,11 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
+from products.aeo.backend.facade.tasks import (
+    refresh_aeo_stored_results_task,
+    run_aeo_citation_checks_task,
+    score_aeo_sentiment_backlog_task,
+)
 from products.ai_gateway.backend.facade.tasks import sweep_ineligible_dev_token_owners
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
@@ -1445,5 +1449,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         score_aeo_sentiment_backlog_task.s(),
         name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
+    )
+    # More often than a stored result lives, so the views the page opens on are always stored.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_aeo_stored_results_task.s(),
+        name="AEO stored results refresh",
         expires_seconds=9 * 60,
     )

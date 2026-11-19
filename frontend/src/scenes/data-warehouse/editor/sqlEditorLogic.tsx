@@ -177,6 +177,7 @@ export interface SqlEditorLogicProps {
     mode?: SQLEditorMode
     singleStatement?: boolean
     hideAgentHints?: boolean
+    captureQueryTelemetry?: boolean
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -2597,6 +2598,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setSourceQuery(nextSourceQuery)
                 actions.setLastRunQuery(nextSourceQuery)
                 const dataProps: DataNodeLogicProps = {
+                    captureQueryTelemetry: props.captureQueryTelemetry,
                     key: values.dataLogicKey,
                     query: executedSource,
                     autoLoad: false,
@@ -4764,11 +4766,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return cached
                 }
                 try {
-                    const response = await performQuery<HogQLMetadata>({
-                        kind: NodeKind.HogQLMetadata,
-                        language: HogLanguage.hogQL,
-                        query: subqueryText,
-                    })
+                    const response = await performQuery<HogQLMetadata>(
+                        {
+                            kind: NodeKind.HogQLMetadata,
+                            language: HogLanguage.hogQL,
+                            query: subqueryText,
+                            globals: values.placeholderValues ?? undefined,
+                        },
+                        { captureQueryTelemetry: props.captureQueryTelemetry }
+                    )
                     const errors = response?.errors ?? []
                     const result =
                         errors.length > 0
