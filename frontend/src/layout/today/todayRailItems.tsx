@@ -4,6 +4,7 @@ import {
     IconFlag,
     IconGear,
     IconHome,
+    IconLetter,
     IconPeople,
     IconPulse,
     IconSidebarClose,
@@ -13,6 +14,7 @@ import {
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
 
+import { MessagingNavPrototypeHeaderNewButton } from './messagingNavPrototype/MessagingNavPrototypeNewButton'
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
 import { TodayNewPeopleButton } from './TodayNewPeopleButton'
@@ -40,6 +42,13 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
+    // PROTOTYPE #419: the rail tile is too narrow for the product name, so the tile says Messaging.
+    messaging: {
+        label: 'Messaging',
+        title: 'Email & Messaging',
+        icon: <IconLetter />,
+        action: MessagingNavPrototypeHeaderNewButton,
+    },
 }
 
 export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']

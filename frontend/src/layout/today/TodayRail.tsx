@@ -34,7 +34,10 @@ export function TodayRail(): JSX.Element {
             key={pane}
             label={TODAY_PANES[pane].label}
             icon={TODAY_PANES[pane].icon}
-            active={activePane === pane}
+            active={
+                activePane === pane ||
+                (pane === 'products' && activePane === 'messaging' && !railPanes.includes('messaging'))
+            }
             to={railPaneHref(pane, effectivePhaiView, featureFlags)}
             onClick={() => clickRailPane(pane)}
             dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}

@@ -19,11 +19,26 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import {
+    currentMessagingNavVariant,
+    messagingNavPrototypeLogic,
+} from './messagingNavPrototype/messagingNavPrototypeLogic'
+import { isMessagingHomePath } from './messagingNavPrototype/messagingNavPrototypeNav'
 import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
 import { isTodayPaneEnabled } from './todayPaneFlags'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'monitor' | 'people' | 'release' | 'products' | 'settings'
+export type TodayRailPane =
+    | 'home'
+    | 'spaces'
+    | 'analytics'
+    | 'monitor'
+    | 'people'
+    | 'release'
+    | 'products'
+    | 'settings'
+    // PROTOTYPE, never merged: PostHog/michaelr-context#419.
+    | 'messaging'
 
 /** What the shell shows: the page, the pane picked on the rail, and whether its sidebar is open. */
 export interface TodayView {
@@ -125,6 +140,10 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     const path = removeProjectIdIfPresent(pathname)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
+    }
+    // PROTOTYPE #419: A keeps the Products pane and brings its own sidebar; B and C switch to the Email & Messaging pane.
+    if (isMessagingHomePath(path)) {
+        return currentMessagingNavVariant() === 'A' ? 'products' : 'messaging'
     }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
@@ -506,7 +525,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
     }),
     selectors({
         routePane: [
-            (s) => [router.selectors.location, s.featureFlags],
+            // PROTOTYPE #419: the variant decides the pane of the Email & Messaging pages.
+            (s) => [router.selectors.location, s.featureFlags, messagingNavPrototypeLogic.selectors.variant],
             (location: { pathname: string }, featureFlags: FeatureFlagsSet): TodayRailPane | null =>
                 railPaneForPath(location.pathname, featureFlags),
         ],
@@ -561,9 +581,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
         ],
         railPanes: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): TodayRailPane[] =>
-                TODAY_RAIL_PANES.filter((pane) => isTodayPaneEnabled(pane, featureFlags)),
+            (s) => [s.featureFlags, messagingNavPrototypeLogic.selectors.variant],
+            (featureFlags: FeatureFlagsSet, variant: string): TodayRailPane[] => {
+                const panes = TODAY_RAIL_PANES.filter((pane) => isTodayPaneEnabled(pane, featureFlags))
+                // PROTOTYPE #419: only variant C gives Email & Messaging its own rail item, right after People.
+                return variant === 'C'
+                    ? panes.flatMap((pane) => (pane === 'people' ? [pane, 'messaging'] : [pane]))
+                    : panes
+            },
         ],
         // The People pane links every People page and tab, so those pages hide their tabs and name while it is open.
         peoplePaneLinksTabs: [

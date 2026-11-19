@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -69,6 +68,14 @@ export const manifest: ProductManifest = {
             iconType: 'transactional',
             projectBased: true,
         },
+        // PROTOTYPE, never merged: PostHog/michaelr-context#419.
+        MessagingNavPrototype: {
+            import: () => import('./frontend/MessagingNavPrototype/MessagingHomePrototypeScene'),
+            name: 'Email & Messaging',
+            iconType: 'transactional',
+            projectBased: true,
+            description: 'Broadcasts, transactional emails and messaging workflows, with their setup.',
+        },
         WorkflowsEmailDomain: {
             import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
             name: 'Workflows',
@@ -78,6 +85,8 @@ export const manifest: ProductManifest = {
     },
     routes: {
         // URL: [Scene, SceneKey]
+        '/messaging': ['MessagingNavPrototype', 'messagingNavPrototype'],
+        '/messaging/:section': ['MessagingNavPrototype', 'messagingNavPrototype'],
         '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
         '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
@@ -158,14 +167,6 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
             searchKeywords: ['automations', 'campaigns', 'messaging'],
-            searchTabs: [
-                { name: 'Library', href: urls.workflows('library') },
-                { name: 'Channels', href: urls.workflows('channels') },
-                { name: 'Opt-outs', href: urls.workflows('opt-outs') },
-                { name: 'Suppression list', href: urls.workflows('suppression') },
-                { name: 'Reputation', href: urls.workflows('reputation') },
-                { name: 'Settings', href: urls.workflows('settings') },
-            ],
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,
             iconType: 'workflows',
@@ -175,28 +176,17 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             sceneKey: 'Workflows',
         },
+        // PROTOTYPE #419: one row for the home replaces the Broadcasts and Transactional rows.
         {
-            path: 'Broadcasts',
+            path: 'Email & Messaging',
             intents: [ProductKey.WORKFLOWS],
-            href: urls.broadcasts(),
-            searchKeywords: ['newsletter', 'email blast'],
-            type: 'broadcasts',
-            category: ProductItemCategory.MESSAGING,
-            iconType: 'broadcasts',
-            iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
-            sceneKey: 'Broadcasts',
-        },
-        {
-            path: 'Transactional',
-            intents: [ProductKey.WORKFLOWS],
-            href: urls.transactional(),
-            searchKeywords: ['transactional email'],
+            href: '/messaging/broadcasts',
+            searchKeywords: ['broadcasts', 'transactional email', 'newsletter', 'email', 'messaging'],
             type: 'transactional',
             category: ProductItemCategory.MESSAGING,
             iconType: 'transactional',
-            iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
-            sceneKey: 'Transactional',
-            flag: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
+            iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
+            sceneKey: 'MessagingNavPrototype',
         },
     ],
 }

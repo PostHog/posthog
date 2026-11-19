@@ -384,6 +384,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
+    '/messaging': ['MessagingNavPrototype', 'messagingNavPrototype'],
+    '/messaging/:section': ['MessagingNavPrototype', 'messagingNavPrototype'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
@@ -1411,6 +1413,12 @@ export const productConfiguration: Record<string, any> = {
     },
     TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     TransactionalCodeEmail: { name: 'Transactional', iconType: 'transactional', projectBased: true },
+    MessagingNavPrototype: {
+        name: 'Email & Messaging',
+        iconType: 'transactional',
+        projectBased: true,
+        description: 'Broadcasts, transactional emails and messaging workflows, with their setup.',
+    },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -2509,7 +2517,6 @@ export type ProductTreePath =
     | 'Application observability'
     | 'Apps'
     | 'Autoresearch'
-    | 'Broadcasts'
     | 'Business intelligence'
     | 'Business knowledge'
     | 'Clusters'
@@ -2519,6 +2526,7 @@ export type ProductTreePath =
     | 'Data catalog'
     | 'Data warehouse'
     | 'Early access features'
+    | 'Email & Messaging'
     | 'Endpoints'
     | 'Engineering analytics'
     | 'Error tracking'
@@ -2552,7 +2560,6 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
-    | 'Transactional'
     | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
@@ -2598,28 +2605,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         sceneKey: 'Autoresearch',
         sceneKeys: ['Autoresearch', 'AutoresearchNew', 'AutoresearchPipeline'],
-    },
-    {
-        path: 'Broadcasts',
-        intents: [ProductKey.WORKFLOWS],
-        href: urls.broadcasts(),
-        searchKeywords: ['newsletter', 'email blast'],
-        type: 'broadcasts',
-        category: ProductItemCategory.MESSAGING,
-        iconType: 'broadcasts',
-        iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
-        sceneKey: 'Broadcasts',
-        sceneKeys: [
-            'Workflows',
-            'Workflow',
-            'WorkflowsLibraryTemplate',
-            'Broadcasts',
-            'Broadcast',
-            'Transactional',
-            'TransactionalEmailLogEntry',
-            'TransactionalCodeEmail',
-            'WorkflowsEmailDomain',
-        ],
     },
     {
         path: 'Business intelligence',
@@ -2884,6 +2869,29 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         sceneKey: 'EarlyAccessFeatures',
         sceneKeys: ['EarlyAccessFeatures', 'EarlyAccessFeature'],
+    },
+    {
+        path: 'Email & Messaging',
+        intents: [ProductKey.WORKFLOWS],
+        href: '/messaging/broadcasts',
+        searchKeywords: ['broadcasts', 'transactional email', 'newsletter', 'email', 'messaging'],
+        type: 'transactional',
+        category: ProductItemCategory.MESSAGING,
+        iconType: 'transactional',
+        iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
+        sceneKey: 'MessagingNavPrototype',
+        sceneKeys: [
+            'Workflows',
+            'Workflow',
+            'WorkflowsLibraryTemplate',
+            'Broadcasts',
+            'Broadcast',
+            'Transactional',
+            'TransactionalEmailLogEntry',
+            'TransactionalCodeEmail',
+            'MessagingNavPrototype',
+            'WorkflowsEmailDomain',
+        ],
     },
     {
         path: 'Endpoints',
@@ -3536,29 +3544,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
-        path: 'Transactional',
-        intents: [ProductKey.WORKFLOWS],
-        href: urls.transactional(),
-        searchKeywords: ['transactional email'],
-        type: 'transactional',
-        category: ProductItemCategory.MESSAGING,
-        iconType: 'transactional',
-        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
-        sceneKey: 'Transactional',
-        flag: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
-        sceneKeys: [
-            'Workflows',
-            'Workflow',
-            'WorkflowsLibraryTemplate',
-            'Broadcasts',
-            'Broadcast',
-            'Transactional',
-            'TransactionalEmailLogEntry',
-            'TransactionalCodeEmail',
-            'WorkflowsEmailDomain',
-        ],
-    },
-    {
         path: 'Uptime monitoring',
         intents: [ProductKey.UPTIME_MONITORING],
         category: ProductItemCategory.UNRELEASED,
@@ -3654,14 +3639,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
         searchKeywords: ['automations', 'campaigns', 'messaging'],
-        searchTabs: [
-            { name: 'Library', href: urls.workflows('library') },
-            { name: 'Channels', href: urls.workflows('channels') },
-            { name: 'Opt-outs', href: urls.workflows('opt-outs') },
-            { name: 'Suppression list', href: urls.workflows('suppression') },
-            { name: 'Reputation', href: urls.workflows('reputation') },
-            { name: 'Settings', href: urls.workflows('settings') },
-        ],
         type: 'workflows',
         category: ProductItemCategory.MESSAGING,
         iconType: 'workflows',
@@ -3679,6 +3656,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Transactional',
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
+            'MessagingNavPrototype',
             'WorkflowsEmailDomain',
         ],
     },

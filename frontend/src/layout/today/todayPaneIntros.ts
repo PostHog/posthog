@@ -32,6 +32,10 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         title: 'Every product in one place',
         description: 'Find any PostHog product, and star the ones you use most.',
     },
+    messaging: {
+        title: 'Email & Messaging',
+        description: 'Broadcasts, transactional emails and messaging workflows, with their setup.',
+    },
     settings: {
         title: 'Set up PostHog',
         description: 'Settings for you, this project and your organization.',

@@ -6,7 +6,6 @@ import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -24,12 +23,8 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { EngagementEventsBanner } from './EngagementEventsBanner'
-import { MessagingSetup } from './MessagingSetup'
+import { WorkflowsMovedNotice } from './MessagingNavPrototype/WorkflowsMovedNotice'
 import { MessagingTabActions } from './MessagingTabActions'
-import { isMessagingSetupTab } from './messagingTabs'
-import { SendCalendar } from './SendCalendar/SendCalendar'
-import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
-import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
 import { customerioImportLogic } from './Workflows/import/customerioImportLogic'
 import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
@@ -39,7 +34,6 @@ import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesL
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { templateTypeForListType } from './Workflows/workflowTypeFilters'
-import { WorkflowsTemplates } from './WorkflowsTemplates'
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
 const WORKFLOW_SCENE_TABS = [
@@ -181,18 +175,6 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
-type WorkflowsTopTab = 'workflows' | 'calendar' | 'templates' | 'messaging-setup'
-
-function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
-    if (tab === 'calendar') {
-        return 'calendar'
-    }
-    if (tab === 'templates' || tab === 'library') {
-        return 'templates'
-    }
-    return isMessagingSetupTab(tab) ? 'messaging-setup' : 'workflows'
-}
-
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
@@ -201,12 +183,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { openImportModal } = useActions(customerioImportLogic)
 
-    const workflowsTab = {
-        label: 'Workflows',
-        key: 'workflows' as const,
-        content: <WorkflowsTable />,
-        link: urls.workflows(),
-    }
     const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
     const onNewWorkflow = (): void => {
         void addProductIntent({
@@ -282,37 +258,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             <CustomerioImportModal />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
-            <LemonTabs<WorkflowsTopTab>
-                activeKey={topTabFor(currentTab)}
-                tabs={[
-                    workflowsTab,
-                    {
-                        label: <SendCalendarTabLabel />,
-                        key: 'calendar',
-                        link: urls.workflows('calendar'),
-                        content: <SendCalendar />,
-                    },
-                    {
-                        label: 'Templates',
-                        key: 'templates',
-                        link: urls.workflows('library'),
-                        content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
-                    },
-                    {
-                        label: <MessagingSetupTabLabel />,
-                        key: 'messaging-setup',
-                        link: urls.workflows('channels'),
-                        content: (
-                            <MessagingSetup
-                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                linkFor={(tab) => urls.workflows(tab)}
-                            />
-                        ),
-                    },
-                ]}
-                sceneInset
-                data-attr="workflows-scene-tabs"
-            />
+            {/* PROTOTYPE #419: Workflows keeps the list only; calendar, templates and setup moved to Email & Messaging. */}
+            <WorkflowsMovedNotice />
+            <WorkflowsTable />
             <NewWorkflowModal />
         </SceneContent>
     )

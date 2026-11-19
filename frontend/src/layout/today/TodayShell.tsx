@@ -58,6 +58,10 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
+// PROTOTYPE #419
+const MessagingNavPrototypePane = lazyWithRetry(() =>
+    import('./messagingNavPrototype/MessagingNavPrototypePane').then((m) => ({ default: m.MessagingNavPrototypePane }))
+)
 const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
     spaces: { Sidebar: TodaySpacesPane },
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
@@ -66,6 +70,7 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     release: { Sidebar: ReleaseSidebar },
     settings: { Sidebar: TodaySettingsSidebar },
     products: { Sidebar: TodayProductsPane },
+    messaging: { Sidebar: MessagingNavPrototypePane },
 }
 
 const NewSpaceDialog = lazyWithRetry(() =>
