@@ -6158,7 +6158,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "error-tracking-issue-tags"
     },
     "error-tracking-issues-tag-partial-update": {
         "description": "Apply one tag to an error tracking issue, or remove it. Provide the issue ID as `id` and the tag as `key`. Set `applied` to true to apply the tag, or to false to remove it. Get the keys from `error-tracking-issues-tag-definitions-retrieve`. A person's change ranks above AI taggers, so an AI tagger does not apply a removed tag again or remove an applied tag. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
@@ -6173,7 +6174,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "error-tracking-issue-tags"
     },
     "error-tracking-recommendations-list": {
         "description": "List error tracking recommendations for the current project. Each row is a server-computed suggestion with a fixed `type` and a type-specific `meta` payload.\n\nUse this when the user asks how to improve their error tracking setup, what they should fix, or wants to act on their recommendations.\n\nSurface only the few recommendations that matter — don't dump every row. Skip ones that are already done or dismissed.\n\n# Response envelope (every recommendation)\n\n- `type`: one of `alerts`, `rate_limits`, `source_maps`.\n- `meta`: type-specific payload — see the per-type sections below.\n- `completed`: `true` means the recommended action is already satisfied. Nothing to do — skip it.\n- `dismissed_at`: set if the user dismissed this recommendation. Skip dismissed ones unless the user explicitly asks.\n\nOnly act on recommendations that are not `completed` and not dismissed.\n\n# Recommendation types\n\n- `alerts` — `meta.alerts` is a list of `{ key, enabled }` for the `issue-created`/`issue-reopened`/`issue-spiking` triggers; `enabled: false` means no alert is wired. To act, use the `authoring-error-tracking-alerts` skill (or the `error-tracking-alerts-create` tool).\n- `rate_limits` — `meta.rate_limits` is a list of `{ key, enabled }` for the `project` and `per_issue` ingestion limits; `enabled: false` means it isn't set. To act, check and set them via `error-tracking-settings-get` / `error-tracking-settings-update`.\n- `source_maps` — `meta` carries frame-resolution stats (`unresolved_pct` vs `threshold_pct` over a sample); a high unresolved share means stack traces aren't symbolicated. The fix is uploading source maps from the build via the setup wizard:\n\n  ```sh\n  npx -y @posthog/wizard@latest upload-source-maps\n  ```\n\n  If frames still don't resolve after uploading, use the `diagnosing-stacktrace-symbolication` skill.",
@@ -6355,6 +6357,70 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "error-tracking-tag-rules-create": {
+        "description": "Create a tag rule for the current project. Provide a `label` and at least one event property filter in `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Every matching rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags. A project can have at most 100 tag rules.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking tag rule",
+        "title": "Create error tracking tag rule",
+        "required_scopes": ["error_tracking:write"],
+        "api_operations": ["POST /api/projects/{project_id}/error_tracking/tag_rules/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "error-tracking-issue-tags"
+    },
+    "error-tracking-tag-rules-delete": {
+        "description": "Delete a tag rule by ID. This also removes the rule's tag from every issue that has it. Confirm with the user before you delete a rule.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Delete error tracking tag rule",
+        "title": "Delete error tracking tag rule",
+        "required_scopes": ["error_tracking:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/error_tracking/tag_rules/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "error-tracking-issue-tags"
+    },
+    "error-tracking-tag-rules-list": {
+        "description": "List the tag rules of the current project, with the label, filters, key, version and disabled state of each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking tag rules",
+        "title": "List error tracking tag rules",
+        "required_scopes": ["error_tracking:read"],
+        "api_operations": ["GET /api/projects/{project_id}/error_tracking/tag_rules/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "error-tracking-issue-tags"
+    },
+    "error-tracking-tag-rules-update": {
+        "description": "Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply only to issues created after the update. When the new filters read the same event properties, issues that already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its existing tags, so list the rules again to get the new key.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking tag rule",
+        "title": "Update error tracking tag rule",
+        "required_scopes": ["error_tracking:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/error_tracking/tag_rules/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "error-tracking-issue-tags"
     },
     "event-streams-add-account": {
         "description": "Add a Customer Analytics account to the caller's event stream so its users' matching events start posting to their Slack channel. Provide the stream `id` and the `account_id` to add. Idempotent — adding an account that is already in the stream is a no-op. Only accounts with an `external_id` actually deliver (the external_id is how events are matched to the account).",
