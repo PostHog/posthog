@@ -5952,7 +5952,7 @@ Note: Parsed all requests and response examples in the vendor's published Postma
 
 ## HiBob — **thin**
 
-Today (20): `applications`, `candidates`, `employee_deductions`, `employee_dependents`, `employee_employment`, `employee_entitlements`, `employee_equities`, `employee_lifecycle`, `employee_right_to_work`, `employee_salaries`, `employee_variable_pay`, `employees`, `employers`, `named_lists`, `skill_proficiency_levels`, `skills`, `tasks`, `time_off_calendars`, `time_off_request_changes`, `work_locations`
+Today (27): `applications`, `candidates`, `employee_actual_payments`, `employee_deductions`, `employee_dependents`, `employee_employment`, `employee_entitlements`, `employee_equities`, `employee_lifecycle`, `employee_right_to_work`, `employee_salaries`, `employee_variable_pay`, `employees`, `employers`, `goal_key_results`, `goals`, `job_families`, `job_roles`, `named_lists`, `skill_proficiency_levels`, `skills`, `tasks`, `time_off_calendars`, `time_off_policies`, `time_off_policy_types`, `time_off_request_changes`, `work_locations`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
@@ -5965,10 +5965,10 @@ Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 - [x] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high). Added as `named_lists`, one row per list item (nested children flattened with `parentId`), archived items included.
 - [x] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
 - [x] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high). Added as `applications`.
-- [ ] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high)
-- [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)
-- [ ] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium)
-- [ ] `GET /timeoff/policies and /timeoff/policy-types` — lookup tables resolving the policy ids on time off requests (medium)
+- [x] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high). Added as `job_roles` and `job_families`. The API serves them only for companies on Job catalog 2.0; older catalogs return 404.
+- [x] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium). Added `employee_actual_payments` from the actual payments search, fanned out over employee ids in batches of 200. `GET /payroll/history` is skipped: HiBob marks it legacy and planned for deprecation, and its data is in the bulk employee tables already synced.
+- [x] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium). Added as `goals` and `goal_key_results`; key results fan out over the goals that have key results, because the search requires a goalId filter.
+- [x] `GET /timeoff/policies and /timeoff/policy-types` — lookup tables resolving the policy ids on time off requests (medium). Added as `time_off_policy_types` and `time_off_policies`. The API lists only names, so each table reads the details one name at a time (policies via GET /timeoff/policies/names per type).
 - [x] `GET /bulk/people/deduction`, `/entitlement`, `/variable`, `/dependents`, `/right-to-work` and `/equities` — bulk reads of the payroll and other employee tables, announced in the vendor changelog (medium). Added as `employee_deductions`, `employee_entitlements`, `employee_variable_pay`, `employee_dependents`, `employee_right_to_work` and `employee_equities`, full refresh like the other bulk history tables.
 - [x] `POST /employers/search` and `POST /employers/{employerId}/work-locations/search` — employer legal entities and their work locations from the Employer API (medium). Added as `employers` and `work_locations`; work locations fan out over employer ids, full refresh.
 - [x] `POST /skills/search` and `GET /skills/proficiency-levels` — the Skills API catalog and its proficiency levels lookup (low). Added as `skills` and `skill_proficiency_levels`, full refresh. The search only returns skills created through the Public API.
