@@ -3888,6 +3888,13 @@ export interface SignalReportDeletionStatusApi {
     report_id: string
 }
 
+export interface SignalReportActionabilityUpdateApi {
+    /** `immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet. */
+    actionability?: string
+    /** Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value. */
+    already_addressed?: boolean
+}
+
 /**
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
