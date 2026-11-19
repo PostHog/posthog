@@ -92176,7 +92176,7 @@ export namespace Schemas {
     }
 
     export interface PatchedGroupTypeMetadataUpdateRequest {
-      /** Group type metadata updates to apply. */
+      /** Group type metadata updates to apply, at most 5, one per group type. */
       updates?: GroupTypeMetadataUpdate[];
     }
 

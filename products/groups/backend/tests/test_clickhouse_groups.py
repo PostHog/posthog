@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 import orjson
@@ -30,7 +31,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import AvailableFeature, GroupTypeIndex
+from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.group.group import Group
@@ -54,7 +55,11 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.event_definitions.backend.models import PropertyDefinition
-from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
+from products.groups.backend.presentation.views import (
+    GroupTypeMetadataUpdateRequestSerializer,
+    _decode_groups_cursor,
+    _encode_groups_cursor,
+)
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -2930,3 +2935,14 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             for change in entry["detail"]["changes"]
         ]
         self.assertEqual([change["after"] for change in changes], [expected_after])
+
+
+class TestGroupTypeMetadataUpdateRequestSerializer(SimpleTestCase):
+    @parameterized.expand([("at_limit", GROUP_TYPES_LIMIT, True), ("over_limit", GROUP_TYPES_LIMIT + 1, False)])
+    def test_caps_updates_at_group_types_limit(self, _name: str, count: int, expected_valid: bool) -> None:
+        serializer = GroupTypeMetadataUpdateRequestSerializer(
+            data={"updates": [{"group_type_index": 0, "name_singular": "org"}] * count}
+        )
+        assert serializer.is_valid() is expected_valid
+        if not expected_valid:
+            assert serializer.errors["updates"]["non_field_errors"][0].code == "max_length"

@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import GroupTypeIndex
+from posthog.constants import GROUP_TYPES_LIMIT, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -129,7 +129,8 @@ class GroupTypeMetadataUpdateSerializer(serializers.Serializer):
 class GroupTypeMetadataUpdateRequestSerializer(serializers.Serializer):
     updates = GroupTypeMetadataUpdateSerializer(
         many=True,
-        help_text="Group type metadata updates to apply.",
+        max_length=GROUP_TYPES_LIMIT,
+        help_text=f"Group type metadata updates to apply, at most {GROUP_TYPES_LIMIT}, one per group type.",
     )
 
 

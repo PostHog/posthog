@@ -85,5 +85,5 @@ export const GroupsTypesUpdateMetadataForAgentsPartialUpdateBody = /* @__PURE__ 
             })
         )
         .optional()
-        .describe('Group type metadata updates to apply.'),
+        .describe('Group type metadata updates to apply, at most 5, one per group type.'),
 })
