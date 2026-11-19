@@ -162,7 +162,9 @@ describe('MCPClientProfile', () => {
             [{ userAgent: 'Cursor/3.1.15 (darwin arm64)' }],
             [{ clientName: 'openai-mcp' }],
             [{ clientName: 'some-new-agent', uiSupported: true }],
-        ])('returns false for a client that renders structuredContent: %o', (input) => {
+            [{ clientName: 'ClaudeArtifacts' }],
+            [{ vendorClient: 'ClaudeArtifacts', userAgent: 'Claude-User' }],
+        ])('keeps structuredContent for %o', (input) => {
             expect(new MCPClientProfile(input).prefersFormattedText()).toBe(false)
         })
 

@@ -139,7 +139,6 @@ describe('mcpDashboardOverviewLogic', () => {
             'Claude Agent SDK',
             'Claude Code',
             'Claude.ai',
-            'Claude Artifacts',
             'Anthropic API',
             'Cowork',
             'Claude Design',

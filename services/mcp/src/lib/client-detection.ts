@@ -15,8 +15,7 @@
  *
  * - `prefersFormattedText()` decides whether a client drops `structuredContent`
  *   when a `formatted_results` override is set. Every client does, except the
- *   ones that render `structuredContent` (Cursor and render-ui hosts), so a new
- *   text-only client needs no entry. Anthropic clients always drop it.
+ *   ones that read it (Cursor, Claude Artifacts, and non-Anthropic render-ui hosts).
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Desktop Tasks wrapper.
@@ -246,16 +245,15 @@ export class MCPClientProfile {
     }
 
     prefersFormattedText(): boolean {
-        // Gates dropping `structuredContent` when a `formatted_results` override is set.
-        // A client that only reads `content[].text` gets nothing from the structured copy
-        // but tokens, and a UI app still loads from the `_meta` copy the payload builder
-        // keeps. Cursor shows `structuredContent` in its UI and render-ui hosts hand it to
-        // their apps, so they keep it. Anthropic clients drop it even on render-ui hosts,
-        // because Claude Code shows `structuredContent` to the model.
+        // Artifact pages consume the structured data directly from page code.
+        if (this.isArtifactRuntime()) {
+            return false
+        }
+        // Claude Code shows the structured copy to the model even when MCP Apps are supported.
         if (this.isAnthropicClient()) {
             return true
         }
-        return !this.isToolsModeClient() && !this.isRenderUiHost()
+        return !this.isCursor() && !this.isRenderUiHost()
     }
 
     isAnthropicClient(): boolean {
