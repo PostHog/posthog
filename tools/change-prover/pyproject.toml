@@ -1,0 +1,24 @@
+# A standalone uv project, not a member of the root workspace. The Dependency proof workflow pins
+# every file it runs from, so the proof must not install from the root pyproject.toml and uv.lock.
+[project]
+name = "change-prover"
+version = "0.0.0"
+description = "Proves a bot's npm dependency update for the Dependency proof check, and scans added packages with GuardDog"
+requires-python = "==3.12.*"
+# The prove job runs pnpm on pull request input, so it installs nothing but this.
+dependencies = ["pyyaml==6.0.3"]
+
+[dependency-groups]
+scan = ["guarddog==3.2.0"]
+test = ["pytest==9.1.1"]
+
+[tool.uv]
+exclude-newer = "7 days"
+package = false
+# `uv run` installs a group only when a job asks for it with `--group`.
+default-groups = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
