@@ -1007,6 +1007,33 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
     .describe('Body of the `materialize` action: which cadence to enable materialization at.')
 
 /**
+ * Rename this model and update the models that read it, in one change.
+ *
+ * Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
+ * The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed
+ * when any of them is blocked.
+ */
+export const WarehouseSavedQueriesRenameCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().describe("The model's new name."),
+        plan_token: zod
+            .string()
+            .describe(
+                'The plan_token of the rename plan you reviewed for this name. The rename is refused with a 409 when the models that read this model changed after that plan was made.'
+            ),
+    })
+    .describe('Body of the `rename` action.')
+
+/**
+ * Show what renaming this model changes in the models that read it. Changes nothing.
+ */
+export const WarehouseSavedQueriesRenamePlanCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().describe("The model's new name."),
+    })
+    .describe('Body of the `rename_plan` action.')
+
+/**
  * Resume materialization suspended after repeated failures.
  *
  * Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed

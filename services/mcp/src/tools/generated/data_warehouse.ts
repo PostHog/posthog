@@ -454,6 +454,67 @@ const viewMaterialize = (): ToolBase<ReturnType<typeof ViewMaterializeSchema>, u
     },
 })
 
+const ViewRenameSchema = () => {
+    const WarehouseSavedQueriesRenameCreateBody = orvalSchemas.WarehouseSavedQueriesRenameCreateBody()
+    const WarehouseSavedQueriesRenameCreateParams = orvalSchemas.WarehouseSavedQueriesRenameCreateParams()
+    return WarehouseSavedQueriesRenameCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesRenameCreateBody.shape
+    )
+}
+
+const viewRename = (): ToolBase<
+    ReturnType<typeof ViewRenameSchema>,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
+> => ({
+    name: 'view-rename',
+    schema: ViewRenameSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRenameSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.plan_token !== undefined) {
+            body['plan_token'] = params.plan_token
+        }
+        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/rename/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
+    },
+})
+
+const ViewRenamePlanSchema = () => {
+    const WarehouseSavedQueriesRenamePlanCreateBody = orvalSchemas.WarehouseSavedQueriesRenamePlanCreateBody()
+    const WarehouseSavedQueriesRenamePlanCreateParams = orvalSchemas.WarehouseSavedQueriesRenamePlanCreateParams()
+    return WarehouseSavedQueriesRenamePlanCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesRenamePlanCreateBody.shape
+    )
+}
+
+const viewRenamePlan = (): ToolBase<
+    ReturnType<typeof ViewRenamePlanSchema>,
+    WithPostHogUrl<Schemas.SavedQueryRenamePlan>
+> => ({
+    name: 'view-rename-plan',
+    schema: ViewRenamePlanSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRenamePlanSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.SavedQueryRenamePlan>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/rename_plan/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
+    },
+})
+
 const ViewResumeSchema = () => {
     const WarehouseSavedQueriesResumeCreateBody = orvalSchemas.WarehouseSavedQueriesResumeCreateBody()
     const WarehouseSavedQueriesResumeCreateParams = orvalSchemas.WarehouseSavedQueriesResumeCreateParams()
@@ -788,6 +849,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'view-get': viewGet,
     'view-list': viewList,
     'view-materialize': viewMaterialize,
+    'view-rename': viewRename,
+    'view-rename-plan': viewRenamePlan,
     'view-resume': viewResume,
     'view-run': viewRun,
     'view-run-history': viewRunHistory,
