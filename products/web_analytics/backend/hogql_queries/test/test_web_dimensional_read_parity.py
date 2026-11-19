@@ -36,6 +36,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
@@ -88,6 +89,16 @@ PARTNER_URL_CHANNEL = CustomChannelRule(
     ],
 )
 
+HOST_IS_NOT_BLOG = {"key": "$host", "operator": "is_not", "value": "blog.example.com", "type": "event"}
+EMAIL_IS_NOT_INTERNAL = {
+    "key": "email",
+    "operator": "not_icontains",
+    "value": "@internal.example.com",
+    "type": "person",
+}
+REAL_USERS_COHORT = "a cohort of the people who pass EMAIL_IS_NOT_INTERNAL"
+PRICING_AND_BLOG_AS_ONE_PAGE = {"regex": "^/(pricing|blog)$", "alias": "/<page>"}
+
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     def setUp(self):
@@ -118,7 +129,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         sa, sb, sc = (str(uuid7("2024-01-01")) for _ in range(3))
         with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             for did in ("user_a", "user_b", "user_c"):
-                _create_person(team_id=self.team.pk, distinct_ids=[did])
+                properties = {"email": "c@internal.example.com"} if did == "user_c" else {}
+                _create_person(team_id=self.team.pk, distinct_ids=[did], properties=properties)
             app_desktop = {
                 "$host": "app.example.com",
                 "$device_type": "Desktop",
@@ -399,6 +411,97 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     @parameterized.expand(
         [
             (
+                "test_accounts_by_event_property",
+                {"test_account_filters": [HOST_IS_NOT_BLOG]},
+                WebStatsBreakdown.DEVICE_TYPE,
+                {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)},
+                {"Desktop": 0.0, "Mobile": 1.0},
+            ),
+            (
+                "test_accounts_by_person_property",
+                {"test_account_filters": [EMAIL_IS_NOT_INTERNAL]},
+                WebStatsBreakdown.DEVICE_TYPE,
+                {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)},
+                {"Desktop": 0.0, "Mobile": 1.0},
+            ),
+            (
+                "test_accounts_by_cohort_of_person_properties",
+                {"test_account_filters": [REAL_USERS_COHORT]},
+                WebStatsBreakdown.DEVICE_TYPE,
+                {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)},
+                {"Desktop": 0.0, "Mobile": 1.0},
+            ),
+            (
+                "path_cleaning",
+                {"path_cleaning_filters": [PRICING_AND_BLOG_AS_ONE_PAGE]},
+                WebStatsBreakdown.PAGE,
+                {"/": (2.0, 2.0), "/<page>": (2.0, 2.0)},
+                # Only user_c's session has an entry path, because only its pageview carries a URL.
+                {"/<page>": 1.0},
+            ),
+            (
+                "test_accounts_and_path_cleaning",
+                {
+                    "test_account_filters": [EMAIL_IS_NOT_INTERNAL],
+                    "path_cleaning_filters": [PRICING_AND_BLOG_AS_ONE_PAGE],
+                },
+                WebStatsBreakdown.PAGE,
+                {"/": (2.0, 2.0), "/<page>": (1.0, 1.0)},
+                {},
+            ),
+        ]
+    )
+    def test_team_rules_applied_by_the_writer_match_live(
+        self, _name, team_rules, breakdown, expected_counts, expected_bounce_rates
+    ):
+        if team_rules.get("test_account_filters") == [REAL_USERS_COHORT]:
+            cohort = Cohort.objects.create(
+                team=self.team, name="real users", groups=[{"properties": [EMAIL_IS_NOT_INTERNAL]}]
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            team_rules = {"test_account_filters": [{"key": "id", "type": "cohort", "value": cohort.pk}]}
+        for field, value in team_rules.items():
+            setattr(self.team, field, value)
+        self.team.save()
+
+        def run(web_query_modifiers):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=[],
+                    breakdownBy=breakdown,
+                    limit=100,
+                    includeBounceRate=True,
+                    filterTestAccounts="test_account_filters" in team_rules,
+                    doPathCleaning="path_cleaning_filters" in team_rules,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+            )
+            response = runner.calculate()
+            return runner, self._sort_results(response.results), response
+
+        stale_runner, _, _ = run(OPT_IN)
+        assert ready_dimensional_job_ids(stale_runner, DIMENSIONAL_READ_TABLES) is None
+
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        runner, dimensional, response = run(OPT_IN)
+        live_runner, live, _ = run(None)
+
+        assert runner.query_strategy().startswith("stats_table_dimensional")
+        assert not live_runner.used_preaggregated_tables
+        assert self._counts(dimensional) == expected_counts
+        assert self._counts(live) == expected_counts
+        for results in (dimensional, live):
+            bounce_rates = self._bounce_rates(results)
+            assert {key: bounce_rates[key] for key in expected_bounce_rates} == pytest.approx(expected_bounce_rates)
+        # The read is fast only when it uses the stored columns, so no cleaning regex may reach ClickHouse.
+        assert "replaceRegexpAll" not in (response.hogql or "")
+
+    @parameterized.expand(
+        [
+            (
                 "custom_channel_breakdown",
                 DateRange(date_from=DATE_FROM, date_to=DATE_TO),
                 WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
@@ -612,3 +715,35 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
         # visitors, views, sessions
         assert [item.value for item in dimensional.results[:3]] == expected_counts
+
+    def test_overview_test_accounts_applied_by_the_writer_match_live(self):
+        self.team.test_account_filters = [EMAIL_IS_NOT_INTERNAL]
+        self.team.save()
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+
+        def run(web_query_modifiers):
+            runner = WebOverviewQueryRunner(
+                query=WebOverviewQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=[],
+                    filterTestAccounts=True,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+                team=self.team,
+            )
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=execute_hogql_query,
+            ) as mock_execute:
+                response = runner.calculate()
+            return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
+
+        dimensional_query_types, dimensional = run(OPT_IN)
+        live_query_types, live = run(None)
+
+        assert dimensional_query_types == ["web_overview_dimensional_query"]
+        assert "web_overview_dimensional_query" not in live_query_types
+        # visitors, views, sessions: user_c is the test account, so user_a and user_b remain.
+        assert [item.value for item in dimensional.results[:3]] == [2, 3, 2]
+        assert [item.value for item in live.results[:3]] == [2, 3, 2]

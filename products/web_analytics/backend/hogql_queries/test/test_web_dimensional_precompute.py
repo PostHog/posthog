@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import cast
 
 import unittest
 import time_machine
@@ -12,6 +14,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.team import Team
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -24,7 +27,8 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     BOUNCES_INSERT_TEMPLATE,
     DIMENSIONAL_TTL_SECONDS,
     STATS_INSERT_TEMPLATE,
-    _base_placeholders,
+    _bounces_placeholders,
+    _stats_placeholders,
     dimensional_ttl_schedule,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
@@ -261,28 +265,33 @@ class TestWebDimensionalPrecomputeTemplates(unittest.TestCase):
     """Pure HogQL-parse checks — no DB/ClickHouse, so they validate the templates
     even without a running stack."""
 
-    def _placeholders(self) -> dict[str, ast.Expr]:
+    def _parse(self, template: str) -> ast.SelectQuery | ast.SelectSetQuery:
         # Mirror what ensure_precomputed supplies: caller placeholders plus the
         # framework-managed time window sentinels.
-        return {
-            **_base_placeholders(),
-            "time_window_min": ast.Constant(value="__MIN__"),
-            "time_window_max": ast.Constant(value="__MAX__"),
-        }
+        team = cast(Team, SimpleNamespace(test_account_filters=[], path_cleaning_filters=[]))
+        caller_placeholders = _stats_placeholders if template is STATS_INSERT_TEMPLATE else _bounces_placeholders
+        return parse_select(
+            template,
+            placeholders={
+                **caller_placeholders(team),
+                "time_window_min": ast.Constant(value="__MIN__"),
+                "time_window_max": ast.Constant(value="__MAX__"),
+            },
+        )
 
     def test_templates_parse_and_alias_every_top_level_column(self):
         # The framework requires every top-level SELECT expression to be aliased
         # (it derives the INSERT column list from the aliases), and the only
         # unbound placeholders may be time_window_min/max.
         for template in (STATS_INSERT_TEMPLATE, BOUNCES_INSERT_TEMPLATE):
-            query = parse_select(template, placeholders=self._placeholders())
+            query = self._parse(template)
             assert isinstance(query, ast.SelectQuery)
             assert query.select
             assert all(isinstance(expr, ast.Alias) for expr in query.select)
 
     def test_stats_and_bounces_emit_expected_aggregate_columns(self):
-        stats = parse_select(STATS_INSERT_TEMPLATE, placeholders=self._placeholders())
-        bounces = parse_select(BOUNCES_INSERT_TEMPLATE, placeholders=self._placeholders())
+        stats = self._parse(STATS_INSERT_TEMPLATE)
+        bounces = self._parse(BOUNCES_INSERT_TEMPLATE)
         assert isinstance(stats, ast.SelectQuery) and isinstance(bounces, ast.SelectQuery)
         stats_aliases = {expr.alias for expr in stats.select if isinstance(expr, ast.Alias)}
         bounces_aliases = {expr.alias for expr in bounces.select if isinstance(expr, ast.Alias)}
