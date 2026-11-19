@@ -71,7 +71,7 @@ export interface dashboardV2LogicMeta {
         canUndo: (history: History) => boolean
         canRedo: (history: History) => boolean
         disabledReasonFor: (dashboard: Dashboard) => (action: DashboardV2Action) => string | null
-        canEditLayout: (disabledReasonFor: any) => boolean
+        canEditLayout: (disabledReasonFor: (action: DashboardV2Action) => string | null) => boolean
         activeTab: (dashboard: Dashboard, activeTabId: string | null) => DashboardTab
     }
 }
