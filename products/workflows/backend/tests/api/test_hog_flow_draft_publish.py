@@ -555,9 +555,18 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.actions == live_actions_before
         assert flow.draft is not None
 
+    @parameterized.expand(
+        [
+            ("service_down", Exception("node service down"), None),
+            ("malformed_counts", None, {"count": "unknown", "by_action": [], "position_unknown": "unknown"}),
+        ]
+    )
     @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
-    def test_publish_impact_degrades_to_null_counts_when_unavailable(self, mock_count):
-        mock_count.side_effect = Exception("node service down")
+    def test_publish_impact_degrades_to_null_counts_when_unavailable(self, _name, error, body, mock_count):
+        if error is not None:
+            mock_count.side_effect = error
+        else:
+            mock_count.return_value = MagicMock(status_code=200, json=lambda: body)
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
 

@@ -4831,6 +4831,10 @@ class HogFlowPublishImpactSerializer(serializers.Serializer):
     )
 
 
+def _int_or_none(value: Any) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 class HogFlowPublishResponseSerializer(serializers.Serializer):
     published = serializers.BooleanField(help_text="Whether the draft was applied to the live workflow.")
     in_flight_runs = serializers.IntegerField(
@@ -6524,10 +6528,11 @@ class HogFlowViewSet(
             res = get_hog_flow_in_flight_count(team_id=self.team_id, hog_flow_id=str(hog_flow.id))
             if res.status_code == 200:
                 body = res.json()
+                # The preview goes through its serializer, so a malformed count degrades instead of failing it.
                 return {
-                    "count": body.get("count"),
-                    "by_action": body.get("by_action"),
-                    "position_unknown": body.get("position_unknown"),
+                    "count": _int_or_none(body.get("count")),
+                    "by_action": body.get("by_action") if isinstance(body.get("by_action"), dict) else None,
+                    "position_unknown": _int_or_none(body.get("position_unknown")),
                 }
             logger.warning(
                 "Failed to fetch in-flight run count for workflow",
