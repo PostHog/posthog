@@ -5,6 +5,8 @@ import hashlib
 import smtplib
 import datetime
 import dataclasses
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -411,16 +413,21 @@ def _send_via_http(
     if not is_http_email_service_available():
         raise Exception("Missing Workflows transactional email API key")
 
+    with _email_capture() as capture:
+        return _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
+
+
+@contextmanager
+def _email_capture() -> Iterator[ScopedCapture]:
     if not current_task or current_task.request.is_eager:
         # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
         # so the global client delivers in the background. ScopedCapture keeps the cloud-only guard.
-        return _send_via_http_batch(
-            ScopedCapture(posthoganalytics), to, campaign_key, template_name, properties, will_retry
-        )
+        yield ScopedCapture(posthoganalytics)
+        return
 
     # A dedicated client, because the global one may never flush before a Celery worker exits.
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        return _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
+        yield capture
 
 
 def _send_via_http_batch(
@@ -512,6 +519,7 @@ def _send_via_http_batch(
 def _send_via_smtp(
     to: list[dict[str, str]],
     campaign_key: str,
+    template_name: str,
     subject: str,
     txt_body: str,
     html_body: str,
@@ -519,6 +527,21 @@ def _send_via_smtp(
     reply_to: Optional[str] = None,
 ) -> None:
     """Sends emails using SMTP"""
+    with _email_capture() as capture:
+        _send_via_smtp_batch(capture, to, campaign_key, template_name, subject, txt_body, html_body, headers, reply_to)
+
+
+def _send_via_smtp_batch(
+    capture: ScopedCapture,
+    to: list[dict[str, str]],
+    campaign_key: str,
+    template_name: str,
+    subject: str,
+    txt_body: str,
+    html_body: str,
+    headers: dict,
+    reply_to: Optional[str],
+) -> None:
     connection = None
     try:
         klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
@@ -575,6 +598,12 @@ def _send_via_smtp(
                         )
                     record.sent_at = timezone.now()
                     record.save()
+                    _capture_email_event(
+                        capture,
+                        dest,
+                        "transactional email triggered",
+                        {"template_name": template_name, "campaign_key": campaign_key, "provider": "smtp"},
+                    )
                     EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
     except _TRANSIENT_SMTP_ERRORS as err:
         # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
@@ -803,6 +832,7 @@ def _send_email_now(
         _send_via_smtp(
             to=to,
             campaign_key=campaign_key,
+            template_name=template_name,
             subject=subject,
             txt_body=txt_body,
             html_body=html_body,

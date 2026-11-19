@@ -169,13 +169,14 @@ class TestEmail(BaseTest):
                 in message.html_body
             )
 
-    def test_smtp_send_increments_sent_metric(self) -> None:
+    @patch("posthog.email.posthoganalytics.capture")
+    def test_smtp_send_increments_sent_metric_and_captures_the_send(self, mock_capture: MagicMock) -> None:
         # The charts alert reads posthog_email_send_total{outcome,transport}; this locks the
         # name + label contract so a removed/mislabelled increment can't silently blind it.
         labels = {"outcome": "sent", "transport": "smtp"}
         before = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CLOUD_DEPLOYMENT="US"):
             message = EmailMessage(
                 campaign_key="metric_test_campaign", subject="Subject", template_name="async_migration_error"
             )
@@ -185,6 +186,16 @@ class TestEmail(BaseTest):
         self.assertEqual(len(mail.outbox), 1)
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
         self.assertEqual(after - before, 1.0)
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["event"], "transactional email triggered")
+        self.assertLessEqual(
+            {
+                "template_name": "async_migration_error",
+                "campaign_key": "metric_test_campaign",
+                "provider": "smtp",
+            }.items(),
+            mock_capture.call_args.kwargs["properties"].items(),
+        )
 
     @parameterized.expand(
         [
@@ -223,6 +234,7 @@ class TestEmail(BaseTest):
             kwargs: dict[str, Any] = {
                 "to": [{"raw_email": f"{name}@posthog.com", "recipient": f"{name}@posthog.com"}],
                 "campaign_key": f"retry_{name}",
+                "template_name": "async_migration_error",
                 "subject": "Subject",
                 "txt_body": "",
                 "html_body": "<p>hi</p>",
@@ -254,6 +266,7 @@ class TestEmail(BaseTest):
                     {"raw_email": "second@posthog.com", "recipient": "second@posthog.com"},
                 ],
                 "campaign_key": "batch_transient",
+                "template_name": "async_migration_error",
                 "subject": "Subject",
                 "txt_body": "",
                 "html_body": "<p>hi</p>",
@@ -285,6 +298,7 @@ class TestEmail(BaseTest):
             _send_via_smtp(
                 to=[{"raw_email": "t@posthog.com", "recipient": "t@posthog.com"}],
                 campaign_key="timeout_kwarg",
+                template_name="async_migration_error",
                 subject="Subject",
                 txt_body="",
                 html_body="<p>hi</p>",
