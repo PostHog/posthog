@@ -334,18 +334,14 @@ export-shape	products.access_control.backend.facade.user_access_control.UserAcce
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.broadcast_conversion	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.send_calendar	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.workflows	export-shape(class)	1
-export-shape	products.aeo.backend.temporal.brand_sentiment.ACTIVITIES	products.aeo.backend.facade.temporal	export-unknown	1
 export-shape	products.aeo.backend.temporal.brand_sentiment.WORKFLOWS	products.aeo.backend.facade.temporal	export-unknown	1
 export-shape	products.ai_observability.backend.models.eval_suggestions.EvalSuggestionReviewVerdict	products.ai_observability.backend.facade.admin	export-shape(class)	1
-export-shape	products.ai_observability.backend.temporal.registry.ACTIVITIES	products.ai_observability.backend.facade.temporal	export-unknown	1
 export-shape	products.ai_observability.backend.temporal.registry.WORKFLOWS	products.ai_observability.backend.facade.temporal	export-unknown	1
 export-shape	products.alerts.backend.evaluation.contract.ExtractionResult	products.alerts.backend.facade.evaluation	export-shape(class)	1
 export-shape	products.alerts.backend.evaluation.contract.SeriesPoint	products.alerts.backend.facade.evaluation	export-shape(class)	1
-export-shape	products.alerts.backend.facade.temporal.PLATFORM_EVALUATION_ACTIVITIES	products.alerts.backend.facade.temporal	export-unknown	1
 export-shape	products.alerts.backend.facade.temporal.PLATFORM_EVALUATION_WORKFLOWS	products.alerts.backend.facade.temporal	export-unknown	1
 export-shape	products.alerts.backend.judge.contract.DETECTOR_UNAVAILABLE_ERROR_CODES	products.alerts.backend.facade.api	export-unknown	1
 export-shape	products.alerts.backend.judge.executor.LLM_EVALUATE_EXECUTOR	products.alerts.backend.facade.api	export-unknown	1
-export-shape	products.alerts.backend.temporal.platform_evaluate.PLATFORM_AI_QUEUE_ACTIVITIES	products.alerts.backend.facade.temporal	export-unknown	1
 export-shape	products.alerts_platform.backend.facade.backfill_command.PlatformBackfillCommand	products.alerts_platform.backend.facade.backfill_command	export-denied(command)	1
 export-shape	products.alerts_platform.backend.facade.contracts.AlertDestinationData	products.alerts.backend.facade.destinations	export-shape(class)	1
 export-shape	products.alerts_platform.backend.facade.contracts.AlertDestinationData	products.alerts_platform.backend.facade.api	export-shape(class)	1
@@ -358,7 +354,6 @@ export-shape	products.alerts_platform.backend.temporal.telemetry.AlertsPlatformT
 export-shape	products.alerts_platform.backend.temporal.workflows.DELIVERY_EXECUTION_TIMEOUT	products.alerts_platform.backend.facade.temporal	export-unknown	1
 export-shape	products.apm.backend.logic.anomaly_detection.bands.NegativeBinomialBandModel	products.apm.backend.facade.api	export-shape(class)	1
 export-shape	products.apm.backend.logic.anomaly_detection.types.SeriesHistory	products.apm.backend.facade.api	export-shape(class)	1
-export-shape	products.autoresearch.backend.temporal.ACTIVITIES	products.autoresearch.backend.facade.temporal	export-unknown	1
 export-shape	products.autoresearch.backend.temporal.WORKFLOWS	products.autoresearch.backend.facade.temporal	export-unknown	1
 export-shape	products.batch_exports.backend.facade.api.FAILED_BACKFILL_STATUSES	products.batch_exports.backend.facade.api	export-unknown	1
 export-shape	products.batch_exports.backend.temporal.destinations.bigquery_batch_export.BigQueryClient	products.batch_exports.backend.facade.destinations.bigquery	export-shape(class)	1
@@ -376,7 +371,7 @@ export-shape	products.batch_exports.backend.temporal.metrics.BatchExportsMetrics
 export-shape	products.batch_exports.backend.temporal.pipeline.table.T	products.batch_exports.backend.facade.destinations.snowflake	unresolved-exposes	1
 export-shape	products.batch_exports.backend.temporal.pipeline.transformer.CSVStreamTransformer	products.batch_exports.backend.facade.pipeline	export-shape(class)	1
 export-shape	products.batch_exports.backend.temporal.pipeline.transformer.ParquetStreamTransformer	products.batch_exports.backend.facade.pipeline	export-shape(class)	1
-export-shape	products.batch_exports.backend.temporal.workflows.ACTIVITIES	products.batch_exports.backend.facade.temporal	export-unknown	1
+export-shape	products.batch_exports.backend.temporal.registration.TEMPORAL	products.batch_exports.backend.facade.temporal	export-unknown	1
 export-shape	products.batch_exports.backend.temporal.workflows.WORKFLOWS	products.batch_exports.backend.facade.temporal	export-unknown	1
 export-shape	products.billing_alerts.backend.alert_destinations.BILLING_ALERT_EVENT_IDS	products.billing_alerts.backend.facade.api	export-unknown	1
 export-shape	products.billing_alerts.backend.alert_destinations.BILLING_DESTINATION_TYPES	products.billing_alerts.backend.facade.api	export-unknown	1
@@ -385,7 +380,6 @@ export-shape	products.billing_alerts.backend.models.BillingAlertEvent	products.b
 export-shape	products.canvas.backend.contract.MAX_COMPONENT_WIDTH	products.canvas.backend.facade.api	export-unknown	1
 export-shape	products.canvas.backend.layout.PLACEMENT_ID_RE	products.canvas.backend.facade.api	export-unknown	1
 export-shape	products.canvas.backend.layout.PLACEMENT_STATUSES	products.canvas.backend.facade.api	export-unknown	1
-export-shape	products.canvas.backend.temporal.registry.ACTIVITIES	products.canvas.backend.facade.temporal	export-unknown	1
 export-shape	products.canvas.backend.temporal.registry.WORKFLOWS	products.canvas.backend.facade.temporal	export-unknown	1
 export-shape	products.cdp.backend.api.hog_function.HogFunctionSerializer	products.cdp.backend.facade.api	export-shape(class)	1
 export-shape	products.cdp.backend.models.hog_function_template.HogFunctionTemplate	products.cdp.backend.facade.models	export-denied(model)	1
@@ -411,9 +405,7 @@ export-shape	products.customer_analytics.backend.logic.account_persons.AccountPe
 export-shape	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.max_tools	export-denied(model)	1
 export-shape	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.queries	export-denied(model)	1
 export-shape	products.customer_analytics.backend.models.team_customer_analytics_config.TeamCustomerAnalyticsConfig	products.customer_analytics.backend.facade.team_extension	export-denied(model)	1
-export-shape	products.customer_analytics.backend.temporal.ACTIVITIES	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.customer_analytics.backend.temporal.WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
-export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_ACTIVITIES	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.dashboards.backend.facade.api.InsightTilePlacement	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_debug.DashboardSharingOutcome	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
@@ -429,7 +421,6 @@ export-shape	products.data_catalog.backend.models.metric.Metric	products.data_ca
 export-shape	products.data_catalog.backend.models.relationship_proposal.RelationshipProposal	products.data_catalog.backend.facade.api	export-denied(model)	1
 export-shape	products.data_catalog.backend.models.relationship_proposal.RelationshipProposal	products.data_catalog.backend.facade.models	export-denied(model)	1
 export-shape	products.data_catalog.backend.models.usage_snapshot.UsageSnapshot	products.data_catalog.backend.facade.models	export-denied(model)	1
-export-shape	products.data_catalog.backend.temporal.ACTIVITIES	products.data_catalog.backend.facade.temporal	export-unknown	1
 export-shape	products.data_catalog.backend.temporal.WORKFLOWS	products.data_catalog.backend.facade.temporal	export-unknown	1
 export-shape	products.data_modeling.backend.models.dag.DAG	products.data_modeling.backend.facade.models	export-denied(model)	1
 export-shape	products.data_modeling.backend.models.data_modeling_job.DataModelingJob	products.data_modeling.backend.facade.models	export-denied(model)	1
@@ -442,8 +433,6 @@ export-shape	products.data_modeling.backend.models.edge.Edge	products.data_model
 export-shape	products.data_modeling.backend.models.edge.NON_SCHEDULING_EDGES	products.data_modeling.backend.facade.models	export-unknown	1
 export-shape	products.data_modeling.backend.models.node.Node	products.data_modeling.backend.facade.models	export-denied(model)	1
 export-shape	products.data_modeling.backend.models.node.SAVED_QUERY_NODE_TYPES	products.data_modeling.backend.facade.models	export-unknown	1
-export-shape	products.data_modeling.backend.temporal.ACTIVITIES	products.data_modeling.backend.facade.temporal	export-unknown	1
-export-shape	products.data_modeling.backend.temporal.SEMANTIC_ENRICHMENT_ACTIVITIES	products.data_modeling.backend.facade.temporal	export-unknown	1
 export-shape	products.data_modeling.backend.temporal.SEMANTIC_ENRICHMENT_WORKFLOWS	products.data_modeling.backend.facade.temporal	export-unknown	1
 export-shape	products.data_modeling.backend.temporal.WORKFLOWS	products.data_modeling.backend.facade.temporal	export-unknown	1
 export-shape	products.data_quality.backend.logic.subject_access.DeferredDatabase	products.data_quality.backend.facade.api	export-shape(class)	1
@@ -476,9 +465,7 @@ export-shape	products.endpoints.backend.logic.execution.EndpointExecutionService
 export-shape	products.endpoints.backend.logic.materialization.EndpointMaterializationService	products.endpoints.backend.facade.api	export-shape(class)	1
 export-shape	products.endpoints.backend.models.Endpoint	products.endpoints.backend.facade.models	export-denied(model)	1
 export-shape	products.endpoints.backend.models.EndpointVersion	products.endpoints.backend.facade.models	export-denied(model)	1
-export-shape	products.engineering_analytics.backend.logic.job_logs.temporal.ACTIVITIES	products.engineering_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.engineering_analytics.backend.logic.job_logs.temporal.WORKFLOWS	products.engineering_analytics.backend.facade.temporal	export-unknown	1
-export-shape	products.engineering_analytics.backend.logic.signals.temporal.ACTIVITIES	products.engineering_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.engineering_analytics.backend.logic.signals.temporal.WORKFLOWS	products.engineering_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.engineering_analytics.backend.tasks.schedules.TEST_CENSUS_CRONTAB	products.engineering_analytics.backend.facade.tasks	export-unknown	1
 export-shape	products.error_tracking.backend.hogql_queries.error_tracking_query_builder.ErrorTrackingQueryBuilder	products.error_tracking.backend.facade.queries	export-shape(class)	1
@@ -497,22 +484,15 @@ export-shape	products.experiments.backend.models.experiment.Experiment	products.
 export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.models.team_experiments_config.TeamExperimentsConfig	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.temporal.recalculation_metrics.ExperimentsRecalculationMetricsInterceptor	products.experiments.backend.facade.temporal	export-shape(class)	1
-export-shape	products.experiments.backend.temporal.registry.ACTIVITIES	products.experiments.backend.facade.temporal	export-unknown	1
-export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_CANARY_ACTIVITIES	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_CANARY_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
-export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
-export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES	products.experiments.backend.facade.temporal	export-unknown	1
-export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
-export-shape	products.experiments.backend.temporal.registry.TIMESERIES_ACTIVITIES	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.TIMESERIES_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.timeseries.models.ExperimentTimeseriesRecalculationWorkflowInputs	products.experiments.backend.facade.temporal	export-shape(class)	1
 export-shape	products.feature_flags.backend.facade.warnings.ManagementWarningWire	products.feature_flags.backend.facade.warnings	export-shape(class)	1
 export-shape	products.feature_flags.backend.models.feature_flag.FeatureFlag	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.feature_flags.backend.types.FlagProperty	products.feature_flags.backend.facade.references	export-shape(class)	1
-export-shape	products.knowledge_writer.backend.temporal.ACTIVITIES	products.knowledge_writer.backend.facade.temporal	export-unknown	1
 export-shape	products.knowledge_writer.backend.temporal.WORKFLOWS	products.knowledge_writer.backend.facade.temporal	export-unknown	1
 export-shape	products.logs.backend.context_query_runner.LogsContextRunner	products.logs.backend.facade.queries	export-shape(class)	1
 export-shape	products.logs.backend.internal_logs_producer.InternalLogsProducer	products.logs.backend.facade.internal_logs	export-shape(class)	1
@@ -521,9 +501,7 @@ export-shape	products.logs.backend.models.LogsAlertEvent.Kind	products.logs.back
 export-shape	products.logs.backend.platform_alert_event_history.PLATFORM_CONTROL_KINDS	products.logs.backend.facade.api	export-unknown	1
 export-shape	products.logs.backend.presentation.views.retention_api.LogsRetentionRuleSerializer	products.logs.backend.facade.retention_views	export-shape(class)	1
 export-shape	products.logs.backend.presentation.views.retention_api.LogsRetentionRuleViewSet	products.logs.backend.facade.retention_views	export-shape(class)	1
-export-shape	products.logs.backend.temporal.alert_evaluate.PLATFORM_SIGNAL_ACTIVITIES	products.logs.backend.facade.temporal	export-unknown	1
 export-shape	products.logs.backend.temporal.alert_evaluate.PLATFORM_SIGNAL_WORKFLOWS	products.logs.backend.facade.temporal	export-unknown	1
-export-shape	products.logs.backend.temporal.alert_evaluate.SOURCE_EVALUATION_ACTIVITIES	products.logs.backend.facade.temporal	export-unknown	1
 export-shape	products.logs.backend.temporal.alert_evaluate.SOURCE_EVALUATION_WORKFLOWS	products.logs.backend.facade.temporal	export-unknown	1
 export-shape	products.logs.backend.temporal.metrics.LogsAlertingMetricsInterceptor	products.logs.backend.facade.temporal	export-shape(class)	1
 export-shape	products.managed_warehouse.backend.common.DUCKGRES_BUCKET_REGION	products.managed_warehouse.backend.facade.api	export-unknown	1
@@ -531,7 +509,6 @@ export-shape	products.managed_warehouse.backend.common.EARLIEST_BACKFILL_DATE	pr
 export-shape	products.managed_warehouse.backend.facade.contracts.DuckLakeQueryResult	products.managed_warehouse.backend.facade.client	export-shape(class)	1
 export-shape	products.managed_warehouse.backend.facade.contracts.DuckLakeQueryResult	products.managed_warehouse.backend.facade.contracts	export-shape(class)	1
 export-shape	products.managed_warehouse.backend.logic.sql_editor_credentials.RedisServiceCredentialCache	products.managed_warehouse.backend.facade.sql_editor	export-shape(class)	1
-export-shape	products.managed_warehouse.backend.temporal.ACTIVITIES	products.managed_warehouse.backend.facade.temporal	export-unknown	1
 export-shape	products.managed_warehouse.backend.temporal.WORKFLOWS	products.managed_warehouse.backend.facade.temporal	export-unknown	1
 export-shape	products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.DuckLakeCopyDataImportsWorkflow	products.managed_warehouse.backend.facade.temporal	export-shape(class)	1
 export-shape	products.managed_warehouse.backend.temporal.ducklake_copy_data_modeling_workflow.DuckLakeCopyDataModelingWorkflow	products.managed_warehouse.backend.facade.temporal	export-shape(class)	1
@@ -557,16 +534,14 @@ export-shape	products.messaging.backend.models.email_status_sql.KAFKA_EMAIL_STAT
 export-shape	products.messaging.backend.services.supabase_auth_email_templates.STARTER_EMAIL_TYPES	products.messaging.backend.facade.supabase_auth_emails	export-unknown	1
 export-shape	products.messaging.backend.services.transactional_email.PIPELINE_ADDRESS_PATTERN	products.messaging.backend.facade.transactional_email	export-unknown	1
 export-shape	products.messaging.backend.services.transactional_email.SENDER_ADDRESS_PATTERN	products.messaging.backend.facade.transactional_email	export-unknown	1
-export-shape	products.messaging.backend.temporal.registry.ACTIVITIES	products.messaging.backend.facade.temporal	export-unknown	1
 export-shape	products.messaging.backend.temporal.registry.WORKFLOWS	products.messaging.backend.facade.temporal	export-unknown	1
+export-shape	products.metrics.backend.hogql_queries.tail_refresh.TailRefresh	products.metrics.backend.facade.queries	export-shape(class)	1
 export-shape	products.metrics.backend.temporal.WORKFLOWS	products.metrics.backend.facade.temporal	export-unknown	1
-export-shape	products.metrics.backend.temporal.alert_evaluate.METRICS_ALERT_EVALUATION_ACTIVITIES	products.metrics.backend.facade.temporal	export-unknown	1
 export-shape	products.metrics.backend.temporal.alert_evaluate.METRICS_ALERT_EVALUATION_WORKFLOWS	products.metrics.backend.facade.temporal	export-unknown	1
 export-shape	products.notebooks.backend.markdown_collab.MarkdownDiff	products.notebooks.backend.facade.collab	export-shape(class)	1
 export-shape	products.notebooks.backend.models.Notebook	products.customer_analytics.backend.facade.max_tools	export-denied(model)	1
 export-shape	products.notebooks.backend.models.NotebookNodeRun	products.notebooks.backend.facade.widgets	export-denied(model)	1
 export-shape	products.notebooks.backend.sql_v2_dispatch.RawRefSpec	products.notebooks.backend.facade.sql_v2	export-shape(class)	1
-export-shape	products.notebooks.backend.temporal.registry.ACTIVITIES	products.notebooks.backend.facade.temporal	export-unknown	1
 export-shape	products.notebooks.backend.temporal.registry.WORKFLOWS	products.notebooks.backend.facade.temporal	export-unknown	1
 export-shape	products.notebooks.backend.widget_snapshots.WidgetSnapshots	products.notebooks.backend.facade.widget_snapshots	export-shape(class)	1
 export-shape	products.notifications.backend.resolvers.RecipientsResolver	products.notifications.backend.facade.api	export-shape(class)	1
@@ -578,7 +553,6 @@ export-shape	products.product_analytics.backend.hogql_queries.trends.series_with
 export-shape	products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder.TrendsActorsQueryBuilder	products.product_analytics.backend.facade.queries	export-shape(class)	1
 export-shape	products.product_analytics.backend.models.insight.Insight	products.product_analytics.backend.facade.models	export-denied(model)	1
 export-shape	products.product_analytics.backend.models.insight_variable.InsightVariable	products.product_analytics.backend.facade.models	export-denied(model)	1
-export-shape	products.product_analytics.backend.temporal.ACTIVITIES	products.product_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.product_analytics.backend.temporal.WORKFLOWS	products.product_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.product_analytics.backend.temporal.upgrade_queries_workflow.WorkflowState	products.product_analytics.backend.facade.temporal	export-shape(class)	1
 export-shape	products.review_hog.backend.facade.contracts.Unset	products.review_hog.backend.facade.api	export-shape(class)	1
@@ -592,7 +566,6 @@ export-shape	products.signals.backend.activity_summary.search.SummaryObjectRelat
 export-shape	products.signals.backend.anomaly_scores.search.AnomalyGroupBy	products.signals.backend.facade.api	export-shape(class)	1
 export-shape	products.signals.backend.anomaly_scores.search.AnomalyInterval	products.signals.backend.facade.api	export-shape(class)	1
 export-shape	products.signals.backend.anomaly_scores.search.AnomalyOrder	products.signals.backend.facade.api	export-shape(class)	1
-export-shape	products.signals.backend.emission.temporal_settings.EMIT_SIGNALS_ACTIVITIES	products.signals.backend.facade.temporal	export-unknown	1
 export-shape	products.signals.backend.emission.temporal_settings.EMIT_SIGNALS_WORKFLOWS	products.signals.backend.facade.temporal	export-unknown	1
 export-shape	products.signals.backend.facade.onboarding.InboxOnboarding	products.signals.backend.facade.onboarding	export-shape(class)	1
 export-shape	products.signals.backend.first_report_scout_types.FirstReportStatus	products.signals.backend.facade.inbox_status	export-shape(class)	1
@@ -605,20 +578,16 @@ export-shape	products.signals.backend.report_metric_access.ReportMetricAccessPol
 export-shape	products.signals.backend.scout_harness.rubrics.ScoutRubricGenerationStatus	products.signals.backend.facade.rubrics	export-shape(class)	1
 export-shape	products.signals.backend.scout_harness.rubrics.ScoutRubricReportChannel	products.signals.backend.facade.rubrics	export-shape(class)	1
 export-shape	products.signals.backend.scout_harness.rubrics.ScoutRubricSource	products.signals.backend.facade.rubrics	export-shape(class)	1
-export-shape	products.signals.backend.temporal.ACTIVITIES	products.signals.backend.facade.temporal	export-unknown	1
-export-shape	products.signals.backend.temporal.SELF_DRIVING_ACTIVITIES	products.signals.backend.facade.temporal	export-unknown	1
 export-shape	products.signals.backend.temporal.SELF_DRIVING_WORKFLOWS	products.signals.backend.facade.temporal	export-unknown	1
 export-shape	products.signals.backend.temporal.WORKFLOWS	products.signals.backend.facade.temporal	export-unknown	1
 export-shape	products.signals.backend.temporal.emit_eval_signal.EmitEvalSignalInputs	products.signals.backend.facade.temporal	export-shape(class)	1
 export-shape	products.signals.backend.temporal.emit_eval_signal.EmitEvalSignalWorkflow	products.signals.backend.facade.temporal	export-shape(class)	1
 export-shape	products.signals.backend.trial.billing.TrialContinuation	products.signals.backend.facade.trial_enrollment	export-shape(class)	1
 export-shape	products.signals.backend.trial.service.TrialService	products.signals.backend.facade.trial_enrollment	export-shape(class)	1
-export-shape	products.slack_app.backend.facade.temporal.ACTIVITIES	products.slack_app.backend.facade.temporal	export-unknown	1
 export-shape	products.slack_app.backend.facade.temporal.WORKFLOWS	products.slack_app.backend.facade.temporal	export-unknown	1
 export-shape	products.slack_app.backend.logic.progress_phases.OTHER_WORK	products.slack_app.backend.facade.api	export-unknown	1
 export-shape	products.stamphog.backend.facade.api.LazyDTOList	products.stamphog.backend.facade.api	export-shape(class)	1
 export-shape	products.stamphog.backend.tasks.schedules.DAILY_DIGEST_CRONTAB	products.stamphog.backend.facade.tasks	export-unknown	1
-export-shape	products.stamphog.backend.temporal.registry.ACTIVITIES	products.stamphog.backend.facade.temporal	export-unknown	1
 export-shape	products.stamphog.backend.temporal.registry.WORKFLOWS	products.stamphog.backend.facade.temporal	export-unknown	1
 export-shape	products.subscriptions.backend.facade.api.AI_QUERY_PLAN_STATUS_CHOICES	products.subscriptions.backend.facade.api	export-unknown	1
 export-shape	products.subscriptions.backend.facade.api.AI_WINDOW_MODE_CHOICES	products.subscriptions.backend.facade.api	export-unknown	1
@@ -631,7 +600,6 @@ export-shape	products.subscriptions.backend.facade.contracts.ManualDeliveryOutco
 export-shape	products.subscriptions.backend.facade.contracts.SubscriptionTriggerType	products.subscriptions.backend.facade.contracts	export-shape(class)	1
 export-shape	products.subscriptions.backend.facade.contracts.Unset	products.subscriptions.backend.facade.api	export-shape(class)	1
 export-shape	products.subscriptions.backend.facade.contracts.Unset	products.subscriptions.backend.facade.contracts	export-shape(class)	1
-export-shape	products.subscriptions.backend.temporal.ACTIVITIES	products.subscriptions.backend.facade.temporal	export-unknown	1
 export-shape	products.subscriptions.backend.temporal.WORKFLOWS	products.subscriptions.backend.facade.temporal	export-unknown	1
 export-shape	products.tasks.backend.facade.api.TASK_SERVER_ONLY_ORIGIN_PRODUCTS	products.tasks.backend.facade.api	export-unknown	1
 export-shape	products.tasks.backend.facade.api._AutoArchiveUnchanged	products.tasks.backend.facade.api	export-shape(class)	1
@@ -661,7 +629,6 @@ export-shape	products.tasks.backend.models.TaskClientProvenance	products.tasks.b
 export-shape	products.tasks.backend.models.TaskClientProvenance	products.tasks.backend.facade.client_provenance	export-shape(class)	1
 export-shape	products.tasks.backend.models.TaskRun.Environment	products.tasks.backend.facade.api	export-shape(class)	1
 export-shape	products.tasks.backend.models.TaskRun.Status	products.tasks.backend.facade.api	export-shape(class)	1
-export-shape	products.tasks.backend.temporal.ACTIVITIES	products.tasks.backend.facade.temporal	export-unknown	1
 export-shape	products.tasks.backend.temporal.WORKFLOWS	products.tasks.backend.facade.temporal	export-unknown	1
 export-shape	products.tasks.backend.temporal.process_task.activities.post_slack_update.PostSlackUpdateInput	products.tasks.backend.facade.temporal	export-shape(class)	1
 export-shape	products.tasks.backend.temporal.process_task.workflow.PendingFollowup	products.tasks.backend.facade.temporal	export-shape(class)	1
@@ -672,7 +639,6 @@ export-shape	products.today.backend.logic.highlight_trends.UNCLEAR_LABEL	product
 export-shape	products.today.backend.logic.highlight_trends.UNKNOWN_DIRECTION	products.today.backend.facade.highlight_helpers	export-unknown	1
 export-shape	products.tracing.backend.models.TeamTracingConfig	products.tracing.backend.facade.team_extension	export-denied(model)	1
 export-shape	products.tracing.backend.models.TracesRetentionRule	products.tracing.backend.facade.retention	export-denied(model)	1
-export-shape	products.tracing.backend.temporal.alert_evaluate.TRACES_ALERT_EVALUATION_ACTIVITIES	products.tracing.backend.facade.temporal	export-unknown	1
 export-shape	products.tracing.backend.temporal.alert_evaluate.TRACES_ALERT_EVALUATION_WORKFLOWS	products.tracing.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.facade._access_control_base.WarehouseAccessControlTestMixin	products.warehouse_sources.backend.facade._access_control_base	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.facade.codebase_detection._Signals	products.warehouse_sources.backend.facade.codebase_detection	export-shape(class)	1
@@ -718,12 +684,10 @@ export-shape	products.warehouse_sources.backend.sync_alerts.destinations.WAREHOU
 export-shape	products.warehouse_sources.backend.temporal.data_imports.cdc.batcher.HISTORY_NAMING	products.warehouse_sources.backend.facade.source_management	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.cdc.workflows.CDCExtractionInput	products.warehouse_sources.backend.facade.pipelines	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.naming_convention.NamingConvention	products.warehouse_sources.backend.facade.sources	export-shape(class)	1
-export-shape	products.warehouse_sources.backend.temporal.data_imports.person_property_backfill_job.PERSON_PROPERTY_BACKFILL_ACTIVITIES	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.person_property_sync_job.PERSON_PROPERTY_SYNC_WORKFLOWS	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink.AccountPropertyRowSink	products.warehouse_sources.backend.facade.temporal	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.CDPProducer	products.warehouse_sources.backend.facade.pipelines	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink.PersonPropertyRowSink	products.warehouse_sources.backend.facade.temporal	export-shape(class)	1
-export-shape	products.warehouse_sources.backend.temporal.data_imports.settings.ACTIVITIES	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.settings.WORKFLOWS	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source.ClickHouseSource	products.warehouse_sources.backend.facade.source_management	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.sources.common.base.ResumableSource	products.warehouse_sources.backend.facade.source_management	export-shape(class)	1
@@ -753,10 +717,8 @@ export-shape	products.warehouse_sources.backend.temporal.data_imports.sources.po
 export-shape	products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource	products.warehouse_sources.backend.facade.source_management	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.RedshiftSource	products.warehouse_sources.backend.facade.source_management	export-shape(class)	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource	products.warehouse_sources.backend.facade.source_management	export-shape(class)	1
-export-shape	products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings.ACTIVITIES	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings.WORKFLOWS	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas.SyncNewSchemasActivityInputs	products.warehouse_sources.backend.facade.pipelines	export-shape(class)	1
-export-shape	products.warehouse_sources.backend.temporal.sync_alert_evaluate.WAREHOUSE_ALERT_EVALUATION_ACTIVITIES	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources.backend.temporal.sync_alert_evaluate.WAREHOUSE_ALERT_EVALUATION_WORKFLOWS	products.warehouse_sources.backend.facade.temporal	export-unknown	1
 export-shape	products.warehouse_sources_queue.backend.core.health.HealthState	products.warehouse_sources.backend.facade.pipelines	export-shape(class)	1
 export-shape	products.warehouse_sources_queue.backend.core.jobs_db.BatchQueue	products.warehouse_sources.backend.facade.pipelines	export-shape(class)	1
@@ -765,7 +727,6 @@ export-shape	products.web_analytics.backend.models.content_autopilot.ContentAuto
 export-shape	products.web_analytics.backend.models.content_autopilot.ContentAutopilotProposal	products.web_analytics.backend.facade.models	export-denied(model)	1
 export-shape	products.web_analytics.backend.models.content_autopilot.ContentAutopilotRun	products.web_analytics.backend.facade.models	export-denied(model)	1
 export-shape	products.web_analytics.backend.models.content_autopilot.ContentAutopilotSiteProfile	products.web_analytics.backend.facade.models	export-denied(model)	1
-export-shape	products.wizard.backend.temporal.ACTIVITIES	products.wizard.backend.facade.temporal	export-unknown	1
 export-shape	products.wizard.backend.temporal.WORKFLOWS	products.wizard.backend.facade.temporal	export-unknown	1
 export-shape	products.workflows.backend.facade.contracts.EmailDomainDnsRecord	products.workflows.backend.facade.api	export-shape(class)	1
 export-shape	products.workflows.backend.facade.contracts.EmailDomainDnsRecord	products.workflows.backend.facade.contracts	export-shape(class)	1
@@ -801,6 +762,7 @@ export-shape	typing.Any	products.managed_warehouse.backend.facade.temporal	expor
 export-shape	typing.Any	products.mcp_analytics.backend.facade.queries	export-unknown	1
 export-shape	typing.Any	products.messaging.backend.facade.preferences	export-unknown	1
 export-shape	typing.Any	products.messaging.backend.facade.transactional_email	export-unknown	1
+export-shape	typing.Any	products.metrics.backend.facade.queries	export-unknown	1
 export-shape	typing.Any	products.product_analytics.backend.facade.queries	export-unknown	1
 export-shape	typing.Any	products.signals.backend.facade.research	export-unknown	1
 export-shape	typing.Any	products.tasks.backend.facade.agents	export-unknown	1
@@ -895,6 +857,7 @@ facade-signature	products.access_control.backend.facade.user_access_control	visi
 facade-signature	products.actions.backend.facade.api	readable_action_ids	param:required_level	typing.Any	1
 facade-signature	products.actions.backend.facade.api	search_actions	return	typing.Any	1
 facade-signature	products.actions.backend.facade.contracts	ActionStep.__init__	field:properties	builtins.dict	1
+facade-signature	products.aeo.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.ai_observability.backend.facade.api	resolve_evaluation_pass_markers	param:properties	products.ai_observability.backend.facade.api.P	1
 facade-signature	products.ai_observability.backend.facade.api	resolve_evaluation_pass_markers	return	products.ai_observability.backend.facade.api.P	1
 facade-signature	products.ai_observability.backend.facade.clustering_runtime	scope_key	param:event_filters	builtins.dict	1
@@ -917,6 +880,7 @@ facade-signature	products.ai_observability.backend.facade.evaluation_runtime	ext
 facade-signature	products.ai_observability.backend.facade.evaluation_runtime	format_tool_definitions	param:tools	typing.Any	1
 facade-signature	products.ai_observability.backend.facade.evaluation_runtime	hog_bytecode_references_global	param:bytecode	typing.Any	1
 facade-signature	products.ai_observability.backend.facade.evaluation_runtime	last_message_text	param:messages	builtins.dict	1
+facade-signature	products.ai_observability.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.alerts.backend.facade.api	LLMAlertWrite.__init__	field:existing	products.alerts.backend.models.alert.AlertConfiguration	1
 facade-signature	products.alerts.backend.facade.api	calls_ai_gateway	param:detector_config	typing.Any	1
 facade-signature	products.alerts.backend.facade.api	forecast_detector_access_error	param:organization	typing.Any	1
@@ -928,6 +892,8 @@ facade-signature	products.alerts.backend.facade.destinations	insight_alert_slack
 facade-signature	products.alerts.backend.facade.destinations	serialize_deliveries	return	typing.Any	1
 facade-signature	products.alerts.backend.facade.evaluation	validate_evaluation_delay	param:config	builtins.object	1
 facade-signature	products.alerts.backend.facade.evaluation	validate_evaluation_delay	param:query	builtins.object	1
+facade-signature	products.alerts.backend.facade.temporal	PLATFORM_AI_QUEUE_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.alerts.backend.facade.temporal	PLATFORM_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.alerts_platform.backend.facade.api	enabled_native_configurations	param:values	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	native_configuration_ids_by_source_config	param:values	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	native_configuration_ids_by_source_config	return	typing.Any	1
@@ -972,6 +938,7 @@ facade-signature	products.autoresearch.backend.facade.api	create_suggestion	para
 facade-signature	products.autoresearch.backend.facade.api	resolve_action_target	param:action_id	typing.Any	1
 facade-signature	products.autoresearch.backend.facade.contracts	Pipeline.__init__	field:created_by	typing.Any	1
 facade-signature	products.autoresearch.backend.facade.contracts	Suggestion.__init__	field:created_by	typing.Any	1
+facade-signature	products.autoresearch.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.api	create_batch_export_backfill	param:end_at	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.api	create_batch_export_backfill	param:start_at	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.api	drop_unknown_hogql_modifiers	return	typing.Any	1
@@ -982,6 +949,7 @@ facade-signature	products.batch_exports.backend.facade.contracts	BatchExportUpda
 facade-signature	products.batch_exports.backend.facade.contracts	NewBatchExport.__init__	field:filters	typing.Any	1
 facade-signature	products.batch_exports.backend.facade.destinations.postgres	run_in_retryable_transaction	param:fn	products.batch_exports.backend.temporal.destinations.postgres_batch_export._TransactionResult	1
 facade-signature	products.batch_exports.backend.facade.destinations.postgres	run_in_retryable_transaction	return	products.batch_exports.backend.temporal.destinations.postgres_batch_export._TransactionResult	1
+facade-signature	products.batch_exports.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.temporal	__getattr__	return	typing.Any	1
 facade-signature	products.billing_alerts.backend.facade.api	BillingAlertDispatchResult.__init__	field:event	products.billing_alerts.backend.models.BillingAlertEvent	1
 facade-signature	products.billing_alerts.backend.facade.api	apply_billing_alert_configuration_lifecycle	param:alert	products.billing_alerts.backend.models.BillingAlertConfiguration	1
@@ -1026,6 +994,7 @@ facade-signature	products.canvas.backend.facade.contracts	CanvasFieldChange.__in
 facade-signature	products.canvas.backend.facade.contracts	CanvasFieldChange.__init__	field:before	typing.Any	1
 facade-signature	products.canvas.backend.facade.contracts	CanvasStateEntry.__init__	field:value	typing.Any	1
 facade-signature	products.canvas.backend.facade.notebooks	validate_notebook_canvas_source	return	typing.Any	1
+facade-signature	products.canvas.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.cohorts.backend.facade.ready_signals	connect_realtime_cohort_ready	param:receiver	builtins.object	1
 facade-signature	products.context_layer.backend.facade.api	enable_context_layer	return	products.context_layer.backend.models.ContextLayerConfig	1
 facade-signature	products.context_layer.backend.facade.api	get_config	return	products.context_layer.backend.models.ContextLayerConfig	1
@@ -1073,6 +1042,8 @@ facade-signature	products.customer_analytics.backend.facade.contracts	FeatureReq
 facade-signature	products.customer_analytics.backend.facade.contracts	FeatureRequestHistoryChange	attr:before	builtins.object	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UpdateAccountInput.__init__	field:properties	builtins.dict	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UserBasicInfo.__init__	field:hedgehog_config	typing.Any	1
+facade-signature	products.customer_analytics.backend.facade.temporal	ACCOUNT_PROPERTY_SYNC_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.customer_analytics.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.__init__	param:dashboards	products.dashboards.backend.models.dashboard.Dashboard	1
 facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.create_tiles	param:insight	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.dashboards.backend.facade.api	add_insight_to_dashboard	param:query	typing.Any	1
@@ -1131,6 +1102,7 @@ facade-signature	products.data_catalog.backend.facade.api	upsert_metric	param:de
 facade-signature	products.data_catalog.backend.facade.api	upsert_metric	return	products.data_catalog.backend.models.metric.Metric	1
 facade-signature	products.data_catalog.backend.facade.api	validate_metric_definition	param:definition	builtins.dict	1
 facade-signature	products.data_catalog.backend.facade.api	validate_metric_definition	return	builtins.dict	1
+facade-signature	products.data_catalog.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.data_modeling.backend.facade.api	apply_incremental_filter	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.api	apply_saved_query_frequency_anchor	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	apply_saved_query_frequency_target	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
@@ -1187,6 +1159,8 @@ facade-signature	products.data_modeling.backend.facade.contracts	ViewEngine.from
 facade-signature	products.data_modeling.backend.facade.contracts	WritePlan.__init__	field:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.models	aget_saved_query_by_id	return	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.models	asave_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
+facade-signature	products.data_modeling.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
+facade-signature	products.data_modeling.backend.facade.temporal	SEMANTIC_ENRICHMENT_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.data_quality.backend.facade.activity	model_activity	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.data_quality.backend.facade.activity	model_activity	param:queryset	posthog.models.activity_logging.activity_log.ActivityLog	1
 facade-signature	products.data_quality.backend.facade.activity	model_activity	return	django.db.models.query.QuerySet	1
@@ -1294,6 +1268,8 @@ facade-signature	products.endpoints.backend.facade.api	validate_update_request	p
 facade-signature	products.endpoints.backend.facade.contracts	EndpointVersionInfo.__init__	field:query	builtins.dict	1
 facade-signature	products.endpoints.backend.facade.temporal	prepare_executable_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.endpoints.backend.facade.temporal	update_materialization_ready_for_saved_query	param:saved_query	?	1
+facade-signature	products.engineering_analytics.backend.facade.temporal	CI_SIGNALS_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.engineering_analytics.backend.facade.temporal	JOB_LOGS_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.error_tracking.backend.facade	build_error_tracking_config	return	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade	override_error_tracking_issue_fingerprint	param:version	?	1
 facade-signature	products.error_tracking.backend.facade.alerts	compile_signal_source_filters	return	typing.Any	1
@@ -1425,6 +1401,12 @@ facade-signature	products.experiments.backend.facade.contracts	CreateExperimentI
 facade-signature	products.experiments.backend.facade.contracts	ExperimentExposureLinkage.__init__	field:_resolution	builtins.object	1
 facade-signature	products.experiments.backend.facade.launch_signals	connect_experiment_launched	param:receiver	builtins.object	1
 facade-signature	products.experiments.backend.facade.search	search_experiments	return	typing.Any	1
+facade-signature	products.experiments.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
+facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_CANARY_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.experiments.backend.facade.temporal	TIMESERIES_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.experiments.backend.facade.timeseries	apply_saved_metric_overrides	return	typing.Any	1
 facade-signature	products.experiments.backend.facade.timeseries	backfill_experiment_timeseries	return	typing.Any	1
 facade-signature	products.experiments.backend.facade.timeseries	previous_completed_metric_result	return	typing.Any	1
@@ -1532,15 +1514,19 @@ facade-signature	products.feature_flags.backend.facade.rules	experiment_rule_fro
 facade-signature	products.feature_flags.backend.facade.rules	experiment_rule_snapshot	return	typing.Any	1
 facade-signature	products.feature_flags.backend.facade.rules	same_rule_id	param:stored	builtins.object	1
 facade-signature	products.feature_flags.backend.facade.rules	same_rule_id	param:wanted	builtins.object	1
+facade-signature	products.knowledge_writer.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.legal_documents.backend.facade.api	annotate_signed_baa	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.legal_documents.backend.facade.api	annotate_signed_baa	return	django.db.models.query.QuerySet	1
 facade-signature	products.logs.backend.facade.retention	suggest_retention_rule_name	param:filter_group	typing.Any	1
+facade-signature	products.logs.backend.facade.temporal	PLATFORM_SIGNAL_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.logs.backend.facade.temporal	SOURCE_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.managed_warehouse.backend.facade.api	duckgres_data_imports_table_name	param:schema	products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema	1
 facade-signature	products.managed_warehouse.backend.facade.client	execute_trino_model	param:source_query	builtins.object	1
 facade-signature	products.managed_warehouse.backend.facade.client	execute_trino_shadow_materialization	param:source_query	builtins.object	1
 facade-signature	products.managed_warehouse.backend.facade.contracts	DuckLakeQueryResult.__init__	field:results	typing.Any	1
 facade-signature	products.managed_warehouse.backend.facade.contracts	DuckLakeTableResult.__init__	field:watermark	typing.Any	1
 facade-signature	products.managed_warehouse.backend.facade.contracts	TrinoIncrementalWrite.__init__	field:since	typing.Any	1
+facade-signature	products.managed_warehouse.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.mcp_store.backend.facade.api	member_installation_for_host	return	products.mcp_store.backend.models.MCPServerInstallation	1
 facade-signature	products.mcp_store.backend.facade.contracts	ConnectorCallOutcome.__init__	field:structured_content	typing.Any	1
 facade-signature	products.messaging.backend.facade.api	apply_design_operations	param:design	builtins.dict	1
@@ -1554,11 +1540,13 @@ facade-signature	products.messaging.backend.facade.customerio	import_preferences
 facade-signature	products.messaging.backend.facade.preferences	recipient_preferences	return	typing.Any	1
 facade-signature	products.messaging.backend.facade.preferences	transition_preferences	return	typing.Any	1
 facade-signature	products.messaging.backend.facade.templates	team_category_id	param:category_id	typing.Any	1
+facade-signature	products.messaging.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.metrics.backend.facade.api	list_metric_attribute_keys	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_attribute_values	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_names	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_picker_names	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
+facade-signature	products.metrics.backend.facade.temporal	METRICS_ALERT_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.notebooks.backend.facade.api	create_account_notebook	param:content	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_group_notebook	param:content	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_notebook	param:content	typing.Any	1
@@ -1591,6 +1579,7 @@ facade-signature	products.notebooks.backend.facade.contracts	NotebookData.__init
 facade-signature	products.notebooks.backend.facade.contracts	NotebookUserInfo.__init__	field:hedgehog_config	typing.Any	1
 facade-signature	products.notebooks.backend.facade.notebook_run	read_notebook_run	return	typing.Any	1
 facade-signature	products.notebooks.backend.facade.sql_v2	notebook_sql_v2_callback	param:request	?	1
+facade-signature	products.notebooks.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.notebooks.backend.facade.widgets	cancel_widget_generation	param:notebook	products.notebooks.backend.models.Notebook	1
 facade-signature	products.notebooks.backend.facade.widgets	get_widget_status	param:notebook	products.notebooks.backend.models.Notebook	1
 facade-signature	products.notebooks.backend.facade.widgets	infer_widget_inputs	param:notebook	products.notebooks.backend.models.Notebook	1
@@ -1619,6 +1608,7 @@ facade-signature	products.product_analytics.backend.facade.models	generate_insig
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	param:queryset	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	return	products.product_analytics.backend.models.insight.Insight	1
+facade-signature	products.product_analytics.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.release.backend.facade.contracts	UnknownLinkedObjectsError.__init__	param:ids	typing.Any	1
 facade-signature	products.replay_vision.backend.facade.api	parse_workflow_scan_setup	param:setup	typing.Any	1
 facade-signature	products.security.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
@@ -1644,11 +1634,15 @@ facade-signature	products.signals.backend.facade.onboarding	InboxOnboarding.stat
 facade-signature	products.signals.backend.facade.scout_access	has_canonical_team_access	param:user_permissions	posthog.rbac.user_permissions.UserPermissions	1
 facade-signature	products.signals.backend.facade.scout_reports	render_report_charts	return	typing.Any	1
 facade-signature	products.signals.backend.facade.source_configs	enabled_issue_filters	return	builtins.object	1
+facade-signature	products.signals.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
+facade-signature	products.signals.backend.facade.temporal	EMIT_SIGNALS_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.signals.backend.facade.temporal	SELF_DRIVING_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.signals.backend.facade.tool_policy	scout_tool_denial	param:data	typing.Any	1
 facade-signature	products.signals.backend.facade.tool_policy	scout_tool_denial	param:view	typing.Any	1
 facade-signature	products.slack_app.backend.facade.api	slack_followup_invite	return	typing.Any	1
 facade-signature	products.slack_app.backend.facade.api	slack_report_implementation_button	return	typing.Any	1
 facade-signature	products.slack_app.backend.facade.api	slack_report_state_followup_blocks	return	typing.Any	1
+facade-signature	products.slack_app.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.stamphog.backend.facade.api	LazyDTOList.__getitem__	return	products.stamphog.backend.facade.api._DTO	1
 facade-signature	products.stamphog.backend.facade.api	LazyDTOList.__init__	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.stamphog.backend.facade.api	LazyDTOList.__init__	param:to_dto	products.stamphog.backend.facade.api._DTO	1
@@ -1658,6 +1652,7 @@ facade-signature	products.stamphog.backend.facade.api	update_repo_config	param:f
 facade-signature	products.stamphog.backend.facade.contracts	DigestRunDTO.__init__	field:summary	builtins.dict	1
 facade-signature	products.stamphog.backend.facade.contracts	ReviewRunDTO.__init__	field:gate_result	builtins.dict	1
 facade-signature	products.stamphog.backend.facade.contracts	ReviewRunDTO.__init__	field:output	builtins.dict	1
+facade-signature	products.stamphog.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.streamlit_apps.backend.facade.api	execute_bridge_query	return	builtins.dict	1
 facade-signature	products.streamlit_apps.backend.facade.api	get_streamlit_oauth_app	return	posthog.models.oauth.OAuthApplication	1
 facade-signature	products.streamlit_apps.backend.facade.contracts	StreamlitAppUserInfo.__init__	field:hedgehog_config	builtins.dict	1
@@ -1673,6 +1668,7 @@ facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionRec
 facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionRecord.__init__	field:delivery_config	builtins.object	1
 facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionWrite.__init__	field:ai_prompt_config	builtins.object	1
 facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionWrite.__init__	field:delivery_config	builtins.object	1
+facade-signature	products.subscriptions.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.tasks.backend.facade.access	analytics_context_reader	return	builtins.object	1
 facade-signature	products.tasks.backend.facade.access	may_read_task_run_context	param:reader	builtins.object	1
 facade-signature	products.tasks.backend.facade.access	usage_limit_response	param:user	?	1
@@ -1805,6 +1801,7 @@ facade-signature	products.tasks.backend.facade.streams	run_stream_presence_gated
 facade-signature	products.tasks.backend.facade.streams	run_stream_thin_tail	param:state	builtins.dict	1
 facade-signature	products.tasks.backend.facade.streams	run_uses_dedicated_stream	param:state	builtins.dict	1
 facade-signature	products.tasks.backend.facade.streams	session_update_type	param:event	builtins.dict	1
+facade-signature	products.tasks.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.tasks.backend.facade.temporal	execute_task_processing_workflow	param:slack_thread_context	typing.Any	1
 facade-signature	products.tasks.backend.facade.temporal	execute_task_processing_workflow_async	param:slack_thread_context	typing.Any	1
 facade-signature	products.tasks.backend.facade.temporal	mcp_exclude_tools_for_task	param:task	products.tasks.backend.models.Task	1
@@ -1818,6 +1815,7 @@ facade-signature	products.tracing.backend.facade.api	annotate_self_time	param:sp
 facade-signature	products.tracing.backend.facade.api	run_service_health_query	return	typing.Any	1
 facade-signature	products.tracing.backend.facade.api	summarize_trace	param:spans	builtins.dict	1
 facade-signature	products.tracing.backend.facade.api	summarize_trace	return	builtins.dict	1
+facade-signature	products.tracing.backend.facade.temporal	TRACES_ALERT_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.ui_customization.backend.facade.api	validate_customization_layout	param:layout	builtins.object	1
 facade-signature	products.visual_review.backend.facade.contracts	CreateRunInput.__init__	field:metadata	builtins.dict	1
 facade-signature	products.visual_review.backend.facade.contracts	Run.__init__	field:metadata	builtins.dict	1
@@ -1936,7 +1934,11 @@ facade-signature	products.warehouse_sources.backend.facade.source_management	sta
 facade-signature	products.warehouse_sources.backend.facade.source_management	tables_wait_for_repair	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
 facade-signature	products.warehouse_sources.backend.facade.source_management	tls_options	param:config	builtins.object	1
 facade-signature	products.warehouse_sources.backend.facade.source_management	validate_and_coerce_row_filters	param:row_filters	typing.Any	1
+facade-signature	products.warehouse_sources.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
+facade-signature	products.warehouse_sources.backend.facade.temporal	METADATA_ACTIVITIES	constant	builtins.object	1
+facade-signature	products.warehouse_sources.backend.facade.temporal	PERSON_PROPERTY_BACKFILL_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.warehouse_sources.backend.facade.temporal	PERSON_PROPERTY_SYNC_ACTIVITIES	constant	typing.Any	1
+facade-signature	products.warehouse_sources.backend.facade.temporal	WAREHOUSE_ALERT_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.warehouse_sources.backend.facade.types	external_data_source_type_choices	return	typing.Any	1
 facade-signature	products.warehouse_suggestions.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	effective_capture_settings	param:config	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
@@ -1951,6 +1953,7 @@ facade-signature	products.web_analytics.backend.facade.content_autopilot	start_r
 facade-signature	products.web_analytics.backend.facade.screenshot_settings	save_screenshot_hostnames	return	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
 facade-signature	products.wizard.backend.facade.api	subscribe_to_updates	return	typing.Any	1
 facade-signature	products.wizard.backend.facade.api	validate_wizard_version	param:wizard_version	builtins.object	1
+facade-signature	products.wizard.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.wizard.backend.facade.validation	is_context_mill_version	param:value	builtins.object	1
 facade-signature	products.wizard.backend.facade.validation	is_executable_wizard_version	param:value	builtins.object	1
 facade-signature	products.wizard.backend.facade.validation	is_wizard_error_code	param:value	builtins.object	1
@@ -2873,64 +2876,9 @@ no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	p
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.warehouse_sources.backend.temporal.data_imports.settings	1
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.web_analytics.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	posthog.temporal.ai_observability	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.aeo.backend.temporal.brand_sentiment	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.ai_observability.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.alerts.backend.facade.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.alerts.backend.temporal.platform_evaluate	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.alerts_platform.backend.temporal.workflows	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.autoresearch.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.batch_exports.backend.temporal.workflows	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.billing_alerts.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.billing_alerts.backend.temporal.platform_evaluate	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.business_knowledge.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.canvas.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.context_layer.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.conversations.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.customer_analytics.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.customer_analytics.backend.temporal.account_property_sync	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.data_catalog.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.data_modeling.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.data_quality.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.engineering_analytics.backend.logic.job_logs.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.engineering_analytics.backend.logic.signals.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.error_tracking.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.error_tracking.backend.temporal.lifecycle	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.experiments.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.growth.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.knowledge_writer.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.logs.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.logs.backend.temporal.alert_evaluate	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.logs.backend.temporal.retention_entitlements	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.logs.backend.temporal.volume_tick	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.managed_warehouse.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.messaging.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.metrics.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.metrics.backend.temporal.alert_evaluate	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.notebooks.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.posthog_ai.backend.temporal.backfill	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.product_analytics.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.pulse.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.replay_vision.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.replay_vision.backend.temporal.logs	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.security.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.signals.backend.emission.temporal_settings	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.signals.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.slack_app.backend.facade.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.stamphog.backend.temporal.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.subscriptions.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.tasks.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.today.backend.facade.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.tracing.backend.temporal.alert_evaluate	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_sources.backend.temporal.data_imports.person_property_backfill_job	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_sources.backend.temporal.data_imports.person_property_sync_job	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_sources.backend.temporal.data_imports.settings	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_sources.backend.temporal.data_imports.sources	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_sources.backend.temporal.sync_alert_evaluate	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.warehouse_suggestions.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.web_analytics.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.web_analytics.backend.temporal.page_history.registry	1
-no-product-lists-in-core	posthog.management.commands.start_temporal_worker	products.wizard.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_workflow	products.batch_exports.backend.temporal.workflows	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_workflow	products.data_catalog.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.start_temporal_workflow	products.error_tracking.backend.temporal	1
@@ -2999,14 +2947,6 @@ no-product-lists-in-core	posthog.temporal.common.worker	posthog.temporal.ai_obse
 no-product-lists-in-core	posthog.temporal.common.worker	posthog.temporal.ai_observability.metrics	1
 no-product-lists-in-core	posthog.temporal.common.worker	posthog.temporal.ai_observability.trace_clustering.metrics	1
 no-product-lists-in-core	posthog.temporal.common.worker	posthog.temporal.ai_observability.trace_summarization.metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.alerts_platform.backend.temporal.metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.alerts_platform.backend.temporal.telemetry	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.batch_exports.backend.temporal.metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.data_modeling.backend.temporal.metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.experiments.backend.temporal.recalculation_metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.logs.backend.temporal.metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.logs.backend.temporal.volume_tick.metrics	1
-no-product-lists-in-core	posthog.temporal.common.worker	products.tasks.backend.temporal.metrics	1
 no-product-lists-in-core	posthog.temporal.health_checks.registry	products.cdp.backend.temporal.health_checks.ingestion_warnings	1
 no-product-lists-in-core	posthog.temporal.health_checks.registry	products.data_warehouse.backend.temporal.health_checks.external_data_failure	1
 no-product-lists-in-core	posthog.temporal.health_checks.registry	products.data_warehouse.backend.temporal.health_checks.materialized_view_failure	1
@@ -3030,58 +2970,10 @@ no-product-lists-in-core	posthog.temporal.schedule	posthog.temporal.ai_observabi
 no-product-lists-in-core	posthog.temporal.schedule	posthog.temporal.ai_observability.trace_summarization.constants	1
 no-product-lists-in-core	posthog.temporal.schedule	posthog.temporal.ai_observability.trace_summarization.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.ai_observability.backend.temporal.eval_suggestions_client	1
-no-product-lists-in-core	posthog.temporal.schedule	products.alerts_platform.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.autoresearch.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.billing_alerts.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.business_knowledge.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.context_layer.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.conversations.backend.temporal.channel_summary.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.conversations.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.customer_analytics.backend.temporal.account_track_rules	1
-no-product-lists-in-core	posthog.temporal.schedule	products.customer_analytics.backend.temporal.calendar_sync	1
-no-product-lists-in-core	posthog.temporal.schedule	products.customer_analytics.backend.temporal.membership_backfill	1
-no-product-lists-in-core	posthog.temporal.schedule	products.customer_analytics.backend.temporal.membership_deletion	1
-no-product-lists-in-core	posthog.temporal.schedule	products.customer_analytics.backend.temporal.membership_discovery	1
-no-product-lists-in-core	posthog.temporal.schedule	products.customer_analytics.backend.temporal.ownership_claims	1
-no-product-lists-in-core	posthog.temporal.schedule	products.data_catalog.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.data_quality.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.engineering_analytics.backend.logic.job_logs.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.engineering_analytics.backend.logic.signals.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.error_tracking.backend.temporal.built_in_filters_refresh.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.error_tracking.backend.temporal.recommendations_refresh.types	1
-no-product-lists-in-core	posthog.temporal.schedule	products.error_tracking.backend.temporal.spike_event_cleanup.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.error_tracking.backend.temporal.symbol_set_cleanup.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.error_tracking.backend.temporal.weekly_digest.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.experiments.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.experiments.backend.temporal.timeseries.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.growth.backend.temporal.signup_enrichment.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.knowledge_writer.backend.temporal.reconcile_schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.logs.backend.temporal.volume_tick.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.managed_warehouse.backend.temporal.compaction_types	1
-no-product-lists-in-core	posthog.temporal.schedule	products.metrics.backend.temporal.recording_rules	1
-no-product-lists-in-core	posthog.temporal.schedule	products.metrics.backend.temporal.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.product_analytics.backend.temporal.upgrade_queries_workflow	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.estimates	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.gemini_cleanup_sweep.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.highlight_rebuild	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.learned_rules	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.read_meter	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.reconciler	1
-no-product-lists-in-core	posthog.temporal.schedule	products.replay_vision.backend.temporal.vision_alerts.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.security.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.activity_summary.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.anomaly_scores.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.emission.conversations_schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.personal_ranking.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.ranking.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.temporal.agentic.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.signals.backend.temporal.grouping_record_cleanup	1
-no-product-lists-in-core	posthog.temporal.schedule	products.slack_app.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.subscriptions.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.today.backend.temporal.schedule	1
-no-product-lists-in-core	posthog.temporal.schedule	products.warehouse_suggestions.backend.temporal.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.web_analytics.backend.temporal.digest_notification.types	1
-no-product-lists-in-core	posthog.temporal.schedule	products.web_analytics.backend.temporal.page_history.schedule	1
 no-product-lists-in-core	posthog.temporal.schedule	products.web_analytics.backend.temporal.weekly_digest.types	1
 presentation-uses-facade	products.access_control.backend.presentation.access_control	products.access_control.backend.models.access_control	1
 presentation-uses-facade	products.access_control.backend.presentation.access_control_settings	products.access_control.backend.models.access_control	1
@@ -3299,6 +3191,7 @@ prod-imports-test	posthog.migrations.0114_fix_team_event_names	?	1
 prod-imports-test	posthog.models.person.util	posthog.test.persons	1
 prod-imports-test	products.cdp.backend.templates.helpers	posthog.test.base	1
 prod-imports-test	products.cohorts.backend.models.cohort	posthog.test.base	1
+prod-imports-test	products.dashboards.backend.benchmarks.scorecard_scenarios	products.dashboards.backend.test.benchmark_fixtures	1
 prod-imports-test	products.demo.backend.logic.legacy.data_generator	posthog.session_recordings.queries.test.session_replay_sql	1
 prod-imports-test	products.experiments.backend.management.commands.generate_experiment_data	posthog.session_recordings.queries.test.session_replay_sql	1
 prod-imports-test	products.marketing_analytics.backend.demo.warehouse	products.warehouse_sources.backend.test.utils	1
@@ -3646,6 +3539,7 @@ public-surface	products.access_control.backend.models.access_control.AccessContr
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_canvas_app_widget	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_add_insight	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_cached_tiles	import	1
+public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_first_load	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_subscribe_nudge	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_dashboard_templates	import	1
 public-surface	products.access_control.backend.models.access_control.AccessControl	products.dashboards.backend.tests.api.test_experiment_widgets	import	1
@@ -3871,6 +3765,7 @@ public-surface	products.access_control.backend.models.role.Role	products.approva
 public-surface	products.access_control.backend.models.role.Role	products.approvals.backend.tests.test_approvals_api	import	1
 public-surface	products.access_control.backend.models.role.Role	products.approvals.backend.tests.test_experiment_policy_sync	import	1
 public-surface	products.access_control.backend.models.role.Role	products.approvals.backend.tests.test_policy_engine	import	1
+public-surface	products.access_control.backend.models.role.Role	products.canvas.backend.tests.test_canvas_api	import	1
 public-surface	products.access_control.backend.models.role.Role	products.conversations.backend.ai.test_suggest	import	1
 public-surface	products.access_control.backend.models.role.Role	products.conversations.backend.api.tests.test_events	import	1
 public-surface	products.access_control.backend.models.role.Role	products.conversations.backend.api.tests.test_external	import	1
@@ -3911,6 +3806,7 @@ public-surface	products.access_control.backend.models.role.RoleMembership	produc
 public-surface	products.access_control.backend.models.role.RoleMembership	products.approvals.backend.serializers	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.approvals.backend.tests.test_approvals_api	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.approvals.backend.tests.test_policy_engine	import	1
+public-surface	products.access_control.backend.models.role.RoleMembership	products.canvas.backend.tests.test_canvas_api	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.conversations.backend.role_sla	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.conversations.backend.tests.test_role_sla	import	1
 public-surface	products.access_control.backend.models.role.RoleMembership	products.customer_analytics.backend.test.test_customer_tasks	import	1
@@ -4428,9 +4324,15 @@ public-surface	products.approvals.backend.services.ChangeRequestService	products
 public-surface	products.approvals.backend.services.ChangeRequestService	products.feature_flags.backend.api.test.test_feature_flag_version_history	import	1
 public-surface	products.approvals.backend.transactions.gated_atomic	products.feature_flags.backend.api.organization_feature_flag	import	1
 public-surface	products.approvals.backend.transactions.gated_atomic	products.surveys.backend.api.survey	import	1
+public-surface	products.authorization.backend.presentation.querysets.can_filter_queryset	posthog.api.resource_transfer	import	1
 public-surface	products.authorization.backend.presentation.querysets.can_filter_queryset	posthog.api.routing	import	1
+public-surface	products.authorization.backend.presentation.querysets.filter_projects	posthog.api.organization	import	1
+public-surface	products.authorization.backend.presentation.querysets.filter_queryset	posthog.api.resource_transfer	import	1
 public-surface	products.authorization.backend.presentation.querysets.filter_queryset	posthog.api.routing	import	1
+public-surface	products.authorization.backend.presentation.querysets.filter_visible_projects	posthog.api.project	import	1
+public-surface	products.authorization.backend.presentation.querysets.filter_visible_projects	posthog.api.team.viewsets	import	1
 public-surface	products.authorization.backend.presentation.resources.MEMBERSHIP_RESOURCES	posthog.permissions	import	1
+public-surface	products.authorization.backend.presentation.resources.resource_for_object	posthog.api.resource_transfer	import	1
 public-surface	products.authorization.backend.presentation.resources.resource_for_object	posthog.permissions	import	1
 public-surface	products.business_knowledge.backend.constants.BK_DRILLDOWN_DEFAULT_RADIUS	ee.hogai.tools.read_data.tool	import	1
 public-surface	products.business_knowledge.backend.constants.BK_DRILLDOWN_MAX_RADIUS	ee.hogai.tools.read_data.tool	import	1
@@ -7819,6 +7721,8 @@ public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_t
 public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_tables	products.warehouse_sources.backend.tests.management.test_manage_warehouse_queue	import	1
 public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_tables	products.warehouse_sources.backend.tests.management.test_unstick_external_data_jobs	import	1
 public-surface	products.warehouse_sources_queue.backend.testing.truncate_queue_tables	products.warehouse_sources.backend.tests.test_sync_teardown	import	1
+public-surface	products.web_analytics.backend.facade.temporal.WA_DIGEST_ACTIVITIES	posthog.management.commands.test.test_start_temporal_worker	import	1
+public-surface	products.web_analytics.backend.facade.temporal.WA_DIGEST_WORKFLOWS	posthog.management.commands.test.test_start_temporal_worker	import	1
 public-surface	products.web_analytics.backend.hogql_queries.bot_definitions.BOT_DEFINITIONS	livestream.bot.generate_definitions	import	1
 public-surface	products.web_analytics.backend.hogql_queries.bot_definitions.BOT_DEFINITIONS	posthog.hogql.functions.test.test_traffic_type_functions	import	1
 public-surface	products.web_analytics.backend.hogql_queries.bot_definitions.BOT_DEFINITIONS	posthog.hogql.functions.test.test_traffic_type_real_ua	import	1
@@ -8175,7 +8079,6 @@ temporal-placement	ai	posthog.temporal.ai.checkpoint_compaction.types	1
 temporal-placement	ai	posthog.temporal.ai.checkpoint_compaction.workflow	1
 temporal-placement	ai	posthog.temporal.ai.llm_traces_summaries.summarize_traces	1
 temporal-placement	ai	posthog.temporal.ai.research_agent	1
-temporal-placement	ai	posthog.temporal.ai.sync_vectors	1
 temporal-placement	alerts	posthog.temporal.alerts	1
 temporal-placement	alerts	posthog.temporal.alerts.activities	1
 temporal-placement	alerts	posthog.temporal.alerts.admission	1
@@ -8296,7 +8199,6 @@ temporal-placement	tests	posthog.temporal.tests.ai.test_checkpoint_compaction_sc
 temporal-placement	tests	posthog.temporal.tests.ai.test_checkpoint_compaction_workflow	1
 temporal-placement	tests	posthog.temporal.tests.ai.test_module_integrity	1
 temporal-placement	tests	posthog.temporal.tests.ai.test_research_agent_activity	1
-temporal-placement	tests	posthog.temporal.tests.ai.test_sync_vectors	1
 temporal-placement	tests	posthog.temporal.tests.cleanup_property_definitions	1
 temporal-placement	tests	posthog.temporal.tests.cleanup_property_definitions.conftest	1
 temporal-placement	tests	posthog.temporal.tests.cleanup_property_definitions.test_activities	1
@@ -8347,6 +8249,7 @@ temporal-placement	warehouse_sources_queue_partition_management	posthog.temporal
 temporal-placement	warehouse_sources_queue_partition_management	posthog.temporal.warehouse_sources_queue_partition_management.schedule	1
 temporal-placement	warehouse_sources_queue_partition_management	posthog.temporal.warehouse_sources_queue_partition_management.types	1
 temporal-placement	warehouse_sources_queue_partition_management	posthog.temporal.warehouse_sources_queue_partition_management.workflows	1
+thin-commands	products.aeo.backend.management.commands.backfill_aeo_check_facts	products.aeo.backend.models	1
 thin-commands	products.ai_gateway.backend.management.commands.llm_gateway_team	products.ai_gateway.backend.logic	1
 thin-commands	products.alerts.backend.management.commands.backfill_platform_insight_alert_created_at	products.alerts.backend.models.alert	1
 thin-commands	products.alerts.backend.management.commands.backfill_platform_insight_alert_creators	products.alerts.backend.models.alert	1
