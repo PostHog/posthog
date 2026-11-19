@@ -38,7 +38,7 @@ function pinOption(entry: FileSystemEntry): PinOption {
 }
 
 export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): JSX.Element | null {
-    const { currentTeam, pinnedObjects, recentObjects } = useValues(todayLogic)
+    const { jumpBackPinScope, pinnedObjects, recentObjects } = useValues(todayLogic)
     const { toggleJumpBackPin } = useActions(todayLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -70,7 +70,7 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
             searching
                 ? [
                       { kind: 'products' as const, items: take(products) },
-                      { kind: 'items' as const, items: take(objects.map(pinOption)) },
+                      { kind: 'items' as const, items: loading ? [] : take(objects.map(pinOption)) },
                   ]
                 : [
                       { kind: 'pinned' as const, items: take([...pinnedOnOpen, ...pinnedObjects].map(pinOption)) },
@@ -78,9 +78,9 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                   ]
         ).filter((group) => group.items.length > 0)
         return { groups: result, optionsByKey: byKey }
-    }, [featureFlags, objects, search, searching, pinnedOnOpen, pinnedObjects, recentObjects])
+    }, [featureFlags, objects, loading, search, searching, pinnedOnOpen, pinnedObjects, recentObjects])
 
-    if (!currentTeam) {
+    if (!jumpBackPinScope) {
         return null
     }
 
@@ -114,7 +114,7 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                     [...pinnedKeys].find((k) => !nextKeys.has(k)) ?? next.find((k) => !pinnedKeys.has(k)) ?? null
                 const option = key ? optionsByKey.get(key) : null
                 if (option) {
-                    toggleJumpBackPin(currentTeam.id, option.entry)
+                    toggleJumpBackPin(jumpBackPinScope, option.entry)
                 }
             }}
         >

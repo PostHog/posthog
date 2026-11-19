@@ -208,6 +208,7 @@ export interface todayLogicValues {
     now: number
     promoBanner: TodayPromoBanner | null
     recentObjects: JumpBackObject[]
+    jumpBackPinScope: string | null
     jumpBackPins: Record<string, FileSystemEntry[]>
     pinnedObjects: FileSystemEntry[]
     reportId: string | null
@@ -274,11 +275,11 @@ export interface todayLogicActions {
         product: string
     }
     toggleJumpBackPin: (
-        teamId: number,
+        scope: string,
         entry: FileSystemEntry
     ) => {
-        teamId: number
         entry: FileSystemEntry
+        scope: string
     }
     jumpBackOpened: (
         entry: FileSystemEntry,
@@ -385,9 +386,10 @@ export interface todayLogicMeta {
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
         greeting: (now: number, user: UserType | null) => string
+        jumpBackPinScope: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => string | null
         pinnedObjects: (
             jumpBackPins: Record<string, FileSystemEntry[]>,
-            currentTeam: TeamPublicType | TeamType | null
+            jumpBackPinScope: string | null
         ) => FileSystemEntry[]
         recentObjects: (
             recents: FileSystemEntry[],
@@ -505,7 +507,7 @@ export const todayLogic = kea<todayLogicType>([
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
-        toggleJumpBackPin: (teamId: number, entry: FileSystemEntry) => ({ teamId, entry }),
+        toggleJumpBackPin: (scope: string, entry: FileSystemEntry) => ({ scope, entry }),
         jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
@@ -620,14 +622,14 @@ export const todayLogic = kea<todayLogicType>([
             {} as Record<string, FileSystemEntry[]>,
             { persist: true },
             {
-                toggleJumpBackPin: (state, { teamId, entry }) => {
-                    const pins = state[teamId] ?? []
+                toggleJumpBackPin: (state, { scope, entry }) => {
+                    const pins = state[scope] ?? []
                     const key = objectKey(entry)
                     const { jumpBackReason: _, ...stored } = entry as JumpBackObject
                     const next = pins.some((pin) => objectKey(pin) === key)
                         ? pins.filter((pin) => objectKey(pin) !== key)
                         : [...pins, stored]
-                    return { ...state, [teamId]: next }
+                    return { ...state, [scope]: next }
                 },
             },
         ],
@@ -700,12 +702,15 @@ export const todayLogic = kea<todayLogicType>([
             (s) => [s.now, s.user],
             (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
+        jumpBackPinScope: [
+            (s) => [s.user, s.currentTeam],
+            (user: UserType | null, currentTeam: TeamPublicType | TeamType | null): string | null =>
+                user && currentTeam ? `${user.uuid}/${currentTeam.id}` : null,
+        ],
         pinnedObjects: [
-            (s) => [s.jumpBackPins, s.currentTeam],
-            (
-                jumpBackPins: Record<string, FileSystemEntry[]>,
-                currentTeam: TeamPublicType | TeamType | null
-            ): FileSystemEntry[] => (currentTeam ? (jumpBackPins[currentTeam.id] ?? []) : []),
+            (s) => [s.jumpBackPins, s.jumpBackPinScope],
+            (jumpBackPins: Record<string, FileSystemEntry[]>, jumpBackPinScope: string | null): FileSystemEntry[] =>
+                jumpBackPinScope ? (jumpBackPins[jumpBackPinScope] ?? []) : [],
         ],
         recentObjects: [
             (s) => [s.recents, s.frequentObjects, s.pinnedObjects],
@@ -938,12 +943,12 @@ export const todayLogic = kea<todayLogicType>([
         }
         return {
             loadCurrentTeamSuccess: () => actions.loadFrequentObjects(),
-            toggleJumpBackPin: ({ teamId, entry }) => {
+            toggleJumpBackPin: ({ scope, entry }) => {
                 if (!values.useSampleData) {
                     posthog.capture('today jump back pin toggled', {
                         object_type: entry.type,
-                        pinned: (values.jumpBackPins[teamId] ?? []).some((pin) => objectKey(pin) === objectKey(entry)),
-                        pin_count: (values.jumpBackPins[teamId] ?? []).length,
+                        pinned: (values.jumpBackPins[scope] ?? []).some((pin) => objectKey(pin) === objectKey(entry)),
+                        pin_count: (values.jumpBackPins[scope] ?? []).length,
                     })
                 }
             },

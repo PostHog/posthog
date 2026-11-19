@@ -4,7 +4,8 @@ import { loaders } from 'kea-loaders'
 import { libraryObjectHref } from 'scenes/library/libraryUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { fileSystemList } from '~/generated/core/api'
+import { fileSystemSearchRetrieve } from '~/generated/core/api'
+import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 const OBJECT_LIMIT = 12
@@ -48,16 +49,21 @@ export const todayJumpBackPinLogic = kea<todayJumpBackPinLogicType>([
             {
                 loadPinSearchResults: async (search: string, breakpoint) => {
                     await breakpoint(200)
-                    if (!values.currentProjectId) {
+                    if (!values.currentProjectId || !search.trim()) {
                         return []
                     }
-                    const response = await fileSystemList(String(values.currentProjectId), {
-                        search: search.trim() || undefined,
-                        limit: OBJECT_LIMIT,
-                    })
+                    let entries: FileSystemApi[]
+                    try {
+                        const response = await fileSystemSearchRetrieve(String(values.currentProjectId), {
+                            search: search.trim(),
+                            limit: OBJECT_LIMIT,
+                        })
+                        entries = response.results.map((result) => result.entry)
+                    } catch {
+                        entries = []
+                    }
                     breakpoint()
-                    return response.results
-                        .filter((entry) => entry.type !== 'folder')
+                    return entries
                         .map(
                             (entry): FileSystemEntry => ({
                                 id: entry.id,

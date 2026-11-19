@@ -64,25 +64,32 @@ describe('recentObjectsForHome', () => {
         )
     })
     it('puts pinned objects first and drops them from the recent and frequent objects', () => {
-        const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
+        const entry = (
+            id: string,
+            path = `Dashboards/${id}`
+        ): { id: string; path: string; type: string; ref: string } => ({
             id,
-            path: `Dashboards/${id}`,
+            path,
             type: 'dashboard',
             ref: id,
         })
-        const pinned = ['p', 'b', 'q'].map(entry)
+        const tasksProduct = { id: 'product:/tasks', path: 'Tasks', type: 'task', href: '/tasks' }
+        const pinned = [entry('p'), entry('b', 'Dashboards/old name'), entry('q'), tasksProduct]
         expect(
-            jumpBackObjectsForHome(['a', 'b', 'c'].map(entry), ['d', 'q'].map(entry), 8, pinned).map((item) => [
-                item.id,
-                item.jumpBackReason,
-            ])
+            jumpBackObjectsForHome(
+                ['a', 'b', 'c'].map((id) => entry(id)),
+                ['d', 'q'].map((id) => entry(id)),
+                8,
+                pinned
+            ).map((item) => [item.id, item.jumpBackReason, item.path])
         ).toEqual([
-            ['p', 'pinned'],
-            ['b', 'pinned'],
-            ['q', 'pinned'],
-            ['a', 'recent'],
-            ['c', 'recent'],
-            ['d', 'frequent'],
+            ['p', 'pinned', 'Dashboards/p'],
+            ['b', 'pinned', 'Dashboards/b'],
+            ['q', 'pinned', 'Dashboards/q'],
+            ['product:/tasks', 'pinned', 'Tasks'],
+            ['a', 'recent', 'Dashboards/a'],
+            ['c', 'recent', 'Dashboards/c'],
+            ['d', 'frequent', 'Dashboards/d'],
         ])
     })
 })

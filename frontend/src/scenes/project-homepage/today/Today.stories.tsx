@@ -976,6 +976,11 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/search/': ({ request }) => {
+                    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
+                    const results = LIBRARY.filter((entry) => entry.path.toLowerCase().includes(search))
+                    return [200, { results: results.map((entry) => ({ entry, rank: [] })) }]
+                },
                 '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
