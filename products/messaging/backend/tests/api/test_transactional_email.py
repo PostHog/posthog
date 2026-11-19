@@ -1300,6 +1300,8 @@ class TestTransactionalEmail(APIBaseTest):
     ):
         unverified = self._without_a_verified_sender(unverified_sender=unverified_sender)
         mock_post.return_value = MagicMock(status_code=202, json=lambda: pipeline_body)
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         fallbacks_before = _sandbox_fallbacks("sandbox")
 
         with capture_logs() as logs:
@@ -1313,7 +1315,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert (sandbox.integration_id, sandbox.created_by_id) == ("posthog-managed-sandbox", None)
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
         queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
-        reported = capture.call_args.kwargs["properties"]
+        (reported,) = analytics.properties_of("transactional email api send")
         assert reported["sender_kind"] == "sandbox"
         if not warned:
             assert response.json() == queued

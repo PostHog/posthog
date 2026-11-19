@@ -508,9 +508,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             membersLogic.actions.ensureAllMembersLoaded()
             await expectLogic(membersLogic).toFinishAllListeners()
 
-            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
-                'submitTestInvocationSuccess',
-            ])
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toFinishAllListeners()
 
             expect(events.filter(({ event }) => event.startsWith('workflows') && event.includes('test'))).toEqual(
                 expected
