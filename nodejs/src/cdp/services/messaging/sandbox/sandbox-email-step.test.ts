@@ -228,7 +228,13 @@ describe('SandboxEmailSendStep', () => {
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: false },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: false,
+                        source: 'workflow',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,

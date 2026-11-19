@@ -169,7 +169,13 @@ describe('sandbox email test sends', () => {
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: true },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: true,
+                        source: 'test',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,
