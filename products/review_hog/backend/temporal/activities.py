@@ -47,7 +47,11 @@ from products.review_hog.backend.models import ReviewProjectSettings, ReviewRepo
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
-from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
+from products.review_hog.backend.review_notes import (
+    automatic_review_notice,
+    comment_commands_enabled,
+    first_review_note,
+)
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -149,6 +153,7 @@ from products.review_hog.backend.reviewer.push_gate import (
     apply_throttle,
     apply_zero_change_rule,
     plan_delta_review,
+    skip_follow_up,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
@@ -2317,13 +2322,13 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    # Only an automatic turn can promise the review on ready: a comment or UI review runs for authors
+    # Only an automatic turn ends with the automatic review note: a comment or UI review runs for authors
     # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
-    draft_notice = ""
+    automatic_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
-        draft_notice = draft_review_notice(comment_commands_on)
+        automatic_notice = automatic_review_notice(comment_commands_on)
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
         deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
@@ -2341,7 +2346,7 @@ def _publish(input: PublishInput) -> PublishResult:
         installation_id=installation_id,
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
-        draft_notice=draft_notice,
+        automatic_notice=automatic_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
         comment_commands_on=comment_commands_on,
@@ -2649,6 +2654,9 @@ def _gate_automatic_deep_push(input: GatePushInput) -> PushGateDecision:
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     # The decision for an automatic Deep turn lives here because the workflow calls this activity for every
     # automatic follow-up, and a new condition there would change its command sequence.
+    follow_up = skip_follow_up()
+    if follow_up is not None:
+        return _record_gate_decision(input, follow_up, draft=None)
     if input.review_mode == REVIEW_MODE_FULL:
         return _gate_automatic_deep_push(input)
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
@@ -2709,6 +2717,10 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             reviewable_lines=plan_lens_chunks(snapshot.pr_files).reviewable_lines if snapshot is not None else None,
             enabled=input.delta_band,
         )
+    return _record_gate_decision(input, decision, draft)
+
+
+def _record_gate_decision(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> PushGateDecision:
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:

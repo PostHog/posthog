@@ -29,6 +29,7 @@ AuthoredPRReviewOutcome = Literal[
     "bot_no_connector",
     "not_opted_in",
     "full_review_published",
+    "follow_up_skipped",
     "draft_skipped",
     "label_skipped",
     "started",
@@ -276,6 +277,7 @@ class AuthoredPRReview:
     def _dispatch(self) -> AutomaticDispatch:
         """Start the automatic review if the rules allow it. The outcome tells whether a workflow started."""
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
+        from products.review_hog.backend.reviewer.push_gate import SKIP_FOLLOW_UPS  # noqa: PLC0415
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
@@ -300,6 +302,11 @@ class AuthoredPRReview:
         if full_review_published(report):
             observe_dispatch("full_review_published")
             return AutomaticDispatch(outcome="full_review_published", team_id=dispatch.team_id)
+        # One automatic review per PR: a person or an agent asks for the next one. The push gate skips
+        # the pushes queued while the first review runs.
+        if SKIP_FOLLOW_UPS and report is not None and report.automatic_reviewed_head_sha is not None:
+            observe_dispatch("follow_up_skipped")
+            return AutomaticDispatch(outcome="follow_up_skipped", team_id=dispatch.team_id)
         mode = choose_automatic_review_mode(
             team_id=dispatch.team_id,
             repository=self.repository,

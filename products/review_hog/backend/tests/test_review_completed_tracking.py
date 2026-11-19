@@ -379,6 +379,30 @@ class TestTrackReviewCompleted(BaseTest):
         assert flash.kwargs["uuid"] == flash_retry.kwargs["uuid"]
         assert len({full.kwargs["uuid"], flash.kwargs["uuid"], single_agent.kwargs["uuid"]}) == 3
 
+    def test_every_automatic_follow_up_skips_before_the_gate_reads_github(self) -> None:
+        report_id = self._review_report()
+
+        with (
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            decision = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+
+        assert (decision.skip, decision.reason) == (True, "follow_up")
+        gate.assert_not_called()
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
+        assert capture.call_args.kwargs["properties"]["reason"] == "follow_up"
+
     def test_a_skipped_push_rests_the_report_and_counts_once_per_head(self) -> None:
         # A skipped turn ends before any stage that returns the report to rest, and a skipped turn
         # keeps the next turn's run_index, so a run_index-keyed event would merge two skipped pushes.
@@ -395,6 +419,7 @@ class TestTrackReviewCompleted(BaseTest):
         decision = PushGateDecision(skip=True, would_skip=True, reason="merge_only", own_commits=2, own_code_lines=14)
 
         with (
+            patch("products.review_hog.backend.reviewer.push_gate.SKIP_FOLLOW_UPS", False),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
@@ -519,6 +544,7 @@ class TestTrackReviewCompleted(BaseTest):
         decision = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched", own_code_lines=12)
 
         with (
+            patch("products.review_hog.backend.reviewer.push_gate.SKIP_FOLLOW_UPS", False),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
@@ -603,6 +629,7 @@ class TestTrackReviewCompleted(BaseTest):
         decision = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched", own_code_lines=100)
 
         with (
+            patch("products.review_hog.backend.reviewer.push_gate.SKIP_FOLLOW_UPS", False),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
@@ -636,6 +663,7 @@ class TestTrackReviewCompleted(BaseTest):
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
         live.return_value.json.return_value = live_pr
         with (
+            patch("products.review_hog.backend.reviewer.push_gate.SKIP_FOLLOW_UPS", False),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch(
                 "products.review_hog.backend.reviewer.push_gate.github_api_request",

@@ -409,6 +409,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("unmapped", "bot_skipped", True),
             ("missing_installation", "installation_mismatch", True),
             ("full_review_published", "full_review_published", True),
+            ("automatically_reviewed", "follow_up_skipped", True),
             ("draft_with_drafts_off", "draft_skipped", False),
             ("draft_in_a_repository_without_drafts", "draft_skipped", False),
             ("skip_agent_review_label", "label_skipped", True),
@@ -457,6 +458,15 @@ class TestAuthoredPRReviewTask(BaseTest):
                 head_branch="feature",
                 base_branch="master",
                 published_heads_by_mode={"full": _HEAD_SHA},
+            )
+        elif change == "automatically_reviewed":
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="PostHog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                automatic_reviewed_head_sha="earlier-head",
             )
         elif change == "unmapped":
             self.github_identity.delete()

@@ -6,6 +6,11 @@ sees a first review or a human trigger: the workflow calls it only for automatic
 
 The rules, in order. The first rule that matches gives the reason:
 
+0. `follow_up`: every automatic follow-up, before the gate reads GitHub. A PR gets one automatic review,
+   and a person or an agent asks for the next one (`@posthog review`, the UI, MCP). The automatic dispatch
+   (`automatic_reviews.py`) already skips a push to a PR with an automatically reviewed head, so this rule
+   catches the pushes that were queued while the first review ran. Unlike the other switches, this one
+   records no shadow decision when it is off, so the rules below keep their data.
 1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
 2. `reviewhog_commits_only`: the ReviewHog app authored every new commit, for example the fixes the
    resolution stage pushed. Reviewing them again would review ReviewHog's own answer to its review.
@@ -70,6 +75,9 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import Chang
 
 logger = logging.getLogger(__name__)
 
+# Rule 0. The note that ends an automatic review (`review_notes.py`) tells the author no later push gets an
+# automatic review, so change that note with this switch.
+SKIP_FOLLOW_UPS = True
 # A rule that is off only records the skip it would make, so production data can calibrate it first.
 SKIP_NO_NEW_COMMITS = True
 SKIP_REVIEWHOG_COMMITS_ONLY = True
@@ -127,6 +135,7 @@ _NON_CODE_FILE = re.compile(
 )
 
 SkipReason = Literal[
+    "follow_up",
     "no_new_commits",
     "reviewhog_commits_only",
     "merge_only",
@@ -238,6 +247,8 @@ class _PRDiff:
 
 
 def _rule_enabled(reason: SkipReason) -> bool:
+    if reason == "follow_up":
+        return SKIP_FOLLOW_UPS
     if reason == "no_new_commits":
         return SKIP_NO_NEW_COMMITS
     if reason == "reviewhog_commits_only":
@@ -402,6 +413,11 @@ class PushGate:
         if any(file.patch is None for file in code_files) or patch_chars > MAX_OWN_PATCH_CHARS:
             return _runs("interdiff_too_large", own_commits=len(own_shas), own_code_lines=own_code_lines)
         return _runs("no_rule_matched", own_commits=len(own_shas), own_code_lines=own_code_lines)
+
+
+def skip_follow_up() -> PushGateDecision | None:
+    """Rule 0, first: the skip of every automatic follow-up, or None when the switch is off."""
+    return _matched("follow_up") if SKIP_FOLLOW_UPS else None
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:

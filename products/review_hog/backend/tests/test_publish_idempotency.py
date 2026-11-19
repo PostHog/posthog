@@ -317,8 +317,8 @@ class TestPublishIdempotency(BaseTest):
                 "Start a review in PostHog Review to",
                 False,
             ),
-            ("automatic_ready", "automatic", False, True, None, False),
-            # A Stamphog handoff also runs for authors without automatic reviews, so it cannot promise one on ready.
+            ("automatic_ready", "automatic", False, True, "Comment `@posthog review` to review", False),
+            # A Stamphog handoff also runs for authors without automatic reviews, so it does not end with the note.
             ("stamphog_draft", "stamphog", True, True, None, True),
             ("comment_ready", "comment", False, True, None, True),
             ("ui_ready", "ui", False, True, None, True),
@@ -357,7 +357,7 @@ class TestPublishIdempotency(BaseTest):
         if expected_trigger is None:
             assert findings_footer == ""
         else:
-            assert findings_footer.startswith("This is the only automatic review while this pull request is a draft.")
+            assert findings_footer.startswith("This is the only automatic review of this pull request.")
             assert expected_trigger in findings_footer
 
     @patch(_PUBLISH)

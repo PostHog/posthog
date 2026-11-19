@@ -96,7 +96,7 @@ def publish_persisted_review(
     review_mode: str = REVIEW_MODE_FULL,
     capped_lens_parts: int | None = None,
     footer: str = "",
-    draft_notice: str = "",
+    automatic_notice: str = "",
     first_review_note: str = "",
     comment_commands_on: bool = False,
     answers_request: bool = False,
@@ -114,7 +114,7 @@ def publish_persisted_review(
     threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
     event loop.
 
-    `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft.
+    `automatic_notice` closes a review with findings.
     `first_review_note` closes the first review that posts findings on the pull request (see `publish_review`).
     `comment_commands_on` picks the trigger the finding budget note points to.
     `answers_request` is set when a person asked for this turn (see `publish_review`).
@@ -149,7 +149,7 @@ def publish_persisted_review(
         review_mode=review_mode,
         capped_lens_parts=capped_lens_parts,
         footer=footer,
-        findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
+        findings_footer=automatic_notice,
         first_review_note=first_review_note,
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
