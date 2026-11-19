@@ -208,10 +208,11 @@ class ContextSelector:
         if run.task.origin_product == Task.OriginProduct.SLACK:
             prompt = selection.prompt
             cut = max((prompt.rfind(tag) + len(tag) for tag in _SLACK_THREAD_CLOSINGS if tag in prompt), default=0)
-            request = prompt[cut:].strip()
-            # A mention without text has no request after the block, so the whole prompt stands in for it.
-            if cut and request not in ("", _SLACK_EMPTY_REQUEST):
-                self.request, self.thread = request, prompt[:cut]
+            if cut:
+                request = prompt[cut:].strip()
+                # A mention without text leaves only the Slack app's placeholder title, which is nothing to search on.
+                self.request = "" if request == _SLACK_EMPTY_REQUEST else request
+                self.thread = prompt[:cut]
         history = normalize_search_term(selection.history)
         request_budget = MAX_SEARCH_LENGTH * 3 // 4 if history else MAX_SEARCH_LENGTH
         self.query = normalize_search_term(self.request)[-request_budget:]

@@ -246,14 +246,20 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("slack", Task.OriginProduct.SLACK, "why did this happen?"),
-            ("web", Task.OriginProduct.POSTHOG_AI, SLACK_PROMPT),
+            ("slack", Task.OriginProduct.SLACK, SLACK_PROMPT, "why did this happen?"),
+            (
+                "slack_textless",
+                Task.OriginProduct.SLACK,
+                SLACK_PROMPT.replace("why did this happen?", "Task from Slack"),
+                "",
+            ),
+            ("web", Task.OriginProduct.POSTHOG_AI, SLACK_PROMPT, SLACK_PROMPT),
         ]
     )
-    def test_slack_thread_is_kept_out_of_the_request(self, name: str, origin: str, request: str) -> None:
+    def test_slack_thread_is_kept_out_of_the_request(self, name: str, origin: str, prompt: str, request: str) -> None:
         self.run_record.task.origin_product = origin
         self.selector = ContextSelector(
-            self.run_record, self.selector.actor, SelectionInput(message_id="m", prompt=SLACK_PROMPT), "Bearer fake"
+            self.run_record, self.selector.actor, SelectionInput(message_id="m", prompt=prompt), "Bearer fake"
         )
         self.selector.prepare(time.monotonic() + 60)
         for sent in self.requests:
