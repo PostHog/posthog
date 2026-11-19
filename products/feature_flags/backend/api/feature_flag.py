@@ -2954,8 +2954,7 @@ class FeatureFlagSerializer(
                 cycle_path = [*path[path.index(flag_key) :], flag_key]
                 if unchecked_keys.intersection(cycle_path):
                     raise serializers.ValidationError(
-                        "Circular dependency detected through a flag you don't have access to. "
-                        "Remove this dependency to continue."
+                        "Circular dependency detected. Remove this dependency to continue."
                     )
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
