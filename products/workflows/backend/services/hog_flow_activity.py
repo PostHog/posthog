@@ -19,6 +19,10 @@ from posthog.models.activity_logging.activity_log import (
 )
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSchedule
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_writes import field_values
@@ -166,7 +170,13 @@ def bulk_delete_archived_workflows(
     candidates = list(HogFlow.objects.filter(team_id=team_id, id__in=workflow_ids, status=HogFlow.State.ARCHIVED))
     user_access_control.preload_object_access_controls(cast("list[models.Model]", candidates))
     deletable = [
-        flow for flow in candidates if user_access_control.check_access_level_for_object(flow, required_level="editor")
+        flow
+        for flow in candidates
+        if authorization.check(
+            resource=resource_for_object(flow, team=user_access_control.team),
+            action=Action.EDIT,
+            subject=Subject(user_id=user_access_control.user.pk),
+        )
     ]
     # Lock the rows so the audit entries match exactly what this call deletes (a row another request removes
     # or restores first gets no entry), and share the delete's transaction so a failed delete rolls its audit

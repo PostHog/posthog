@@ -27,6 +27,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.facade.api import get_actions
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -1377,9 +1380,22 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
         return
 
     actions = get_actions(project_id=context["get_team"]().project_id, action_ids=added_ids)
-    denied_ids = user_access_control.denied_object_ids(
-        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    allowed = authorization.check(
+        [
+            CheckRequest(
+                resource=Resource(
+                    type=ResourceType.ACTION,
+                    id=str(action.id),
+                    project_id=action.team_id,
+                    created_by_id=action.created_by_id,
+                ),
+                action=Action.VIEW,
+                subject=Subject(user_id=user.pk),
+            )
+            for action in actions
+        ]
     )
+    denied_ids = [str(action.id) for action, can_view in zip(actions, allowed, strict=True) if not can_view]
     if denied_ids:
         raise serializers.ValidationError(
             f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "

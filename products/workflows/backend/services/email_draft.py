@@ -20,6 +20,10 @@ from posthog.models.user import User
 from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.cohorts.backend.models.cohort import Cohort
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.facade.api import get_issue_basics
@@ -208,7 +212,11 @@ def _context_fields(
 
 
 def _check_view(entity: Model, access: UserAccessControl) -> None:
-    if not access.check_access_level_for_object(entity, "viewer"):
+    if not authorization.check(
+        resource=resource_for_object(entity, team=access.team),
+        action=Action.VIEW,
+        subject=Subject(user_id=access.user.pk),
+    ):
         raise EmailDraftSourceForbidden()
 
 

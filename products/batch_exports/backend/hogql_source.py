@@ -118,13 +118,20 @@ def replace_interval_placeholders(
 
 def validate_hogql_batch_export_user(team: "Team", user: "User | None") -> None:
     from posthog.models import User  # noqa: PLC0415 - keeps Django models off the worker import path
-    from posthog.user_permissions import UserPermissions  # noqa: PLC0415 - requires initialized Django models
+
+    from products.authorization.backend.facade import (
+        api as authorization,  # noqa: PLC0415 - keeps Django off the worker import path
+    )
+    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authorization.backend.facade.enums import Action  # noqa: PLC0415
 
     if not isinstance(user, User) or not user.is_active:
         raise UnsupportedHogQLQueryError(
             "This HogQL export needs an active user. Save the export again with a user who has access to this project."
         )
-    if UserPermissions(user=user, team=team).current_team.effective_membership_level is None:
+    if not authorization.check(
+        resource=Resource.project(team.id), action=Action.VIEW, subject=Subject(user_id=user.pk)
+    ):
         raise UnsupportedHogQLQueryError(
             "The user who saved this HogQL export no longer has access to this project. "
             "Save the export again with a user who has access."

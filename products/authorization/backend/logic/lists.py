@@ -65,6 +65,16 @@ def principal_user_id(subject: Subject | None) -> int | None:
     return principal.pk if isinstance(principal, User) else None
 
 
+def blocked_object_ids(resource: Resource, subject: Subject | None) -> frozenset[str]:
+    session = current() or Session()
+    access = _list_access(session, resource, _principal(session, subject))
+    return (
+        access.blocked_resource_ids_by_scope.get(_scope(resource.type), frozenset())
+        if access is not None
+        else frozenset()
+    )
+
+
 def _list_project_objects(
     session: Session, resource: Resource, action: Action, subject: Subject | None, creator_exempt: bool
 ) -> ObjectIds:

@@ -16,7 +16,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
 from products.workflows.backend.facade.enums import (
     WorkflowImportNoteLevel,
@@ -317,10 +319,10 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(WorkflowImportRecordSerializer(record).data)
 
     def _can_view(self, record: WorkflowImportRecord) -> bool:
-        ref = ObjectAccessRef(
-            resource="hog_flow",
+        ref = Resource(
+            type=ResourceType.HOG_FLOW,
             id=str(record.hog_flow_id),
-            team_id=self.team.id,
+            project_id=self.team.id,
             created_by_id=record.hog_flow_created_by_id,
         )
-        return self.user_access_control.check_access_level_for_ref(ref, "viewer")
+        return authorization.check(resource=ref, action=Action.VIEW)

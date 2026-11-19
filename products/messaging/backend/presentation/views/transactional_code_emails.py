@@ -17,6 +17,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.integrations import IntegrationRecord
 from posthog.models.tag import tagify
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.messaging.backend.facade.code_emails import (
     SOURCE_URL_MAX_LENGTH,
     find_source_candidates,
@@ -255,19 +258,12 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _readable_integration(self) -> Callable[[IntegrationRecord], bool]:
         # The rule the integrations list applies, so the search reads no repository the person can't see there.
-        access = self.user_access_control.list_access_filter("integration")
-        user_id = self.request.user.id
-        if access is None:
-            return lambda _integration: True
-
-        def readable(integration: IntegrationRecord) -> bool:
-            if integration.created_by_id == user_id:
-                return True
-            if access.only_allowed:
-                return str(integration.id) in access.allowed_ids
-            return str(integration.id) not in access.blocked_ids
-
-        return readable
+        access = authorization.list_objects(
+            resource=Resource(type=ResourceType.INTEGRATION, project_id=self.team_id),
+            action=Action.VIEW,
+            creator_exempt=True,
+        )
+        return lambda integration: access.allows(str(integration.id), created_by_user_id=integration.created_by_id)
 
     def _require_workflow_editor(self, email: CodeManagedEmail) -> None:
         try:

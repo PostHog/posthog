@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import ObjectIds
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.services.template_input_usage import (
     HogFlowReference,
@@ -86,11 +88,16 @@ class TestTemplateInputUsage(BaseTest):
         visible = self._create_flow(name="Visible", status="active", actions=[_account_property_action({"def-a": "1"})])
         denied = self._create_flow(name="Denied", status="active", actions=[_account_property_action({"def-a": "1"})])
         user_access_control = MagicMock()
-        user_access_control.filter_queryset_by_access_level.side_effect = lambda queryset: queryset.exclude(
-            id=denied.id
-        )
+        user_access_control.user = self.user
 
-        with self.assertNumQueries(1) as queries:
+        with (
+            patch.object(
+                authorization,
+                "list_objects",
+                return_value=ObjectIds(ids=frozenset({str(denied.id)}), complete=True, excluded=True),
+            ),
+            self.assertNumQueries(1) as queries,
+        ):
             references = filter_hog_flow_references_by_access_level(
                 self.team.id,
                 {

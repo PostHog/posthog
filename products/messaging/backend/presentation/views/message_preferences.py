@@ -16,6 +16,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.messaging.backend.facade.preferences import (
     MessageCategoryNotFound,
     OptOutRequest,
@@ -183,7 +186,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # hog_flow object access. These endpoints act on team-wide data with no per-workflow
         # object, so require project-wide hog_flow access — otherwise a member granted access to
         # a single workflow could read or rewrite the whole team's opt-out list.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", required_level):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id),
+            action={"viewer": Action.VIEW, "editor": Action.EDIT}[required_level],
+        ):
             raise PermissionDenied(message)
 
     @validated_request(

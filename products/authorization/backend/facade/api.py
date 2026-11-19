@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from ..logic import legacy, lists, session
 from . import contracts
 from .enums import Action, Level, SubjectType
@@ -107,6 +109,35 @@ def permissions(
 ) -> frozenset[Action]:
     """Return every action the subject may take on the resource."""
     return legacy.permissions(resource, subject, context)
+
+
+def legacy_access_levels(
+    resources: Sequence[contracts.Resource], /, *, subject: contracts.Subject | None = None
+) -> list[str | None]:
+    """Preserve serialized v1 levels until API consumers switch to allowed actions.
+
+    Results follow input order. Objects are grouped by subject, project and type so a page scans
+    its rules once, rather than once per object. Enforcement should use `check` or `permissions`.
+    """
+    return legacy.access_levels(resources, subject)
+
+
+def restricted_properties(*, project_id: int, user_id: int | None) -> set[RestrictedProperty]:
+    """Property restrictions for a query. An explicit `user_id=None` reads only default rules."""
+    return legacy.restricted_properties(project_id, user_id)
+
+
+def non_writable_property_names(*, project_id: int, user_id: int | None, property_type: int) -> set[str]:
+    return legacy.non_writable_property_names(project_id, user_id, property_type)
+
+
+def person_property_names_with_access_rules(*, project_id: int) -> frozenset[str]:
+    return legacy.person_property_names_with_access_rules(project_id)
+
+
+def blocked_object_ids(*, resource: contracts.Resource, subject: contracts.Subject | None = None) -> frozenset[str]:
+    """Explicit denials, including deleted objects whose access rules outlive their rows."""
+    return lists.blocked_object_ids(resource, subject)
 
 
 def list_objects(

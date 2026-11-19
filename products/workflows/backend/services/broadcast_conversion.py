@@ -7,6 +7,10 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSummary
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_activity import log_workflow_activity
@@ -125,7 +129,11 @@ def list_broadcast_conversion_candidates(
             page = [
                 flow
                 for flow in page
-                if user_access_control.check_access_level_for_object(flow, required_level="editor")
+                if authorization.check(
+                    resource=resource_for_object(flow, team=user_access_control.team),
+                    action=Action.EDIT,
+                    subject=Subject(user_id=user_access_control.user.pk),
+                )
             ]
         found.extend(page)
     return [WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status) for flow in found[:limit]]
