@@ -7,6 +7,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.test.fixtures import create_app_metric2
 
@@ -15,10 +16,10 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
+    find_workflow_email_decisions,
     pause_workflow_email_sending,
     resume_workflow_email_sending,
     sweep_workflow_email_health,
-    workflow_email_auto_pause_total,
 )
 
 AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": True}
@@ -323,12 +324,17 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("own_rate_past_the_pause_line", [(0, 2, 600, 0, 0), (0, 1, 300, 0, 40)], []),
-            ("complaints_past_the_line_fall_through_to_bounces", [(0, 2, 550, 0, 0), (0, 1, 300, 5, 28)], [0]),
-            ("project_rate_under_the_line", [(0, 1, 100, 0, 15), (1, 1, 150, 0, 6)], [0]),
+            ("rate_that_rounds_to_the_pause_line", [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)], []),
+            (
+                "complaints_past_the_line_fall_through_to_bounces",
+                [(0, 2, 550, 0, 0), (0, 1, 300, 5, 28)],
+                [(0, "bounce")],
+            ),
+            ("project_rate_under_the_line", [(0, 1, 100, 0, 15), (1, 1, 150, 0, 6)], [(0, "bounce")]),
         ]
     )
     def test_a_warning_names_a_rate_under_the_pause_line(
-        self, _name: str, seeds: list[tuple[int, int, int, int, int]], warned: list[int]
+        self, _name: str, seeds: list[tuple[int, int, int, int, int]], warned: list[tuple[int, str]]
     ):
         flows = [self.flow, HogFlow.objects.create(name="Second blast", team=self.team)]
         for flow_index, hours_ago, sent, complaints, hard_bounces in seeds:
@@ -340,12 +346,17 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 at=self.now - timedelta(hours=hours_ago),
             )
 
+        warnings = find_workflow_email_decisions(now=self.now).warnings
         self._sweep()
 
+        flow_ids = [str(flow.id) for flow in flows]
+        assert [(flow_ids.index(warning.hog_flow_id), warning.threshold.signal) for warning in warnings] == warned
         for flow in flows:
             flow.refresh_from_db()
         assert [flow.email_sending_paused_at for flow in flows] == [None, None]
-        assert [index for index, flow in enumerate(flows) if flow.email_sending_warned_at == self.now] == warned
+        assert [index for index, flow in enumerate(flows) if flow.email_sending_warned_at == self.now] == [
+            index for index, _ in warned
+        ]
 
     @parameterized.expand(
         [
@@ -445,14 +456,14 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("dry_run", False), ("exempt", True)])
     def test_unenforced_workflow_counts_the_breach_but_writes_nothing(self, mode: str, enforced: bool):
         self._seed(sent=400, complaints=8)
-        counter = workflow_email_auto_pause_total.labels(signal="complaint", window="1h", mode=mode, scope="workflow")
-        counted_before = counter._value.get()
+        labels = {"signal": "complaint", "window": "1h", "mode": mode, "scope": "workflow"}
+        counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
 
         with self._unenforced(enforced):
             applied, _ = self._sweep()
 
         assert applied == []
-        assert counter._value.get() == counted_before + 1
+        assert REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) == counted_before + 1
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is None
         assert self.flow.email_sending_paused_reason == ""

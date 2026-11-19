@@ -404,7 +404,7 @@ def _first_breach(
 
 def _below_pause_rate(warning: PauseDecision) -> bool:
     shown_rate = warning.project.rate if warning.project is not None else warning.rate
-    return shown_rate < _pause_rate_for(warning.threshold)
+    return round(shown_rate, 4) < _pause_rate_for(warning.threshold)
 
 
 def _project_counts(judged: dict[str, tuple[HogFlow, JudgedCounts]]) -> JudgedCounts:
