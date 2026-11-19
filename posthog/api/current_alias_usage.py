@@ -83,11 +83,13 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     method = request.method or ""
     resolution = scope_resolution(request)
     project_from = resolution.source.value if resolution else ""
-    credential_pins_scope = bool(resolution) and (
-        resolution.credential_pins_organization
-        if scope == CurrentAliasScope.ORGANIZATION
-        else resolution.credential_pins_project
-    )
+    credential_pins_scope = False
+    if resolution is not None:
+        credential_pins_scope = (
+            resolution.credential_pins_organization
+            if scope == CurrentAliasScope.ORGANIZATION
+            else resolution.credential_pins_project
+        )
 
     client = posthoganalytics.default_client
     if client is not None:
