@@ -34,6 +34,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
@@ -765,8 +766,6 @@ async def hogql_table(
         # ClickHouse keeps a bare column's qualifier when another column takes its plain name, so it
         # can name columns `a.event` and `event` where HogQL names both `event`. The wrapper reads the
         # columns by their described names, so each item carries that name as its alias.
-        from posthog.hogql.utils import alias_output_columns
-
         alias_output_columns(query_node, [column.name for column in described_columns])
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
