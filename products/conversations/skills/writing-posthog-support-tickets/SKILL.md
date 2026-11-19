@@ -84,10 +84,11 @@ Error:
 <exact text, top frames only>
 ```
 
-- **Request** opens with the problem in one sentence: what happened, with the numbers and dates, such as "Our project used 6 PostHog AI credits on 16 October, but nobody on our team has a chat from that day". Support reads this first, so it carries the situation, not the Details. Then ask only what you could not answer: each question in one short sentence, on its own line, at most three. Merge questions that support would answer from the same records. Keep the person's exact words only for a term or a quote that matters.
+- **Request** opens with the problem in one sentence: what happened, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day". Support reads this first, so it carries the situation, not the Details. Then ask only what you could not answer: each question in one short sentence, on its own line, at most three. Merge questions that support would answer from the same records. Keep the person's exact words only for a term or a quote that matters.
 - **Already checked** keeps their steps ("I tried") apart from yours ("<your name> checked"), so support knows which ones happened in their app. When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - **Left for support** says in one sentence what only PostHog can do or see. For a request, it is the action, such as "Delete the 3,817 events this query returns". For questions, it names the records only PostHog holds, such as "Our AI usage and chat records for those two days".
 - Copy IDs, queries and errors exactly.
+- Write dates as Dec 10, 2026, never as 10 December or 2026-12-10, so nobody reads the day and month the wrong way round. A query keeps its own date format.
 - Keep it to about 150 words, not counting a query or an error.
 
 Cut these before you hand it over:
