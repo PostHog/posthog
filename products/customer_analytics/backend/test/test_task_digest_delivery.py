@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.email import WorkflowsEmailError
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord
@@ -104,6 +105,7 @@ class TestTaskDigestDelivery(BaseTest):
     @parameterized.expand(
         [
             ("temporary", smtplib.SMTPDataError(451, b"Try later"), True),
+            ("workflows_uncertain", WorkflowsEmailError("timeout", code="timeout"), True),
             ("permanent", smtplib.SMTPDataError(550, b"Rejected"), False),
             ("no_acceptance", None, False),
         ]

@@ -423,10 +423,12 @@ def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
     if err.status_code is None:
         # A connection that was never made sent nothing. Any other network failure can come after Workflows queued it.
         return err.code == "connection_error"
-    # Redirects and 4xx answers come before anything is queued, apart from 408 and the two idempotency answers:
-    # 409 (an attempt with this key is in flight) and 422 (this key already queued an email). A 5xx can follow a
-    # queued email, because the send API also returns 503 when the workflow service queued it but failed to answer.
-    return _is_undeliverable(err) or (300 <= err.status_code < 500 and err.status_code not in (408, 409, 422))
+    if err.status_code == 422:
+        return err.code != "idempotency_key_reused"
+    # Redirects and 4xx answers come before anything is queued, apart from 408 and 409 (an attempt with this key is in
+    # flight). A 5xx can follow a queued email, because the send API also returns 503 when the workflow service queued
+    # it but failed to answer.
+    return 300 <= err.status_code < 500 and err.status_code not in (408, 409)
 
 
 def _routes_through_workflows(dest: dict[str, str], template_name: str) -> bool:
@@ -640,7 +642,7 @@ def _send_via_smtp(
             # (retried below) instead of pinning the worker forever — the silent-hang case.
             timeout=get_instance_setting("EMAIL_TIMEOUT"),
         )
-        connection.open()
+        smtp_open = False
 
         effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
         workflows_content: dict[str, Any] = {"template_key": template_name, "subject": subject, "html": html_body}
@@ -666,8 +668,13 @@ def _send_via_smtp(
                     capture, dest, campaign_key, template_name, workflows_content
                 )
                 if workflows_response is not None:
-                    record.sent_at = timezone.now()
-                    record.save()
+                    try:
+                        record.sent_at = timezone.now()
+                        record.save()
+                    except (OperationalError, InterfaceError) as err:
+                        # Workflows queued the email, so a retry has to replay it there rather than send it over SMTP.
+                        _pin_to_workflows(_workflows_idempotency_key(campaign_key, dest["raw_email"]))
+                        raise WorkflowsEmailError(str(err), code="mark_sent_failed") from err
                     _capture_email_event(
                         capture,
                         dest,
@@ -676,6 +683,7 @@ def _send_via_smtp(
                             "template_name": template_name,
                             "campaign_key": campaign_key,
                             "provider": "workflows",
+                            "region": get_instance_region(),
                             **workflows_response,
                         },
                     )
@@ -695,6 +703,10 @@ def _send_via_smtp(
                 # Django's contract returns the accepted count, but some backends return None.
                 # Treat only an explicit 0 as rejection — a non-zero count or a None (backend that
                 # returns nothing after a non-raising handoff) means the provider took the email.
+                # Opened on the first SMTP send, so a relay outage cannot block emails the flag routes to Workflows.
+                if not smtp_open:
+                    connection.open()
+                    smtp_open = True
                 accepted_count = connection.send_messages([email_message])
                 if accepted_count == 0:
                     logger.warning("email_send_smtp_not_accepted", recipient=dest["raw_email"])

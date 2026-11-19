@@ -582,10 +582,12 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off_sends_over_smtp", False, None, 1, 0),
-            ("workflows_accepts", True, 202, 0, 1),
-            ("workflows_refuses_before_queueing_falls_back_to_smtp", True, 400, 1, 1),
-            ("workflows_may_have_queued_never_falls_back", True, 503, 0, 2),
+            ("flag_off_sends_over_smtp", False, None, None, 1, 0),
+            ("workflows_accepts", True, 202, None, 0, 1),
+            ("workflows_accepts_while_the_relay_is_down", True, 202, "relay_down", 0, 1),
+            ("workflows_refuses_before_queueing_falls_back_to_smtp", True, 400, None, 1, 1),
+            ("sandbox_refusal_falls_back_to_smtp", True, 422, "sandbox_recipient_not_member", 1, 1),
+            ("workflows_may_have_queued_never_falls_back", True, 503, None, 0, 2),
         ]
     )
     @patch("posthog.email.posthoganalytics.feature_enabled")
@@ -595,6 +597,7 @@ class TestEmail(BaseTest):
         _name: str,
         flag_on: bool,
         workflows_status: int | None,
+        condition: str | None,
         expected_smtp_sends: int,
         expected_workflows_posts: int,
         mock_post: MagicMock,
@@ -602,10 +605,16 @@ class TestEmail(BaseTest):
     ) -> None:
         mock_flag.return_value = flag_on
         mock_post.return_value = MagicMock(
-            status_code=workflows_status, text="error", json=MagicMock(return_value={"message_id": "m1"})
+            status_code=workflows_status,
+            text="error",
+            json=MagicMock(return_value={"message_id": "m1", "code": condition}),
         )
 
         with (
+            patch(
+                "django.core.mail.backends.locmem.EmailBackend.open",
+                side_effect=TimeoutError("relay down") if condition == "relay_down" else None,
+            ),
             override_instance_config("EMAIL_HOST", "localhost"),
             self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
         ):
