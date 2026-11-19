@@ -386,7 +386,7 @@ export async function loadScrolledInTiles<T extends InsightTile>(
             settledTileIds: new Set(),
             leftTiles: waiting,
             aborted: false,
-            fallbackEventProperties: {},
+            fallback: { eventProperties: {} },
             refreshEventProperties: {},
         }
     }

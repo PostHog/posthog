@@ -475,6 +475,7 @@ describe('dashboardV2Logic', () => {
                 boardStream.mock.calls.map(([url]) => new URL(url, 'http://localhost').searchParams.get('tile_ids'))
             ).toEqual([firstScreen.map((tile) => tile.id).join(','), `${tiles[12].id},${tiles[13].id}`])
             expect(loadedShortIds()).toEqual(['long-12', 'long-13'])
+            expect(refreshInsight.mock.calls.map((call) => call[9])).toEqual([1, 1])
         })
 
         it('without dashboard-v2, the dashboard GET carries every tile result', async () => {

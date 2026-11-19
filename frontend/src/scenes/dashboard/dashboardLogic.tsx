@@ -6690,9 +6690,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       breakpoint,
                   })
                 : null
-            const perTileRefresh = scrolledIn
-                ? { ...tileRefresh, eventProperties: scrolledIn.fallbackEventProperties }
-                : tileRefresh
+            const perTileRefresh = scrolledIn ? { ...tileRefresh, ...scrolledIn.fallback } : tileRefresh
             await Promise.all((scrolledIn?.leftTiles ?? tiles).map((tile) => refreshInsightTile(tile, perTileRefresh)))
         },
         refreshTileGroup: async ({ groupKey }) => {
