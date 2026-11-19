@@ -1,7 +1,11 @@
 import * as prometheus from 'prom-client'
 import express, { NextFunction, Request, Response } from 'ultimate-express'
 
-import { bytesParserLimit, createCompressedBodyMiddleware } from '~/common/api/middleware/compressed-body'
+import {
+    DEFAULT_BODY_LIMIT_BYTES,
+    bytesParserLimit,
+    createCompressedBodyMiddleware,
+} from '~/common/api/middleware/compressed-body'
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/common/api/middleware/internal-api-auth'
@@ -40,7 +44,6 @@ export interface SetupExpressAppOptions {
 }
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
-const DEFAULT_BODY_LIMIT_BYTES = 20 * 1024 * 1024
 
 export function setupCommonRoutes(
     app: express.Application,

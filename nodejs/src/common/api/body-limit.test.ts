@@ -58,14 +58,16 @@ describe('setupExpressApp request body handling', () => {
     // default handler renders as a 500. The Rust ingestion consumer treats 500
     // as retriable, so an oversized batch would retry forever — the 413 tells
     // it to split the payload instead.
-    it('rejects an oversized JSON body with 413, not 500', async () => {
-        const res = await supertest(app)
-            .post('/echo')
-            .send({ data: 'x'.repeat(2048) })
+    it.each([undefined, 'compress'])(
+        'rejects an oversized JSON body with content encoding %p with 413, not 500',
+        async (encoding) => {
+            const req = supertest(app).post('/echo')
+            const res = await (encoding ? req.set('Content-Encoding', encoding) : req).send({ data: 'x'.repeat(2048) })
 
-        expect(res.status).toEqual(413)
-        expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
-    })
+            expect(res.status).toEqual(413)
+            expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
+        }
+    )
 
     it.each(encodings)('rejects a %s body that decodes past the limit with 413', async (encoding) => {
         const res = await postEncoded(
@@ -83,6 +85,13 @@ describe('setupExpressApp request body handling', () => {
         ['a decoded size of', 100 * 1024 + 1, 'with a length', 413, gzipSync('x'.repeat(100 * 1024 + 1))],
         ['a sent size over', 100 * 1024, 'with a length', 413, gzipSync(randomBytes(100 * 1024))],
         ['a sent size over', 100 * 1024, 'chunked', 200, gzipSync(randomBytes(100 * 1024))],
+        [
+            'a sent size over',
+            200 * 1024,
+            'chunked',
+            200,
+            Buffer.concat(Array.from({ length: 12 * 1024 }, () => gzipSync(''))),
+        ],
     ])(
         'caps compressed text like the default text parser: %s %d bytes sent %s gets %d',
         async (_, __, framing, status, compressed) => {

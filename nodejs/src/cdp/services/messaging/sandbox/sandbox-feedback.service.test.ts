@@ -5,7 +5,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import { createSign, generateKeyPairSync } from 'node:crypto'
-import { gunzipSync } from 'node:zlib'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { register } from 'prom-client'
 import { uncompressSync } from 'snappy'
 import supertest from 'supertest'
@@ -401,6 +401,17 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
                 expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
             }
         )
+
+        it('records a gzip-compressed notification the same way as a plain one', async () => {
+            const req = supertest(app)
+                .post('/public/m/ses_sandbox_webhook')
+                .set({ 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip' })
+            req.write(gzipSync(notification(sesRecord(team.id, complaint()))))
+            const res = await req
+
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
+        })
 
         it.each([
             ['confirms', 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t', 200, 1],

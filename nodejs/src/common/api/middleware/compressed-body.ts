@@ -46,7 +46,7 @@ const JSON_MEDIA_TYPE = 'application/json'
 const TEXT_MEDIA_TYPE = 'text/plain'
 const TEXT_CHARSETS = new Set(['utf-8', 'utf-16le', 'latin1'])
 const DEFAULT_TEXT_PARSER_LIMIT_BYTES = 100 * 1024
-const MAX_COMPRESSED_TEXT_BYTES = 2 * DEFAULT_TEXT_PARSER_LIMIT_BYTES
+export const DEFAULT_BODY_LIMIT_BYTES = 20 * 1024 * 1024
 
 function mediaTypeOf(req: Request): string {
     return (req.headers['content-type'] ?? '').split(';')[0]
@@ -134,7 +134,11 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
         if (encoding === 'identity' || !readsBody(req)) {
             return next()
         }
-        if (mediaTypeOf(req) !== JSON_MEDIA_TYPE || !decompressorFor(encoding)) {
+        const isJson = mediaTypeOf(req) === JSON_MEDIA_TYPE
+        if (isJson && Number(req.headers['content-length'] ?? 0) > limitBytes) {
+            return next(tooLarge())
+        }
+        if (!isJson || !decompressorFor(encoding)) {
             req.body = {}
             ;(req as BodyState).bodyRead = true
             return next()
@@ -163,7 +167,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
 
 export function createTextBodyParser(): RequestHandler {
     const parseIdentityText = express.text()
-    const readBody = readCompressedBody(MAX_COMPRESSED_TEXT_BYTES, DEFAULT_TEXT_PARSER_LIMIT_BYTES)
+    const readBody = readCompressedBody(DEFAULT_BODY_LIMIT_BYTES, DEFAULT_TEXT_PARSER_LIMIT_BYTES)
 
     return (req: Request, res: Response, next: NextFunction) => {
         const encoding = contentEncodingOf(req)
