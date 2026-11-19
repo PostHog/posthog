@@ -12,6 +12,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
+import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
@@ -211,7 +212,12 @@ describe('valves', () => {
         { name: 'first_probe_commit', at: expect.any(String) },
     ]
 
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     const runClusterOf = (options: Partial<FakeCloudOptions> = {}, stalls?: string) => {
+        pinClockAfterMinuteStart()
         const cloud = new FakeCloud({
             now: () => new Date(),
             failover: { takesMs: 20 },

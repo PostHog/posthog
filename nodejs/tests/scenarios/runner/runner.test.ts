@@ -57,6 +57,7 @@ import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 import { seedBacklog } from '../backlog/backlog'
 import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { FakeCloud } from '../cloud/fake-cloud'
+import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { Environment, RoleExit, createEnvironment, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
@@ -979,6 +980,7 @@ describe('runner through seed, drive and judge', () => {
 
     afterEach(async () => {
         jest.restoreAllMocks()
+        jest.useRealTimers()
         try {
             await cleanUp()
         } finally {
@@ -1496,6 +1498,7 @@ describe('runner through seed, drive and judge', () => {
 
     it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
         const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+        pinClockAfterMinuteStart()
         const cloud = new FakeCloud({
             now: () => new Date(),
             failover: { takesMs: 20 },

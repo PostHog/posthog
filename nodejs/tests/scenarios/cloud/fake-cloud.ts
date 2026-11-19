@@ -586,7 +586,7 @@ export class FakeCloud implements Aws {
         const t0Minute = failoverAt === undefined ? 0 : failoverAt - (failoverAt % MINUTE_MS)
         const recorded =
             failoverAt === undefined && measured && this.options.liveReaderAcu
-                ? this.liveCapacity(Stat, to)
+                ? this.liveCapacity(Stat)
                 : (failoverAt === undefined ? [] : (this.options.readerAcu ?? DEFAULT_READER_ACU)).map(
                       ({ minute, max, avg }) => ({
                           at: t0Minute + minute * MINUTE_MS,
@@ -618,10 +618,10 @@ export class FakeCloud implements Aws {
             }))
     }
 
-    private liveCapacity(Stat: string, to: number): { at: number; value: number | undefined }[] {
+    private liveCapacity(Stat: string): { at: number; value: number | undefined }[] {
         const { maxima, lagMinutes = 0 } = this.options.liveReaderAcu!
         const now = this.options.now().getTime()
-        const newest = Math.min(now - (now % MINUTE_MS), to) - (1 + lagMinutes) * MINUTE_MS
+        const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
         return maxima.map((max, i) => ({
             at: newest - (maxima.length - 1 - i) * MINUTE_MS,
             value: max === null ? undefined : { Maximum: max, Average: max, SampleCount: 60 }[Stat],

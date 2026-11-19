@@ -53,3 +53,23 @@ export const PROFILE = {
         reserve: { marginUsd: 10 },
     },
 }
+
+export function pinClockAfterMinuteStart(): void {
+    const now = Date.now()
+    jest.useFakeTimers({
+        doNotFake: [
+            'hrtime',
+            'nextTick',
+            'performance',
+            'queueMicrotask',
+            'setImmediate',
+            'clearImmediate',
+            'setInterval',
+            'clearInterval',
+            'setTimeout',
+            'clearTimeout',
+        ],
+        advanceTimers: true,
+        now: now - (now % 60_000) + 1000,
+    })
+}

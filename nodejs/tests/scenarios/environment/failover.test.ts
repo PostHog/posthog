@@ -9,7 +9,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { Controller } from '../cloud/admission'
 import type { Aws } from '../cloud/aws'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
-import { PROFILE } from '../cloud/fixtures'
+import { PROFILE, pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { RunManifest, keyOf, lease, runManifestOf } from '../cloud/lease'
 import { CloudProfile } from '../cloud/profile'
 import type { WriterSample } from '../probe/writer-probe'
@@ -91,6 +91,14 @@ const OBSERVED = [
 ]
 
 describe('pg.failover', () => {
+    beforeEach(() => {
+        pinClockAfterMinuteStart()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     it.each<[string, Partial<FakeCloudOptions>, (run: Run) => void, RegExp]>([
         [
             'a caller outside the run account',
@@ -248,6 +256,12 @@ describe('pg.failover', () => {
             { liveReaderAcu: { maxima: [1, 1, 1, null, 1, 1] } },
             () => undefined,
             /has 2 consecutive complete capacity minutes, under the 5 it needs/,
+        ],
+        [
+            'a capacity query that ends before the newest complete minute',
+            { now: () => new Date(Date.now() + MINUTE_MS) },
+            () => undefined,
+            /has 4 consecutive complete capacity minutes, under the 5 it needs/,
         ],
         [
             'a reader whose newest capacity minute is over three minutes old',
