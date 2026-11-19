@@ -34,6 +34,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.file_system.access_levels import (
     RESOURCE_LEVEL_ONLY_TYPES,
     FileSystemAccessLevelSerializerMixin,
@@ -106,6 +107,7 @@ from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
 logger = logging.getLogger(__name__)
@@ -1501,6 +1503,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             and entries_missing_access_level(other_objects, self.user_access_control, self.team.project_id, "editor")
         ):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
+        self._ensure_can_change_pipelines(entry.type for entry in objects_to_delete)
         self._authorize_workflow_files(
             {_row_target(row) for row in removed}
             | {_workflow_target(entry.type, entry.ref, entry.team_id, False) for entry in objects_to_delete}
@@ -1672,9 +1675,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except PermissionDenied:
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
 
+    def _ensure_can_change_pipelines(self, type_strings: Iterable[str]) -> None:
+        if any(t.startswith("hog_function/") for t in type_strings) and (
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(
+                team_id=self.team.id, user=cast(User, self.request.user)
+            )
+        ):
+            raise PermissionDenied(CDPPropertyAccessPermission.message)
+
     def _ensure_can_restore(self, type_string: str, ref: str) -> None:
         """`undo_delete` takes a caller-supplied (type, ref) rather than a tree row, so neither
         the tree's visibility filter nor `get_object` has run by the time we get here."""
+        self._ensure_can_change_pipelines([type_string])
         instance = get_restorable_object(type_string, ref, team_id=self.team.id)
         user_access_control = self.user_access_control
         allowed = instance is not None and (

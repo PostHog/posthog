@@ -52,10 +52,11 @@ class CDPLogPropertyAccessPermission(CDPPropertyAccessPermission):
 
 class CDPOrganizationPropertyAccessPermission(CDPPropertyAccessPermission):
     def has_permission(self, request: "Request", view: "APIView") -> bool:
-        if request.method in SAFE_METHODS:
+        org_view = cast("TeamAndOrgViewSetMixin", view)
+        # check_for_updates is a GET that saves the plugin's latest version.
+        if request.method in SAFE_METHODS and org_view.action != "check_for_updates":
             return True
 
-        org_view = cast("TeamAndOrgViewSetMixin", view)
         return not access_control_api.has_restricted_properties_in_organization(
             organization_id=org_view.organization.id, user=cast("User", request.user)
         )

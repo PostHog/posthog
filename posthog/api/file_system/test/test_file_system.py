@@ -38,6 +38,7 @@ from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -2263,6 +2264,36 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         destination.refresh_from_db()
         self.assertEqual((destination.deleted, destination.enabled), (False, enabled))
+
+    @parameterized.expand(
+        [
+            ("delete", "restricted", status.HTTP_403_FORBIDDEN),
+            ("delete", "granted", status.HTTP_200_OK),
+            ("restore", "restricted", status.HTTP_403_FORBIDDEN),
+            ("restore", "granted", status.HTTP_200_OK),
+        ]
+    )
+    def test_deleting_or_restoring_a_destination_follows_property_access(
+        self, change: str, access: PropertyAccess, expected: int
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        destination = HogFunction.objects.create(
+            team=self.team, name="Webhook", hog="return event", type=HogFunctionType.DESTINATION
+        )
+        if change == "delete":
+            entry = FileSystem.objects.get(team=self.team, type="hog_function/destination", ref=str(destination.id))
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        else:
+            HogFunction.objects.filter(pk=destination.pk).update(deleted=True)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                {"items": [{"type": "hog_function/destination", "ref": str(destination.id)}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected, response.content)
+        destination.refresh_from_db()
+        self.assertEqual(destination.deleted, (change == "delete") == (expected == status.HTTP_200_OK))
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(

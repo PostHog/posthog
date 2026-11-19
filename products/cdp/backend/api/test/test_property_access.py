@@ -211,6 +211,15 @@ class TestCDPPropertyAccess(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert "property access" in response.json()["detail"].lower()
 
+    def test_restricted_member_cannot_check_plugin_for_updates(self) -> None:
+        plugin = self._create_source_plugin()
+
+        response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins/{plugin.pk}/check_for_updates/")
+
+        assert response.status_code == 403, response.json()
+        plugin.refresh_from_db()
+        assert plugin.latest_tag_checked_at is None
+
     @parameterized.expand(
         [
             ("plugins", {}),
