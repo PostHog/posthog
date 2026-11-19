@@ -4,6 +4,11 @@ import pytest
 
 import pyarrow as pa
 
+from products.warehouse_destinations.backend.facade.configs.base import DestinationConfig
+from products.warehouse_destinations.backend.facade.configs.postgres import (
+    PostgresAuthMethodConfig,
+    PostgresDestinationConfig,
+)
 from products.warehouse_destinations.backend.facade.contracts import (
     DestinationCapabilities,
     DestinationConfigurationError,
@@ -21,6 +26,7 @@ from products.warehouse_destinations.backend.facade.enums import (
     LogicalType,
     WriteMode,
 )
+from products.warehouse_destinations.backend.facade.testing import fake_config
 
 FIELDS: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("version", pa.int64()), pa.field("name", pa.string())]
 SCHEMA = pa.schema(FIELDS)
@@ -173,18 +179,19 @@ def test_capabilities_reject_invalid_combinations(kwargs: dict[str, Any], match:
         DestinationCapabilities(**{**valid, **kwargs})
 
 
-@pytest.mark.parametrize("field_name", ["config", "credentials"])
-def test_destination_connection_mappings_do_not_follow_caller_mutation(field_name: str) -> None:
-    source = {"host": "localhost"}
-    kwargs: dict[str, Any] = {field_name: source}
-    connection = DestinationConnection(destination_type=DestinationType.POSTGRES, team_id=1, **kwargs)
+def _postgres_config(**auth: Any) -> PostgresDestinationConfig:
+    auth = {"selection": "credentials", "host": "db.example.com", "user": "u", "password": "hunter2", **auth}
+    return PostgresDestinationConfig(database="db", auth_method=PostgresAuthMethodConfig(**auth))
 
-    source["host"] = "changed"
 
-    mapping = getattr(connection, field_name)
-    assert mapping == {"host": "localhost"}
-    with pytest.raises(TypeError):
-        mapping["host"] = "changed"
+def test_destination_connection_config_does_not_follow_caller_mutation() -> None:
+    config = _postgres_config()
+    connection = DestinationConnection(team_id=1, config=config)
+
+    config.database = "changed"
+    config.auth_method.host = "changed.example.com"
+
+    assert connection.config == _postgres_config()
 
 
 def test_table_target_column_types_do_not_follow_caller_mutation() -> None:
@@ -196,29 +203,29 @@ def test_table_target_column_types_do_not_follow_caller_mutation() -> None:
     assert target.column_types == {"name": LogicalType.TEXT}
 
 
+@pytest.mark.parametrize("destination_type", [DestinationType.POSTGRES, DestinationType.SNOWFLAKE])
+def test_destination_connection_takes_its_type_from_the_config_class(destination_type: DestinationType) -> None:
+    connection = DestinationConnection(team_id=1, config=fake_config(destination_type))
+
+    assert connection.destination_type is destination_type
+
+
 @pytest.mark.parametrize(
-    "value, expected",
-    [("Postgres", DestinationType.POSTGRES), ("MotherDuck", DestinationType.MOTHERDUCK), ("AwsS3", "AwsS3")],
+    "config",
+    [
+        {"database": "db"},
+        None,
+        # The base class is not a generated config: it has no destination type.
+        DestinationConfig(),
+    ],
 )
-def test_destination_connection_converts_stored_type_strings(value: str, expected: str) -> None:
-    connection = DestinationConnection(destination_type=value, team_id=1)  # type: ignore[arg-type]
-
-    assert connection.destination_type is DestinationType(expected)
-
-
-@pytest.mark.parametrize("value", ["postgres", "NoOp", ""])
-def test_destination_connection_rejects_unknown_type_strings(value: str) -> None:
-    with pytest.raises(ValueError):
-        DestinationConnection(destination_type=value, team_id=1)  # type: ignore[arg-type]
+def test_destination_connection_refuses_a_config_that_is_not_generated(config: Any) -> None:
+    with pytest.raises(TypeError, match="generated DestinationConfig"):
+        DestinationConnection(team_id=1, config=config)
 
 
-def test_destination_connection_repr_hides_credentials() -> None:
-    connection = DestinationConnection(
-        destination_type=DestinationType.POSTGRES,
-        team_id=1,
-        config={"host": "db.example.com"},
-        credentials={"password": "hunter2"},
-    )
+def test_destination_connection_repr_hides_the_password() -> None:
+    connection = DestinationConnection(team_id=1, config=_postgres_config())
 
     assert "hunter2" not in repr(connection)
     assert "db.example.com" in repr(connection)

@@ -54,6 +54,7 @@ from products.warehouse_destinations.backend.facade.enums import (
     TypePolicy,
     WriteMode,
 )
+from products.warehouse_destinations.backend.facade.testing import fake_config
 from products.warehouse_destinations.backend.tests.destinations.postgres.conftest import ROLE_PASSWORD
 
 
@@ -87,20 +88,34 @@ async def _batches(*batches: pa.RecordBatch) -> AsyncIterator[pa.RecordBatch]:
         yield batch
 
 
-def _connection(postgres_config: dict, **overrides: Any) -> DestinationConnection:
-    config = {key: postgres_config[key] for key in ("host", "port", "database")}
-    credentials = {key: postgres_config[key] for key in ("user", "password")}
-    return DestinationConnection(
-        destination_type=DestinationType.POSTGRES,
-        team_id=1,
-        config={**config, "ssl_mode": "prefer", **overrides.pop("config", {})},
-        credentials={**credentials, **overrides.pop("credentials", {})},
-        **overrides,
+def _settings(postgres_config: dict, *, database: str | None = None, **auth: Any) -> dict[str, Any]:
+    """Stored settings with inline credentials. `auth` overrides the auth method fields."""
+    inline = {key: postgres_config[key] for key in ("host", "port", "user", "password")}
+    return {
+        "database": database or postgres_config["database"],
+        "auth_method": {"selection": "credentials", **inline, "ssl_mode": "prefer", **auth},
+    }
+
+
+def _connection(postgres_config: dict, *, database: str | None = None, **auth: Any) -> DestinationConnection:
+    config = api.parse_destination_config(
+        DestinationType.POSTGRES, _settings(postgres_config, database=database, **auth)
     )
+    return DestinationConnection(team_id=1, config=config)
 
 
 def _destination(postgres_config: dict, **overrides: Any) -> PostgresDestination:
     return PostgresDestination(_connection(postgres_config, **overrides))
+
+
+def _integration(postgres_config: dict, **config_overrides: Any) -> Integration:
+    config = {key: postgres_config[key] for key in ("host", "port", "user")}
+    return Integration(
+        team_id=1,
+        kind="postgresql",
+        config={**config, "ssl_mode": "prefer", **config_overrides},
+        sensitive_config={"password": postgres_config["password"]},
+    )
 
 
 def _ref(schema: str, table: str, write_mode: WriteMode, **kwargs: Any) -> TargetRef:
@@ -801,10 +816,10 @@ async def test_a_closed_session_raises_a_configuration_error(postgres_config, sc
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"credentials": {"password": "wrong"}},
-        {"credentials": {"user": "no_such_role"}},
-        {"config": {"database": "no_such_database"}},
-        {"config": {"host": "no-such-host.invalid"}},
+        {"password": "wrong"},
+        {"user": "no_such_role"},
+        {"database": "no_such_database"},
+        {"host": "no-such-host.invalid"},
     ],
 )
 async def test_bad_connection_settings_are_configuration_errors(postgres_config, overrides: dict) -> None:
@@ -817,21 +832,31 @@ async def test_bad_connection_settings_are_configuration_errors(postgres_config,
     assert "wrong" not in exc_info.value.detail
 
 
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"credentials": {"password": None}},
-        {"config": {"host": None}},
-        {"config": {"database": None}},
-        {"config": {"ssl_mode": "disable"}},
-    ],
-)
-async def test_missing_or_invalid_inline_inputs_are_configuration_errors(postgres_config, overrides: dict) -> None:
+@pytest.mark.parametrize("missing_key", ["host", "port", "user", "ssl_mode"])
+async def test_an_integration_without_required_inputs_is_a_configuration_error(
+    postgres_config, monkeypatch: pytest.MonkeyPatch, missing_key: str
+) -> None:
+    integration = _integration(postgres_config)
+    del integration.config[missing_key]
+
+    async def aget(team_id: int, integration_id: int) -> Integration:
+        return integration
+
+    monkeypatch.setattr(IntegrationManager.postgresql.credentials, "aget", aget)
+
     with pytest.raises(PostgreSQLMissingRequiredInputsError) as exc_info:
-        async with _destination(postgres_config, **overrides).connect():
+        async with _destination(postgres_config, selection="integration", integration_id=42).connect():
             pass
 
     assert exc_info.value.kind == ErrorKind.CONFIGURATION
+
+
+async def test_a_config_of_another_destination_is_a_configuration_error() -> None:
+    destination = PostgresDestination(DestinationConnection(team_id=1, config=fake_config(DestinationType.POSTGRES)))
+
+    with pytest.raises(DestinationConfigurationError, match="needs a PostgresDestinationConfig"):
+        async with destination.connect():
+            pass
 
 
 async def test_an_error_raised_inside_the_session_passes_through(postgres_config) -> None:
@@ -842,7 +867,7 @@ async def test_an_error_raised_inside_the_session_passes_through(postgres_config
 
 async def test_missing_privilege_is_a_configuration_error(postgres_config, pg, schema, test_roles) -> None:
     _create_table(pg, schema, "t", "id BIGINT, name TEXT")
-    destination = _destination(postgres_config, credentials={"user": test_roles["limited"], "password": ROLE_PASSWORD})
+    destination = _destination(postgres_config, user=test_roles["limited"], password=ROLE_PASSWORD)
 
     with pytest.raises(DestinationError) as exc_info:
         await _run(destination, _target(schema, "t", WriteMode.APPEND), _rows((1, "a")))
@@ -886,7 +911,7 @@ async def test_a_statement_timeout_is_a_timeout_error(postgres_config, pg, schem
     role = sql.Identifier(test_roles["slow"])
     pg.execute(sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(sql.Identifier(schema), role))
     pg.execute(sql.SQL("GRANT ALL ON {} TO {}").format(sql.Identifier(schema, "t"), role))
-    destination = _destination(postgres_config, credentials={"user": test_roles["slow"], "password": ROLE_PASSWORD})
+    destination = _destination(postgres_config, user=test_roles["slow"], password=ROLE_PASSWORD)
 
     with pytest.raises(DestinationError) as exc_info:
         await _run(destination, _target(schema, "t", WriteMode.APPEND), _rows((1, "a")))
@@ -913,20 +938,10 @@ async def test_integration_credentials_win_over_inline_values(
 ) -> None:
     async def aget(team_id: int, integration_id: int) -> Integration:
         assert (team_id, integration_id) == (1, 42)
-        return Integration(
-            team_id=team_id,
-            kind="postgresql",
-            config={
-                "host": postgres_config["host"],
-                "port": postgres_config["port"],
-                "user": postgres_config["user"],
-                "ssl_mode": "prefer",
-            },
-            sensitive_config={"password": postgres_config["password"]},
-        )
+        return _integration(postgres_config)
 
     monkeypatch.setattr(IntegrationManager.postgresql.credentials, "aget", aget)
-    destination = _destination(postgres_config, integration_id=42, credentials={"password": "wrong"})
+    destination = _destination(postgres_config, selection="integration", integration_id=42, password="wrong")
 
     await _run(destination, _target(schema, "t", WriteMode.APPEND), _rows((1, "a")))
 
@@ -940,13 +955,16 @@ async def test_a_missing_integration_is_a_configuration_error(postgres_config, m
     monkeypatch.setattr(IntegrationManager.postgresql.credentials, "aget", aget)
 
     with pytest.raises(PostgreSQLIntegrationNotFoundError) as exc_info:
-        async with _destination(postgres_config, integration_id=42).connect():
+        async with _destination(postgres_config, selection="integration", integration_id=42).connect():
             pass
     assert exc_info.value.kind == ErrorKind.CONFIGURATION
 
 
 def test_the_facade_resolves_the_builtin_postgres_destination() -> None:
-    destination = api.get_destination(DestinationConnection(destination_type=DestinationType.POSTGRES, team_id=1))
+    config = api.parse_destination_config(
+        DestinationType.POSTGRES, {"database": "db", "auth_method": {"selection": "integration", "integration_id": 1}}
+    )
+    destination = api.get_destination(DestinationConnection(team_id=1, config=config))
 
     assert isinstance(destination, PostgresDestination)
     assert destination.capabilities is api.get_capabilities(DestinationType.POSTGRES)

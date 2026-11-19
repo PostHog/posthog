@@ -9,23 +9,32 @@ so a test installs it with `override_destination` and the code under test gets i
         await code_under_test()
     assert fake.tables[("public", "orders")] == [{"id": 1}]
 
+The fake accepts any `DestinationConfig`. Code under test that parses real settings passes a
+generated config. A test that builds the connection itself can use `fake_config()`, which has
+no fields:
+
+    connection = DestinationConnection(team_id=1, config=fake_config(DestinationType.SNOWFLAKE))
+
 The fake follows the session contract: it validates targets against its capabilities, keeps
 staged rows per staging key and batch key, upserts MERGE rows on the primary keys (the last
 written row wins; version keys are not compared), and records the staging key of a REPLACE
 commit so a replay gets `already_committed=True`.
 """
 
+import functools
 import contextlib
 from collections import defaultdict
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterator
 from typing import Any
 
 import pyarrow as pa
+import typed_config as config
 
 from posthog.dataclasses import frozen
 
 from ..core.validation import check_batch_key, check_ref
 from ..logic import registry
+from .configs.base import DestinationConfig
 from .contracts import (
     DestinationCapabilities,
     DestinationConnection,
@@ -65,6 +74,17 @@ class FakeCall:
 class _Staged:
     target: TableTarget
     batches: dict[str | None, list[Row]]
+
+
+def fake_config(destination_type: DestinationType = DestinationType.POSTGRES) -> DestinationConfig:
+    """A config of `destination_type` with no fields, for a connection to a `FakeDestination`."""
+    return _fake_config_class(DestinationType(destination_type))()
+
+
+@functools.cache
+def _fake_config_class(destination_type: DestinationType) -> type[DestinationConfig]:
+    namespace = {"destination_type": destination_type, "__module__": __name__}
+    return config.config(type(f"Fake{destination_type.value}Config", (DestinationConfig,), namespace))
 
 
 @contextlib.contextmanager

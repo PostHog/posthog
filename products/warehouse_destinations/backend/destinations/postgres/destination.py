@@ -1,7 +1,7 @@
 """Write Arrow record batches into a Postgres table.
 
-The connection picks the database, and the namespace of a target is `(schema,)`. `integration.py`
-lists the `config` keys this destination reads.
+The connection's `PostgresDestinationConfig` picks the database, and the namespace of a target is
+`(schema,)`. `spec.py` declares the settings, and `integration.py` reads them.
 
 - APPEND copies rows straight into the final table.
 - MERGE copies rows into a staging table. A commit upserts the staging rows into the final table

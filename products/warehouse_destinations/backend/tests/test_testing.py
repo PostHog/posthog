@@ -14,7 +14,12 @@ from products.warehouse_destinations.backend.facade.contracts import (
     TargetRef,
 )
 from products.warehouse_destinations.backend.facade.enums import DestinationType, ErrorKind, WriteMode
-from products.warehouse_destinations.backend.facade.testing import FakeCall, FakeDestination, override_destination
+from products.warehouse_destinations.backend.facade.testing import (
+    FakeCall,
+    FakeDestination,
+    fake_config,
+    override_destination,
+)
 
 
 def _schema(*fields: tuple[str, pa.DataType]) -> pa.Schema:
@@ -45,7 +50,7 @@ async def test_the_fake_reached_through_the_facade_records_every_call() -> None:
     target = _target(WriteMode.MERGE)
 
     with override_destination(DestinationType.POSTGRES, fake):
-        destination = api.get_destination(DestinationConnection(destination_type="Postgres", team_id=1))  # type: ignore[arg-type]
+        destination = api.get_destination(DestinationConnection(team_id=1, config=fake_config()))
         async with destination.connect() as session:
             prepared = await session.prepare(target)
             await session.write(prepared, _batches(_rows((1, "a"))), batch_key="0")

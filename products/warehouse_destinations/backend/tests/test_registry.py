@@ -14,11 +14,17 @@ FAKE_MODULE = "products.warehouse_destinations.backend.tests.fake_destinations"
 pytestmark = pytest.mark.usefixtures("empty_registry")
 
 
-def _builtin(factory: str = "build_fake_destination", capabilities: str = "CAPABILITIES") -> registry._Builtin:
-    return registry._Builtin(factory=f"{FAKE_MODULE}:{factory}", capabilities=f"{FAKE_MODULE}:{capabilities}")
+def _builtin(
+    factory: str = "build_fake_destination", capabilities: str = "CAPABILITIES", spec: str = "SPEC"
+) -> registry._Builtin:
+    return registry._Builtin(
+        factory=f"{FAKE_MODULE}:{factory}", capabilities=f"{FAKE_MODULE}:{capabilities}", spec=f"{FAKE_MODULE}:{spec}"
+    )
 
 
-@pytest.mark.parametrize("lookup", [registry.resolve, registry.capabilities_for])
+@pytest.mark.parametrize(
+    "lookup", [registry.resolve, registry.capabilities_for, registry.spec_for, registry.config_class_for]
+)
 def test_unknown_type_is_a_configuration_error(lookup) -> None:
     with pytest.raises(UnsupportedDestinationError, match="Unsupported destination type") as exc_info:
         lookup(DestinationType.SNOWFLAKE)
@@ -37,17 +43,27 @@ def test_builtin_resolves_lazily_by_import_path(monkeypatch: pytest.MonkeyPatch)
 
     assert factory is sys.modules[FAKE_MODULE].build_fake_destination
     assert registry.capabilities_for(DestinationType.SNOWFLAKE) is sys.modules[FAKE_MODULE].CAPABILITIES
+    assert registry.spec_for(DestinationType.SNOWFLAKE) is sys.modules[FAKE_MODULE].SPEC
 
 
 @pytest.mark.parametrize(
     "builtin, lookup, error, match",
     [
-        (registry._Builtin(factory="no_separator", capabilities=""), registry.resolve, ValueError, "must look like"),
+        (
+            registry._Builtin(factory="no_separator", capabilities="", spec=""),
+            registry.resolve,
+            ValueError,
+            "must look like",
+        ),
         (_builtin(factory="missing_attribute"), registry.resolve, AttributeError, "missing_attribute"),
         (_builtin(factory="NOT_CALLABLE"), registry.resolve, TypeError, "is not callable"),
         (_builtin(capabilities="NOT_CAPABILITIES"), registry.capabilities_for, TypeError, "not DestinationCapab"),
+        (_builtin(spec="CAPABILITIES"), registry.spec_for, TypeError, "is not the DestinationSpec"),
+        (_builtin(spec="POSTGRES_TYPED_SPEC"), registry.spec_for, TypeError, "is not the DestinationSpec"),
+        # The naming rule finds no generated module for a type that has none.
+        (_builtin(), registry.config_class_for, ModuleNotFoundError, "configs.snowflake"),
         (
-            registry._Builtin(factory="products.warehouse_destinations.no_such_module:f", capabilities=""),
+            registry._Builtin(factory="products.warehouse_destinations.no_such_module:f", capabilities="", spec=""),
             registry.resolve,
             ModuleNotFoundError,
             "no_such_module",

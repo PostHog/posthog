@@ -15,6 +15,7 @@ decide what to do from `DestinationError.kind`, never from the class name or the
 No Django imports here.
 """
 
+import copy
 from collections.abc import AsyncIterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import field
@@ -22,9 +23,11 @@ from types import MappingProxyType
 from typing import Any, ClassVar, Protocol
 
 import pyarrow as pa
+from typed_config import is_config
 
 from posthog.dataclasses import frozen
 
+from .configs.base import DestinationConfig
 from .enums import DestinationType, ErrorKind, ExistingTablePolicy, LogicalType, NewColumnPolicy, TypePolicy, WriteMode
 
 
@@ -34,27 +37,25 @@ def _empty_mapping() -> Mapping[str, Any]:
 
 @frozen
 class DestinationConnection:
-    """Where a destination connects, and with which secrets.
+    """Where a destination connects, and with which settings and secrets.
 
-    The connection picks the database, project or catalog. A target's namespace is relative to
-    it. `config` holds settings that are not secret, for example host, port and database, and
-    every switch that only one vendor has. Each destination documents the keys it reads.
-    `credentials` holds inline secrets, which the destination uses when `integration_id` is None.
-    A string `destination_type` is converted to `DestinationType`, and an unknown string raises
-    `ValueError`.
+    `config` is the generated typed config of one destination type (see `configs/`). It picks
+    the database, project or catalog, and a target's namespace is relative to it. Its class
+    sets `destination_type`. The connection keeps its own copy of `config`, so a caller that
+    changes its config object later does not change the connection.
     """
 
-    destination_type: DestinationType
     team_id: int
-    integration_id: int | None = None
-    config: Mapping[str, Any] = field(default_factory=_empty_mapping)
-    credentials: Mapping[str, Any] = field(default_factory=_empty_mapping, repr=False)
+    config: DestinationConfig
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "destination_type", DestinationType(self.destination_type))
-        # Copy the mappings so that a caller cannot change a connection after construction.
-        object.__setattr__(self, "config", MappingProxyType(dict(self.config)))
-        object.__setattr__(self, "credentials", MappingProxyType(dict(self.credentials)))
+        if not isinstance(self.config, DestinationConfig) or not is_config(type(self.config)):
+            raise TypeError(f"config must be a generated DestinationConfig, got {type(self.config).__name__}")
+        object.__setattr__(self, "config", copy.deepcopy(self.config))
+
+    @property
+    def destination_type(self) -> DestinationType:
+        return self.config.destination_type
 
 
 @frozen

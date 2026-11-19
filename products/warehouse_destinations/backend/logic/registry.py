@@ -1,8 +1,9 @@
-"""Registry that maps a destination type to the factory that builds it.
+"""Registry that maps a destination type to the factory that builds it, its spec and its config.
 
 Built-in destinations are listed by import path, so a vendor SDK loads only when a caller asks
-for that destination. The capabilities of each built-in sit in a module without vendor imports,
-so reading them loads no SDK.
+for that destination. The capabilities and the spec of each built-in sit in modules without
+vendor imports, so reading them loads no SDK. The generated config class of a type is found by
+the naming rule of `config_generator`, so it needs no entry here.
 """
 
 import typing
@@ -12,14 +13,18 @@ from collections.abc import Iterator
 
 from posthog.dataclasses import frozen
 
+from ..facade.configs.base import DestinationConfig
 from ..facade.contracts import DestinationCapabilities, DestinationFactory, UnsupportedDestinationError
+from ..facade.destination_spec import DestinationSpec
 from ..facade.enums import DestinationType
+from .config_generator import CONFIGS_PACKAGE, config_class_name, config_module_name
 
 
 @frozen
 class _Builtin:
     factory: str
     capabilities: str
+    spec: str
 
 
 _POSTGRES_PACKAGE = "products.warehouse_destinations.backend.destinations.postgres"
@@ -28,6 +33,7 @@ _BUILTINS: dict[DestinationType, _Builtin] = {
     DestinationType.POSTGRES: _Builtin(
         factory=f"{_POSTGRES_PACKAGE}.destination:PostgresDestination",
         capabilities=f"{_POSTGRES_PACKAGE}.capabilities:POSTGRES_CAPABILITIES",
+        spec=f"{_POSTGRES_PACKAGE}.spec:POSTGRES_SPEC",
     ),
 }
 
@@ -60,6 +66,40 @@ def capabilities_for(destination_type: DestinationType) -> DestinationCapabiliti
     if not isinstance(capabilities, DestinationCapabilities):
         raise TypeError(f"Capabilities of '{destination_type}' are not DestinationCapabilities")
     return capabilities
+
+
+def spec_for(destination_type: DestinationType) -> DestinationSpec:
+    """Return the spec of a built-in destination. Overrides have no spec.
+
+    Raises `UnsupportedDestinationError` when no built-in exists for the type.
+    """
+    import_path = _builtin(destination_type).spec
+    spec = _import_attribute(import_path)
+    if not isinstance(spec, DestinationSpec) or spec.destinationType != destination_type:
+        raise TypeError(f"Spec '{import_path}' is not the DestinationSpec of '{destination_type}'")
+    return spec
+
+
+def spec_import_path(destination_type: DestinationType) -> str:
+    return _builtin(destination_type).spec
+
+
+def config_class_for(destination_type: DestinationType) -> type[DestinationConfig]:
+    """Return the generated config class of a built-in destination.
+
+    Raises `UnsupportedDestinationError` when no built-in exists for the type.
+    """
+    _builtin(destination_type)
+    module = importlib.import_module(f"{CONFIGS_PACKAGE}.{config_module_name(destination_type)}")
+    config_class = getattr(module, config_class_name(destination_type))
+    if not (isinstance(config_class, type) and issubclass(config_class, DestinationConfig)):
+        raise TypeError(f"Config of '{destination_type}' is not a DestinationConfig")
+    return config_class
+
+
+def builtin_types() -> tuple[DestinationType, ...]:
+    """The destination types with a built-in destination, sorted. Overrides are not included."""
+    return tuple(sorted(_BUILTINS))
 
 
 def registered_types() -> tuple[DestinationType, ...]:
