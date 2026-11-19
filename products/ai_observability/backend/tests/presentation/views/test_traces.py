@@ -417,11 +417,20 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
             ("cursor and before cursor", {"cursor": "a", "before_cursor": "b"}),
             ("cursor and around", {"cursor": "a", "around": "t"}),
             ("before cursor and around", {"before_cursor": "b", "around": "t"}),
-            ("unknown order", {"order": "sideways"}),
         ]
     )
     def test_conflicting_paging_is_a_400(self, _name: str, params: dict[str, str | int]) -> None:
-        assert self._get(params).status_code == 400
+        with QuerySlotRecorder().recording("load_trace_list") as recorder:
+            response = self._get(params)
+
+        assert (response.status_code, response.json()["detail"], recorder.loaded_while_holding) == (
+            400,
+            "Send only one of cursor, before_cursor and around.",
+            [],
+        )
+
+    def test_unknown_order_is_a_400(self) -> None:
+        assert self._get({"order": "sideways"}).status_code == 400
 
     @parameterized.expand(
         [

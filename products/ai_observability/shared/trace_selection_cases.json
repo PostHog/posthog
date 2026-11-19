@@ -458,5 +458,29 @@
         "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
         "expected_trace_ids": ["late-tagged", "tagged"],
         "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a session ignores the project's default test account filtering",
+        "team_test_account_filters": [
+            { "key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event" }
+        ],
+        "team_test_account_filters_default_checked": true,
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "internal",
+                "minutes": 1,
+                "properties": { "$ai_session_id": "session-a", "deployment": "staging" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "customer",
+                "minutes": 0,
+                "properties": { "$ai_session_id": "session-a" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
+        "expected_trace_ids": ["customer", "internal"],
+        "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
     }
 ]

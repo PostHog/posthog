@@ -243,17 +243,14 @@ def load_trace_list(
     """Loads a page of the selected traces in the selection's order, and returns the step that builds it into the list,
     each trace read the way `get_trace` reads it. `cursor` reads the page after it, `before_cursor` the page before
     it, and `around` the page that holds that trace with about half the page before it. Counts come with the first
-    page of an unscoped list only.
+    page of an unscoped list only. Send at most one of the three.
 
-    Raises `InvalidTraceSelectionError` when more than one of the three is sent, `InvalidTraceCursorError` for a
-    cursor this read did not hand out, and `TraceNotInSelectionError` for an `around` trace the selection does not
-    hold, all before the page is read.
+    Raises `InvalidTraceCursorError` for a cursor this read did not hand out, and `TraceNotInSelectionError` for an
+    `around` trace the selection does not hold, both before the page is read.
 
     The step reads the traces' review states from Postgres and builds each trace, but runs no ClickHouse query. So a
     caller that holds a query concurrency slot for the load can release the slot before it runs the step.
     """
-    if sum(value is not None for value in (cursor, before_cursor, around)) > 1:
-        raise InvalidTraceSelectionError("Send only one of cursor, before_cursor and around.")
     if around is not None:
         page = _load_page_around(team, user, selection, around, limit)
     elif before_cursor is not None:

@@ -135649,12 +135649,12 @@ export namespace Schemas {
 
     export type AiObservabilityTracesListParams = {
     /**
-     * A trace id, to read the page that holds that trace with the traces before it. Send only one of cursor, beforeCursor and around.
+     * A trace id, to read the page that holds that trace with the traces before it. Send only one of cursor, before_cursor and around.
      * @minLength 1
      */
     around?: string;
     /**
-     * The previousCursor of a page, to read the page before it. Send only one of cursor, beforeCursor and around.
+     * The previousCursor of a page, to read the page before it. Send only one of cursor, before_cursor and around.
      * @minLength 1
      */
     before_cursor?: string;

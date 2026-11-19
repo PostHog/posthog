@@ -57,6 +57,10 @@ SESSION_SCOPE_EXCLUDED_PARAMS = (
 )
 
 
+PAGE_POSITION_PARAMS = ("cursor", "before_cursor", "around")
+CONFLICTING_PAGE_POSITIONS_MESSAGE = "Send only one of cursor, before_cursor and around."
+
+
 class TraceListQuerySerializer(ListFilterQuerySerializer):
     view = serializers.ChoiceField(
         choices=api.QUICK_FILTERS,
@@ -76,15 +80,21 @@ class TraceListQuerySerializer(ListFilterQuerySerializer):
     )
     before_cursor = serializers.CharField(
         required=False,
-        help_text="The previousCursor of a page, to read the page before it. Send only one of cursor, beforeCursor "
+        help_text="The previousCursor of a page, to read the page before it. Send only one of cursor, before_cursor "
         "and around.",
     )
     around = serializers.CharField(
         required=False,
         help_text="A trace id, to read the page that holds that trace with the traces before it. Send only one of "
-        "cursor, beforeCursor and around.",
+        "cursor, before_cursor and around.",
     )
     limit = page_limit_field("traces", default=api.TRACE_LIST_DEFAULT_LIMIT, maximum=api.TRACE_LIST_MAX_LIMIT)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if sum(name in attrs for name in PAGE_POSITION_PARAMS) > 1:
+            raise serializers.ValidationError(CONFLICTING_PAGE_POSITIONS_MESSAGE)
+        return attrs
 
 
 class TraceViewSet(TraceResourceViewSet):

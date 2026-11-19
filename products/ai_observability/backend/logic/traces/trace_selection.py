@@ -149,6 +149,8 @@ class TracePageBounds:
 
 
 def filters_test_accounts(team: Team, selection: TraceSelection) -> bool:
+    if selection.session_id is not None:
+        return False
     if selection.filter_test_accounts is None:
         return bool(team.test_account_filters_default_checked)
     return selection.filter_test_accounts

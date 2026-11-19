@@ -307,10 +307,6 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
 
         assert listed.previous_cursor is None
 
-    def test_only_one_of_cursor_before_cursor_and_around(self) -> None:
-        with pytest.raises(api.InvalidTraceSelectionError):
-            api.load_trace_list(self.team, self.user, SELECTION, cursor="x", before_cursor=None, around="t1", limit=4)
-
 
 def _chat(question: str, answer: str) -> dict[str, object]:
     return {
