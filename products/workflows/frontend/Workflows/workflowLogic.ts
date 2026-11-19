@@ -4094,7 +4094,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 loadMissingHogFunctionTemplates: async (templateIds: string[]) => {
                     const fetched = await Promise.all(
                         templateIds.map((templateId) =>
-                            api.hogFunctions.getTemplate(encodeURIComponent(templateId)).catch(() => null)
+                            api.hogFunctions.getTemplate(encodeURIComponent(templateId)).catch((error) => {
+                                // Only a template that really doesn't exist reads as missing. Other failures surface.
+                                if (error?.status === 404) {
+                                    return null
+                                }
+                                throw error
+                            })
                         )
                     )
                     const added = { ...values.hogFunctionTemplatesById }
