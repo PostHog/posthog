@@ -1673,6 +1673,14 @@ export const HomeWithComposer: Story = {
     },
 }
 
+// Without PostHog AI 2.0, the home composer opens a chat instead of starting a task.
+export const HomeWithLegacyComposer: Story = {
+    decorators: [keepNumbers([])],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS],
+    },
+}
+
 export const HomeWithAiOff: Story = {
     decorators: [
         mswDecorator({

@@ -12,7 +12,6 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         tags: [] as string[],
         // Starts narrow: a wizard that opens on every recording at full rate quotes a scary first number.
         sampling_rate: 0.2,
-        sampling_mode: 'balanced' as const,
         query: { kind: NodeKind.RecordingsQuery },
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
@@ -43,6 +42,7 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         limit_from_free_credits: false,
         limit_reached: false,
         sweep_throttle_factor: 1,
+        sweep_interval_minutes: 5,
         dashboard_id: null,
         dashboard_suggested: false,
         filter_error: null,

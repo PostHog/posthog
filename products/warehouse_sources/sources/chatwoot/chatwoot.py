@@ -217,7 +217,16 @@ def _read_capped_body(response: requests.Response) -> bytes:
 
 
 @retry(
-    retry=retry_if_exception_type((ChatwootRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    retry=retry_if_exception_type(
+        (
+            ChatwootRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            # A connection reset mid-body-stream (in _read_capped_body's iter_content) surfaces from
+            # requests as ChunkedEncodingError, a sibling of ConnectionError rather than a subclass.
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,

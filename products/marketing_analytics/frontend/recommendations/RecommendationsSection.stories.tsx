@@ -12,6 +12,7 @@ import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
 } from '~/queries/schema/schema-general'
@@ -73,6 +74,14 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }
@@ -108,6 +117,15 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
     recommendation({
         rule: 'spend_without_conversions',
+        subject: 'spreadsheet templates',
+        campaign: 'Search - Generic',
+        action: 'Add it as a negative, or change the keyword "dashboard software" from broad to exact match',
+        reason: 'Spent $380 (2.5x the campaign\'s non-brand CPA) on 95 clicks with no conversions. None of the main words in this search appear in the ads that showed on it or in the keyword "dashboard software".',
+        impact: 380,
+        cpa: cpa(null, 150, 'campaign'),
+    }),
+    recommendation({
+        rule: 'spend_without_conversions',
         subject: 'free analytics template',
         campaign: 'Search - Generic',
         action: 'Add it as a negative, or change the keyword "analytics template" from broad to exact match',
@@ -134,15 +152,6 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
                 linkText: 'Keywords',
             },
         ],
-    }),
-    recommendation({
-        rule: 'spend_without_conversions',
-        subject: 'dashboard software jobs',
-        campaign: 'Search - Generic',
-        action: 'Add it as a negative, or change the keyword "dashboard software" from phrase to exact match',
-        reason: "Spent $380 (2.5x the campaign's non-brand CPA) on 95 clicks with no conversions",
-        impact: 380,
-        cpa: cpa(null, 150, 'campaign'),
     }),
     recommendation({
         rule: 'brand_overlap',
@@ -195,21 +204,24 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'keyword_gap',
         subject: 'funnel analysis tool',
-        action: 'Add it as a keyword in a Search campaign',
-        reason: 'Ranks #24.0 organically with 3,800 impressions a month. Its words already convert in your ads.',
+        campaign: 'Search - Product',
+        action: 'Add as a keyword in Google Ads',
+        reason: "3,800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
+        minor: true,
     }),
     recommendation({
         rule: 'content_gap',
         subject: 'event tracking setup',
         campaign: 'Search - Product',
         action: 'Create or improve a page for this search',
-        reason: "You pay $540/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
+        reason: "You pay $600/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
         cpa: cpa(45, 100, 'account'),
         impact: 600,
         impactDirection: 'gain',
+        impactType: 'estimated',
     }),
     recommendation({
         rule: 'striking_distance',
@@ -224,9 +236,42 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'policy_limited',
         level: 'campaign',
-        subject: 'Performance Max - All products',
-        action: 'Check the affected ads in Policy manager',
-        reason: 'Some asset groups are limited by policy, so they show less often.',
+        subject: 'Search - Product',
+        action: 'Fix or appeal the policy issues in this campaign',
+        reason: "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Product',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            {
+                text: 'Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. Saving sends the ad to review again. A limited ad may need a certification from Google instead.',
+                url: 'https://ads.google.com/aw/ads',
+                linkText: 'Ads',
+            },
+            {
+                text: 'The ad "Acme alternative for teams" breaks the policy "Trademarks in ad text" (flagged text: "Acme").',
+                copyValue: 'Acme alternative for teams',
+            },
+            {
+                text: 'The ad "Product analytics pricing" breaks the policy "Destination mismatch".',
+                copyValue: 'Product analytics pricing',
+            },
+            {
+                text: 'The ad "Analytics for clinics" is limited by the policy "Healthcare and medicines".',
+                copyValue: 'Analytics for clinics',
+            },
+            {
+                text: 'If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.',
+                url: 'https://ads.google.com/aw/policy/ads/issues',
+                linkText: 'Policy manager',
+            },
+            {
+                text: 'Come back here after Google reviews the changes, usually within a business day.',
+            },
+        ],
     }),
     recommendation({
         rule: 'keyword_tracking',
@@ -357,7 +402,7 @@ const SOURCES_WITH_GAPS = [
         'GoogleAds',
         'example',
         ['campaign', 'campaign_stats', 'customer', 'search_term_stats'],
-        ['search_term_keyword_stats', 'campaign_impression_share_stats']
+        ['search_term_keyword_stats', 'ad', 'campaign_impression_share_stats']
     ),
     SOURCES[1],
 ]
@@ -390,5 +435,117 @@ export const MissingTablesInModal: Story = {
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+    },
+}
+
+function withResolved(
+    state: (row: MarketingAnalyticsRecommendation) => MarketingAnalyticsRecommendationResolutionState | null
+): Mocks {
+    const results = RESULTS.map((row) => {
+        const resolved = state(row)
+        return resolved
+            ? {
+                  ...row,
+                  resolution: {
+                      id: `resolution-${row.subject}`,
+                      resolution: resolved,
+                      resolved_at: '2025-02-14T12:00:00Z',
+                  },
+              }
+            : row
+    })
+    return {
+        ...MOCKS,
+        post: {
+            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
+                200,
+                { results, disclaimer: DISCLAIMER },
+            ],
+        },
+    }
+}
+
+const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+
+export const ResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: withResolved((row) =>
+                row === BRAND_OVERLAP[0] ? 'dismissed' : row === BRAND_OVERLAP[1] ? 'applied' : null
+            ),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Review 2 dismissed or applied'))
+        await userEvent.click(await modal.findByText('Brand overlap', { selector: 'button *' }))
+    },
+}
+
+const ALL_DISMISSED = withResolved(() => 'dismissed')
+
+export const AllDismissed: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+}
+
+export const AllDismissedInModal: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    },
+}
+
+const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
+
+async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    const modal = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
+    await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
+}
+
+export const ResolvingInModal: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [RESOLUTIONS_URL]: () => new Promise(() => {}) } } },
+        // The request never finishes, so the buttons keep their spinner.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => dismissHighCostCampaign(canvasElement),
+}
+
+export const RuleResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    [RESOLUTIONS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return [
+                            201,
+                            {
+                                id: 'resolution-review',
+                                ...body,
+                                key: 'review_campaign:Search - Competitors',
+                                resolved_by: null,
+                                resolved_at: '2025-02-15T12:00:00Z',
+                                created_at: '2025-02-15T12:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await dismissHighCostCampaign(canvasElement)
+        await within(canvasElement.ownerDocument.body).findByText(
+            'Every recommendation in this rule is dismissed or applied. Review them to restore one.'
+        )
     },
 }

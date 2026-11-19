@@ -21,7 +21,7 @@ import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
+import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2WorkerConfig } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS } from '~/cdp/services/job-queue/job-queue-postgres-v2'
@@ -60,6 +60,8 @@ const completes = (request: string): boolean => request.includes("SET status = '
 const fails = (request: string): boolean => request.includes("SET status = 'failed'")
 const dequeues = (request: string): boolean => request.includes("SET status = 'running'")
 const defers = (request: string): boolean => request.includes('dequeue_seq = COALESCE')
+const checksOwnership = (request: string): boolean =>
+    request.includes('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')
 const writeOf =
     (write: (request: string) => boolean, id: string) =>
     (request: string): boolean =>
@@ -239,7 +241,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     async function startWorker(
         limits: InFlightLimits | null,
         sesClient: SESv2Client = sesClientFor(ses),
-        postgres: PostgresRouter = hub.postgres
+        postgres: PostgresRouter = hub.postgres,
+        overrides: Partial<Hub> = {},
+        workerOverrides: Partial<CyclotronV2WorkerConfig> = {}
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -249,11 +253,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
             CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
             EMAIL_STATUS_ENABLED: true,
+            ...overrides,
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,
             { ...createCdpConsumerDeps(hub), postgres },
-            new EmailQueueOfOneTest(queueName, config),
+            new EmailQueueOfOneTest(queueName, config, workerOverrides),
             new InFlightRegistry(limits, () => 0)
         )
         worker.emailService.sesV2Client = sesClient
@@ -341,6 +346,115 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         )
         return latest && { status: latest.status, reason: latest.reason, sendingDomain: latest.sending_domain }
     }
+
+    it('a worker whose job the janitor re-queued to another worker does not send it, and its write is refused', async () => {
+        const ownershipChecked = { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) }
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        const [id] = await enqueue(transactionalSend(null))
+        const firstWorkersCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(null, sesClientFor(ses), hub.postgres, {
+            ...ownershipChecked,
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        const heldCheck = await firstWorkersCheck
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        await startWorker(null, sesClientFor(ses), hub.postgres, ownershipChecked)
+        expect(await ended(id)).toBe('completed')
+
+        heldCheck.release()
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([[]])
+        expect((await jobRow(id)).status).toBe('completed')
+    })
+
+    it('a worker with one Postgres connection sends once while its first ownership check never gets an answer', async () => {
+        const [id] = await enqueue(transactionalSend(null))
+        const unansweredCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(
+            null,
+            sesClientFor(ses),
+            hub.postgres,
+            { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) },
+            { pool: { dbUrl: cyclotron.url, maxConnections: 1 }, ownershipReadTimeoutMs: 200 }
+        )
+        await unansweredCheck
+
+        expect(await ended(id)).toBe('completed')
+        expect(delivered()).toEqual([[]])
+    })
+
+    it('a worker that claims its own re-queued send with files again sends it once, from the newer claim', async () => {
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        const olderClaimsCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+            CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        const heldCheck = await olderClaimsCheck
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        expect(await ended(id)).toBe('completed')
+
+        heldCheck.release()
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([['invoice.pdf']])
+        expect((await jobRow(id)).status).toBe('completed')
+    })
+
+    it('a worker that claims its own re-queued send with files again while the older claim still downloads sends it once', async () => {
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        bucket.answer = 'hold'
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+            CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+        const olderClaimsDownloads = bucket.heldRequests
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(olderClaimsDownloads))
+
+        bucket.release('pass')
+        expect(await ended(id)).toBe('completed')
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([['invoice.pdf']])
+    })
 
     it('writes the plain sends of a batch and dequeues the next one while a send with files waits on its download', async () => {
         bucket.answer = 'hold'

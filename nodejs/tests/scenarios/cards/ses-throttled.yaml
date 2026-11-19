@@ -1,0 +1,31 @@
+id: ses-throttled
+version: 1
+clock: real
+profile: synthetic
+seed: 3
+setup:
+    teams: 1
+drive:
+    for: 60s
+    traffic:
+        - name: event_email
+        - name: transactional_email
+valves:
+    - valve: ses.throttle
+      target: ses
+      dose:
+          rate: 1
+      at: 0s
+      for: 60s
+convergeWithin: 3m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms

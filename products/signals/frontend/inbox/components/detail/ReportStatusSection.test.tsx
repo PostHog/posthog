@@ -2,11 +2,20 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import { makeReport } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { ReportStatusSection } from './ReportStatusSection'
 
 describe('ReportStatusSection', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     afterEach(cleanup)
 
     const owner = { id: 1, uuid: 'owner-1', first_name: 'Jane', last_name: 'Doe', email: 'jane@example.com' }
@@ -96,6 +105,30 @@ describe('ReportStatusSection', () => {
         expect(screen.getAllByText('Merged')).toHaveLength(2)
         expect(screen.getByText('Approved')).toBeInTheDocument()
         expect(screen.getByText(/Jun.*11.*2026/)).toBeInTheDocument()
+    })
+
+    it.each([
+        { flag: false, labels: ['Report status', 'Priority'] },
+        { flag: true, labels: ['Repository', 'Priority', 'Actionability', 'Already addressed', 'Report status'] },
+    ])('orders the rows when editable decisions is $flag', ({ flag, labels }) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS], {
+            [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: flag,
+        })
+        const { container } = render(
+            <ReportStatusSection
+                report={makeReport({
+                    priority: 'P2',
+                    actionability: 'requires_human_input',
+                    already_addressed: false,
+                    repo_slug: 'example/app',
+                    pull_requests: [],
+                })}
+                onPriorityChange={() => {}}
+            />
+        )
+
+        expect(Array.from(container.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual(labels)
+        expect(screen.getByLabelText('Change report priority')).toBeInTheDocument()
     })
 
     it.each(['user', 'task', 'system'] as const)('hides %s claims', (kind) => {

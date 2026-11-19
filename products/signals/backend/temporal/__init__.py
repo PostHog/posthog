@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
     capture_activity_summary_tick_activity,
@@ -96,8 +98,13 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
+from products.signals.backend.temporal.grouping_record_cleanup import (
+    SignalGroupingRecordCleanupWorkflow,
+    delete_expired_grouping_records_activity,
+)
 from products.signals.backend.temporal.grouping_v2 import (
     TeamSignalGroupingV2Workflow,
+    assigned_signal_ids_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     read_signals_from_s3_activity,
@@ -166,6 +173,7 @@ WORKFLOWS = [
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
+    SignalGroupingRecordCleanupWorkflow,
     BufferSignalsWorkflow,
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
@@ -184,7 +192,9 @@ WORKFLOWS = [
     SignalReportInboxNotificationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
+    assigned_signal_ids_activity,
+    delete_expired_grouping_records_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     poll_monitoring_assessment_activity,
@@ -278,7 +288,7 @@ SELF_DRIVING_WORKFLOWS = [
     AnomalyScoringTickWorkflow,
     AnomalyScoringDueListRefreshWorkflow,
 ]
-SELF_DRIVING_ACTIVITIES = [
+SELF_DRIVING_ACTIVITIES: list[Callable[..., object]] = [
     score_inbox_reports_activity,
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,

@@ -48,6 +48,42 @@ def suppress_last_seen_updates(message: dict[str, Any]) -> dict[str, Any]:
 BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
 
 
+def _query_without_sql_filters(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _query_without_sql_filters(item)
+            for key, item in value.items()
+            if not (value.get("kind") == "HogQLQuery" and key == "filters")
+        }
+    if isinstance(value, list):
+        return [_query_without_sql_filters(item) for item in value]
+    return value
+
+
+def has_filtered_sql_query(value: Any) -> bool:
+    if isinstance(value, dict):
+        return (value.get("kind") == "HogQLQuery" and bool(value.get("filters"))) or any(
+            has_filtered_sql_query(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(has_filtered_sql_query(item) for item in value)
+    return False
+
+
+def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    properties = message.get("properties", {})
+    has_filtered_sql = has_filtered_sql_query(properties)
+    # Exception chains and stack context can include expanded SQL beyond the query metadata.
+    if message.get("event") == "$exception" and (has_filtered_sql or has_filtered_sql_query(get_query_tags().query)):
+        return None
+    if has_filtered_sql:
+        properties = _query_without_sql_filters(properties)
+    if properties.get("query_type") == "HogQLQuery":
+        # ClickHouse errors can embed the compiled SQL with filter values substituted.
+        properties = {key: value for key, value in properties.items() if key != "error_message"}
+    return {**message, "properties": properties}
+
+
 def self_hosted_capture_reaches_posthog() -> bool:
     return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
@@ -60,9 +96,8 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         hooks.append(filter_scout_experiment_capture)
     if self_hosted:
         hooks.append(drop_exception_capture)
+    hooks.append(filter_sql_query_capture)
     hooks.append(suppress_last_seen_updates)
-    if len(hooks) == 1:
-        return hooks[0]
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
         for hook in hooks:
@@ -228,11 +263,11 @@ def ph_scoped_capture(
         raise errors[0]
 
 
-_background_client: Any = None
+_background_clients: dict[str | None, Any] = {}
 _background_client_lock = threading.Lock()
 
 
-def ph_background_capture() -> ScopedCapture:
+def ph_background_capture(event_region: str | None = None) -> ScopedCapture:
     """Capture through a process-lifetime client whose batches the SDK's consumer
     thread delivers in the background — no per-call client setup or blocking flush.
 
@@ -241,18 +276,32 @@ def ph_background_capture() -> ScopedCapture:
     Delivery is best-effort: a bounded flush runs at interpreter exit, so don't use
     this where delivery must be confirmed before checkpointing durable state.
     """
-    global _background_client
-    if _background_client is None:
+    client = _background_clients.get(event_region)
+    if client is None:
         with _background_client_lock:
-            if _background_client is None:
-                _background_client = get_client()
+            client = _background_clients.get(event_region)
+            if client is None:
+                client = get_client()
+                if client and event_region is not None:
+                    # The client's own `region` super property would otherwise overwrite the event's region.
+                    client.super_properties["region"] = event_region
                 # The SDK's own atexit hook only joins the consumer mid-batch without
                 # draining the queue. atexit is LIFO, so this flush (registered after
                 # the client's hook) runs first and drains what a graceful shutdown
                 # enqueued last. Bounded (SDK default 10s) so a dead network can't
                 # stall process exit.
-                atexit.register(_background_client.flush)
-    return ScopedCapture(_background_client)
+                atexit.register(client.flush)
+                _background_clients[event_region] = client
+    return ScopedCapture(client)
+
+
+def flush_background_capture() -> None:
+    """Drain the process-lifetime clients, for a process that exits without running atexit hooks."""
+    for client in list(_background_clients.values()):
+        try:
+            client.flush()
+        except Exception:
+            logger.warning("background_capture_flush_failed", exc_info=True)
 
 
 def get_client(region: str = "US", **kwargs: Any):
@@ -284,7 +333,8 @@ def get_client(region: str = "US", **kwargs: Any):
             if next_message is None:
                 return None
             message = next_message
-        return suppress_last_seen_updates(message)
+        filtered_message = filter_sql_query_capture(message)
+        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
 
     kwargs["before_send"] = capture_filter
 

@@ -72,6 +72,7 @@ export interface AttachmentUploadsResponseApi {
 }
 
 /**
+ * * `scheduled` - Scheduled
  * * `queued` - Queued
  * * `failed` - Failed
  * * `sent` - Sent
@@ -79,9 +80,10 @@ export interface AttachmentUploadsResponseApi {
  * * `bounced` - Bounced
  * * `complained` - Complained
  */
-export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
 
-export const EmailDeliveryStatusEnumApi = {
+export const EmailSendStatusEnumApi = {
+    Scheduled: 'scheduled',
     Queued: 'queued',
     Failed: 'failed',
     Sent: 'sent',
@@ -93,16 +95,17 @@ export const EmailDeliveryStatusEnumApi = {
 export interface EmailStatusApi {
     /** The `message_id` that the send returned. */
     id: string
-    /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
      *
+     * * `scheduled` - Scheduled
      * * `queued` - Queued
      * * `failed` - Failed
      * * `sent` - Sent
      * * `delivered` - Delivered
      * * `bounced` - Bounced
      * * `complained` - Complained */
-    status: EmailDeliveryStatusEnumApi
-    /** When the send was queued. */
+    status: EmailSendStatusEnumApi
+    /** When PostHog accepted the send. */
     created_at: string
     /** When the email reached its current status. */
     status_at: string
@@ -178,7 +181,7 @@ export interface EmailAttachmentApi {
      */
     filename: string
     /**
-     * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+     * MIME type of the file, such as `application/pdf`, with any parameters, such as `text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.
      * @maxLength 78
      */
     content_type?: string
@@ -203,7 +206,7 @@ export interface SendEmailApi {
      */
     template_key?: string
     /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
@@ -215,7 +218,7 @@ export interface SendEmailApi {
     /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
     text?: string
     /**
-     * Addresses replies to the email your code rendered go to.
+     * Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`.
      * @maxItems 10
      */
     reply_to?: string[]
@@ -239,10 +242,32 @@ export interface SendEmailApi {
     /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
-     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
      * @maxLength 1024
      */
     from?: string
+}
+
+/**
+ * * `sandbox_sender` - Sent from the PostHog test sender
+ */
+export type SendWarningCodeEnumApi = (typeof SendWarningCodeEnumApi)[keyof typeof SendWarningCodeEnumApi]
+
+export const SendWarningCodeEnumApi = {
+    SandboxSender: 'sandbox_sender',
+} as const
+
+export interface SendWarningApi {
+    /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
+     *
+     * * `sandbox_sender` - Sent from the PostHog test sender */
+    code: SendWarningCodeEnumApi
+    /** What happened and what to do next, in words a person can read. */
+    message: string
+    /** Absolute URL of the page where the project verifies a sending domain: the page of its unverified sender when it has one, otherwise the page that adds a new one. */
+    setup_url: string
+    /** The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP tool starts the domain setup. */
+    agent_action: string
 }
 
 export interface SendTransactionalEmailResponseApi {
@@ -250,6 +275,8 @@ export interface SendTransactionalEmailResponseApi {
     message_id: string
     /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
     replayed: boolean
+    /** Things the caller should act on although the email was queued. Left out when there are none. */
+    warnings?: SendWarningApi[]
 }
 
 /**
@@ -446,11 +473,15 @@ export interface WebhookUrlApi {
 
 /**
  * * `customerio` - Customer.io
+ * * `resend` - Resend
+ * * `postmark` - Postmark
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
 export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
+    Resend: 'resend',
+    Postmark: 'postmark',
 } as const
 
 /**
@@ -483,6 +514,49 @@ export const ImportStepStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+export interface ImportStepCountApi {
+    /** What the step counted, for example `complained`. */
+    key: string
+    /** Display text for the count, including what it means for sends. */
+    label: string
+    /** The count so far. */
+    value: number
+}
+
+/**
+ * * `created` - Created
+ * * `skipped` - Left as it is
+ * * `failed` - Failed
+ * * `listed` - Listed
+ */
+export type ImportItemStatusEnumApi = (typeof ImportItemStatusEnumApi)[keyof typeof ImportItemStatusEnumApi]
+
+export const ImportItemStatusEnumApi = {
+    Created: 'created',
+    Skipped: 'skipped',
+    Failed: 'failed',
+    Listed: 'listed',
+} as const
+
+export interface ImportStepItemApi {
+    /** The object's name, for example a template name or a domain. */
+    label: string
+    /** `created` when the step made it, `skipped` when it already existed and stayed as it was, `failed` when it could not be made, `listed` when the step only reports it.
+     *
+     * * `created` - Created
+     * * `skipped` - Left as it is
+     * * `failed` - Failed
+     * * `listed` - Listed */
+    status: ImportItemStatusEnumApi
+    /**
+     * Where to open the object in PostHog, as an app path.
+     * @nullable
+     */
+    url: string | null
+    /** What to review, or what did not carry over exactly. */
+    notes: string[]
+}
+
 export interface ImportStepProgressApi {
     /** Step key, for example `suppressions`. */
     key: string
@@ -506,6 +580,14 @@ export interface ImportStepProgressApi {
      * @nullable
      */
     last_error: string | null
+    /** A breakdown of what the step did. Only counts above zero appear. */
+    counts: ImportStepCountApi[]
+    /** The objects the step handled, with anything to review. */
+    items: ImportStepItemApi[]
+    /** How many more warnings there were than `warnings` holds. */
+    warnings_omitted: number
+    /** How many more objects there were than `items` holds. */
+    items_omitted: number
 }
 
 export interface ProviderImportRunApi {
@@ -513,7 +595,9 @@ export interface ProviderImportRunApi {
     id: string
     /** The provider the run imports from.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend
+     * * `postmark` - Postmark */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -541,7 +625,9 @@ export interface ProviderImportRunApi {
 export interface StartProviderImportApi {
     /** The provider to import from.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend
+     * * `postmark` - Postmark */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -549,7 +635,10 @@ export interface StartProviderImportApi {
      * @items.maxLength 64
      */
     steps: string[]
-    /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+    /**
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.
+     * @maxLength 512
+     */
     api_key?: string
 }
 
@@ -565,12 +654,29 @@ export interface ImportStepOptionApi {
 export interface ImportProviderOptionApi {
     /** Provider key to send when starting an import.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend
+     * * `postmark` - Postmark */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string
     /** What the provider can import, in the order the steps run. */
     steps: ImportStepOptionApi[]
+    /** Whether PostHog stores the API key for later imports. When false, PostHog deletes the key when the run ends, so each import needs it again. */
+    retains_credentials: boolean
+    /** Display name of the API key this provider asks for. */
+    api_key_label: string
+    /** What kind of key to create, and how PostHog handles it. */
+    api_key_help: string
+    /**
+     * The page in the provider's app where the person can create the key.
+     * @nullable
+     */
+    api_key_url: string | null
+    /** What the import can't bring over. Empty when there is nothing to say. */
+    not_imported: string
+    /** What the person does once the import has finished, in order. */
+    next_steps: string[]
 }
 
 /**
@@ -771,7 +877,7 @@ export interface BulkAddSuppressionsResultApi {
     total: number
     /** Number of addresses added to the suppression list. */
     created: number
-    /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+    /** Number of addresses that already had an entry. A manual entry or a spam complaint keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list. */
     already_present: number
 }
 
@@ -971,6 +1077,8 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -1025,6 +1133,8 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -1135,6 +1245,14 @@ export interface MakeTransactionalApi {
     from_integration_id?: number | null
 }
 
+export interface MessageTemplatePlacementApi {
+    /**
+     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+     * @nullable
+     */
+    path: string | null
+}
+
 /**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
@@ -1142,7 +1260,7 @@ export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
 export interface TransactionalEmailIdentifiersApi {
     /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
@@ -1238,6 +1356,25 @@ export interface CodeEmailSourceCandidatesApi {
     complete: boolean
 }
 
+/**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+
+export const EmailDeliveryStatusEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
 export interface TransactionalEmailLogEntryApi {
     /** The `message_id` that the send returned. */
     message_id: string
@@ -1270,6 +1407,11 @@ export interface TransactionalEmailLogEntryApi {
     template_id: string | null
     /** The template's name. Empty when it was deleted. */
     template_name: string
+    /**
+     * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** The domain the email was sent from. Empty before it was sent. */
     sending_domain: string
     /** Whether the recipient opened the email. */
@@ -1361,6 +1503,11 @@ export interface TransactionalEmailLogDetailApi {
     template_id: string | null
     /** The template's name. Empty when it was deleted. */
     template_name: string
+    /**
+     * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** The domain the email was sent from. Empty before it was sent. */
     sending_domain: string
     /** Whether the recipient opened the email. */
@@ -1440,6 +1587,34 @@ export interface TransactionalEmailActivityApi {
     sessions: TransactionalEmailActivitySessionApi[]
 }
 
+export interface TransactionalEmailConversionsApi {
+    /** Sends in this group that named a person, newest 10,000 at most. */
+    sends: number
+    /** Of those, sends whose person did the event within window_days of the click, or of the send when nobody clicked. */
+    converted: number
+}
+
+export interface TransactionalEmailImpactApi {
+    /** Sends that left PostHog, including those that bounced. */
+    sent: number
+    /** Sends the recipient's mail server accepted. */
+    delivered: number
+    /** Sends opened at least once. */
+    opened: number
+    /** Sends with at least one tracked link click. */
+    clicked: number
+    /** Delivered sends nobody clicked. */
+    not_clicked: number
+    /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were sent rather than queued. They can't record an open or a click. */
+    untracked: number
+    /** How many days after the click or the send the event counts. */
+    window_days: number
+    /** Clicked sends and how many converted. Null without an event. */
+    after_click: TransactionalEmailConversionsApi | null
+    /** Delivered sends nobody clicked and how many converted. Null without an event. */
+    without_click: TransactionalEmailConversionsApi | null
+}
+
 export interface TransactionalEmailResultsApi {
     /** People the email was sent to in the date range. */
     recipients: number
@@ -1459,6 +1634,16 @@ export interface TransactionalEmailStatsRowApi {
     key: string
     /** The template name or the sending domain. Empty for a deleted template. */
     label: string
+    /**
+     * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+     * @nullable
+     */
+    template_id: string | null
+    /**
+     * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** Emails that reached the email provider. */
     sent: number
     /** Emails the recipient's mail server accepted. */
@@ -1611,6 +1796,12 @@ export type TransactionalEmailLogListParams = {
      */
     offset?: number
     /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string
+    /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */
     search?: string
@@ -1643,6 +1834,25 @@ export const TransactionalEmailLogListStatus = {
     Bounced: 'bounced',
     Complained: 'complained',
 } as const
+
+export type TransactionalEmailLogImpactRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The event that counts as a conversion, such as `signed_up`. Leave it out for the funnel alone.
+     */
+    event?: string
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string
+}
 
 export type TransactionalEmailLogResultsRetrieveParams = {
     /**

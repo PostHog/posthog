@@ -169,10 +169,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             queryset = queryset.filter(engine=DataModelingJobEngine.CLICKHOUSE)
 
         if not is_service_auth(self.request):
-            accessible_saved_queries = self.user_access_control.filter_queryset_by_access_level(
-                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id), resource="warehouse_view"
-            )
-            queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
+            queryset = queryset.filter(self._readable_saved_query_filter())
 
         return (
             queryset.select_related("saved_query")
@@ -183,6 +180,15 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             )
             .order_by("-created_at")
         )
+
+    def _readable_saved_query_filter(self) -> Q:
+        access = self.user_access_control.list_access_filter("warehouse_view")
+        if access is None or not (access.only_allowed or access.blocked_ids):
+            return Q(saved_query_id__isnull=False)
+        readable_saved_queries = self.user_access_control.filter_queryset_by_access_level(
+            DataWarehouseSavedQuery.objects.filter(team_id=self.team_id), resource="warehouse_view"
+        )
+        return Q(saved_query_id__in=readable_saved_queries.values("id"))
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

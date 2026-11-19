@@ -309,6 +309,71 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
         .describe('How many prompts to suggest, at most 50.'),
 })
 
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * @summary Set up AI visibility
+ */
+export const aeoSetupCreateBodyDomainMax = 200
+
+export const aeoSetupCreateBodyBrandMax = 200
+
+export const aeoSetupCreateBodyDescriptionMax = 1000
+
+export const aeoSetupCreateBodyEnginesItemMax = 64
+
+export const aeoSetupCreateBodyEnginesMax = 20
+
+export const aeoSetupCreateBodyRunFirstCheckDefault = false
+export const aeoSetupCreateBodyOnlyFirstRunDefault = false
+export const aeoSetupCreateBodyActivatePausedPromptsDefault = false
+
+export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoSetupCreateBodyDomainMax)
+        .optional()
+        .describe(
+            "The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true."
+        ),
+    brand: zod
+        .string()
+        .max(aeoSetupCreateBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoSetupCreateBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    engines: zod
+        .array(
+            zod.string().max(aeoSetupCreateBodyEnginesItemMax).describe('An engine id from GET aeo_setup\/context\/.')
+        )
+        .max(aeoSetupCreateBodyEnginesMax)
+        .optional()
+        .describe(
+            'The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.'
+        ),
+    run_first_check: zod
+        .boolean()
+        .default(aeoSetupCreateBodyRunFirstCheckDefault)
+        .describe(
+            'Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts.'
+        ),
+    only_first_run: zod
+        .boolean()
+        .default(aeoSetupCreateBodyOnlyFirstRunDefault)
+        .describe(
+            'Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine.'
+        ),
+    activate_paused_prompts: zod
+        .boolean()
+        .default(aeoSetupCreateBodyActivatePausedPromptsDefault)
+        .describe(
+            "With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on."
+        ),
+})
+
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100

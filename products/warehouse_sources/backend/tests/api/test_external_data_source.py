@@ -99,6 +99,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     _payload_sync_frequency_interval,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
+from products.warehouse_sources.backend.self_managed_access import MIGRATION_MARKER_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
@@ -122,6 +123,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     CredentialAccountsMixin,
     HostNotAllowedError,
     TemporaryHostResolutionError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import StoredObject
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
+    ObjectStorageSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -166,6 +171,15 @@ from products.warehouse_sources.backend.tests.api.utils import fake_decision_mod
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
 )
+
+
+def _test_team_not_allowlisted_for_internal_hosts():
+    # The test team's id depends on which tests ran before it in the same database. The allowlist exempts
+    # team 2 in the US region and team 1 in the EU region from the internal-host check.
+    return patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
+        return_value=False,
+    )
 
 
 def _mock_source_without_oauth_fields(mock_get_source) -> None:
@@ -685,9 +699,13 @@ class TestExternalDataSource(APIBaseTest):
             source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error=error, should_sync=True
         )
 
-        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
-        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/").json()
-        schemas = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
+        base = f"/api/environments/{self.team.pk}"
+        listed = self.client.get(f"{base}/external_data_sources/").json()["results"][0]
+        detail = self.client.get(f"{base}/external_data_sources/{source.pk}/").json()
+        schemas = self.client.get(f"{base}/external_data_schemas/").json()["results"]
+        compact_listed = self.client.get(f"{base}/external_data_sources/?compact=true").json()["results"][0]
+        compact_detail = self.client.get(f"{base}/external_data_sources/{source.pk}/?compact=true").json()
+        compact_schemas = self.client.get(f"{base}/external_data_schemas/?compact=true").json()["results"]
 
         errors = [
             listed["latest_error"],
@@ -695,6 +713,11 @@ class TestExternalDataSource(APIBaseTest):
             detail["latest_error"],
             detail["schemas"][0]["latest_error"],
             schemas[0]["latest_error"],
+            compact_listed["latest_error"],
+            compact_listed["schemas"][0]["latest_error"],
+            compact_detail["latest_error"],
+            compact_detail["schemas"][0]["latest_error"],
+            compact_schemas[0]["latest_error"],
         ]
         for masked in errors:
             self.assertIn("***", masked)
@@ -723,6 +746,126 @@ class TestExternalDataSource(APIBaseTest):
             self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         self.assertEqual(len(many_source_queries.captured_queries), len(one_source_queries.captured_queries))
+
+    @parameterized.expand(
+        [
+            ("list_default", "list", "", "full", True),
+            ("list_compact", "list", "?compact=true", "compact", True),
+            ("list_compact_no_schemas", "list", "?compact=true&include_schemas=false", "compact", False),
+            ("list_full_no_schemas", "list", "?include_schemas=false", "full", False),
+            ("retrieve_default", "retrieve", "", "full", True),
+            ("retrieve_compact", "retrieve", "?compact=true", "compact", True),
+            ("retrieve_compact_no_schemas", "retrieve", "?compact=true&include_schemas=false", "compact", False),
+            ("retrieve_full_no_schemas", "retrieve", "?include_schemas=false", "full", False),
+        ]
+    )
+    def test_read_response_shape(
+        self, _name: str, action: str, query: str, expected_shape: str, expect_schemas: bool
+    ) -> None:
+        source = self._make_source("shape")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error="boom", should_sync=True
+        )
+        self._make_schema_with_table(source, "Invoices", status=ExternalDataSchema.Status.COMPLETED)
+
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+        response = self.client.get(f"{base}{query}" if action == "list" else f"{base}{source.pk}/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()["results"][0] if action == "list" else response.json()
+
+        compact_fields = {
+            "id",
+            "created_at",
+            "source_type",
+            "prefix",
+            "description",
+            "access_method",
+            "status",
+            "latest_error",
+            "last_run_at",
+        }
+        if expected_shape == "compact":
+            assert set(data) == compact_fields | ({"schemas"} if expect_schemas else set())
+        else:
+            # The default stays the full form the frontend reads, connection settings included.
+            assert {"job_inputs", "revenue_analytics_config", "webhook_not_registered", "user_access_level"} <= set(
+                data
+            )
+            assert ("schemas" in data) is expect_schemas
+        assert data["status"] == ExternalDataSchema.Status.FAILED
+        assert data["latest_error"] == "boom"
+
+        if not expect_schemas:
+            return
+        rows = {row["name"]: row for row in data["schemas"]}
+        assert set(rows) == {"Customers", "Invoices"}
+        if expected_shape == "compact":
+            assert rows["Customers"] == {
+                "id": str(rows["Customers"]["id"]),
+                "name": "Customers",
+                "should_sync": True,
+                "status": ExternalDataSchema.Status.FAILED,
+                "last_synced_at": None,
+                "latest_error": "boom",
+            }
+        else:
+            assert "table" in rows["Customers"]
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_compact_truncates_long_errors(self, action: str) -> None:
+        source = self._make_source("long")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error="x" * 5000, should_sync=True
+        )
+
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+        url = f"{base}?compact=true" if action == "list" else f"{base}{source.pk}/?compact=true"
+        response = self.client.get(url)
+        data = response.json()["results"][0] if action == "list" else response.json()
+
+        for error in (data["latest_error"], data["schemas"][0]["latest_error"]):
+            assert error.startswith("x" * 500)
+            assert error.endswith("[truncated, 5000 characters]")
+            assert len(error) < 600
+
+    @parameterized.expand(
+        [
+            ("list_bad_compact", "list", "?compact=nope"),
+            ("list_bad_include_schemas", "list", "?include_schemas=maybe"),
+            ("retrieve_bad_compact", "retrieve", "?compact=nope"),
+            ("retrieve_bad_include_schemas", "retrieve", "?include_schemas=maybe"),
+        ]
+    )
+    def test_read_rejects_invalid_shape_params(self, _name: str, action: str, query: str) -> None:
+        source = self._make_source("bad")
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+
+        response = self.client.get(f"{base}{query}" if action == "list" else f"{base}{source.pk}/{query}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_compact_query_count_does_not_scale(self, action: str) -> None:
+        first = self._make_source("one")
+        self._make_schema_with_table(first, "A", status=ExternalDataSchema.Status.FAILED, latest_error="err")
+
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+        url = f"{base}?compact=true" if action == "list" else f"{base}{first.pk}/?compact=true"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as before:
+            assert self.client.get(url).status_code == 200
+
+        for index in range(4):
+            extra = self._make_source(f"many-{index}") if action == "list" else first
+            self._make_schema_with_table(
+                extra, f"S{index}", status=ExternalDataSchema.Status.FAILED, latest_error=f"err {index}"
+            )
+
+        with CaptureQueriesContext(connection) as after:
+            assert self.client.get(url).status_code == 200
+
+        assert len(after.captured_queries) == len(before.captured_queries)
 
     def _make_credentialed_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
         credential = DataWarehouseCredential.objects.create(
@@ -1957,13 +2100,16 @@ class TestExternalDataSource(APIBaseTest):
                 "db_error",
                 psycopg.OperationalError("the connection is closed"),
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                "database",
+                "temporary error",
+                True,
             ),
+            # A validation failure fails the same way on retry, so the message must not advise one.
             (
                 "validation_error",
                 ValidationError("Table1 cannot be changed"),
                 status.HTTP_400_BAD_REQUEST,
                 "cannot be changed",
+                False,
             ),
         ]
     )
@@ -1972,7 +2118,13 @@ class TestExternalDataSource(APIBaseTest):
         return_value=False,
     )
     def test_bulk_update_schemas_one_schema_failing_does_not_block_others(
-        self, _name, raised_exception, expected_status, expected_detail_substring, _mock_workflow_exists
+        self,
+        _name,
+        raised_exception,
+        expected_status,
+        expected_detail_substring,
+        expect_retry_advice,
+        _mock_workflow_exists,
     ):
         # Each schema commits in its own transaction. A failure on one schema — a database error
         # mid-save, or a validation error raised inside update() — must not roll back or block the
@@ -2024,6 +2176,7 @@ class TestExternalDataSource(APIBaseTest):
         detail = response.json()["detail"]
         assert "Table1" in detail
         assert expected_detail_substring in detail
+        assert ("try again" in detail.lower() or "retry" in detail.lower()) == expect_retry_advice
         assert "Table0" not in detail
         assert "Table2" not in detail
 
@@ -2357,7 +2510,8 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
         assert "Discount" in detail
-        assert "webhooks" in detail
+        assert "pick the webhook sync method" in detail.lower()
+        assert "try again" not in detail.lower() and "retry" not in detail.lower()
 
         webhook_only_schema.refresh_from_db()
         normal_schema.refresh_from_db()
@@ -3811,6 +3965,9 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_webhooks",
                 "webhook_not_registered",
                 "supports_column_selection",
+                "supports_adding_tables",
+                "table_root",
+                "supports_table_discovery",
                 "file_name",
                 "api_version",
                 "api_version_deprecation",
@@ -3832,6 +3989,8 @@ class TestExternalDataSource(APIBaseTest):
                     "label": schema.label,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
+                    "live_query_enabled": False,
+                    "live_query_unavailable_reason": "Live queries are only available on synced sources that have live queries turned on.",
                     "status": schema.status,
                     "pending_self_managed_table": False,
                     "sync_type": schema.sync_type,
@@ -6914,7 +7073,7 @@ class TestExternalDataSource(APIBaseTest):
             },
             "schemas": [],
         }
-        with override_settings(CLOUD_DEPLOYMENT="US"):
+        with override_settings(CLOUD_DEPLOYMENT="US"), _test_team_not_allowlisted_for_internal_hosts():
             for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
                 response = self.client.post(url, data=data)
                 self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
@@ -7122,6 +7281,10 @@ class TestExternalDataSource(APIBaseTest):
             ("malformed_after", "?after=yesterday"),
             ("malformed_before", "?before=not-a-date"),
             ("malformed_both", "?after=yesterday&before=not-a-date"),
+            ("limit_zero", "?limit=0"),
+            ("limit_above_max", "?limit=101"),
+            ("limit_negative", "?limit=-5"),
+            ("limit_not_a_number", "?limit=ten"),
         ]
     )
     def test_source_jobs_rejects_malformed_timestamp(self, _name, query_string):
@@ -7139,6 +7302,37 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("default", "", 50),
+            ("limit_one", "?limit=1", 1),
+            ("limit_below_total", "?limit=3", 3),
+            ("limit_max", "?limit=100", 55),
+            ("empty_limit", "?limit=", 50),
+        ]
+    )
+    def test_source_jobs_limit(self, _name: str, query_string: str, expected_count: int) -> None:
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        ExternalDataJob.objects.bulk_create(
+            [
+                ExternalDataJob(
+                    team=self.team,
+                    pipeline=source,
+                    schema=schema,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+                for _ in range(55)
+            ]
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert len(response.json()) == expected_count
 
     @parameterized.expand(
         [
@@ -8508,15 +8702,16 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={
-                "job_inputs": {
-                    "host": "localhost",
-                    "password": "new_password",
+        with _test_team_not_allowlisted_for_internal_hosts():
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "host": "localhost",
+                        "password": "new_password",
+                    },
                 },
-            },
-        )
+            )
 
         assert response.status_code == 400
         assert response.json()["detail"] == (
@@ -13644,14 +13839,21 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
 class TestExternalDataSourceSetup(APIBaseTest):
     # Stripe enables revenue analytics, whose post-create view sync builds the HogQL Database — patched
     # out here so the test exercises setup's own logic rather than that unrelated side effect.
+    @parameterized.expand(
+        [
+            # The MCP tool injects `mcp`; a direct API call sends nothing.
+            ("mcp_tool", {"created_via": "mcp"}, ExternalDataSource.CreatedVia.MCP),
+            ("direct_api_call", {}, ExternalDataSource.CreatedVia.API),
+        ]
+    )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_setup_creates_source_with_all_tables_and_mcp_created_via(
-        self, _mock_validate, _mock_sync_views, _mock_person_join
+    def test_setup_creates_source_with_all_tables_and_records_created_via(
+        self, _name, extra_body, expected_created_via, _mock_validate, _mock_sync_views, _mock_person_join
     ):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
@@ -13659,12 +13861,13 @@ class TestExternalDataSourceSetup(APIBaseTest):
                 "source_type": "Stripe",
                 "prefix": "stripe_setup_test",
                 "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                **extra_body,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
-        assert source.created_via == ExternalDataSource.CreatedVia.MCP
+        assert source.created_via == expected_created_via
         assert source.prefix == "stripe_setup_test"
 
         schemas = ExternalDataSchema.objects.filter(source=source)
@@ -13969,8 +14172,6 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-        source = ExternalDataSource.objects.get(pk=response.json()["id"])
-        assert source.created_via == ExternalDataSource.CreatedVia.MCP
         # The stored secret was merged in server-side and used for validation.
         validated_config = mock_validate.call_args.args[0]
         assert validated_config.auth_method.stripe_secret_key == "sk_test_stored"
@@ -15438,7 +15639,6 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
-        assert source.created_via == ExternalDataSource.CreatedVia.MCP
 
 
 class TestGetDirectConnectionMetadata(SimpleTestCase):
@@ -15884,6 +16084,44 @@ class TestRefreshSchemasErrorClassification(SimpleTestCase):
 
         assert message == DATABASE_HOST_NOT_ALLOWED_GUIDANCE
         assert is_expected is True
+
+
+SOURCE_SETUP_MODULE = "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup"
+
+
+class TestSourceRegistryBackedFields(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("removed_vendor", "Delighted", False),
+            ("unknown_plugin_key", "NotARegisteredSource", False),
+            ("registered_webhook_source", ExternalDataSourceType.STRIPE.value, True),
+        ]
+    )
+    def test_fields_fall_back_without_reporting_an_unregistered_source_type(
+        self, _name: str, source_type: str, supports_webhooks: bool
+    ) -> None:
+        serializer = ExternalDataSourceSerializers()
+        instance = ExternalDataSource(source_type=source_type)
+
+        with patch(f"{SOURCE_SETUP_MODULE}.capture_exception") as mock_capture_exception:
+            assert serializer.get_supports_webhooks(instance) is supports_webhooks
+            assert serializer.get_file_name(instance) is None
+
+        mock_capture_exception.assert_not_called()
+
+    def test_file_name_still_reports_an_error_from_a_registered_source(self) -> None:
+        serializer = ExternalDataSourceSerializers()
+        instance = ExternalDataSource(source_type=ExternalDataSourceType.STRIPE.value)
+        error = RuntimeError("boom")
+
+        with (
+            patch(f"{SOURCE_SETUP_MODULE}.SourceRegistry.get_source") as mock_get_source,
+            patch(f"{SOURCE_SETUP_MODULE}.capture_exception") as mock_capture_exception,
+        ):
+            mock_get_source.return_value.uploaded_file_name.side_effect = error
+            assert serializer.get_file_name(instance) is None
+
+        mock_capture_exception.assert_called_once_with(error)
 
 
 class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
@@ -16504,3 +16742,298 @@ class TestSourceSetupErrorCodes(APIBaseTest):
             response = self._post(self.CREATE_URL, {"source_type": "Stripe", "payload": {}})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "billing_limit_reached"
+
+
+def _stored_files(*paths: str) -> list[StoredObject]:
+    return [StoredObject(path=path, size=10, modified_at=timezone.now()) for path in paths]
+
+
+def _store_with_files(*paths: str) -> MagicMock:
+    store = MagicMock()
+    store.list_objects.side_effect = lambda prefix, _max: [] if prefix.endswith("_delta_log") else _stored_files(*paths)
+    return store
+
+
+class TestAddTableByPath(APIBaseTest):
+    def _source(
+        self, source_type: str = "AmazonS3", connection_metadata: dict | None = None, bucket: str = "example-bucket"
+    ) -> ExternalDataSource:
+        job_inputs = (
+            {
+                "url_pattern": f"https://s3.us-east-1.amazonaws.com/{bucket}/",
+                "access_key_id": "AKIAEXAMPLE",
+                "secret_access_key": "c2VjcmV0",
+                "file_format": "infer",
+                "csv_allow_double_quotes": "true",
+            }
+            if source_type == "AmazonS3"
+            else {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+        )
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix="bucket",
+            job_inputs=job_inputs,
+            connection_metadata=connection_metadata or {},
+        )
+
+    def _add_table(self, source: ExternalDataSource, store: Any, **body: Any) -> Any:
+        with patch.object(ObjectStorageSource, "open_store", return_value=store):
+            return self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/add_table/",
+                {"name": "orders", "path": "tables/orders/", **body},
+            )
+
+    @parameterized.expand(
+        [
+            ("relative_folder", "tables/orders/"),
+            ("full_url", "s3://example-bucket/tables/orders/"),
+        ]
+    )
+    def test_creates_a_pinned_table_that_is_turned_off(self, _name: str, path: str) -> None:
+        source = self._source()
+        store = _store_with_files("tables/orders/a.csv", "tables/orders/b.csv")
+
+        with patch(
+            "products.warehouse_sources.sources.amazon_s3.source.lookup_s3_bucket_region",
+            return_value="us-east-1",
+        ):
+            response = self._add_table(source, store, path=path, csv_allow_double_quotes=False)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(pk=response.json()["id"])
+        assert (schema.name, schema.should_sync, schema.sync_type) == (
+            "orders",
+            False,
+            ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        metadata = schema.sync_type_config["schema_metadata"]
+        assert metadata["pinned"] is True
+        assert (metadata["kind"], metadata["scope"], metadata["path"], metadata["csv"]["allow_double_quotes"]) == (
+            "files",
+            "all",
+            "tables/orders",
+            False,
+        )
+        assert [c.args[0] for c in store.list_objects.call_args_list] == ["tables/orders/_delta_log", "tables/orders"]
+
+    @parameterized.expand(
+        [
+            ("name_starts_with_a_number", {"name": "1orders"}, "name", "must start with a letter"),
+            ("name_with_a_dash", {"name": "my-orders"}, "name", "must start with a letter"),
+            ("unknown_file_format", {"file_format": "avro"}, "file_format", "valid choice"),
+            ("path_in_another_bucket", {"path": "s3://other-bucket/a.csv"}, "path", "in another bucket"),
+            ("path_with_a_parent_folder", {"path": "tables/../a.csv"}, "path", "'..' folders"),
+        ]
+    )
+    def test_refuses_invalid_input_before_reading_the_bucket(
+        self, _name: str, body: dict[str, Any], attr: str, detail: str
+    ) -> None:
+        store = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.sources.amazon_s3.source.lookup_s3_bucket_region",
+            return_value="us-east-1",
+        ):
+            response = self._add_table(self._source(), store, **body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == attr
+        assert detail in response.json()["detail"]
+        store.list_objects.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("live_table", "orders", False, {}),
+            ("live_table_in_another_case", "Orders", False, {}),
+            ("deleted_table_that_stays_self_managed", "orders", True, {"self_managed_table": {"table_id": "t"}}),
+        ]
+    )
+    def test_refuses_a_name_another_table_holds(
+        self, _name: str, existing_name: str, deleted: bool, metadata: dict[str, Any]
+    ) -> None:
+        source = self._source()
+        ExternalDataSchema.objects.create(
+            name=existing_name,
+            team_id=self.team.pk,
+            source=source,
+            deleted=deleted,
+            sync_type_config={"schema_metadata": metadata},
+        )
+        store = MagicMock()
+
+        response = self._add_table(source, store)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "name"
+        assert response.json()["detail"] == "A table named orders already exists in this source."
+        store.list_objects.assert_not_called()
+
+    def test_a_deleted_table_does_not_hold_its_name(self) -> None:
+        source = self._source()
+        ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source=source, deleted=True)
+        store = _store_with_files("tables/orders/a.csv")
+
+        response = self._add_table(source, store)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    @parameterized.expand(
+        [
+            ("access_denied", PermissionError("Access Denied"), "The storage provider denied access", False),
+            ("unexpected_error", RuntimeError("boom"), "PostHog couldn't read this path.", True),
+        ]
+    )
+    def test_a_storage_failure_is_an_error_on_the_path(
+        self, _name: str, raised: Exception, detail: str, captured: bool
+    ) -> None:
+        source = self._source()
+        store = MagicMock()
+        store.list_objects.side_effect = raised
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception"
+        ) as capture:
+            response = self._add_table(source, store)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "path"
+        assert response.json()["detail"].startswith(detail)
+        assert capture.called is captured
+        assert not ExternalDataSchema.objects.filter(source=source).exists()
+
+    def test_a_location_without_files_is_an_error_on_the_path(self) -> None:
+        store = MagicMock()
+        store.list_objects.return_value = []
+
+        response = self._add_table(self._source(), store)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "path"
+        assert "is empty or doesn't exist" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("hidden_table_of_the_source", "self", None, status.HTTP_403_FORBIDDEN),
+            ("hidden_table_of_a_migration_source_for_the_bucket", "migration_sibling", None, status.HTTP_403_FORBIDDEN),
+            (
+                "hidden_table_of_another_source_for_the_bucket",
+                "plain_source",
+                "example-bucket",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("hidden_table_of_a_source_for_another_bucket", "plain_source", "other-bucket", status.HTTP_201_CREATED),
+            (
+                "hidden_self_managed_table_without_a_region",
+                "self_managed",
+                "https://example-bucket.s3.amazonaws.com/hr/payroll/*.parquet",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "hidden_self_managed_table_posthog_can_not_map",
+                "self_managed",
+                "https://example-bucket.s3.amazonaws.com/hr/payroll/?.parquet",
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_refuses_a_table_that_would_show_files_another_table_hides(
+        self, _name: str, holder_kind: str, holder_bucket: str | None, expected_status: int
+    ) -> None:
+        migration = {MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/example-bucket"}}
+        source = self._source(connection_metadata=migration)
+        holder = {
+            "self": lambda: source,
+            "self_managed": lambda: source,
+            "migration_sibling": lambda: self._source(connection_metadata=migration),
+            "plain_source": lambda: self._source(bucket=holder_bucket or "example-bucket"),
+        }[holder_kind]()
+        if holder_kind == "self_managed":
+            # `holder_bucket` is the table's URL here.
+            payroll = DataWarehouseTable.objects.create(
+                name="payroll",
+                team=self.team,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern=holder_bucket or "",
+                credential=DataWarehouseCredential.objects.create(
+                    team=self.team, access_key="AKIAEXAMPLE", access_secret="c2VjcmV0"
+                ),
+            )
+        else:
+            payroll = DataWarehouseTable.objects.create(name="payroll", team=self.team, external_data_source=holder)
+            ExternalDataSchema.objects.create(team=self.team, source=holder, name="payroll", table=payroll)
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_table", resource_id=str(payroll.id), access_level="none"
+        )
+        store = _store_with_files("tables/payroll/a.csv")
+
+        response = self._add_table(source, store, name="payroll_copy", path="tables/payroll/")
+
+        assert response.status_code == expected_status, response.content
+        added = ExternalDataSchema.objects.filter(source=source, name="payroll_copy").exists()
+        assert added is (expected_status == status.HTTP_201_CREATED)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "access rules that a new table in this source would not keep" in response.json()["detail"]
+            store.list_objects.assert_not_called()
+
+    def test_a_source_that_is_not_object_storage_can_not_add_a_table(self) -> None:
+        response = self._add_table(self._source("Stripe"), MagicMock())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == "Only object storage sources can add a table by path."
+
+    @parameterized.expand(
+        [
+            ("migrated_bucket_source", {MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/example-bucket"}}, 400),
+            ("source_a_user_created", {}, 200),
+        ]
+    )
+    def test_refresh_schemas_refuses_a_source_rooted_at_a_whole_bucket(
+        self, _name: str, connection_metadata: dict[str, Any], expected_status: int
+    ) -> None:
+        source = self._source(connection_metadata=connection_metadata)
+
+        with patch.object(ObjectStorageSource, "get_schemas", return_value=[]) as get_schemas:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+            )
+
+        assert response.status_code == expected_status, response.content
+        assert get_schemas.called is (expected_status == 200)
+        if expected_status == 400:
+            assert "Add each table by its path instead" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("object_storage_source", "AmazonS3", {}, True, True, "example-bucket/", False),
+            ("migrated_bucket_source", "AmazonS3", {MIGRATION_MARKER_KEY: {}}, True, False, "example-bucket/", False),
+            ("api_source", "Stripe", {}, False, True, None, False),
+            ("unreadable_inputs", "AmazonS3", {}, False, True, None, True),
+        ]
+    )
+    def test_source_says_how_it_gets_new_tables(
+        self,
+        _name: str,
+        source_type: str,
+        connection_metadata: dict[str, Any],
+        supports_adding_tables: bool,
+        supports_table_discovery: bool,
+        table_root: str | None,
+        unreadable_inputs: bool,
+    ) -> None:
+        source = self._source(source_type, connection_metadata)
+        if unreadable_inputs:
+            ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs="not json")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert (body["supports_adding_tables"], body["supports_table_discovery"], body["table_root"]) == (
+            supports_adding_tables,
+            supports_table_discovery,
+            table_root,
+        )

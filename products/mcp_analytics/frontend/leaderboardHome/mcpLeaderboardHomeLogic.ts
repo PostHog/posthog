@@ -31,6 +31,8 @@ import {
     type WindowFacetRow,
 } from './leaderboardShares'
 
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+
 const MODEL_SERIES_LIMIT = 8
 const PROTOCOL_SERIES_LIMIT = 5
 
@@ -139,6 +141,7 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
     reducers({
         scoreboardMetric: [
             'calls' as ScoreboardMetric,
+            { persist: true, prefix: `${teamId}__` },
             {
                 setScoreboardMetric: (_, { metric }) => metric,
             },

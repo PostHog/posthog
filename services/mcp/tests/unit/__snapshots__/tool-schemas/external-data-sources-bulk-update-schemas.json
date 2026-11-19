@@ -91,6 +91,10 @@
                         ],
                         "description": "Type of the incremental cursor field."
                     },
+                    "live_query_enabled": {
+                        "description": "Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns.",
+                        "type": "boolean"
+                    },
                     "masked_columns": {
                         "anyOf": [
                             {

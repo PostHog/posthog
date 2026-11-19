@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 import { setTimeout as delay } from 'timers/promises'
+import { validate as isUuid, version as uuidVersion } from 'uuid'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
@@ -121,6 +122,8 @@ export interface EmailStatusUpdate {
     reason?: EmailStatusReason
     // When the status changed. Defaults to now.
     statusAt?: Date
+    // The run's trigger event time. Only a keyed message id, which holds no time, needs it.
+    messageCreatedAt?: Date
     // A failure of the whole run rather than of the email step.
     runOutcome?: boolean
     recipient?: string
@@ -142,6 +145,37 @@ export const uuidtCreatedAt = (messageId: string): Date => {
     return new Date(parseInt(messageId.slice(0, 8) + messageId.slice(9, 13), 16))
 }
 
+// A keyed send's id is uuidv5(team, scope, key), so every retry of a key gets the same id. That id holds no time.
+// A UUIDT reads as version 5 only once its per-millisecond series passes 0x5000, which takes one process minting
+// 20,480 ids within a single millisecond.
+export const isKeyedMessageId = (messageId: string): boolean => isUuid(messageId) && uuidVersion(messageId) === 5
+
+export const messageCreatedAtOf = (event: { timestamp?: unknown } | null | undefined): Date | undefined => {
+    const createdAt = typeof event?.timestamp === 'string' ? new Date(event.timestamp) : undefined
+    return createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : undefined
+}
+
+// Matches EMAIL_STATUS_TTL_DAYS in products/messaging/backend/models/email_status_sql.py.
+const EMAIL_STATUS_TTL_MS = 31 * 24 * 60 * 60 * 1000
+export const MESSAGE_CREATED_AT_MAX_AHEAD_MS = 60 * 60 * 1000
+
+// Every row of a message must carry the same created_at, so the rows share a partition and the email log can
+// group them. A keyed row without its carried time is refused rather than dated by the clock.
+const messageCreatedAt = ({ messageId, messageCreatedAt }: EmailStatusUpdate): Date => {
+    if (!isKeyedMessageId(messageId)) {
+        return uuidtCreatedAt(messageId)
+    }
+    if (!messageCreatedAt || Number.isNaN(messageCreatedAt.getTime())) {
+        throw new Error('keyed message id has no creation time')
+    }
+    // The carried time can come from an unsigned SES tag, and it picks the row's partition and TTL.
+    const ageMs = Date.now() - messageCreatedAt.getTime()
+    if (ageMs > EMAIL_STATUS_TTL_MS || ageMs < -MESSAGE_CREATED_AT_MAX_AHEAD_MS) {
+        throw new Error('keyed message creation time is outside the status tables window')
+    }
+    return messageCreatedAt
+}
+
 export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow => {
     const statusAt = update.statusAt && !Number.isNaN(update.statusAt.getTime()) ? update.statusAt : new Date()
     const rank =
@@ -158,9 +192,7 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         message_id: update.messageId,
         status: update.status,
         version: version.toString(),
-        // Derived from the message id rather than the clock, so every row of a message lands in
-        // the same `toYYYYMMDD(created_at)` partition and the rows can collapse.
-        created_at: isoMicroseconds(uuidtCreatedAt(update.messageId)),
+        created_at: isoMicroseconds(messageCreatedAt(update)),
         status_at: isoMicroseconds(statusAt),
         reason: update.reason ?? '',
         recipient: update.recipient ?? '',
@@ -174,12 +206,15 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
 export const isTransactionalEmailSend = (invocation: CyclotronJobInvocationHogFunction): boolean =>
     invocation.state?.globals?.event?.event === TRANSACTIONAL_EMAIL_EVENT
 
-const isTransactionalEmailRun = (invocation: CyclotronJobInvocation): boolean =>
+export const isTransactionalEmailRun = (invocation: CyclotronJobInvocation): boolean =>
     'hogFlow' in invocation && invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
 
 // A dequeued job has no `hogFlow` yet, so only its state says which event triggered it.
+export const jobTriggerEvent = (job: CyclotronJobInvocation): { event?: string; timestamp?: unknown } | undefined =>
+    (job.state as { event?: { event?: string; timestamp?: unknown } } | null)?.event
+
 const isTransactionalEmailJob = (job: CyclotronJobInvocation): boolean =>
-    (job.state as { event?: { event?: string } } | null)?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+    jobTriggerEvent(job)?.event === TRANSACTIONAL_EMAIL_EVENT
 
 /**
  * Records each status change of a transactional email for the email_status ClickHouse table.
@@ -219,7 +254,28 @@ export class EmailStatusService {
         if (isTest || !isTransactionalEmailSend(invocation)) {
             return
         }
-        this.queue({ teamId: invocation.teamId, messageId: invocation.id, status: 'failed', reason })
+        this.queue({
+            teamId: invocation.teamId,
+            messageId: invocation.id,
+            status: 'failed',
+            reason,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
+        })
+    }
+
+    // The send API refuses these sends before it queues a run, so no worker records them. The log lists a send only
+    // when it has a queued row, so the send gets a queued row and then the failed row that says why it did not go out.
+    queueRefusedSend(send: {
+        teamId: number
+        messageId: string
+        recipient: string
+        functionId: string
+        reason: EmailSkipReason
+        messageCreatedAt: Date | undefined
+    }): void {
+        const { reason, ...row } = send
+        this.queue({ ...row, status: 'queued' })
+        this.queue({ ...row, status: 'failed', reason })
     }
 
     // A run that fails or is canceled before its email step never reaches the email service, so the
@@ -237,6 +293,7 @@ export class EmailStatusService {
                 // Same precedence as the lifecycle row in hog_invocation_results: an error wins over a cancel.
                 reason: result.error ? classifyError(result.error).kind : 'canceled',
                 runOutcome: true,
+                messageCreatedAt: messageCreatedAtOf(result.invocation.state?.event),
             })
         }
     }
@@ -245,7 +302,13 @@ export class EmailStatusService {
         if (!isTransactionalEmailJob(job)) {
             return
         }
-        this.queue({ teamId: job.teamId, messageId: job.id, status: 'failed', reason })
+        this.queue({
+            teamId: job.teamId,
+            messageId: job.id,
+            status: 'failed',
+            reason,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
+        })
     }
 
     // A job whose workflow or team is gone is dropped without a result, so nothing else records it.
@@ -259,6 +322,7 @@ export class EmailStatusService {
             status: 'failed',
             reason: 'workflow_unavailable',
             runOutcome: true,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
     }
 

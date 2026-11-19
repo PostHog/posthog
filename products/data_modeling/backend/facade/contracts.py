@@ -91,10 +91,29 @@ class NodeLineageCounts:
 
 
 @frozen
+class NodeLineage:
+    node_ids: frozenset[str]
+    counts: dict[str, NodeLineageCounts]
+
+
+@frozen
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
     is_posthog_table: bool = False
+
+
+@frozen
+class DescribedColumn:
+    name: str
+    ch_type: str
+
+
+@frozen
+class DescribeProbe:
+    sql: str
+    globalized_positions: frozenset[int]
+    printed_names: dict[int, str]
 
 
 @dataclass(frozen=True)
@@ -276,6 +295,13 @@ class UnsatisfiableFrequencyError(ValueError):
     """A declared target falls outside the node's legal [source_floor, consumer_ceiling] range."""
 
 
+class PlanFloorRefusalError(UnsatisfiableFrequencyError):
+    def __init__(self, message: str, *, target: timedelta, plan_floor: timedelta) -> None:
+        super().__init__(message)
+        self.target = target
+        self.plan_floor = plan_floor
+
+
 class UnsupportedFrequencyTargetError(ValueError):
     """A declared target is not one of the cadences a person may pick (SCHEDULABLE_BUCKETS)."""
 
@@ -293,7 +319,7 @@ class Bound:
     blocker: str | None  # None when nothing set it (a derived node with no parents)
 
 
-BlockedBy = Literal["source", "consumer"]
+BlockedBy = Literal["source", "plan", "consumer"]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -303,20 +329,21 @@ class TargetOption:
     value: timedelta
     allowed: bool
     blocked_by: BlockedBy | None = None
-    blocker: str | None = None  # node id of the source or consumer that withholds it
+    blocker: str | None = None  # node id of the source or consumer that withholds it; None for the plan
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class TargetBounds:
     """Every selectable cadence for one node, each marked allowed or blocked with its cause.
 
-    `floor` and `ceiling` are reported only when they actually withhold an option. A 5min source
-    delivers faster than any tier runs, so it withholds nothing, and reporting it would explain a
-    restriction the person cannot see.
+    `floor`, `plan_floor` and `ceiling` are reported only when they actually withhold an option. A
+    5min source delivers faster than any tier runs, so it withholds nothing, and reporting it would
+    explain a restriction the person cannot see.
     """
 
     options: tuple[TargetOption, ...]  # ascending by cadence
     floor: Bound | None = None
+    plan_floor: timedelta | None = None
     ceiling: Bound | None = None
 
     @property
@@ -441,6 +468,7 @@ class IncrementalState:
     last_full_refresh_at: Optional[str] = None
     last_run_mode: Optional[str] = None
     has_incremental_history: bool = False
+    table_uri: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)

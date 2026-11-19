@@ -33,6 +33,7 @@ from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.activity_summary.search import searchable_config
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.facade.source_scouts import refresh_source_scout
@@ -1185,6 +1186,9 @@ async def _spawn_and_run(
     # every flag-payload lookup), AND a mint preflight — the prompt must not name `gh` when the
     # team has no usable installation to mint from (the scout would burn budget on 401s before
     # falling back).
+    custom_image_id = await database_sync_to_async(resolve_custom_image_id, thread_sensitive=False)(
+        team.id, SignalAgentRole.SCOUT, config.custom_image_id
+    )
     context = CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user_id,
@@ -1217,6 +1221,7 @@ async def _spawn_and_run(
         service_tier=service_tier,
         runtime=runtime,
         sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
+        custom_image_id=custom_image_id,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
@@ -1309,6 +1314,7 @@ async def _spawn_and_run(
             check_id=check_id,
             precheck_query_source=precheck_query_source,
             mcp_tool_allowlist=mcp_tool_allowlist,
+            custom_image_id=custom_image_id,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1625,6 +1631,7 @@ def _create_run_row(
     check_id: str | None = None,
     precheck_query_source: str | None = None,
     mcp_tool_allowlist: list[str] | None = None,
+    custom_image_id: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1649,6 +1656,8 @@ def _create_run_row(
     # could actually reach.
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         metadata["network_access"] = config.network_access
+    if custom_image_id is not None:
+        metadata["custom_image_id"] = custom_image_id
     # The three dimensions that pin down which instructions this run actually got. All are
     # point-in-time facts that become unrecoverable later, which is why they are stamped rather
     # than resolved at read time: the harness prompt has no version history, a skill's

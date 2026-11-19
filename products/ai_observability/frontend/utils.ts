@@ -7,7 +7,6 @@ import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 
 import { DateRange, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_BOOLEAN_GRADED_HOGQL,
     EVALUATION_NUMERIC_GRADED_HOGQL,
@@ -179,34 +178,8 @@ export function describeStopReason(value: unknown): string | null {
     return null
 }
 
-export function formatLLMUsage(
-    trace_or_event_or_aggregation: LLMTrace | LLMTraceEvent | SpanAggregation
-): string | null {
-    // Handle SpanAggregation
-    if (
-        'totalCost' in trace_or_event_or_aggregation &&
-        'totalLatency' in trace_or_event_or_aggregation &&
-        'hasGenerationChildren' in trace_or_event_or_aggregation
-    ) {
-        const aggregation = trace_or_event_or_aggregation as SpanAggregation
-        return formatUsage(aggregation.inputTokens || 0, aggregation.outputTokens)
-    }
-
-    // Handle LLMTraceEvent
-    if ('properties' in trace_or_event_or_aggregation) {
-        const event = trace_or_event_or_aggregation as LLMTraceEvent
-        if (typeof event.properties.$ai_input_tokens === 'number') {
-            return formatUsage(event.properties.$ai_input_tokens, event.properties.$ai_output_tokens)
-        }
-    }
-
-    // Handle LLMTrace
-    const trace = trace_or_event_or_aggregation as LLMTrace
-    if (typeof trace.inputTokens === 'number') {
-        return formatUsage(trace.inputTokens, trace.outputTokens)
-    }
-
-    return null
+export function formatLLMUsage(trace: LLMTrace): string | null {
+    return typeof trace.inputTokens === 'number' ? formatUsage(trace.inputTokens, trace.outputTokens) : null
 }
 
 export const LLM_TRACES_PAGE_SIZE = 50
@@ -240,21 +213,6 @@ export function costContextFromProperties(props: Record<string, any>): CostConte
         requestCost: props.$ai_request_cost_usd,
         webSearchCost: props.$ai_web_search_cost_usd,
         totalCost: props.$ai_total_cost_usd,
-    }
-}
-
-export function costContextFromTrace(
-    trace: Pick<LLMTrace, 'inputCost' | 'outputCost' | 'requestCost' | 'webSearchCost' | 'totalCost'>
-): CostContext | undefined {
-    if (typeof trace.totalCost !== 'number') {
-        return undefined
-    }
-    return {
-        inputCost: trace.inputCost,
-        outputCost: trace.outputCost,
-        requestCost: trace.requestCost,
-        webSearchCost: trace.webSearchCost,
-        totalCost: trace.totalCost,
     }
 }
 
@@ -353,18 +311,6 @@ export function formatErrorRate(errorRate: number): string {
     return `${Math.round(percentage)}%`
 }
 
-export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
-    return 'properties' in item
-}
-
-/**
- * Checks if the item is a trace-level object (LLMTrace) rather than an individual event.
- * This is the inverse of isLLMEvent and provides semantic clarity when checking for traces.
- */
-export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
-    return !isLLMEvent(item)
-}
-
 /**
  * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
  * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
@@ -392,44 +338,6 @@ export function getSummarizationLookupDateRange(
     }
 }
 
-function normalizeSessionId(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null
-}
-
-function sessionIdFromEvents(events?: LLMTraceEvent[] | null): string | null {
-    if (!events || events.length === 0) {
-        return null
-    }
-
-    const uniqueSessionIds = events.reduce((acc, current) => {
-        const candidate = normalizeSessionId(current.properties?.$session_id)
-        if (candidate) {
-            acc.add(candidate)
-        }
-        return acc
-    }, new Set<string>())
-
-    if (uniqueSessionIds.size !== 1) {
-        return null
-    }
-
-    return Array.from(uniqueSessionIds)[0]
-}
-
-export function getSessionID(event: LLMTrace | LLMTraceEvent, childEvents?: LLMTraceEvent[]): string | null {
-    if (isLLMEvent(event)) {
-        if (event.event === '$ai_trace') {
-            const directSessionId = normalizeSessionId(event.properties?.$session_id)
-
-            return directSessionId ?? sessionIdFromEvents(childEvents)
-        }
-
-        return normalizeSessionId(event.properties?.$session_id)
-    }
-
-    return sessionIdFromEvents(childEvents ?? event.events)
-}
-
 export type LLMEventKind = 'generation' | 'embedding' | 'trace' | 'span'
 
 export function getLLMEventKind(event: LLMTraceEvent): LLMEventKind {
@@ -443,10 +351,6 @@ export function getLLMEventKind(event: LLMTraceEvent): LLMEventKind {
         default:
             return 'span'
     }
-}
-
-export function getEventType(event: LLMTrace | LLMTraceEvent): string {
-    return isLLMEvent(event) ? getLLMEventKind(event) : 'trace'
 }
 
 // Clamp AFTER the seconds-to-ms conversion: a finite-but-huge latency (1e306s)
@@ -465,14 +369,6 @@ export function latencyMs(event: LLMTraceEvent): number {
 export function operationStartMs(event: LLMTraceEvent): number {
     const t = new Date(event.createdAt).getTime()
     return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMs(event)
-}
-
-export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
-    if (isLLMEvent(event)) {
-        return event.properties.$recording_status || null
-    }
-
-    return event.events.find((e) => e.properties.$recording_status !== null)?.properties.$recording_status || null
 }
 
 export function isTextContentItem(item: unknown): item is TextContentItem {
@@ -1036,60 +932,8 @@ export function safeStringify(value: unknown, indent: number = 2): string {
     }
 }
 
-export function removeMilliseconds(timestamp: string): string {
-    return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
 export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
-export function getSessionStartTimestamp(timestamp: string): string {
-    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
-}
-
-export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMEvent(event)) {
-        const spanName = asString(event.properties.$ai_span_name)
-
-        if (event.event === '$ai_generation') {
-            if (spanName) {
-                return spanName
-            }
-            const title = asString(event.properties.$ai_model) || 'Generation'
-            const provider = asString(event.properties.$ai_provider)
-            return provider ? `${title} (${provider})` : title
-        }
-
-        if (event.event === '$ai_embedding') {
-            if (spanName) {
-                return spanName
-            }
-            const title = asString(event.properties.$ai_model) || 'Embedding'
-            const provider = asString(event.properties.$ai_provider)
-            return provider ? `${title} (${provider})` : title
-        }
-
-        return spanName ?? 'Span'
-    }
-
-    return event.traceName ?? 'Trace'
-}
-
-export function formatModelRowLabel(event: LLMTrace | LLMTraceEvent): string | null {
-    if (!isLLMEvent(event) || event.event !== '$ai_generation') {
-        return null
-    }
-    // if we don't have a span name, we don't want to render the model row as its covered by the event title
-    if (!asString(event.properties.$ai_span_name)) {
-        return null
-    }
-    const model = asString(event.properties.$ai_model)
-    const provider = asString(event.properties.$ai_provider)
-    if (model && provider) {
-        return `${model} (${provider})`
-    }
-    return model || provider || null
 }
 
 /**

@@ -23,11 +23,12 @@ from products.warehouse_sources.backend.migration.types import ItemProposal, Pro
 from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource, PendingSourceCredential
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 _FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
 _SERVICE = "products.warehouse_sources.backend.migration.service"
@@ -466,10 +467,8 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert not WarehouseMigration.objects.for_team(self.team.pk).filter(id=own.id).exists()
 
 
-_STRIPE_VALID = patch(
-    "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
-    return_value=(True, None),
-)
+_STRIPE_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource"
+_STRIPE_VALID = patch(f"{_STRIPE_SOURCE}.validate_credentials", return_value=(True, None))
 _NO_PERSON_JOIN = patch(
     "products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join"
 )
@@ -543,6 +542,29 @@ class TestApplyMigrationItem(APIBaseTest):
 
         assert self._apply(self._credential()).status_code == 400
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+
+    def test_a_table_without_a_key_syncs_in_full_and_says_so(self) -> None:
+        discovered = SourceSchema(
+            name="Customer",
+            supports_incremental=True,
+            supports_append=False,
+            incremental_fields=[
+                {
+                    "label": "seq",
+                    "type": IncrementalFieldType.Integer,
+                    "field": "seq",
+                    "field_type": IncrementalFieldType.Integer,
+                }
+            ],
+            declares_primary_keys=True,
+        )
+        with patch(f"{_STRIPE_SOURCE}.get_schemas", return_value=[discovered]):
+            response = self._apply(self._credential())
+        assert response.status_code == 201, response.json()
+
+        schema = ExternalDataSchema.objects.get(source_id=response.json()["source_id"], name="Customer")
+        assert (schema.should_sync, schema.sync_type) == (True, "full_refresh")
+        assert any("`Customer` has no primary key" in caveat for caveat in response.json()["caveats"])
 
     def test_another_users_credential_fails_the_item(self) -> None:
         other_user = self._create_user("other@example.com")

@@ -197,12 +197,16 @@ def _get_token_paginated_rows(
 
     while True:
         params: dict[str, Any] = {"limit": config.page_size, **config.extra_params}
-        if token:
-            params["token"] = token
-
-        data = fetch("GET", _build_url(host, config.path, params))
+        if config.method == "POST":
+            if token:
+                params["next"] = token
+            data = fetch("POST", f"{host}{config.path}", json_body=params)
+        else:
+            if token:
+                params["token"] = token
+            data = fetch("GET", _build_url(host, config.path, params))
         items = _extract_items(data, config)
-        next_token = data.get("next") if isinstance(data, dict) else None
+        next_token = data.get(config.next_token_key) if isinstance(data, dict) else None
 
         if items:
             yield [_unnest_item(item, config) for item in items]

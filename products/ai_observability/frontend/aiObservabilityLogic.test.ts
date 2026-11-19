@@ -1,5 +1,3 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -18,7 +16,6 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -769,39 +766,5 @@ describe('AI observability persisted preferences', () => {
         expect(secondLogic.values.selectedDashboardId).toBe(42)
 
         secondLogic.unmount()
-    })
-
-    it('persists trace display preferences across remount', () => {
-        const firstLogic = aiObservabilityTraceLogic()
-        firstLogic.mount()
-        firstLogic.actions.setIsRenderingMarkdown(false)
-        firstLogic.actions.setIsRenderingXml(true)
-        firstLogic.actions.setDisplayOption(DisplayOption.TextView)
-        firstLogic.actions.setTraceReviewPanelExpanded(true)
-        firstLogic.unmount()
-
-        const secondLogic = aiObservabilityTraceLogic()
-        secondLogic.mount()
-
-        expect(secondLogic.values.isRenderingMarkdown).toBe(false)
-        expect(secondLogic.values.isRenderingXml).toBe(true)
-        expect(secondLogic.values.displayOption).toBe(DisplayOption.TextView)
-        expect(secondLogic.values.isTraceReviewPanelExpanded).toBe(true)
-
-        secondLogic.unmount()
-    })
-
-    it('scopes explicit storage keys to the current team', () => {
-        const logic = aiObservabilityTraceLogic()
-        logic.mount()
-        logic.actions.setIsRenderingMarkdown(false)
-
-        const storageKey = `${MOCK_TEAM_ID}__ai_observability.trace.isRenderingMarkdown`
-        expect(window.localStorage[storageKey]).toBe('false')
-        expect(
-            Object.getOwnPropertyNames(window.localStorage).filter((key) => key.endsWith('trace.isRenderingMarkdown'))
-        ).toEqual([storageKey])
-
-        logic.unmount()
     })
 })

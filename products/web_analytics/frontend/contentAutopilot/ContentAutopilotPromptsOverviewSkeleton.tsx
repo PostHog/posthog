@@ -1,34 +1,9 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
-
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
+import { ContentAutopilotTileSkeleton } from './ContentAutopilotTileSkeleton'
 
 const KPI_CARDS = 4
-
-const TileSkeleton = ({
-    title,
-    bodyClassName,
-    skeletonClassName = 'h-full w-full',
-    withInsightButton = false,
-}: {
-    title: string
-    bodyClassName: string
-    skeletonClassName?: string
-    withInsightButton?: boolean
-}): JSX.Element => (
-    <PagePerformanceCard className="min-w-0">
-        <PagePerformanceCardHeader
-            title={title}
-            // The loaded query tiles put a small "Open as insight" LemonButton here, which sets the header height.
-            actions={withInsightButton ? <LemonSkeleton className="h-[2.0625rem] w-[2.0625rem]" /> : undefined}
-        />
-        <div className={bodyClassName}>
-            <LemonSkeleton className={skeletonClassName} />
-        </div>
-    </PagePerformanceCard>
-)
 
 /** The overview's layout while it loads, one placeholder per tile, so nothing moves when the numbers arrive. */
 export const ContentAutopilotPromptsOverviewSkeleton = (): JSX.Element => (
@@ -52,19 +27,23 @@ export const ContentAutopilotPromptsOverviewSkeleton = (): JSX.Element => (
                 </div>
             ))}
         </ContentAutopilotStatStrip>
-        <TileSkeleton title="Share of answers that cite you" bodyClassName="h-72 p-2" withInsightButton />
+        <ContentAutopilotTileSkeleton
+            title="Share of answers that cite you"
+            bodyClassName="h-72 p-2"
+            withInsightButton
+        />
         <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-            <TileSkeleton title="By engine" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
-            <TileSkeleton title="Mentions by topic" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
+            <ContentAutopilotTileSkeleton title="By engine" />
+            <ContentAutopilotTileSkeleton title="Sites the engines cite most" withInsightButton />
         </div>
         <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-            <TileSkeleton
-                title="Sites the engines cite most"
-                bodyClassName="p-3"
-                skeletonClassName="h-48 w-full"
-                withInsightButton
+            <ContentAutopilotTileSkeleton
+                title="Topics at a glance"
+                bodyClassName="h-72 p-2"
+                skeletonClassName="h-full w-full"
             />
-            <TileSkeleton title="What the engines searched for" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
+            <ContentAutopilotTileSkeleton title="Mentions by topic" />
         </div>
+        <ContentAutopilotTileSkeleton title="What the engines searched for" />
     </section>
 )

@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
@@ -20,6 +21,7 @@ from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
+from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -30,6 +32,7 @@ from django.utils import timezone
 from django.utils.html import escape, format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from kombu.exceptions import OperationalError
 from loginas import settings as la_settings
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -52,7 +55,9 @@ from posthog.admin.console.results import (
 )
 from posthog.admin.console.tools import (
     Cell,
+    Choice,
     ConsoleTool,
+    Decision,
     Download,
     FieldGroup,
     Filters,
@@ -113,6 +118,7 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
     {
         "admin/posthog/user/<int:pk>/delete/",
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
+        "admin/legal_documents/legaldocument/add/",
         "admin/posthog/datadeletionrequest/add/",
         "admin/account_audits/accountauditcredential/add/",
         "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",
@@ -158,7 +164,7 @@ class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
-    group = "Data"
+    group = "Infrastructure"
 
 
 class _ToolActionForm(forms.Form):
@@ -210,6 +216,43 @@ class _ActingTool(_Tool):
                 ),
             )
         )
+
+
+class _VerdictForm(forms.Form):
+    item = forms.CharField()
+    verdict = forms.ChoiceField(choices=[("good", "Good"), ("bad", "Bad")])
+    note = forms.CharField(required=False)
+
+
+DECISION = Decision(
+    title="Item 3",
+    text="What the item says.",
+    operation_key="judge",
+    field="verdict",
+    choices=(Choice(label="Good", value="good", tone=Tone.SUCCESS, key="ArrowRight"),),
+    values={"item": "3"},
+    note_field="note",
+    note_label="Why",
+    query="item=4",
+    skip_href="/admin/console/tools/deciding-tool/?item=4",
+    skip_key="ArrowDown",
+)
+
+
+class _DecidingTool(_Tool):
+    key = "deciding-tool"
+    title = "Deciding tool"
+    decided: list[dict[str, str]] = []
+
+    def _judge(self, request: HttpRequest, form: forms.Form | None) -> None:
+        assert form is not None
+        self.decided.append(form.cleaned_data)
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [ToolOperation(key="judge", label="Judge", handler=self._judge, form_class=_VerdictForm, listed=False)]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=(replace(DECISION, operation_key=request.GET.get("runs", "judge")),))
 
 
 class _SecretTool(_Tool):
@@ -472,6 +515,16 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "1 cells for 2 columns",
             ),
             (
+                "decision_value_that_a_button_also_posts",
+                lambda: replace(DECISION, values={"verdict": "good"}),
+                "must not set",
+            ),
+            (
+                "decision_skip_link_off_site",
+                lambda: replace(DECISION, skip_href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
                 "download_name_that_would_break_the_header",
                 lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
                 "only letters",
@@ -729,14 +782,23 @@ class TestAdminConsoleViews(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def test_staff_login_is_required(self) -> None:
+    @parameterized.expand([("team_page", "/admin/console/teams/{team}/"), ("tools_index", "/admin/console/tools/")])
+    def test_staff_login_is_required(self, _name: str, path: str) -> None:
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
+        response = self.client.get(path.format(team=self.team.pk))
 
         assert response.status_code == 302
         assert response["Location"].startswith("/admin/login/")
+
+    def test_the_tools_page_links_every_registered_tool(self) -> None:
+        response = self.client.get("/admin/console/tools/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        for tool in console.tools():
+            assert f'href="/admin/console/tools/{tool.key}/"' in content, f"{tool.key} is missing from the tools page"
 
     def test_operations_need_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -802,6 +864,18 @@ class TestAdminConsoleViews(BaseTest):
     def _record(self, record: str) -> Model:
         if record == "deletion-request":
             return DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+        if record == "oauth-application":
+            return OAuthApplication.objects.create(
+                name="Console app",
+                client_id="console_app_client_id",
+                client_secret="secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                is_provisioning_partner=True,
+            )
         return {"team": self.team, "organization": self.organization, "project": self.project, "user": self.user}[
             record
         ]
@@ -841,7 +915,14 @@ class TestAdminConsoleViews(BaseTest):
 
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
-        assert f"/admin/console/teams/{self.team.pk}/" in home
+        opened_pages = (
+            f"/admin/console/teams/{self.team.pk}/",
+            f"/admin/console/organizations/{self.organization.pk}/",
+            f"/admin/console/projects/{self.project.pk}/",
+            f"/admin/console/users/{self.user.pk}/",
+        )
+        for opened_page in opened_pages:
+            assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
@@ -872,6 +953,7 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("organization_name", "organization_name", None),
             ("team_uuid", "team_uuid", None),
             ("team_api_token_in_uuid_form", "team_token", None),
             ("organization_id", "organization", None),
@@ -882,6 +964,9 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "organization_name":
+            query, expected = "Lookup Hedgehogs", f"/admin/console/teams/{self.team.pk}/"
+            Organization.objects.filter(pk=self.organization.pk).update(name="The Lookup Hedgehogs Ltd")
         elif record == "team_uuid":
             query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
         elif record == "team_token":
@@ -964,6 +1049,28 @@ class TestAdminConsoleViews(BaseTest):
         assert 'data-pending-label="Loading..."' in content and "Show details" in content
         assert 'value="2026-10-22"' in content and "Preview" in content
         assert re.search(r'<input type="hidden" name="step" value="details"', content)
+
+    def test_a_decision_runs_its_operation_in_one_click_and_returns_to_the_next_item(self) -> None:
+        _DecidingTool.decided = []
+        with patch.object(console, "get_tool", return_value=_DecidingTool()):
+            page = self.client.get("/admin/console/tools/deciding-tool/").content.decode()
+            response = self.client.post(
+                "/admin/console/tools/deciding-tool/judge/?item=4", {"item": "3", "verdict": "good", "note": "Fine"}
+            )
+
+        assert 'action="/admin/console/tools/deciding-tool/judge/?item=4"' in page
+        assert '<input type="hidden" name="item" value="3"' in page
+        assert re.search(r'name="verdict"\s+value="good"\s+data-console-key="ArrowRight"', page)
+        assert 'href="/admin/console/tools/deciding-tool/?item=4"' in page and 'data-console-key="ArrowDown"' in page
+        # The operation is the Decision's, so the Actions card does not offer its form too.
+        assert "tool-actions-title" not in page
+        assert response["Location"] == "/admin/console/tools/deciding-tool/?item=4"
+        assert _DecidingTool.decided == [{"item": "3", "verdict": "good", "note": "Fine"}]
+
+    def test_a_decision_for_an_operation_the_tool_does_not_offer_fails_the_page(self) -> None:
+        with patch.object(console, "get_tool", return_value=_DecidingTool()):
+            with self.assertRaisesRegex(ValueError, "must offer with a form"):
+                self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -1301,6 +1408,35 @@ class TestAdminConsoleViews(BaseTest):
         assert "restriction_type=redirect_to_dlq" not in content
         assert "The high cardinality query failed: Timeout exceeded" in content
         assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
+
+    @patch("posthog.models.distinct_id_usage.report.DistinctIdUsageQueries")
+    def test_distinct_id_usage_report_reuses_event_counts_but_not_restrictions(self, queries: MagicMock) -> None:
+        caches["default"].clear()
+        queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
+        queries.high_cardinality.return_value = []
+        burst_minute = datetime(2026, 11, 7, 5, 30, tzinfo=UTC)
+        queries.distinct_id_bursts.return_value = [(self.team.pk, "bursty-user", burst_minute, 150_000)]
+        queries.team_bursts.return_value = [(self.team.pk, burst_minute, 600_000)]
+        url = (
+            "/admin/console/tools/distinct-id-usage/?datetime_from=2026-11-07T04%3A00&datetime_to=2026-11-07T10%3A00"
+            "&high_usage_percentage_threshold=30&high_usage_min_events_threshold=10000"
+            "&high_usage_distinct_id_min_events=100000&high_cardinality_threshold=1000000"
+            "&burst_distinct_id_threshold=100000&burst_team_threshold=500000"
+        )
+
+        first = self.client.get(url).content.decode()
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["heavy-user"],
+        )
+        second = self.client.get(url).content.decode()
+
+        assert queries.high_usage.call_count == 1
+        assert "Event counts were read at" in second
+        assert "bursty-user" in second and "600,000" in first and "600,000" in second
+        assert "Not in list" not in first
+        assert "Applied: Skip person processing" in second
 
     @parameterized.expand(
         [
@@ -1856,15 +1992,16 @@ class TestAdminConsoleApiKeys(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def _personal_key(self) -> PersonalAPIKey:
+    def _personal_key(self, **fields: object) -> PersonalAPIKey:
         token = generate_random_token_personal()
-        return PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Leaked key",
-            secure_value=hash_key_value(token),
-            mask_value=mask_key_value(token),
-            scopes=["*"],
-        )
+        defaults: dict[str, object] = {
+            "user": self.user,
+            "label": "Leaked key",
+            "secure_value": hash_key_value(token),
+            "mask_value": mask_key_value(token),
+            "scopes": ["*"],
+        }
+        return PersonalAPIKey.objects.create(**{**defaults, **fields})
 
     @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
     def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
@@ -1883,6 +2020,100 @@ class TestAdminConsoleApiKeys(BaseTest):
         exposed.assert_called_once_with(
             self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
         )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_an_organization_operation_changes_only_the_keys_that_reach_the_organization(
+        self, operation: str, exposed: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Another organization")
+        self.user.join(organization=other)
+        outsider = User.objects.create_and_join(other, "outsider@example.com", None)
+        unscoped = self._personal_key(label="Unscoped key")
+        scoped_here = self._personal_key(label="Scoped here key", scoped_organizations=[str(self.organization.pk)])
+        untouched = [
+            self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
+            self._personal_key(label="Outsider key", user=outsider),
+        ]
+        # The oldest key comes last in the run, so the owner narrows it while the run changes the others.
+        narrowed = self._personal_key(label="Narrowed during the run key", created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        def narrow(instance: PersonalAPIKey, **kwargs: object) -> None:
+            if instance.pk != narrowed.pk:
+                PersonalAPIKey.objects.filter(pk=narrowed.pk).update(scoped_organizations=[str(other.pk)])
+
+        tool = self.client.get(
+            f"/admin/console/tools/organization-personal-api-keys/?organization={self.organization.pk}"
+        )
+        preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
+        assert preview.status_code == 200
+        untouched.append(self._personal_key(label="Created after the preview key"))
+        post_save.connect(narrow, sender=PersonalAPIKey)
+        post_delete.connect(narrow, sender=PersonalAPIKey)
+        try:
+            confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        finally:
+            post_save.disconnect(narrow, sender=PersonalAPIKey)
+            post_delete.disconnect(narrow, sender=PersonalAPIKey)
+        replayed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302 and replayed.status_code == 302
+        assert "Unscoped key" in tool.content.decode() and "Outsider key" not in tool.content.decode()
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
+            ("Unscoped key", "Other organizations too"),
+            ("Scoped here key", "This organization only"),
+            ("Narrowed during the run key", "Other organizations too"),
+        }
+        assert PersonalAPIKey.objects.get(pk=narrowed.pk).scoped_organizations == [str(other.pk)]
+        untouched.append(narrowed)
+        assert [PersonalAPIKey.objects.get(pk=key.pk).secure_value for key in untouched] == [
+            key.secure_value for key in untouched
+        ]
+        in_reach = PersonalAPIKey.objects.filter(user=self.user, pk__in=[unscoped.pk, scoped_here.pk])
+        if operation == "revoke-all":
+            assert not in_reach.exists()
+            exposed.delay.assert_not_called()
+        else:
+            old_values = {unscoped.secure_value, scoped_here.secure_value}
+            assert len(set(in_reach.values_list("secure_value", flat=True)) - old_values) == 2
+            assert exposed.delay.call_count == 2
+            exposed.delay.assert_any_call(
+                self.user.id, unscoped.id, unscoped.mask_value, "This key was detected at https://example.com/leak."
+            )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    def test_an_organization_operation_refuses_more_keys_than_the_preview_lists(self, operation: str) -> None:
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        with patch("posthog.admin.console.api_key_panels.KEYS_LIST_LIMIT", 1):
+            preview = self.client.post(url, {"reason": "Keys leaked"})
+
+        assert preview.status_code == 400
+        assert "confirm_token" not in preview.context
+        assert "too many to change at once" in preview.content.decode()
+        assert PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).count() == 2
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_all_keys_continues_when_an_email_cannot_be_queued(self, exposed: MagicMock) -> None:
+        exposed.delay.side_effect = [OperationalError("broker unavailable"), None]
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/roll-all/"
+
+        preview = self.client.post(url, {"reason": "Keys leaked"})
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert not PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).exists()
+        assert (
+            LogEntry.objects.filter(object_id__in=[key.pk for key in keys], change_message="Rolled key.").count() == 2
+        )
+        assert [str(message) for message in messages.get_messages(confirmed.wsgi_request)] == [
+            "Rolled 2 personal API keys.",
+            f"Could not email these owners: {self.user.email}. Tell them that their keys changed.",
+        ]
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")

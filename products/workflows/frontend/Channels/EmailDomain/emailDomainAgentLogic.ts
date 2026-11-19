@@ -1,10 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type {
@@ -28,9 +25,7 @@ export interface emailDomainAgentLogicValues {
     integrationId: number | null // emailDomainSenderLogic
     mailFromSubdomain: string // emailDomainSenderLogic
     records: EmailDomainStatusRecordApi[] // emailDomainStatusLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     agentModalOpen: boolean
-    agentSetupEnabled: boolean
     agentUsesBrowser: boolean
     claudeUrl: string
     setupPrompt: string
@@ -59,7 +54,6 @@ export interface emailDomainAgentLogicActions {
 export interface emailDomainAgentLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        agentSetupEnabled: (featureFlags: FeatureFlagsSet) => boolean
         setupPrompt: (
             domain: string | null,
             mailFromSubdomain: string,
@@ -89,8 +83,6 @@ export const emailDomainAgentLogic = kea<emailDomainAgentLogicType>([
     key(({ id }) => id),
     connect((props: EmailDomainLogicProps) => ({
         values: [
-            featureFlagLogic,
-            ['featureFlags'],
             emailDomainSenderLogic(props),
             ['currentTeamId', 'domain', 'integrationId', 'mailFromSubdomain'],
             emailDomainStatusLogic(props),
@@ -122,11 +114,6 @@ export const emailDomainAgentLogic = kea<emailDomainAgentLogicType>([
         ],
     }),
     selectors({
-        agentSetupEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP],
-        ],
         setupPrompt: [
             (s) => [
                 s.domain,

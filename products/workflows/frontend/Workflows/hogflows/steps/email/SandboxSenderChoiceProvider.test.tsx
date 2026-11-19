@@ -6,6 +6,9 @@ import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
@@ -213,19 +216,25 @@ describe('SandboxSenderChoiceProvider', () => {
         async (decision, expected) => {
             await renderStep(ownStep({ replyTo: 'help@example.com' }))
 
-            fireEvent.click(within(openFromPicker()).getByText('Sandbox sender'))
+            fireEvent.click(within(openFromPicker()).getByText('PostHog test sender'))
             fireEvent.click(await screen.findByText(decision))
 
             await waitFor(() => expect(storedStep()?.type).toEqual(expected))
         }
     )
 
-    it.each<[string, HogFlowAction, string, string]>([
-        ['an own step to the sandbox sender', ownStep(), 'Sandbox sender', 'email_sandbox'],
-        ['a sandbox step to an own sender', SANDBOX_STEP, 'hello@example.com', 'function_email'],
+    it.each<[string, string, HogFlowAction, string, string]>([
+        ['an own step to the PostHog test sender', 'legacy', ownStep(), 'PostHog test sender', 'email_sandbox'],
+        ['a sandbox step to an own sender', 'legacy', SANDBOX_STEP, 'hello@example.com', 'function_email'],
+        ['an own step to the PostHog test sender', 'sender row', ownStep(), 'PostHog test sender', 'email_sandbox'],
+        ['a sandbox step to an own sender', 'sender row', SANDBOX_STEP, 'hello@example.com', 'function_email'],
     ])(
-        'switches %s from the open editor, which stays open and keeps a canvas edit not yet exported',
-        async (_, step, sender, expected) => {
+        'switches %s from the open editor with the %s header, which stays open and keeps a canvas edit not yet exported',
+        async (_, header, step, sender, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: header === 'sender row',
+            })
             await renderStep(step)
             await editCanvasInTheOpenEditor()
 
@@ -248,6 +257,6 @@ describe('SandboxSenderChoiceProvider', () => {
         })
         await renderStep(ownStep())
 
-        expect(within(openFromPicker()).queryByText('Sandbox sender')).not.toBeInTheDocument()
+        expect(within(openFromPicker()).queryByText('PostHog test sender')).not.toBeInTheDocument()
     })
 })

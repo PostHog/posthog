@@ -249,6 +249,33 @@ class TestPresenceChecks:
         result = check.run(ctx)
         assert not result.issues
 
+    @pytest.mark.parametrize(
+        "scripts, expected_issue",
+        [
+            ({"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"}, None),
+            (
+                {
+                    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+                    "backend:contract-check": "echo 'Contract files unchanged'",
+                },
+                "the contract-check skip is withheld for this product (core enforces its decisions)",
+            ),
+        ],
+        ids=["without_script_passes", "with_script_fails"],
+    )
+    def test_contract_check_forbidden_when_skip_withheld(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripts: dict[str, str], expected_issue: str | None
+    ) -> None:
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setitem(isolation_module.SKIP_WITHHELD, "my_product", "core enforces its decisions")
+        ctx = _make_product(tmp_path, scripts=scripts, strict=True, extra_dirs=["backend"])
+        result = check.run(ctx)
+        if expected_issue is None:
+            assert not result.issues
+        else:
+            assert any(expected_issue in i for i in result.issues)
+
     def test_invalid_json_returns_issue(self, tmp_path: Path) -> None:
         ctx = _make_product(tmp_path, has_backend=True)
         (ctx.product_dir / "package.json").write_text("{invalid json")

@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.sdk import (
     EndpointResource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SortMode,
     SourceResponse,
     build_dependent_resource,
@@ -203,8 +204,12 @@ def get_resource(
             date_field=_resolve_date_field(config, incremental_field) if use_incremental else None,
             window_start=window_start,
             window_end=datetime.now(UTC) if window_start is not None else None,
-        ),
+        )
+        if config.paginated
+        else SinglePagePaginator(),
     }
+    if config.response_actions:
+        endpoint_config["response_actions"] = config.response_actions
 
     return {
         "name": config.name,

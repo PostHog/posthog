@@ -13,6 +13,7 @@ import requests
 from products.warehouse_sources.sources.mailgun import mailgun as mailgun_module
 from products.warehouse_sources.sources.mailgun._config import MailgunSourceConfig
 from products.warehouse_sources.sources.mailgun.mailgun import (
+    BOUNCE_CLASSIFICATION_PAGE_SIZE,
     EVENTS_CONSISTENCY_LAG_SECONDS,
     EVENTS_LOOKBACK_DAYS,
     INVALID_KEY_ERROR,
@@ -37,6 +38,7 @@ from products.warehouse_sources.sources.mailgun.mailgun import (
 )
 from products.warehouse_sources.sources.mailgun.settings import (
     MAILGUN_ENDPOINTS,
+    USAGE_METRICS,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
 )
@@ -335,6 +337,17 @@ class TestGetRows:
         assert isinstance(result.raised, requests.HTTPError)
         assert "400 Client Error" in str(result.raised)
 
+    def test_ip_pools_400_is_recognized_as_non_retryable(self):
+        # ip_pools takes no parameters we construct, so a 400 here can't be a malformed request on
+        # our side — it's Mailgun rejecting accounts without the Dedicated IP Pools feature, and
+        # every retry would hit the same account-level rejection.
+        result = _driver().run("ip_pools", [ScriptedResponse(status=400, json={})])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        non_retryable_errors = MailgunSource().get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable_errors.items() if pattern in str(result.raised)]
+        assert len(matches) == 1
+
     def test_domain_scoped_500_still_raises(self):
         # Server errors are transient and retryable — they must not be swallowed as a skip.
         domains_page = {"items": [{"name": "a.com"}]}
@@ -489,6 +502,98 @@ class TestMetricsRows:
         assert len(result.requests) == 1
         assert _request_day(result.requests[0]) == today
         assert result.requests[0].json()["pagination"]["skip"] == METRICS_PAGE_SIZE
+
+    def test_usage_metrics_send_one_unpaginated_request_per_day(self):
+        today = datetime.now(UTC).date()
+        usage_item = {
+            "dimensions": [{"dimension": "time", "value": f"{today.strftime('%a, %d %b %Y')} 00:00:00 +0000"}],
+            "metrics": {"processed_count": 12, "email_validation_count": None},
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(json={"items": [usage_item] if _request_day(request) == today else []})
+
+        result = self._driver().run("usage_metrics", respond)
+
+        assert result.raised is None
+        assert {request.path for request in result.requests} == {"/v1/analytics/usage/metrics"}
+        assert len(result.requests) == METRICS_LOOKBACK_DAYS
+        bodies = [request.json() for request in result.requests]
+        # The usage request schema has no pagination object, so none is sent.
+        assert all("pagination" not in body for body in bodies)
+        assert {tuple(body["metrics"]) for body in bodies} == {USAGE_METRICS}
+        assert {tuple(body["dimensions"]) for body in bodies} == {("time",)}
+        assert result.rows == [
+            {
+                "processed_count": 12,
+                "email_validation_count": None,
+                "time": datetime.combine(today, datetime.min.time(), tzinfo=UTC),
+            }
+        ]
+
+
+def _bounce_item(domain: str, provider: str) -> dict[str, Any]:
+    return {
+        "timestamp": "Mon, 08 Jul 2024 00:00:00 +0000",
+        "domain.name": domain,
+        "entity-name": provider,
+        "category": "ESPBLOCK",
+        "metrics": {"critical_bounce_count": 2, "classified_failures_count": 5, "critical_bounce_rate": None},
+    }
+
+
+class TestBounceClassificationRows:
+    @pytest.fixture(autouse=True)
+    def _short_lookback(self):
+        with mock.patch.object(mailgun_module, "BOUNCE_CLASSIFICATION_LOOKBACK_DAYS", METRICS_LOOKBACK_DAYS):
+            yield
+
+    def test_walks_days_pages_within_a_day_and_flattens_rows(self):
+        today = datetime.now(UTC).date()
+        busy_day = today - timedelta(days=3)
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if _request_day(request) != busy_day:
+                return ScriptedResponse(json={"items": []})
+            count = BOUNCE_CLASSIFICATION_PAGE_SIZE if request.json()["pagination"]["skip"] == 0 else 1
+            return ScriptedResponse(json={"items": [_bounce_item(f"d{i}.example.com", "Gmail") for i in range(count)]})
+
+        result = _driver().run("bounce_classification_metrics", respond)
+
+        assert result.raised is None
+        assert {request.path for request in result.requests} == {"/v2/bounce-classification/metrics"}
+        assert len(result.requests) == METRICS_LOOKBACK_DAYS + 1
+        busy_bodies = [request.json() for request in result.requests if _request_day(request) == busy_day]
+        # `timestamp` isn't a requested dimension: Mailgun rejects this endpoint's request with a
+        # 400 past an undocumented dimension-count cap, and the window is already one bucket wide.
+        assert {tuple(body["dimensions"]) for body in busy_bodies} == {("domain.name", "entity-name", "category")}
+        assert [body["pagination"]["skip"] for body in busy_bodies] == [0, BOUNCE_CLASSIFICATION_PAGE_SIZE]
+        assert {body["pagination"]["limit"] for body in busy_bodies} == {BOUNCE_CLASSIFICATION_PAGE_SIZE}
+        assert len(result.rows) == BOUNCE_CLASSIFICATION_PAGE_SIZE + 1
+        assert result.rows[0] == {
+            "timestamp": datetime(2024, 7, 8, tzinfo=UTC),
+            "domain_name": "d0.example.com",
+            "entity_name": "Gmail",
+            "category": "ESPBLOCK",
+            "critical_bounce_count": 2,
+            "classified_failures_count": 5,
+            "critical_bounce_rate": None,
+        }
+
+    def test_incremental_sync_starts_shortly_before_the_watermark(self):
+        today = datetime.now(UTC).date()
+        watermark = datetime.combine(today - timedelta(days=5), datetime.min.time(), tzinfo=UTC)
+
+        result = _driver().run(
+            "bounce_classification_metrics",
+            lambda _request: ScriptedResponse(json={"items": []}),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        days = [_request_day(request) for request in result.requests]
+        assert days == [today - timedelta(days=offset) for offset in range(7, -1, -1)]
 
 
 def _log_item(event_id: str) -> dict[str, Any]:
@@ -652,6 +757,106 @@ class TestFanOutEndpoints:
         assert result.raised is None
         assert result.params("skip") == ["0", str(page_size)]
         assert len(result.rows) == page_size + 1
+
+
+class TestSinglePageEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, path, payload, key",
+        [
+            (
+                "ips",
+                "/v3/ips",
+                {
+                    "items": ["192.0.2.1", "192.0.2.2"],
+                    "details": [{"ip": "192.0.2.1", "is_on_warmup": True}, {"ip": "192.0.2.2", "dedicated": True}],
+                    "total_count": 2,
+                },
+                "ip",
+            ),
+            (
+                "ip_pools",
+                "/v3/ip_pools",
+                {
+                    "ip_pools": [{"pool_id": "pool-1", "name": "marketing", "ips": ["192.0.2.1"]}],
+                    "message": "success",
+                },
+                "pool_id",
+            ),
+        ],
+    )
+    def test_reads_one_response_with_no_paging_params(self, endpoint, path, payload, key):
+        result = _driver().run(endpoint, always(ScriptedResponse(json=payload)))
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.queries == [{}]
+        expected_rows = payload["details"] if endpoint == "ips" else payload["ip_pools"]
+        assert [row[key] for row in result.rows] == [row[key] for row in expected_rows]
+
+
+def _versions_page(versions: list[dict[str, Any]], next_url: str | None) -> dict[str, Any]:
+    return {"template": {"name": "t", "versions": versions}, "paging": {"next": next_url} if next_url else {}}
+
+
+class TestTemplateVersions:
+    def test_fans_out_over_domains_and_templates(self):
+        a_versions = f"{US_BASE}/v3/a.example.com/templates/welcome/versions"
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "a.example.com"}, {"name": "b.example.com"}]})
+            if request.path == "/v3/a.example.com/templates":
+                if request.param("page") == "next":
+                    return ScriptedResponse(json=_paging_page([], None))
+                templates = [{"name": "welcome"}, {"name": "gone away"}]
+                return ScriptedResponse(json=_paging_page(templates, f"{request.url}&page=next&p=gone"))
+            if request.path == "/v3/b.example.com/templates":
+                # A disabled domain rejects the listing; the other domains still sync.
+                return ScriptedResponse(status=400, json={"message": "domain is disabled"})
+            if request.path == "/v3/a.example.com/templates/welcome/versions":
+                if request.param("page") == "next":
+                    return ScriptedResponse(json=_versions_page([], f"{a_versions}?page=next&p=v2"))
+                versions = [{"tag": "v1", "active": False}, {"tag": "v2", "active": True}]
+                return ScriptedResponse(json=_versions_page(versions, f"{a_versions}?page=next&p=v2&limit=100"))
+            if request.path == "/v3/a.example.com/templates/gone%20away/versions":
+                # Deleted after the listing was read.
+                return ScriptedResponse(status=404, json={"message": "template not found"})
+            raise AssertionError(f"unexpected request {request.url}")
+
+        result = _driver().run("template_versions", respond)
+
+        assert result.raised is None
+        assert [(row["domain"], row["template_name"], row["tag"]) for row in result.rows] == [
+            ("a.example.com", "welcome", "v1"),
+            ("a.example.com", "welcome", "v2"),
+        ]
+        assert result.params("limit")[result.paths.index("/v3/a.example.com/templates/welcome/versions")] == "100"
+        assert "/v3/b.example.com/templates" in result.paths
+
+    def test_resume_continues_the_saved_template_chain_without_relisting(self):
+        next_url = f"{US_BASE}/v3/a.example.com/templates/welcome/versions?page=next&p=v1&limit=100"
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v3/a.example.com/templates/welcome/versions" and request.param("p") == "v1":
+                return ScriptedResponse(json=_versions_page([{"tag": "v2"}], None))
+            if request.path == "/v3/a.example.com/templates/promo/versions":
+                return ScriptedResponse(json=_versions_page([{"tag": "v1"}], None))
+            raise AssertionError(f"unexpected request {request.url}")
+
+        result = _driver().run(
+            "template_versions",
+            respond,
+            resume_state=MailgunResumeConfig(
+                next_url=next_url,
+                current_domain="a.example.com",
+                current_template="welcome",
+                pending_templates=["promo"],
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["template_name"], row["tag"]) for row in result.rows] == [("welcome", "v2"), ("promo", "v1")]
+        assert "/v4/domains" not in result.paths
 
 
 class TestMailgunSourceResponse:

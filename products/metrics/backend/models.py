@@ -93,6 +93,11 @@ class MetricsDashboardSuggestion(TeamScopedRootMixin, UUIDModel):
     dashboard_id = models.BigIntegerField(
         null=True, blank=True, help_text="The dashboard that a user of the team created from the suggestion."
     )
+    dismissed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a user of the team dismissed the suggestion. The row stays, so that an analysis does not suggest the template to the team again.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

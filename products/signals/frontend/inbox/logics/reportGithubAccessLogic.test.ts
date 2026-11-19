@@ -143,7 +143,7 @@ describe('reportGithubAccessLogic', () => {
                 if (!teamLoaded) {
                     teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
                 }
-                await waitFor(() => expect(inboxSetupLogic.values.scoutLimit.limit).toBe(3))
+                await waitFor(() => expect(inboxSetupLogic.values.scoutLimit.limit).toBe(5))
             } finally {
                 finish()
                 await expectLogic(logic).toFinishAllListeners()

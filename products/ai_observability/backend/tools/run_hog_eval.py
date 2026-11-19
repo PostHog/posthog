@@ -146,8 +146,9 @@ class RunHogEvalTestTool(MaxTool):
         output_type: Literal["boolean", "numeric", "categorical"] = "boolean",
         output_config: dict[str, Any] | None = None,
     ) -> tuple[str, Any]:
-        from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
         from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
+
+        from products.ai_observability.backend.logic.message_utils import extract_text_from_messages
 
         try:
             _, output_config = validate_evaluation_configs(

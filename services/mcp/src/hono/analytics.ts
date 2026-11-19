@@ -7,6 +7,7 @@ import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
+import { METRIC_LIST_TOOL, resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -16,7 +17,7 @@ import {
 } from '@/lib/posthog/analytics'
 import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -88,6 +89,10 @@ function buildBaseProperties(
                   $mcp_project_name: analyticsContext.projectName,
                   ...buildMCPContextProperties(analyticsContext),
               }
+            : {}),
+        // `unknown` means the catalog read failed, which the prompt treats as `lookup`.
+        ...(state.allTools.some(({ name }) => name === METRIC_LIST_TOOL)
+            ? { metric_catalog_mode: state.metricCatalog ? resolveMetricCatalogMode(state.metricCatalog) : 'unknown' }
             : {}),
         mcp_runtime: 'hono',
         $mcp_vendor_client: clientIdentity.mcpVendorClient,
@@ -276,7 +281,7 @@ export async function trackExecuteSqlGeneration(
     meta: ExecuteSqlGenerationMeta,
     analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
-    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME || !shouldCaptureToolCall(toolName, args)) {
         return
     }
     const query = (args as { query?: unknown } | null | undefined)?.query
@@ -385,12 +390,28 @@ type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
 const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
     ['workflows-transactional-emails-list', 'arguments-and-result'],
     ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],
+    ['suppressions-list', 'arguments-and-result'],
+    ['suppressions-remove', 'arguments-and-result'],
     ['suppressions-add', 'arguments'],
 ])
 
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+
+// A start holds a vendor API key that can do anything in the customer's account, and results quote sender addresses and
+// template text. Key-based redaction misses both, also when the call arrives as an exec command string.
+// `$mcp_tool_call` still records the call.
+const PROVIDER_IMPORT_TOOL_PREFIX = 'provider-imports-'
+
+function isProviderImportTool(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(PROVIDER_IMPORT_TOOL_PREFIX)) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return toolName === 'exec' && typeof command === 'string' && command.includes(PROVIDER_IMPORT_TOOL_PREFIX)
+}
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
     if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
@@ -418,10 +439,17 @@ function emailRecipientExposure(toolName: string, input: unknown): EmailRecipien
 }
 
 function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
+    // Property-filter values can contain credentials under the generic `value` key.
+    if (hasSqlFilters(toolName, input)) {
+        return false
+    }
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
     if (sendsEmailContent(toolName, input)) {
+        return false
+    }
+    if (isProviderImportTool(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
@@ -582,13 +610,20 @@ function omitAppData(output: unknown): unknown {
         return output
     }
     const result = output as Record<string, unknown>
-    const meta = result._meta
-    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
-        return output
+    const sanitized: Record<string, unknown> = { ...result }
+    for (const field of ['_meta', 'structuredContent']) {
+        const carrier = result[field]
+        if (
+            typeof carrier === 'object' &&
+            carrier !== null &&
+            !Array.isArray(carrier) &&
+            APP_DATA_META_KEY in carrier
+        ) {
+            const { [APP_DATA_META_KEY]: _appData, ...rest } = carrier as Record<string, unknown>
+            sanitized[field] = rest
+        }
     }
-    const sanitizedMeta: Record<string, unknown> = { ...meta }
-    delete sanitizedMeta[APP_DATA_META_KEY]
-    return { ...result, _meta: sanitizedMeta }
+    return sanitized
 }
 
 /**
@@ -745,6 +780,7 @@ export async function trackSkillInvoked(state: ResolvedState, invocation: SkillI
                 skill_name: invocation.skill,
                 skill_identifier: `${invocation.source}:${invocation.skill}`,
                 skill_read_kind: invocation.readKind,
+                ...(invocation.path ? { skill_file_path: invocation.path } : {}),
             },
         })
     } catch {

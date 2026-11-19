@@ -22,10 +22,10 @@ make the list of an exposed person shorter, so a person with a shorter list that
 their variant, with no exposure. For a person with no stored list, and when the second flag gives no known variant,
 the first flag picks the arm.
 
-A head ranker sorts by the served score of its outcome, highest first, then in priority order. Unscored and stale
-reports come after every scored report, in priority order. The merge key follows the same order, so a client can merge
-rows from different state requests: `1 - score` for a scored report, `2 + priority rank` for an unscored report, and
-the priority rank alone for the priority ranker.
+A head ranker sorts by the served score of its outcome, highest first, then in priority order. A report edited after
+its last score still sorts by that score. Unscored reports come after every scored report, in priority order. The merge
+key follows the same order, so a client can merge rows from different state requests: `1 - score` for a scored report,
+`2 + priority rank` for an unscored report, and the priority rank alone for the priority ranker.
 """
 
 from typing import Literal, get_args
@@ -42,7 +42,6 @@ from posthog.models.user import User
 
 from products.signals.backend.models import AutonomyPriority, SignalReportArtefact
 from products.signals.backend.ranking.public_outcomes import PublicOutcomeName
-from products.signals.backend.ranking.staleness import annotate_stale_score
 
 logger = structlog.get_logger(__name__)
 
@@ -139,17 +138,15 @@ def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery
     # `results -> <served_key> -> <key> -> <head>`. A value that is not a JSON number reads as NULL,
     # so one bad row cannot fail the list. The guard is in the CASE, not the filter: the latest
     # artefact decides, as it does for the `ranking` field, so a bad latest row makes the report
-    # unscored rather than older-scored. A stale score (the report was edited after the text it
-    # scored) also reads as NULL.
+    # unscored rather than older-scored.
     content = Cast(F("content"), output_field=JSONField())
     served_key = Func(content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField())
     return Subquery(
-        annotate_stale_score(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-            ).order_by("-created_at")
+        SignalReportArtefact.objects.filter(
+            report_id=OuterRef("id"),
+            type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
         )
+        .order_by("-created_at")
         .annotate(
             _score=Case(
                 When(
@@ -171,11 +168,7 @@ def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery
         .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
         .annotate(
             _score_value=Case(
-                When(
-                    _score_type="number",
-                    _score_is_stale=False,
-                    then=Cast(F("_score"), output_field=FloatField()),
-                ),
+                When(_score_type="number", then=Cast(F("_score"), output_field=FloatField())),
                 default=Value(None),
                 output_field=FloatField(),
             )

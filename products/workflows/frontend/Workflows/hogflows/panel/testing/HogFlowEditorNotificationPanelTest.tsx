@@ -26,7 +26,7 @@ import { PersonType } from '~/types'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
-import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
+import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { SandboxTestRecipientSelect } from '../../steps/email/SandboxTestRecipientSelect'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
@@ -35,7 +35,7 @@ import { testResultBanner } from './testResultBanner'
 
 export function EmailActionTestContent(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { selectTrigger, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
 
     const {
@@ -94,7 +94,7 @@ export function EmailActionTestContent(): JSX.Element | null {
 
                 <p>Step through each action in your workflow and see how it behaves.</p>
 
-                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)}>
+                <LemonButton type="primary" onClick={() => selectTrigger()}>
                     Start testing
                 </LemonButton>
             </div>

@@ -46,6 +46,7 @@ from posthog.schema import (
     QueryStatus,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import schema
@@ -69,7 +70,13 @@ from posthog.auth import (
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import (
+    AccessMethod,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+    tags_context,
+)
 from posthog.constants import INSIGHT
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, report_user_action
@@ -132,7 +139,7 @@ from posthog.rate_limit import (
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -158,8 +165,8 @@ from products.alerts.backend.facade.api import delete_insight_alerts
 from products.alerts.backend.presentation.views.insight_alerts import (
     insight_alerts_hidden,
     insight_alerts_prefetch,
-    native_insight_alerts,
     serialize_insight_alerts,
+    shown_insight_alerts,
 )
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
@@ -368,6 +375,12 @@ def _dashboards_field_access_method(request: Request | None) -> str:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
     return type(authenticator).__name__
+
+
+def _limit_context_for_access_method() -> LimitContext:
+    if is_api_key_access_method(get_query_tag_value("access_method")):
+        return LimitContext.QUERY
+    return LimitContext.QUERY_ASYNC
 
 
 def _is_internal_serialization_context(context: dict) -> bool:
@@ -1245,24 +1258,23 @@ class InsightSerializer(InsightBasicSerializer):
             return []
 
         # Only the insight API prefetches alerts. Other callers embed none.
-        alerts = getattr(insight, "_prefetched_alerts", None)
-        if alerts is None:
+        if not hasattr(insight, "_prefetched_alerts"):
             return []
-        return serialize_insight_alerts([*alerts, *self._native_alerts(insight)], self.context)
+        return serialize_insight_alerts(self._shown_alerts(insight), self.context)
 
-    def _native_alerts(self, insight: Insight) -> list[Any]:
-        """The insight's alerts with no insight row. The first call reads them for every insight in the
-        response at once and keeps them in the context, so a page costs one read."""
-        loaded: dict[int, list[Any]] = self.context.setdefault("_native_insight_alerts", {})
+    def _shown_alerts(self, insight: Insight) -> list[Any]:
+        """The insight's alerts as the alert API shows them. The first call reads them for every insight in
+        the response at once and keeps them in the context, so a page costs one read."""
+        loaded: dict[int, list[Any]] = self.context.setdefault("_shown_insight_alerts", {})
         if insight.id not in loaded:
             parent = self.parent
             response = self.context.get("insights_in_response") or (
                 parent.instance if isinstance(parent, serializers.ListSerializer) and parent.instance else [insight]
             )
-            batch = [each for each in response if hasattr(each, "_prefetched_alerts")] or [insight]
-            native = native_insight_alerts(batch)
-            loaded.update({each.id: native.get(each.id, []) for each in batch})
-            loaded.setdefault(insight.id, native.get(insight.id, []))
+            batch = [each for each in response if hasattr(each, "_prefetched_alerts")]
+            if insight not in batch:
+                batch.append(insight)
+            loaded.update(shown_insight_alerts(batch, {each.id: each._prefetched_alerts for each in batch}))
         return loaded[insight.id]
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
@@ -1498,6 +1510,7 @@ class InsightSerializer(InsightBasicSerializer):
                         cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_query_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
+                        limit_context=_limit_context_for_access_method(),
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
                     if (

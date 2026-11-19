@@ -1,5 +1,6 @@
 import re
 import json
+import socket
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -8,11 +9,15 @@ import pytest
 from unittest.mock import MagicMock
 
 from requests import Response
-from requests.exceptions import HTTPError, ProxyError, RequestException
+from requests.exceptions import ConnectionError, HTTPError, ProxyError, RequestException, Timeout
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from products.warehouse_sources.sources.mailchimp._config import MailchimpSourceConfig
 from products.warehouse_sources.sources.mailchimp.mailchimp import (
     EVENT_TABLE_APPEND_ERROR,
+    INVALID_API_KEY_FORMAT_ERROR,
+    INVALID_DATA_CENTER_ERROR,
+    MAILCHIMP_UNREACHABLE_ERROR,
     MAX_RETRY_ATTEMPTS,
     MailchimpResumeConfig,
     MailchimpRetryableError,
@@ -20,6 +25,7 @@ from products.warehouse_sources.sources.mailchimp.mailchimp import (
     _format_incremental_value,
     _get_with_retry,
     _incremental_query_params,
+    _is_dns_resolution_failure,
     extract_data_center,
     validate_credentials,
 )
@@ -38,7 +44,7 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 class TestExtractDataCenter:
     def test_invalid_key_raises(self):
-        with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
+        with pytest.raises(ValueError, match="valid Mailchimp API key"):
             extract_data_center("invalidkey")
 
     @pytest.mark.parametrize(
@@ -53,8 +59,68 @@ class TestExtractDataCenter:
         ],
     )
     def test_malicious_dc_values_raise(self, malicious_key):
-        with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
+        with pytest.raises(ValueError, match="valid Mailchimp API key"):
             extract_data_center(malicious_key)
+
+
+def _raised_from(outer: BaseException, inner: BaseException) -> BaseException:
+    try:
+        try:
+            raise inner
+        except BaseException as caught:
+            raise outer from caught
+    except BaseException as raised:
+        return raised
+
+
+def _raised_during(outer: BaseException, inner: BaseException) -> BaseException:
+    try:
+        try:
+            raise inner
+        except BaseException:
+            raise outer
+    except BaseException as raised:
+        return raised
+
+
+_GAIERROR = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+
+class TestIsDnsResolutionFailure:
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (_GAIERROR, True),
+            (ConnectionError(_GAIERROR), True),
+            (ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", _GAIERROR)), True),
+            (
+                ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", reason=NewConnectionError(None, "no host"))),
+                False,
+            ),
+            (_raised_from(ConnectionError("failed"), _GAIERROR), True),
+            (_raised_during(ConnectionError("failed"), _GAIERROR), True),
+            (_raised_from(ConnectionError("failed"), OSError("Connection reset by peer")), False),
+            (ConnectionError(OSError("Connection reset by peer")), False),
+            (Timeout("read timed out"), False),
+            (ConnectionError(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")), False),
+            (_raised_from(ConnectionError("failed"), socket.gaierror(socket.EAI_AGAIN, "try again")), False),
+        ],
+        ids=[
+            "bare-gaierror",
+            "gaierror-in-args",
+            "gaierror-in-nested-args",
+            "reason-without-gaierror",
+            "chained-cause",
+            "chained-context",
+            "cause-is-connection-reset",
+            "connection-reset-in-args",
+            "timeout",
+            "temporary-resolver-failure-in-args",
+            "temporary-resolver-failure-in-cause",
+        ],
+    )
+    def test_walks_the_exception_chain(self, error: BaseException, expected: bool) -> None:
+        assert _is_dns_resolution_failure(error) is expected
 
 
 class TestValidateCredentials:
@@ -65,15 +131,27 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/3.0/ping"
 
     def test_invalid_api_key_format_is_surfaced(self):
-        valid, error = validate_credentials("invalidkey")
-        assert valid is False
-        assert error is not None and "Invalid Mailchimp API key format" in error
+        assert validate_credentials("invalidkey") == (False, INVALID_API_KEY_FORMAT_ERROR)
+
+    @pytest.mark.parametrize(
+        "pasted_key",
+        ["key-us6 ", "key-us6\n", "\tkey-us6\r\n"],
+    )
+    def test_source_accepts_a_key_pasted_with_surrounding_whitespace(self, pasted_key: str) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            result = MailchimpSource().validate_credentials(MailchimpSourceConfig(api_key=pasted_key), team_id=1)
+
+        assert result == (True, None)
+        assert network.requests_log[0].path == "/3.0/ping"
 
     @pytest.mark.parametrize(
         "exception",
         [
             ProxyError("Cannot connect to proxy.", OSError("Tunnel connection failed: 502 Bad gateway")),
             RequestException("connection reset"),
+            Timeout("read timed out"),
+            ConnectionError(OSError("Connection reset by peer")),
+            ConnectionError(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")),
         ],
     )
     def test_network_errors_return_friendly_message_without_raw_details(self, exception: RequestException) -> None:
@@ -81,7 +159,25 @@ class TestValidateCredentials:
             valid, error = validate_credentials("key-us6")
 
         assert valid is False
-        assert error == "Could not reach the Mailchimp API. Check your network connection and try again."
+        assert error == MAILCHIMP_UNREACHABLE_ERROR
+        assert "network connection" not in error
+        assert {request.path for request in network.requests_log} == {"/3.0/ping"}
+
+    @pytest.mark.parametrize(
+        "exception",
+        [
+            ConnectionError(_GAIERROR),
+            ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", reason=_GAIERROR)),
+        ],
+        ids=["gaierror-in-args", "gaierror-as-max-retry-reason"],
+    )
+    def test_dns_failure_points_at_the_data_center(self, exception: RequestException) -> None:
+        with scripted_network(always(exception)) as network:
+            valid, error = validate_credentials("key-usx")
+
+        assert valid is False
+        assert error == INVALID_DATA_CENTER_ERROR
+        assert "data center" in error
         assert {request.path for request in network.requests_log} == {"/3.0/ping"}
 
 
@@ -673,6 +769,28 @@ class TestGenericEndpointIterator:
         assert result.paths == ["/3.0/reports", "/3.0/reports/c2/sent-to"]
         assert result.requests[-1].param("offset") == "1000"
 
+    def test_segment_members_walk_excludes_fuzzy_segments(self) -> None:
+        # A "fuzzy" (similar-subscribers) segment is computed on demand with no stored membership,
+        # so Mailchimp 400s when asked to list its members. The segment-listing hop filters it out
+        # server-side instead of walking into a segment that can never answer.
+        result = _driver().run(
+            "list_segment_members",
+            route(
+                {
+                    "/lists": [ScriptedResponse(json={"lists": [{"id": "l1"}], "total_items": 1})],
+                    "/lists/l1/segments": [ScriptedResponse(json={"segments": [{"id": "s1"}], "total_items": 1})],
+                    "/lists/l1/segments/s1/members": [
+                        ScriptedResponse(json={"members": [{"id": "m1"}], "total_items": 1})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        segment_list_request = next(r for r in result.requests if r.path == "/3.0/lists/l1/segments")
+        assert segment_list_request.param("exclude_type") == "fuzzy"
+        assert result.rows == [{"list_id": "l1", "segment_id": "s1", "id": "m1"}]
+
 
 class TestSourceResponseForNewEndpoints:
     def test_fan_out_endpoint_is_routed_away_from_the_rest_path(self) -> None:
@@ -695,6 +813,14 @@ class TestSourceResponseForNewEndpoints:
         assert result.response.primary_keys == ["campaign_id", "country_code", "region"]
         assert result.rows == [{"campaign_id": "c1", "country_code": "US", "region": ""}]
         assert result.paths == ["/3.0/reports", "/3.0/reports/c1/locations"]
+
+    def test_sync_strips_whitespace_pasted_around_the_api_key(self) -> None:
+        driver = SourceDriver(MailchimpSource(), MailchimpSourceConfig(api_key="key-us6\n"))
+
+        result = driver.run("lists", [ScriptedResponse(json={"lists": [{"id": "l1"}], "total_items": 1})])
+
+        assert result.raised is None
+        assert result.rows == [{"id": "l1"}]
 
     @pytest.mark.parametrize(
         ("endpoint", "expected_primary_keys", "expected_partition_keys", "first_response"),
@@ -727,12 +853,19 @@ class TestMailchimpRetryableErrors:
         [
             ("401", "401 Client Error: Unauthorized for url: https://us15.api.mailchimp.com/3.0/lists"),
             ("403", "403 Client Error: Forbidden for url: https://us15.api.mailchimp.com/3.0/lists"),
-            ("invalid_key_format", "Invalid Mailchimp API key format. Expected format: key-dc"),
+            ("invalid_key_format", INVALID_API_KEY_FORMAT_ERROR),
         ],
     )
     def test_non_retryable_errors_do_not_match(self, name: str, observed_error: str) -> None:
         retryable_errors = MailchimpSource().get_retryable_errors()
         assert not any(key in observed_error for key in retryable_errors), observed_error
+
+    def test_invalid_key_format_during_sync_is_non_retryable(self) -> None:
+        with pytest.raises(ValueError) as exc_info:
+            extract_data_center("invalidkey")
+
+        non_retryable_errors = MailchimpSource().get_non_retryable_errors()
+        assert any(key in str(exc_info.value) for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         ("name", "observed_error"),

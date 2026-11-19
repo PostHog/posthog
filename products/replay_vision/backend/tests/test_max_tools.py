@@ -34,6 +34,7 @@ from products.replay_vision.backend.max_tools import (
     CreateReplayVisionScannerTool,
     DeleteReplayVisionScannerTool,
     DraftReplayVisionScannerPromptTool,
+    GetReplayVisionObservationStatsTool,
     GetReplayVisionQuotaTool,
     GetReplayVisionScanResultsTool,
     LabelReplayVisionObservationTool,
@@ -1399,6 +1400,7 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "list_replay_vision_scanners": False,
         "estimate_replay_vision_scanner": False,
         "get_replay_vision_quota": False,
+        "get_replay_vision_observation_stats": False,
         "get_replay_vision_scan_results": False,
         "search_replay_vision_observations": False,
         "compare_replay_vision_variants": False,
@@ -1646,3 +1648,89 @@ class TestReplayVisionLifecycleTools(BaseTest):
         _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))
 
         assert artifact["error"] == "invalid_filters"
+
+    def test_observation_stats_rank_fixed_and_freeform_tags_together(self):
+        scanner = self._scanner(
+            scanner_type=ScannerType.CLASSIFIER, scanner_config={"prompt": "p", "tags": ["checkout"]}
+        )
+        outputs = [{"tags": ["checkout"]}, {"tags_freeform": ["coupon"]}, {"tags_freeform": ["coupon"]}]
+        for index, output in enumerate(outputs):
+            ReplayObservation.objects.create(
+                scanner=scanner,
+                session_id=f"s{index}",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={"model_output": output},
+            )
+
+        content, _ = async_to_sync(self._tool(GetReplayVisionObservationStatsTool)._arun_impl)(
+            scanner_id=str(scanner.id)
+        )
+
+        assert "- coupon: 2\n- checkout: 1" in content
+
+    @parameterized.expand([("count", False), ("cohort", True)])
+    def test_impact_leaves_out_observations_from_an_unreadable_experiment(self, _name: str, create_cohort: bool):
+        scanner = self._scanner()
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="restricted",
+            distinct_id="person-restricted",
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_snapshot={"experiment_targeting": {"experiment_id": 999_999}},
+            scanner_result={"model_output": {"verdict": "no"}},
+        )
+
+        content, artifact = async_to_sync(self._tool(AnalyzeReplayVisionImpactTool)._arun_impl)(
+            scanner_id=str(scanner.id), verdict="no", create_cohort=create_cohort
+        )
+
+        assert artifact["affected_sessions"] == 0
+        assert "cohort_id" not in artifact
+
+    def _monitor_with_observations(self) -> ReplayScanner:
+        scanner = self._scanner()
+        outcomes = [
+            (ObservationStatus.SUCCEEDED, "yes"),
+            (ObservationStatus.SUCCEEDED, "no"),
+            (ObservationStatus.SUCCEEDED, "no"),
+            (ObservationStatus.FAILED, None),
+            (ObservationStatus.INELIGIBLE, None),
+        ]
+        for index, (status, verdict) in enumerate(outcomes):
+            ReplayObservation.objects.create(
+                scanner=scanner,
+                session_id=f"s{index}",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=status,
+                completed_at=timezone.now(),
+                scanner_result={"model_output": {"verdict": verdict}} if verdict else {},
+            )
+        return scanner
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_observation_stats_count_every_observation(self):
+        scanner = await sync_to_async(self._monitor_with_observations)()
+
+        content, artifact = await self._tool(GetReplayVisionObservationStatsTool)._arun_impl(scanner_id=str(scanner.id))
+
+        assert artifact["total"] == 5
+        assert artifact["monitor"] == {"yes_total": 1, "no_total": 2, "inconclusive_total": 0}
+        assert "5 observation(s) in total: 3 succeeded, 1 failed, 1 ineligible" in content
+        assert "1 yes, 2 no, 0 inconclusive" in content
+
+    @parameterized.expand(
+        [("default", None, 1), ("yes", "yes", 1), ("no", "no", 2), ("inconclusive", "inconclusive", 0)]
+    )
+    def test_impact_counts_the_requested_verdict(self, _name: str, verdict: str | None, expected: int):
+        scanner = self._monitor_with_observations()
+
+        _, artifact = async_to_sync(self._tool(AnalyzeReplayVisionImpactTool)._arun_impl)(
+            scanner_id=str(scanner.id), verdict=verdict
+        )
+
+        assert artifact["affected_sessions"] == expected

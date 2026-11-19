@@ -253,11 +253,13 @@ from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 unittest.util._MAX_LENGTH = 2000  # type: ignore
 
 
-def _get_calling_frame_locals() -> dict[str, Any]:
-    frame = inspect.currentframe()
-    if frame is None or frame.f_back is None:
-        raise RuntimeError("Expected a calling frame")
-    return frame.f_back.f_locals
+def _get_decorated_class_body_locals() -> dict[str, Any]:
+    helper_frame = inspect.currentframe()
+    decorator_frame = helper_frame.f_back if helper_frame is not None else None
+    class_body_frame = decorator_frame.f_back if decorator_frame is not None else None
+    if class_body_frame is None or "__qualname__" not in class_body_frame.f_locals:
+        raise RuntimeError("Test variant decorators must be applied to a method inside a class body")
+    return class_body_frame.f_locals
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
@@ -560,6 +562,12 @@ def setup_test_organization_team_and_user(
     organization_name: str, team_api_token: str, user_email: str | None = None, user_password: str | None = None
 ) -> tuple[Organization, Project, Team, User | None, OrganizationMembership | None]:
     organization = Organization.objects.create(name=organization_name)
+    project, team = _create_test_project_and_team(organization, team_api_token)
+    user, organization_membership = _create_test_user(organization, user_email, user_password)
+    return organization, project, team, user, organization_membership
+
+
+def _create_test_project_and_team(organization: Organization, team_api_token: str) -> tuple[Project, Team]:
     project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
     team = Team.objects.create(
         id=project.id,
@@ -576,13 +584,33 @@ def setup_test_organization_team_and_user(
         ],
         has_completed_onboarding_for={"product_analytics": True},
     )
-    if user_email and user_password:
-        user = User.objects.create_and_join(organization, user_email, user_password)
-        organization_membership = user.organization_memberships.get()
-    else:
-        user = None
-        organization_membership = None
-    return organization, project, team, user, organization_membership
+    return project, team
+
+
+def _create_test_user(
+    organization: Organization, user_email: str | None, user_password: str | None
+) -> tuple[User | None, OrganizationMembership | None]:
+    if not (user_email and user_password):
+        return None, None
+    user = User.objects.create_and_join(organization, user_email, user_password)
+    return user, user.organization_memberships.get()
+
+
+def _setup_test_organization_and_user(klass):
+    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
+    klass.user, klass.organization_membership = _create_test_user(
+        klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD
+    )
+
+
+def _setup_test_project_and_team(test_case):
+    test_case.project, test_case.team = _create_test_project_and_team(
+        test_case.organization, test_case.CONFIG_API_TOKEN
+    )
+    if test_case.user:
+        User.objects.filter(pk=test_case.user.pk).update(current_team=test_case.team)
+        test_case.user.current_team = test_case.team
+        test_case.user.__dict__.pop("team", None)
 
 
 def _setup_test_data(klass):
@@ -692,6 +720,7 @@ class PostHogTestCase(SimpleTestCase):
     # which can greatly speed up tests. Some tests will require test data to be set up on every test case, setting this
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
+    CLASS_LEVEL_ORGANIZATION_AND_USER = False
 
     databases = {"default"}
 
@@ -713,9 +742,15 @@ class PostHogTestCase(SimpleTestCase):
         return Team.objects.create(organization=self.organization, project=self.project, name=name)
 
     @classmethod
+    def _shares_organization_and_user_across_tests(cls) -> bool:
+        return not cls.CLASS_DATA_LEVEL_SETUP and cls.CLASS_LEVEL_ORGANIZATION_AND_USER and issubclass(cls, TestCase)
+
+    @classmethod
     def setUpTestData(cls):
         if cls.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(cls)
+        elif cls._shares_organization_and_user_across_tests():
+            _setup_test_organization_and_user(cls)
 
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
@@ -738,7 +773,9 @@ class PostHogTestCase(SimpleTestCase):
 
             util.can_enable_actor_on_events = True
 
-        if not self.CLASS_DATA_LEVEL_SETUP:
+        if self._shares_organization_and_user_across_tests():
+            _setup_test_project_and_team(self)
+        elif not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
@@ -1098,7 +1135,8 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        if cls.CLASS_DATA_LEVEL_SETUP and cls.CONFIG_AUTO_LOGIN and cls.user:
+        has_class_level_user = cls.CLASS_DATA_LEVEL_SETUP or cls._shares_organization_and_user_across_tests()
+        if has_class_level_user and cls.CONFIG_AUTO_LOGIN and cls.user:
             client = cls.client_class()
             client.force_login(cls.user)
             cls._class_login_cookies = client.cookies
@@ -1459,6 +1497,10 @@ def also_test_with_materialized_columns(
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
             if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
                 return
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                pytest.skip(
+                    "The new events schema reads no materialized columns, so this variant repeats its base test"
+                )
 
             for prop in event_properties:
                 materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
@@ -1482,7 +1524,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = _get_calling_frame_locals()
+        frame_locals: Any = _get_decorated_class_body_locals()
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -2002,6 +2044,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     # overrides the basetest in posthog/test/base.py
     # this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
+    CLASS_LEVEL_ORGANIZATION_AND_USER = True
 
     snapshot: Any
 
@@ -2716,7 +2759,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = _get_calling_frame_locals()
+    frame_locals: Any = _get_decorated_class_body_locals()
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -2729,7 +2772,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = _get_calling_frame_locals()
+    frame_locals: Any = _get_decorated_class_body_locals()
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
