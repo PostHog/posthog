@@ -67,7 +67,7 @@ export function MonitoringTab(): JSX.Element {
                         </span>
                     ) : (
                         <>
-                            <span>No fixes connected to you are being checked or finished in the last 14 days.</span>
+                            <span>No fixes for you are being checked or finished in the last 14 days.</span>
                             <LemonButton
                                 size="small"
                                 type="secondary"

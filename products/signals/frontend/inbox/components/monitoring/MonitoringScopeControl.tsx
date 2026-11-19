@@ -22,7 +22,7 @@ export function MonitoringScopeControl(): JSX.Element {
                 value={scope.everyone ? 'everyone' : 'mine'}
                 onChange={(value) => setScope({ ...scope, everyone: value === 'everyone' })}
                 options={[
-                    { value: 'mine', label: 'Connected to you', 'data-attr': 'inbox-monitoring-scope-mine' },
+                    { value: 'mine', label: 'For you', 'data-attr': 'inbox-monitoring-scope-mine' },
                     { value: 'everyone', label: 'Everyone', 'data-attr': 'inbox-monitoring-scope-everyone' },
                 ]}
             />
