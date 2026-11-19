@@ -78,8 +78,8 @@ export function QuillTicketFilterMenu(): JSX.Element {
     } = useActions(logic)
     const { me, roles, sortedMembers, membersLoading, rolesLoading } = useValues(assigneeSelectLogic)
     const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
-    const { visibleColumns } = useValues(ticketColumnsLogic)
-    const { toggleColumn, setVisibleColumns } = useActions(ticketColumnsLogic)
+    const { visibleColumns, columnsAreDefault } = useValues(ticketColumnsLogic)
+    const { toggleColumn, resetColumns } = useActions(ticketColumnsLogic)
     const filtersOn = useAppliedTicketFilters().length > 0
 
     const assigneeOptions: FilterOption[] = [
@@ -92,7 +92,7 @@ export function QuillTicketFilterMenu(): JSX.Element {
         })),
     ]
 
-    const { offerable, choices, shownCount, showAllDisabledReason } = ticketColumnChoices(visibleColumns, {
+    const { offerable, choices, shownCount } = ticketColumnChoices(visibleColumns, {
         aiEnabled,
         embedded: false,
     })
@@ -217,10 +217,10 @@ export function QuillTicketFilterMenu(): JSX.Element {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                         closeOnClick={false}
-                        disabledReason={showAllDisabledReason}
-                        onClick={() => setVisibleColumns(offerable)}
+                        disabledReason={columnsAreDefault ? 'Columns are already at their default' : undefined}
+                        onClick={resetColumns}
                     >
-                        Show all columns
+                        Reset to default
                     </DropdownMenuItem>
                 </FilterSubMenu>
                 <FilterClearItem active={filtersOn} onClear={resetFilters} dataAttr="clear-ticket-filters" />

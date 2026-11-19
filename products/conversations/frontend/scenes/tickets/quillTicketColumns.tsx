@@ -208,7 +208,14 @@ function cellFor(key: TicketColumnKey, ticketUrl: (ticket: Ticket) => string): T
         case 'assignee':
             return ({ row }) => (
                 <AssigneeResolver assignee={row.original.assignee ?? null}>
-                    {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
+                    {({ assignee }) => (
+                        <AssigneeDisplay
+                            assignee={assignee}
+                            size="small"
+                            className="min-w-0"
+                            labelClassname="truncate whitespace-nowrap"
+                        />
+                    )}
                 </AssigneeResolver>
             )
         case 'channel':

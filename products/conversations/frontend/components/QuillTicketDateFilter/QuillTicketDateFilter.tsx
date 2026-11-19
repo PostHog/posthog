@@ -38,7 +38,7 @@ export function QuillTicketDateFilter(): JSX.Element {
             <PopoverContent
                 align="start"
                 collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}
-                className="w-auto overflow-hidden border-none p-0 shadow-none ring-0"
+                className="w-auto border-none p-0 shadow-none ring-0"
             >
                 <QuillDateFilter
                     selection={selectionForDateRange(dateFrom ?? ALL_TIME, dateTo)}

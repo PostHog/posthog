@@ -37,7 +37,8 @@ export function QuillSupportTicketsTable(): JSX.Element {
     } = useValues(supportTicketsSceneLogic)
     const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch, loadTickets } =
         useActions(supportTicketsSceneLogic)
-    const { visibleColumns } = useValues(ticketColumnsLogic)
+    const { visibleColumns, columnSizing } = useValues(ticketColumnsLogic)
+    const { setColumnSizing } = useActions(ticketColumnsLogic)
     const { searchParams } = useValues(router)
 
     const columns = useMemo(
@@ -84,33 +85,40 @@ export function QuillSupportTicketsTable(): JSX.Element {
     }
 
     return (
-        <Card size="sm" flush className="min-w-0 pt-0">
-            <div
-                // Rows stay clickable while a background refresh is in flight.
-                className={cn('min-w-0 transition-opacity', ticketsLoading && 'opacity-60')}
-                aria-busy={ticketsLoading}
-            >
-                <DataTable
-                    columns={columns}
-                    data={tickets}
-                    fullWidth
-                    size="sm"
-                    getRowId={getTicketId}
-                    selectable
-                    rowSelection={rowSelection}
-                    onRowSelectionChange={(next) => setSelectedTicketIds(Object.keys(next).filter((id) => next[id]))}
-                    rowSelectionLabel={(ticket) => `Select ticket ${ticket.ticket_number}`}
-                    onRowClick={onRowClick}
-                    rowClassName={unreadRowClassName}
-                    empty={empty}
-                    sorting={tableSorting}
-                    onSortingChange={([sort]) => {
-                        if (sort) {
-                            setSorting({ columnKey: sort.id, order: sort.desc ? -1 : 1 })
+        <div className="flex min-w-0 flex-col gap-2">
+            <Card size="sm" flush className="min-w-0 pt-0">
+                <div
+                    // Rows stay clickable while a background refresh is in flight.
+                    className={cn('min-w-0 transition-opacity', ticketsLoading && 'opacity-60')}
+                    aria-busy={ticketsLoading}
+                >
+                    <DataTable
+                        columns={columns}
+                        data={tickets}
+                        fullWidth
+                        resizableColumns
+                        columnSizing={columnSizing}
+                        onColumnSizingChange={setColumnSizing}
+                        size="sm"
+                        getRowId={getTicketId}
+                        selectable
+                        rowSelection={rowSelection}
+                        onRowSelectionChange={(next) =>
+                            setSelectedTicketIds(Object.keys(next).filter((id) => next[id]))
                         }
-                    }}
-                />
-            </div>
+                        rowSelectionLabel={(ticket) => `Select ticket ${ticket.ticket_number}`}
+                        onRowClick={onRowClick}
+                        rowClassName={unreadRowClassName}
+                        empty={empty}
+                        sorting={tableSorting}
+                        onSortingChange={([sort]) => {
+                            if (sort) {
+                                setSorting({ columnKey: sort.id, order: sort.desc ? -1 : 1 })
+                            }
+                        }}
+                    />
+                </div>
+            </Card>
             {/* A bulk update can empty a later page, so the pager stays to lead back. */}
             {pageCount > 1 && (
                 <QuillTablePagination
@@ -121,6 +129,6 @@ export function QuillSupportTicketsTable(): JSX.Element {
                     onPageChange={setCurrentPage}
                 />
             )}
-        </Card>
+        </div>
     )
 }
