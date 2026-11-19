@@ -112,11 +112,11 @@ from products.metrics.backend.precompute.fill import (
 from products.metrics.backend.precompute.planner import (
     ClausePlan,
     PrecomputedClauseRunner,
-    TooManyStoredPointsError,
     plan_clause,
     provenance_mode,
     read_plan_entries,
 )
+from products.metrics.backend.precompute.store import TooManyStoredPointsError
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots

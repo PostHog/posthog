@@ -151,10 +151,6 @@ def _touch(precomputed_metric: MetricPrecomputedMetric) -> None:
         )
 
 
-class TooManyStoredPointsError(Exception):
-    """The stored range holds more label-set hours than one request may load."""
-
-
 StoredEntries = dict[EntryKey, Entry]
 
 
@@ -163,10 +159,7 @@ def read_plan_entries(plan: ClausePlan, cache: dict[tuple, StoredEntries]) -> St
     Raises `TooManyStoredPointsError` past `MAX_STORED_POINTS`."""
     key = (plan.precomputed_metric.pk, plan.date_from, plan.cut)
     if key not in cache:
-        entries = read_entries(plan.precomputed_metric, plan.date_from, plan.cut)
-        if sum(len(entry.points) for entry in entries.values()) > MAX_STORED_POINTS:
-            raise TooManyStoredPointsError
-        cache[key] = entries
+        cache[key] = read_entries(plan.precomputed_metric, plan.date_from, plan.cut, max_points=MAX_STORED_POINTS)
     return cache[key]
 
 

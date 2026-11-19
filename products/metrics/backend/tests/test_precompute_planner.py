@@ -199,6 +199,18 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
         assert check["max_relative_difference"] == 0.0
         assert check["mode"] == "mixed"
 
+    def test_stored_data_over_the_points_budget_runs_raw(self):
+        clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)
+        self._precompute(clause)
+        request = self._request(clause, "hour")
+
+        with patch("products.metrics.backend.precompute.planner.MAX_STORED_POINTS", 1):
+            result = run_precomputed_metric_query(team=self.team, request=request)
+
+        assert result.provenance.mode == MetricQueryProvenanceMode.RAW
+        assert any("too much stored data" in reason for reason in result.provenance.reasons)
+        assert result.series == run_metric_query(team=self.team, request=request)
+
     @parameterized.expand(
         [
             ("gauge_sum", _counter_clause(MetricAggregation.SUM, group_by=BY_SERVICE)),
