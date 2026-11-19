@@ -195,6 +195,7 @@ jobs:
                       bin/generate_personhog_proto.sh
                       packages/owners-yaml
                       packages/personhog-proto
+                      packages/typed-config
                       proto
                       pyproject.toml
                       tools/hogli

@@ -73,6 +73,7 @@ CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "tool:hogli": (("tools/hogli/tests",), ()),
     "tool:hogli-commands": (("tools/hogli-commands",), ()),
     "package:owners": (("packages/owners-yaml/tests",), ()),
+    "package:typed-config": (("packages/typed-config/tests",), ()),
     "tool:query-performance-ai": (("tools/query-performance-ai",), ()),
     "tool:pr-approval-agent": (("tools/pr-approval-agent",), ()),
     "tool:dependency-detection": (("bin/test",), ()),

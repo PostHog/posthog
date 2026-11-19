@@ -845,6 +845,7 @@ jobs:
                         - 'products/data_modeling/backend/temporal/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
+                        - 'packages/typed-config/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/*.md'
@@ -859,6 +860,7 @@ jobs:
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
                         - 'products/warehouse_sources/sources/**'
+                        - 'packages/typed-config/**'
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'

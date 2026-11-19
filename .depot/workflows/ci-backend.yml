@@ -336,6 +336,8 @@ jobs:
                         - 'common/plugin_transpiler/**'
                         # The personhog gRPC stubs that posthog/personhog_client imports
                         - 'packages/personhog-proto/**'
+                        # The typed config runtime that warehouse source configs import. turbo-discover selects its importers
+                        - 'packages/typed-config/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         # Python outside backend/ — products like logs and

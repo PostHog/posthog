@@ -16,6 +16,7 @@
 !packages/quill
 !packages/llm-normalizer
 !packages/owners-yaml
+!packages/typed-config
 !packages/agent/agent-shadow
 !packages/agent/packages/agent-contracts/src
 !dags

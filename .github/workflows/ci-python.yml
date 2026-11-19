@@ -64,6 +64,7 @@ jobs:
             # is skipped — still run every suite.
             hogli: ${{ steps.filter.outputs.hogli || 'true' }}
             owners: ${{ steps.filter.outputs.owners || 'true' }}
+            typed_config: ${{ steps.filter.outputs.typed_config || 'true' }}
             query_perf: ${{ steps.filter.outputs.query_perf || 'true' }}
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
@@ -238,6 +239,11 @@ jobs:
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
+                      typed_config:
+                        - 'packages/typed-config/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
                       query_perf:
                         - 'tools/query-performance-ai/**'
                         - 'pyproject.toml'
@@ -282,6 +288,8 @@ jobs:
                       warehouse_sources:
                         - 'products/warehouse_sources/sources/**'
                         - 'products/warehouse_sources/backend/**'
+                        # The typed config runtime that every source config is built on
+                        - 'packages/typed-config/**'
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - 'pytest.ini'
@@ -309,6 +317,7 @@ jobs:
         env:
             RUN_HOGLI: ${{ needs.changes.outputs.hogli }}
             RUN_OWNERS: ${{ needs.changes.outputs.owners }}
+            RUN_TYPED_CONFIG: ${{ needs.changes.outputs.typed_config }}
             RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
             RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
             RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
@@ -528,6 +537,25 @@ jobs:
                         # writes to a closed pipe and exits 1, and pipefail fails the step.
                         resolved=$("$scratch/venv/bin/owners" who --repo-root "$repo" billing/invoices.py)
                         grep -q 'team-billing' <<<"$resolved"
+
+                  - name: Run typed config tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_TYPED_CONFIG" = "true" ] || { echo "the typed config package is unchanged — skipping"; exit 0; }
+                        pytest packages/typed-config/tests -v --junitxml=junit-typed-config.xml
+
+                  # A wheel in an empty venv cannot import anything else from the monorepo, so a
+                  # new import of host code fails here instead of in a product that uses the package.
+                  - name: Check the typed config package runs outside the monorepo
+                    shell: bash
+                    run: |
+                        [ "$RUN_TYPED_CONFIG" = "true" ] || { echo "the typed config package is unchanged — skipping"; exit 0; }
+                        scratch=$(mktemp -d)
+                        uv build packages/typed-config --wheel --out-dir "$scratch/dist"
+                        uv venv "$scratch/venv"
+                        uv pip install --python "$scratch/venv/bin/python" "$scratch"/dist/*.whl
+                        cd "$scratch"
+                        "$scratch/venv/bin/python" -c 'import typed_config as c; C = c.config(type("C", (c.Config,), {"__annotations__": {"port": int}, "port": c.value(converter=c.str_to_int)})); assert C.from_dict({"port": "5432"}).port == 5432'
 
                   - name: Run query-performance-ai tests
                     shell: bash

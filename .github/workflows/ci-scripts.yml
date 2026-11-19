@@ -80,6 +80,7 @@ jobs:
                       /rust/
                       /nodejs/
                       /packages/personhog-proto/
+                      /packages/typed-config/
                       /.semgrep/
                       /frontend/bin/ci-report/
                       /products/README.md

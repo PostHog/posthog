@@ -52,6 +52,7 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
     --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
+    --mount=type=bind,source=packages/typed-config,target=packages/typed-config \
     uv sync --locked --no-dev --no-editable --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -66,8 +67,8 @@ ENV PATH=/python-runtime/bin:$PATH \
 # tree, so assert importability instead of presence. personhog-proto is installed from a bind mount
 # the same way. Django loads posthog.models at startup, which imports posthog.personhog_client and
 # through it the generated personhog package, so a stale or editable install breaks every Django
-# entrypoint.
-RUN python -c "import owners_yaml, personhog.service.v1.service_pb2_grpc"
+# entrypoint. typed-config is installed the same way, and warehouse source configs import it.
+RUN python -c "import owners_yaml, personhog.service.v1.service_pb2_grpc, typed_config"
 
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
 # blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under

@@ -97,6 +97,8 @@ jobs:
                         - 'posthog/**/*.py'
                         # The personhog gRPC stubs the backend's person reads go through
                         - 'packages/personhog-proto/**'
+                        # The typed config runtime that warehouse source configs import
+                        - 'packages/typed-config/**'
                         - 'ee/**/*.py'
                         - 'common/**/*.py'
                         - 'products/*/backend/**/*.py'
