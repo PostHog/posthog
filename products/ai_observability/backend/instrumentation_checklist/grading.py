@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -8,10 +8,15 @@ from posthog.dataclasses import frozen
 # is worse than leaving them on installation.
 from products.ai_observability.backend.logic.docs_urls import INSTALLATION_DOCS_URL, SESSIONS_DOCS_URL, TOOLS_DOCS_URL
 
+# Tool calls are the one check that needs volume: a project that does use tools can still go many
+# generations without calling one. The other checks read a property the SDK sets on every event or
+# never sets, so one event answers them and a first test gets its verdict at once.
 VOLUME_FLOOR = 20
+FIRST_EVENT_FLOOR = 1
 
-_PENDING_GENERATIONS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} generations."
-_PENDING_AI_EVENTS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} AI events."
+_PENDING_FIRST_GENERATION = "Waiting for your first generation. This check runs as soon as one arrives."
+_PENDING_FIRST_AI_EVENT = "Waiting for your first AI event. This check runs as soon as one arrives."
+_PENDING_TOOL_CALLS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} generations."
 
 
 class CheckKey(StrEnum):
@@ -63,10 +68,21 @@ class GradedCheck:
 
 
 @frozen
+class ChecklistProgress:
+    passing: int
+    total: int
+
+
+# A dismissed check counts as passing: the person decided it does not apply, so it no longer asks for work.
+PASSING_STATUSES = frozenset({CheckStatus.OK, CheckStatus.DISMISSED})
+
+
+@frozen
 class _CheckInputs:
     key: CheckKey
     title: str
     denominator: int
+    floor: int
     has_signal: bool
     warning_detail: str
     ok_detail: str
@@ -88,6 +104,7 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
         key=CheckKey.SESSIONS,
         title="Sessions",
         denominator=stats.generations,
+        floor=FIRST_EVENT_FLOOR,
         has_signal=stats.events_with_session > 0 or stats.events_declining_session > 0,
         warning_detail=(
             "No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us "
@@ -95,7 +112,7 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
             "generation, do not need it. Send $ai_session_id as null on those to say so."
         ),
         ok_detail=ok_detail,
-        pending_detail=_PENDING_GENERATIONS,
+        pending_detail=_PENDING_FIRST_GENERATION,
         docs_url=SESSIONS_DOCS_URL,
         stats={
             "generations": stats.generations,
@@ -123,10 +140,11 @@ def _tool_calls(stats: ChecklistStats) -> _CheckInputs:
         key=CheckKey.TOOL_CALLS,
         title="Tool calls",
         denominator=stats.generations,
+        floor=VOLUME_FLOOR,
         has_signal=stats.generations_with_tool_calls > 0,
         warning_detail=warning_detail,
         ok_detail="Tool calls are being recorded.",
-        pending_detail=_PENDING_GENERATIONS,
+        pending_detail=_PENDING_TOOL_CALLS,
         docs_url=TOOLS_DOCS_URL,
         stats={
             "generations": stats.generations,
@@ -140,6 +158,7 @@ def _user_identity(stats: ChecklistStats) -> _CheckInputs:
         key=CheckKey.USER_IDENTITY,
         title="User identity",
         denominator=stats.sdk_generations,
+        floor=FIRST_EVENT_FLOOR,
         has_signal=stats.sdk_generations_identified > 0,
         warning_detail=(
             "Generations are arriving with their trace ID as the distinct ID, so usage and cost cannot be tied to "
@@ -147,8 +166,8 @@ def _user_identity(stats: ChecklistStats) -> _CheckInputs:
         ),
         ok_detail="AI events are attributed to identified users.",
         pending_detail=(
-            f"This check runs once there are {VOLUME_FLOOR} generations from a PostHog SDK. Generations sent over "
-            "OpenTelemetry are not counted, because we cannot tell whether they are identified."
+            "Waiting for your first generation from a PostHog SDK. Generations sent over OpenTelemetry are not "
+            "counted, because we cannot tell whether they are identified."
         ),
         docs_url=INSTALLATION_DOCS_URL,
         stats={
@@ -164,6 +183,7 @@ def _trace_structure(stats: ChecklistStats) -> _CheckInputs:
         title="Trace structure",
         # Flooring on generations would leave a project that only emits spans and traces pending forever.
         denominator=stats.total_events,
+        floor=FIRST_EVENT_FLOOR,
         has_signal=stats.spans > 0 or stats.events_with_parent > 0,
         warning_detail=(
             "Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them."
@@ -171,7 +191,7 @@ def _trace_structure(stats: ChecklistStats) -> _CheckInputs:
         # A generation carrying $ai_parent_id is enough structure to grade ok even with no $ai_span
         # event, so the copy cannot name spans.
         ok_detail="Traces show the steps around your LLM calls.",
-        pending_detail=_PENDING_AI_EVENTS,
+        pending_detail=_PENDING_FIRST_AI_EVENT,
         docs_url=INSTALLATION_DOCS_URL,
         stats={
             "total_events": stats.total_events,
@@ -182,7 +202,7 @@ def _trace_structure(stats: ChecklistStats) -> _CheckInputs:
 
 
 def _grade(inputs: _CheckInputs, *, dismissed: bool) -> GradedCheck:
-    if inputs.denominator < VOLUME_FLOOR:
+    if inputs.denominator < inputs.floor:
         graded_status = CheckStatus.PENDING
         detail = inputs.pending_detail
     elif not inputs.has_signal:
@@ -208,3 +228,18 @@ def grade_checklist(stats: ChecklistStats, dismissed_keys: Iterable[str]) -> lis
     dismissed = set(dismissed_keys)
     checks = [build(stats) for build in (_sessions, _tool_calls, _user_identity, _trace_structure)]
     return [_grade(check, dismissed=check.key in dismissed) for check in checks]
+
+
+def checklist_progress(checks: Sequence[GradedCheck]) -> ChecklistProgress:
+    return ChecklistProgress(passing=sum(1 for check in checks if check.status in PASSING_STATUSES), total=len(checks))
+
+
+def agent_prompt(checks: Sequence[GradedCheck]) -> str | None:
+    warnings = [check for check in checks if check.status == CheckStatus.WARNING]
+    if not warnings:
+        return None
+    items = "\n".join(f"- {check.title}: {check.detail} Docs: {check.docs_url}" for check in warnings)
+    return (
+        "My PostHog AI observability setup is missing some instrumentation. Fix each item below in this "
+        f"codebase, following the linked docs.\n\n{items}"
+    )

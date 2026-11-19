@@ -67177,6 +67177,15 @@ export namespace Schemas {
       window_days: number;
       /** Every check, graded. Checks are always all returned, including the ones that pass. */
       checks: InstrumentationCheck[];
+      /**
+         * Ready-made prompt to give a coding agent, listing every check graded 'warning' with its docs link. Null when no check warns.
+         * @nullable
+         */
+      agent_prompt: string | null;
+      /** How many checks need no work: those graded 'ok' plus those dismissed. */
+      passing: number;
+      /** How many checks were graded, the number `passing` is out of. */
+      total: number;
     }
 
     /**

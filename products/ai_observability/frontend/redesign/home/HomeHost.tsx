@@ -3,10 +3,12 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 
+import { instrumentationChecklistLogic } from '../../instrumentationChecklist/instrumentationChecklistLogic'
 import { ListErrorState } from '../lists/components/ListErrorState'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { HomeLayout } from './components/HomeLayout'
 import { HomeRangeTooLong } from './components/HomeRangeTooLong'
+import { InstrumentationRow } from './components/InstrumentationRow'
 import { KpiTileRow } from './components/KpiTileRow'
 import { OpenDashboardLink } from './components/OpenDashboardLink'
 import { homeLogic } from './homeLogic'
@@ -15,6 +17,8 @@ export function HomeHost(): JSX.Element {
     const logic = homeLogic()
     const { metrics, metricsLoading, metricsFailure, dashboardId, tileLinks } = useValues(logic)
     const { loadMetrics } = useActions(logic)
+    const { checklist, checklistBusy } = useValues(instrumentationChecklistLogic)
+    const { dismissCheck, restoreCheck } = useActions(instrumentationChecklistLogic)
     const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
 
@@ -46,7 +50,14 @@ export function HomeHost(): JSX.Element {
             dashboardLink={<OpenDashboardLink dashboardId={dashboardId} />}
             tiles={tiles}
             showComparison={metrics !== null && !metricsLoading}
-            instrumentation={null}
+            instrumentation={
+                <InstrumentationRow
+                    checklist={checklist}
+                    loading={checklistBusy}
+                    onDismiss={dismissCheck}
+                    onRestore={restoreCheck}
+                />
+            }
         />
     )
 }
