@@ -9,14 +9,15 @@ from products.visual_review.backend.facade.contracts import AUTO_EXTEND_BEFORE_E
 from products.visual_review.backend.facade.enums import (
     ActorType,
     AutoQuarantineMode,
+    QuarantineLiftState,
     RunPurpose,
     RunStatus,
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import auto_extend, repos
+from products.visual_review.backend.logic import auto_extend, auto_quarantine, repos
 from products.visual_review.backend.logic.auto_extend import RecentRenders, extend_reason, should_extend
-from products.visual_review.backend.models import QuarantinedIdentifier, Repo, Run, RunSnapshot
+from products.visual_review.backend.models import QuarantinedIdentifier, QuarantineLiftRequest, Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _NOW = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
@@ -103,6 +104,7 @@ def _run(
     result: SnapshotResult,
     *,
     current_hash: str = "",
+    baseline_hash: str = "base",
     pr_number: int | None = None,
     hours_ago: int | None = None,
 ) -> Run:
@@ -125,17 +127,17 @@ def _run(
         run=run,
         identifier=_IDENTIFIER,
         result=result,
-        baseline_hash="base",
-        current_hash=current_hash or "base",
+        baseline_hash=baseline_hash,
+        current_hash=current_hash or baseline_hash,
     )
     return run
 
 
-def _quarantine(repo: Repo, expires_in_hours: int) -> QuarantinedIdentifier:
+def _quarantine(repo: Repo, expires_in_hours: int, identifier: str = _IDENTIFIER) -> QuarantinedIdentifier:
     return QuarantinedIdentifier.objects.create(
         team_id=repo.team_id,
         repo=repo,
-        identifier=_IDENTIFIER,
+        identifier=identifier,
         run_type=RunType.STORYBOOK,
         reason="flaky",
         expires_at=timezone.now() + timedelta(hours=expires_in_hours),
@@ -164,6 +166,15 @@ class TestExtendDifferingQuarantines:
         repo.auto_quarantine_mode = mode
         repo.save()
         entry = _quarantine(repo, expires_in_hours=24)
+        lift_request = QuarantineLiftRequest.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            quarantine=entry,
+            identifier=_IDENTIFIER,
+            run_type=RunType.STORYBOOK,
+            pr_number=7,
+            expected_hash="fixed",
+        )
         _run(repo, "master", "a" * 40, SnapshotResult.CHANGED, current_hash="stale", hours_ago=48)
         _run(repo, "master", "b" * 40, SnapshotResult.CHANGED, current_hash="stale", hours_ago=24)
         finishing = _run(repo, "master", "c" * 40, SnapshotResult.CHANGED, current_hash="stale")
@@ -173,12 +184,15 @@ class TestExtendDifferingQuarantines:
             auto_extend.extend_differing_quarantines(finishing.id)
 
         rows = list(QuarantinedIdentifier.objects.filter(identifier=_IDENTIFIER).order_by("created_at"))
+        lift_request.refresh_from_db()
         assert captured == ["vr_quarantine_extend"] * events
         if not extended:
             assert [row.id for row in rows] == [entry.id]
             assert rows[0].expires_at == entry.expires_at
+            assert lift_request.quarantine_id == entry.id
             return
         old, new = rows
+        assert (lift_request.quarantine_id, lift_request.state) == (new.id, QuarantineLiftState.PENDING)
         assert old.expires_at is not None and old.expires_at <= new.created_at
         assert (new.source, new.source_run_id, new.created_by_id) == (ActorType.AUTO, finishing.id, None)
         assert new.reason == (
@@ -190,17 +204,28 @@ class TestExtendDifferingQuarantines:
 
     @pytest.mark.parametrize(
         "case",
-        ["change_only_outside_default_branch_runs", "new_is_no_difference", "expiry_outside_the_window"],
+        [
+            "change_only_outside_default_branch_runs",
+            "new_is_no_difference",
+            "expiry_outside_the_window",
+            "changed_picture_approved_since",
+        ],
     )
     def test_a_story_without_a_default_branch_change_or_a_distant_expiry_lapses_as_planned(self, repo, captured, case):
         entry = _quarantine(repo, expires_in_hours=24 if case != "expiry_outside_the_window" else 72)
         master_result = SnapshotResult.NEW if case == "new_is_no_difference" else SnapshotResult.UNCHANGED
         _run(repo, "master", "a" * 40, master_result, hours_ago=48)
-        if case == "expiry_outside_the_window":
+        if case in ("expiry_outside_the_window", "changed_picture_approved_since"):
             _run(repo, "master", "b" * 40, SnapshotResult.CHANGED, current_hash="flaky", hours_ago=24)
         _run(repo, "trunk-merge/pr-7/abc", "q" * 40, SnapshotResult.CHANGED, current_hash="flaky", hours_ago=12)
         _run(repo, "feature", "p" * 40, SnapshotResult.CHANGED, current_hash="flaky", pr_number=7, hours_ago=6)
-        finishing = _run(repo, "master", "c" * 40, master_result)
+        finishing = _run(
+            repo,
+            "master",
+            "c" * 40,
+            master_result,
+            baseline_hash="flaky" if case == "changed_picture_approved_since" else "base",
+        )
 
         auto_extend.extend_differing_quarantines(finishing.id)
 
@@ -208,3 +233,27 @@ class TestExtendDifferingQuarantines:
             entry.id
         ]
         assert captured == []
+
+    def test_the_cap_in_preview_skips_entries_already_reported(self, repo, captured):
+        repo.auto_quarantine_mode = AutoQuarantineMode.PREVIEW
+        repo.save()
+        other = "scenes-app-button--secondary--light"
+        _quarantine(repo, expires_in_hours=12)
+        _quarantine(repo, expires_in_hours=24, identifier=other)
+        finishing = _run(repo, "master", "c" * 40, SnapshotResult.CHANGED, current_hash="flaky")
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=finishing,
+            identifier=other,
+            result=SnapshotResult.CHANGED,
+            baseline_hash="base",
+            current_hash="flaky",
+        )
+        auto_quarantine.first_report(
+            "quarantine_extend", repo, RunType.STORYBOOK, _IDENTIFIER, auto_extend._REPORT_SECONDS
+        )
+
+        with patch.object(auto_extend, "AUTO_QUARANTINE_MAX_STORIES_PER_RUN", 1):
+            auto_extend.extend_differing_quarantines(finishing.id)
+
+        assert captured == ["vr_quarantine_extend"]

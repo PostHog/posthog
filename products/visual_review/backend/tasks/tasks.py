@@ -332,10 +332,13 @@ def release_clean_quarantines(team_id: int, run_id: str) -> None:
 
     try:
         auto_lift.release_clean_quarantines(UUID(run_id))
-        auto_extend.extend_differing_quarantines(UUID(run_id))
     except GitHubRateLimitError:
         # Nothing retries: a later default-branch run checks the same quarantines again.
         logger.warning("visual_review.release_clean_quarantines_rate_limited", run_id=run_id, team_id=team_id)
+    try:
+        auto_extend.extend_differing_quarantines(UUID(run_id))
+    except GitHubRateLimitError:
+        logger.warning("visual_review.extend_differing_quarantines_rate_limited", run_id=run_id, team_id=team_id)
 
 
 @shared_task(

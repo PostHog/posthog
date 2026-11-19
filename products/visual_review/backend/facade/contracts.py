@@ -720,6 +720,10 @@ AUTO_EXTEND_BEFORE_EXPIRY_HOURS = 48
 # in a hundred still shows.
 AUTO_EXTEND_RECENT_RUNS = 100
 
+# Every extension reason starts with this. The daily limit of automatic quarantines and the quarantine
+# notice read it to tell an extension from a new automatic quarantine.
+AUTO_EXTEND_REASON_PREFIX = "Extended automatically"
+
 # Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
 

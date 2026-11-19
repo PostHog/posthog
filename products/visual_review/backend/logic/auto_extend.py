@@ -7,8 +7,11 @@ quarantine, never renders clean, so it is never proven flaky.
 
 The window covers the `AUTO_EXTEND_RECENT_RUNS` newest full default-branch runs without a pull
 request, chosen as automatic release chooses them. Only a `changed` render counts as a difference. One is enough to extend,
-because a quarantine exists to hide that difference. A quarantine whose story rendered no difference
-in the window lapses as planned. Every quarantine counts, whoever opened it.
+because a quarantine exists to hide that difference. Only renders against the story's current baseline
+count, which is the baseline of its newest render in the window. Approving a new picture changes the
+baseline, so the changed renders from before the approval drop out. A flake keeps its baseline, so its
+changed renders still count. A quarantine whose story rendered no difference in the window lapses as
+planned. Every quarantine counts, whoever opened it.
 
 An extension replaces the active quarantine with an automatic one, like any new quarantine does. It
 does not count toward the daily limit of automatic quarantines, because it hides nothing new.
@@ -19,13 +22,14 @@ collect them and act on the answer.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -36,18 +40,16 @@ from posthog.ph_client import ph_scoped_capture
 from ..db import WRITER_DB
 from ..facade.contracts import (
     AUTO_EXTEND_BEFORE_EXPIRY_HOURS,
+    AUTO_EXTEND_REASON_PREFIX,
     AUTO_EXTEND_RECENT_RUNS,
     AUTO_QUARANTINE_DAYS,
     AUTO_QUARANTINE_MAX_STORIES_PER_RUN,
 )
-from ..facade.enums import ActorType, AutoQuarantineMode, RunStatus, SnapshotResult
-from ..models import QuarantinedIdentifier, Repo, Run, RunSnapshot
+from ..facade.enums import ActorType, AutoQuarantineMode, QuarantineLiftState, RunStatus, SnapshotResult
+from ..models import QuarantinedIdentifier, QuarantineLiftRequest, Repo, Run, RunSnapshot
 from . import auto_lift, auto_quarantine, github_api, quarantine
 
 logger = structlog.get_logger(__name__)
-
-# The quarantine notice reads this prefix to tell an extension from a new automatic quarantine.
-EXTENSION_REASON_PREFIX = "Extended automatically"
 
 _MAX_REASON_CHARS = 255
 _REPORT_SECONDS = 24 * 60 * 60
@@ -83,14 +85,14 @@ def looks_like_stale_baseline(renders: RecentRenders) -> bool:
 def extend_reason(renders: RecentRenders) -> str:
     if looks_like_stale_baseline(renders):
         reason = (
-            f"{EXTENSION_REASON_PREFIX}: the same changed picture in all {renders.renders} renders of the last "
+            f"{AUTO_EXTEND_REASON_PREFIX}: the same changed picture in all {renders.renders} renders of the last "
             f"{renders.default_branch_runs} default-branch runs. The baseline looks stale, so approve the new "
             "picture instead of waiting"
         )
     else:
         pictures = "1 picture" if renders.changed_pictures == 1 else f"{renders.changed_pictures} pictures"
         reason = (
-            f"{EXTENSION_REASON_PREFIX}: changed in {renders.changed_renders} of the last "
+            f"{AUTO_EXTEND_REASON_PREFIX}: changed in {renders.changed_renders} of the last "
             f"{renders.default_branch_runs} default-branch runs, {pictures}"
         )
     return reason[:_MAX_REASON_CHARS]
@@ -127,19 +129,41 @@ class _Counts:
 _NOT_RENDERED = _Counts(renders=0, changed_renders=0, changed_pictures=0)
 
 
+@frozen
+class _Render:
+    baseline_hash: str
+    result: str
+    current_hash: str
+
+
+def _count_against_current_baseline(newest_first: list[_Render]) -> _Counts:
+    current_baseline = newest_first[0].baseline_hash
+    renders = [render for render in newest_first if render.baseline_hash == current_baseline]
+    changed = [render for render in renders if render.result == SnapshotResult.CHANGED]
+    return _Counts(
+        renders=len(renders),
+        changed_renders=len(changed),
+        changed_pictures=len({render.current_hash for render in changed}),
+    )
+
+
 def _counts(run: Run, run_ids: list[UUID], identifiers: list[str]) -> dict[str, _Counts]:
-    changed = Q(result=SnapshotResult.CHANGED)
-    return {
-        identifier: _Counts(renders=renders, changed_renders=changed_renders, changed_pictures=changed_pictures)
-        for identifier, renders, changed_renders, changed_pictures in RunSnapshot.objects.using(WRITER_DB)
+    """`run_ids` is newest first."""
+    position = {run_id: index for index, run_id in enumerate(run_ids)}
+    rows = sorted(
+        RunSnapshot.objects.using(WRITER_DB)
         .filter(run_id__in=run_ids, team_id=run.team_id, identifier__in=identifiers)
-        .values("identifier")
-        .annotate(
-            renders=Count("*"),
-            changed_renders=Count("id", filter=changed),
-            changed_pictures=Count("current_hash", filter=changed, distinct=True),
+        .values_list("run_id", "identifier", "baseline_hash", "result", "current_hash"),
+        key=lambda row: position[row[0]],
+    )
+    renders_by_identifier: dict[str, list[_Render]] = defaultdict(list)
+    for _, identifier, baseline_hash, result, current_hash in rows:
+        renders_by_identifier[identifier].append(
+            _Render(baseline_hash=baseline_hash, result=result, current_hash=current_hash)
         )
-        .values_list("identifier", "renders", "changed_renders", "changed_pictures")
+    return {
+        identifier: _count_against_current_baseline(newest_first)
+        for identifier, newest_first in renders_by_identifier.items()
     }
 
 
@@ -173,7 +197,7 @@ def _extend(run: Run, entry: _ActiveQuarantine, reason: str, now: datetime) -> b
         )
         if not unchanged:
             return False
-        quarantine.quarantine_identifier(
+        extension = quarantine.quarantine_identifier(
             repo_id=run.repo_id,
             identifier=entry.identifier,
             run_type=run.run_type,
@@ -185,6 +209,11 @@ def _extend(run: Run, entry: _ActiveQuarantine, reason: str, now: datetime) -> b
             source=ActorType.AUTO,
             notify_owners=True,
         )
+        # The extension continues the same quarantine, so a pending fix-PR lift must still lift it. On the
+        # old row, the lift would find the quarantine ended and resolve as superseded.
+        QuarantineLiftRequest.objects.using(WRITER_DB).filter(
+            quarantine_id=entry.id, team_id=run.team_id, state=QuarantineLiftState.PENDING
+        ).update(quarantine_id=extension.id, updated_at=now)
     return True
 
 
@@ -255,11 +284,16 @@ def extend_differing_quarantines(run_id: UUID) -> None:
     to_extend = sorted(
         (entry for entry in due if should_extend(recent[entry.id], now)),
         key=lambda entry: entry.expires_at or now,
-    )[:AUTO_QUARANTINE_MAX_STORIES_PER_RUN]
+    )
+    applied = mode == AutoQuarantineMode.ON
+    # The cap counts only handled entries. Otherwise in preview the same already reported entries fill
+    # every run, and the entries after them are never reported.
+    handled = 0
     with ph_scoped_capture() as capture_ph_event:
         for entry in to_extend:
+            if handled == AUTO_QUARANTINE_MAX_STORIES_PER_RUN:
+                break
             renders = recent[entry.id]
-            applied = mode == AutoQuarantineMode.ON
             if applied:
                 if not _extend(run, entry, extend_reason(renders), now):
                     continue
@@ -268,3 +302,4 @@ def extend_differing_quarantines(run_id: UUID) -> None:
             ):
                 continue
             _report(capture_ph_event, repo, run, entry, renders, mode, applied)
+            handled += 1
