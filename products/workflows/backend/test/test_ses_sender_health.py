@@ -17,7 +17,6 @@ from structlog.testing import capture_logs
 from posthog.integrations import IntegrationManager, IntegrationPatch
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration.email import SES_SENDING_STATUS_KEY
-from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_email_sender_domain_sending_stopped
 
@@ -122,13 +121,6 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
     def test_tells_the_project_admins_once_when_a_domain_in_the_rollout_stops_sending(self) -> None:
         self.deliver_notices()
         User.objects.create_and_join(self.organization, "member@example.com", None)
-        User.objects.create_and_join(
-            self.organization,
-            "deactivated-admin@example.com",
-            None,
-            level=OrganizationMembership.Level.ADMIN,
-            is_active=False,
-        )
         self.verified_sender(f"hello@{DOMAIN}")
         self.verified_sender(f"news@{DOMAIN}")
         self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"

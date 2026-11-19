@@ -2,7 +2,8 @@ import html
 import uuid
 import hashlib
 import datetime as dt
-from typing import cast
+from collections.abc import Callable
+from typing import Any, cast
 from uuid import uuid4
 
 import time_machine
@@ -34,8 +35,11 @@ from posthog.tasks.email import (
     send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
+    send_email_sender_domain_sending_stopped,
     send_email_sending_reputation_finding,
+    send_email_sending_suspended,
     send_email_sending_tier_demoted,
+    send_email_sending_unsuspended,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
@@ -2649,10 +2653,65 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages == []
 
 
-class TestHogFunctionFiltersUncompilableDelivery(APIBaseTest):
-    def test_delivers_to_active_admins_and_creators_only(self) -> None:
+class TestEmailSendingNoticeDelivery(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+
+    def delivered_to(self) -> list[str]:
+        return sorted(address for message in mail.outbox for address in message.to)
+
+    @parameterized.expand(
+        [
+            ("suspended", send_email_sending_suspended, {"reason": "Bounces", "suspended_at": "2026-01-05T07:15:00"}),
+            ("unsuspended", send_email_sending_unsuspended, {"unsuspended_at": "2026-01-05T07:15:00"}),
+            (
+                "sender_domain_stopped",
+                send_email_sender_domain_sending_stopped,
+                {"domain": "mail.example.com", "stopped_at": "2026-01-05T07:15:00"},
+            ),
+            (
+                "workflow_paused",
+                send_workflow_email_sending_paused,
+                {"hog_flow_id": "flow", "hog_flow_name": "Welcome", "reason": "Bounces", "paused_at": "2026-01-05"},
+            ),
+            (
+                "workflow_warning",
+                send_workflow_email_sending_warning,
+                {
+                    "hog_flow_id": "flow",
+                    "hog_flow_name": "Welcome",
+                    "reason": "Bounces",
+                    "pause_rate": "10%",
+                    "warned_at": "2026-01-05",
+                },
+            ),
+            ("reputation_finding", send_email_sending_reputation_finding, {"impact": "HIGH", "found_at": "2026-01-05"}),
+            ("tier_demoted", send_email_sending_tier_demoted, {"per_day": 1000, "demoted_at": "2026-01-05T07:15:00"}),
+        ]
+    )
+    def test_skips_a_deactivated_admin(self, _name: str, send: Callable[..., None], kwargs: dict[str, Any]) -> None:
+        self._create_user("deactivated-admin@posthog.com", is_active=False, level=OrganizationMembership.Level.ADMIN)
+        mail.outbox.clear()
+
+        send(team_id=self.team.id, **kwargs)
+
+        assert self.delivered_to() == [self.user.email]
+
+    def test_sends_nothing_when_every_admin_is_deactivated(self) -> None:
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        mail.outbox.clear()
+
+        send_email_sender_domain_sending_stopped(
+            team_id=self.team.id, domain="mail.example.com", stopped_at="2026-01-05T07:15:00"
+        )
+
+        assert mail.outbox == []
+
+    def test_hog_function_filters_uncompilable_skips_a_deactivated_creator(self) -> None:
         broken_ids = []
         for email, is_active in (("active-creator@posthog.com", True), ("deactivated-creator@posthog.com", False)):
             creator = self._create_user(email, is_active=is_active)
@@ -2665,8 +2724,6 @@ class TestHogFunctionFiltersUncompilableDelivery(APIBaseTest):
             broken_ids.append(str(hog_function.id))
         mail.outbox.clear()
 
-        with override_instance_config("EMAIL_HOST", "localhost"):
-            send_hog_function_filters_uncompilable(self.team.id, broken_ids)
+        send_hog_function_filters_uncompilable(self.team.id, broken_ids)
 
-        delivered_to = sorted(address for message in mail.outbox for address in message.to)
-        assert delivered_to == sorted([self.user.email, "active-creator@posthog.com"])
+        assert self.delivered_to() == sorted([self.user.email, "active-creator@posthog.com"])
