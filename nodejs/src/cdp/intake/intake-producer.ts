@@ -47,30 +47,29 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
-// A produce outlives its ack deadline. A caller that bounds its work in flight passes one of these to its produces and
-// waits on `settled()` before it frees that work's share.
-export class PublishSettlement {
-    // A type-only brand: a plain object with its own `settled()` would ignore the tracked publishes. It emits no field,
-    // so a proxy still reaches the same entry in `trackedPublishes`.
-    declare private readonly brand: never
+declare const publishSettlementBrand: unique symbol
 
-    static track(settlement: PublishSettlement, publish: Promise<unknown>): void {
-        const publishes = trackedPublishes.get(settlement)
-        if (publishes) {
-            publishes.push(publish)
-        } else {
-            trackedPublishes.set(settlement, [publish])
-        }
-    }
+// A produce outlives its ack deadline. A caller that bounds its work in flight makes a settlement with
+// `newPublishSettlement()`, passes it to its produces, and waits on `publishesSettled()` before it frees that work's
+// share. The handle is opaque and its publishes stay in this module, so no caller code runs when the producer tracks a
+// publish or when the caller waits on them.
+export type PublishSettlement = { readonly [publishSettlementBrand]: true }
 
-    settled(): Promise<void> {
-        return Promise.allSettled(trackedPublishes.get(this) ?? []).then(() => undefined)
+const trackedPublishes = new WeakMap<PublishSettlement, Promise<unknown>[]>()
+
+export const newPublishSettlement = (): PublishSettlement => Object.freeze({}) as PublishSettlement
+
+export const trackPublish = (settlement: PublishSettlement, publish: Promise<unknown>): void => {
+    const publishes = trackedPublishes.get(settlement)
+    if (publishes) {
+        publishes.push(publish)
+    } else {
+        trackedPublishes.set(settlement, [publish])
     }
 }
 
-// Keyed by the settlement object rather than held in a field, so tracking never reads a member of a subclass or a
-// proxy and cannot throw inside the ack deadline.
-const trackedPublishes = new WeakMap<PublishSettlement, Promise<unknown>[]>()
+export const publishesSettled = (settlement: PublishSettlement): Promise<void> =>
+    Promise.allSettled(trackedPublishes.get(settlement) ?? []).then(() => undefined)
 
 export type IntakeRun = {
     kind: RunKind
@@ -130,7 +129,7 @@ export class IntakeProducer {
         })
         const raced = Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
         if (settlement) {
-            PublishSettlement.track(settlement, produce)
+            trackPublish(settlement, produce)
         }
         return raced
     }

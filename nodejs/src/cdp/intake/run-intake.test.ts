@@ -12,7 +12,14 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../services/monitoring/hog-invocation-results.service'
-import { INTAKE_ACK_DEADLINE_MS, IntakeMode, IntakeOutput, IntakeProducer, PublishSettlement } from './intake-producer'
+import {
+    INTAKE_ACK_DEADLINE_MS,
+    IntakeMode,
+    IntakeOutput,
+    IntakeProducer,
+    newPublishSettlement,
+    publishesSettled,
+} from './intake-producer'
 import { Run, RunIntake, keyedRunId } from './run-intake'
 
 describe('RunIntake', () => {
@@ -20,7 +27,7 @@ describe('RunIntake', () => {
         jest.useRealTimers()
     })
 
-    // A batch frees a recipient's slot on `settled()`, so a publish that outlives its ack deadline must still reach it.
+    // A batch frees a recipient's slot on `publishesSettled()`, so a publish that outlives its ack deadline must still reach it.
     it.each(['async', 'shadow'] satisfies IntakeMode[])(
         'hands the settlement a %s publish that is still running after its ack deadline',
         async (mode) => {
@@ -54,7 +61,7 @@ describe('RunIntake', () => {
                 invocation: createExampleHogFlowInvocation(hogFlow),
                 claim: { fingerprint: 'request' },
             }
-            const settlement = new PublishSettlement()
+            const settlement = newPublishSettlement()
             let publishSettled = false
 
             const answered =
@@ -63,7 +70,7 @@ describe('RunIntake', () => {
                     : intake.launch([run], { wait: 'committed', settlement })
             await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
             await answered
-            void settlement.settled().then(() => (publishSettled = true))
+            void publishesSettled(settlement).then(() => (publishSettled = true))
             await jest.advanceTimersByTimeAsync(0)
             expect(publishSettled).toBe(false)
 

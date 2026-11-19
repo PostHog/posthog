@@ -14,6 +14,8 @@ import {
     IntakeProducer,
     PublishSettlement,
     intakeModeOf,
+    newPublishSettlement,
+    publishesSettled,
 } from './intake-producer'
 
 describe('IntakeProducer', () => {
@@ -114,7 +116,7 @@ describe('IntakeProducer', () => {
         jest.useFakeTimers()
         const held: { ack: () => void; refuse: (error: Error) => void }[] = []
         produce = () => new Promise<void>((ack, refuse) => held.push({ ack, refuse }))
-        const settlement = new PublishSettlement()
+        const settlement = newPublishSettlement()
         let drained: 'pending' | 'fulfilled' | 'rejected' = 'pending'
         const producer = new IntakeProducer(outputs())
 
@@ -124,7 +126,7 @@ describe('IntakeProducer', () => {
         ]
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
         await expect(Promise.all(outcomes)).resolves.toEqual(['unacked', 'unacked'])
-        settlement.settled().then(
+        publishesSettled(settlement).then(
             () => (drained = 'fulfilled'),
             () => (drained = 'rejected')
         )
@@ -140,45 +142,67 @@ describe('IntakeProducer', () => {
         expect(drained).toBe('fulfilled')
     })
 
-    class ThrowingSettlement extends PublishSettlement {
-        track(): void {
-            throw new Error('tracker closed')
-        }
+    const everyTrapThrows: ProxyHandler<object> = {
+        get: () => {
+            throw new Error('trap')
+        },
+        has: () => {
+            throw new Error('trap')
+        },
+        getPrototypeOf: () => {
+            throw new Error('trap')
+        },
+        ownKeys: () => {
+            throw new Error('trap')
+        },
     }
+    const settlementKinds: [string, () => PublishSettlement][] = [
+        ['a settlement', newPublishSettlement],
+        [
+            'a proxy whose every trap throws',
+            () => new Proxy<PublishSettlement>(newPublishSettlement(), everyTrapThrows),
+        ],
+    ]
 
-    it.each([
-        ['a subclass with its own track', (): PublishSettlement => new ThrowingSettlement()],
-        ['a proxy', (): PublishSettlement => new Proxy(new PublishSettlement(), {})],
-    ])('holds the settlement open past the ack deadline even when it is %s', async (_, makeSettlement) => {
-        jest.useFakeTimers()
-        let ack!: () => void
-        produce = () => new Promise<void>((resolve) => (ack = resolve))
+    it.each(settlementKinds)('answers acked from the broker when the produce carries %s', async (_, makeSettlement) => {
         const settlement = makeSettlement()
-        let drained = false
 
-        const outcome = new IntakeProducer(outputs()).produce(
+        const outcome = await new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },
             'async',
             settlement
         )
-        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
-        await expect(outcome).resolves.toBe('unacked')
-        void settlement.settled().then(() => (drained = true))
-        await jest.advanceTimersByTimeAsync(0)
-        expect(drained).toBe(false)
 
-        ack()
-        await jest.advanceTimersByTimeAsync(0)
-
-        expect(drained).toBe(true)
+        expect(outcome).toBe('acked')
+        await expect(publishesSettled(settlement)).resolves.toBeUndefined()
     })
 
-    it('takes only a settlement the class built', () => {
-        // @ts-expect-error a plain object's own settled() would ignore the publishes the producer tracks
-        const plain: PublishSettlement = { settled: () => Promise.resolve() }
+    it.each(settlementKinds)(
+        'holds %s open past the ack deadline until the broker answers',
+        async (_, makeSettlement) => {
+            jest.useFakeTimers()
+            let ack!: () => void
+            produce = () => new Promise<void>((resolve) => (ack = resolve))
+            const settlement = makeSettlement()
+            let drained = false
 
-        expect(plain).not.toBeInstanceOf(PublishSettlement)
-    })
+            const outcome = new IntakeProducer(outputs()).produce(
+                { kind: 'transactional-email', invocation: invocation() },
+                'async',
+                settlement
+            )
+            await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+            await expect(outcome).resolves.toBe('unacked')
+            void publishesSettled(settlement).then(() => (drained = true))
+            await jest.advanceTimersByTimeAsync(0)
+            expect(drained).toBe(false)
+
+            ack()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(drained).toBe(true)
+        }
+    )
 
     it('records the wait for the ack in milliseconds', async () => {
         jest.useFakeTimers()
@@ -216,3 +240,7 @@ describe('IntakeProducer', () => {
         expect(modeOf(7)).toBe(mode)
     })
 })
+
+// tsc fails on this directive once a plain object type-checks as the settlement `produce` takes.
+// @ts-expect-error a plain object is not a settlement the producer can track
+const _plainObjectAsSettlement: Parameters<IntakeProducer['produce']>[2] = { settled: () => Promise.resolve() }
