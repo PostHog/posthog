@@ -30,7 +30,7 @@ from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 from . import apple_ads, common, model, refresh_tracking, row_writes
 
@@ -158,6 +158,16 @@ _STRIPE_SAVED_REJECTION_STATUS_CODES = frozenset({400, 402, 404, 422})
 
 def _stripe_rejected_the_refresh(res: requests.Response) -> bool:
     return res.status_code in _STRIPE_SAVED_REJECTION_STATUS_CODES
+
+
+def _stripe_refresh_log_fields(kind: str, res: requests.Response | None) -> dict[str, Any]:
+    """Stripe's request ID, to look up in Stripe's request logs, and whether Stripe replayed a saved answer."""
+    if kind != "stripe" or res is None:
+        return {}
+    return {
+        "stripe_request_id": res.headers.get("Request-Id"),
+        "stripe_idempotent_replayed": res.headers.get("Idempotent-Replayed") == "true",
+    }
 
 
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
@@ -381,7 +391,7 @@ POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 # hidden, and privileged scopes). The real bound is enforced twice more downstream: the target cell's
 # OAuthApplication.allowed_scopes at consent time, and the target's per-request scope checks. Identity
 # scopes are auto-added and not part of this set.
-POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(get_oauth_scopes_supported())
+POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(OAUTH_SCOPES_SUPPORTED)
 
 
 @frozen
@@ -1861,7 +1871,9 @@ class OauthIntegration:
 
         if res is None or res.status_code != 200 or not config.get("access_token"):
             logger.warning(
-                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+                f"Failed to refresh token for {self}",
+                response=res.text if res is not None else "network error",
+                **_stripe_refresh_log_fields(self.integration.kind, res),
             )
             reason = (
                 refresh_tracking.oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
@@ -1879,7 +1891,7 @@ class OauthIntegration:
             # decrypted, and saving re-encrypts it, permanently adding a layer to the stored value.
             return replace(failure, errors=common.ERROR_TOKEN_REFRESH_FAILED)
 
-        logger.info(f"Refreshed access token for {self}")
+        logger.info(f"Refreshed access token for {self}", **_stripe_refresh_log_fields(self.integration.kind, res))
         tokens: dict[str, object] = {"access_token": config["access_token"]}
         # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
         # refresh response includes a new refresh_token and the old one is

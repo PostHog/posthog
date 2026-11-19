@@ -5,10 +5,7 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '~/common/config'
-import {
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '~/common/config/kafka-topics'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '~/common/config/kafka-topics'
 import { isProdEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
@@ -88,6 +85,12 @@ export type RecordingApiBlocksConfig = {
     RECORDING_API_AWS_TIMEOUT_MS: number
     // Deadline for a Redis command and for checking a connection out of the pool.
     RECORDING_API_REDIS_TIMEOUT_MS: number
+    // The browser route refuses a larger block, and the player reads it through Django instead.
+    RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: number
+    // Bytes of browser-route blocks one process reads and decrypts at once. A request over it gets a 503.
+    RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: number
+    // Deadline for one browser-route S3 read, body included. It sits under the Envoy route timeout.
+    RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: number
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
@@ -105,6 +108,9 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
         // Deletes, which are mostly KMS and DynamoDB calls, almost never take over 2.5s in total.
         RECORDING_API_AWS_TIMEOUT_MS: 5000,
         RECORDING_API_REDIS_TIMEOUT_MS: 2000,
+        RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: 32 * 1024 * 1024,
+        RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: 256 * 1024 * 1024,
+        RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: 10000,
     }
 }
 
@@ -179,17 +185,12 @@ export type RecordingApiConfig = Pick<
 export type RecordingApiOutputsConfig = {
     RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: string
     RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
-
-    RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: string
-    RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
 }
 
 export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
     return {
         RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
     }
 }
 
@@ -199,4 +200,32 @@ export interface RecordingBlock {
     end_byte: number
     start_timestamp: string
     end_timestamp: string
+}
+
+export interface PublicBlockLimits {
+    maxBlockBytes: number
+    bytesInFlight: number
+    readTimeoutMs: number
+}
+
+// An empty or mistyped env value parses to NaN, which every comparison treats as no limit, so it must stop startup.
+export function parsePublicBlockLimits(config: Partial<RecordingApiBlocksConfig>): PublicBlockLimits {
+    const defaults = getDefaultRecordingApiBlocksConfig()
+    const read = (
+        name:
+            | 'RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'
+            | 'RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'
+            | 'RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'
+    ): number => {
+        const value = config[name] ?? defaults[name]
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error(`${name} must be a positive number`)
+        }
+        return value
+    }
+    return {
+        maxBlockBytes: read('RECORDING_API_MAX_PUBLIC_BLOCK_BYTES'),
+        bytesInFlight: read('RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT'),
+        readTimeoutMs: read('RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS'),
+    }
 }

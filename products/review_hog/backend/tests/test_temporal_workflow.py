@@ -1080,14 +1080,19 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "fail_lens_units,fail_main_session,expect_failed",
+    "fail_lens_units,fail_main_session,devex_lens,expect_failed,expected_sessions",
     [
-        (frozenset({("contracts-security", 1), ("performance-reliability", 1)}), False, False),
-        (frozenset(), True, True),
+        (frozenset({("contracts-security", 1), ("performance-reliability", 1)}), False, False, False, (2, None)),
+        (frozenset({("devex", 1)}), False, True, False, (0, True)),
+        (frozenset(), True, False, True, None),
     ],
 )
 async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
-    fail_lens_units: frozenset[tuple[str, int]], fail_main_session: bool, expect_failed: bool
+    fail_lens_units: frozenset[tuple[str, int]],
+    fail_main_session: bool,
+    devex_lens: bool,
+    expect_failed: bool,
+    expected_sessions: tuple[int, bool | None] | None,
 ) -> None:
     # Lens sessions only add breadth, so losing every one of them must still publish the main
     # findings, while a turn without its main review must fail instead of posting a partial review.
@@ -1097,17 +1102,19 @@ async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
         review_mode="flash",
         review_design="single_agent",
         lens_chunk_count=1,
+        devex_lens=devex_lens,
         fail_lens_units=fail_lens_units,
         fail_main_session=fail_main_session,
     )
 
     assert recorded["failed"] is expect_failed
     assert recorded["publish"] == ([] if expect_failed else [7])
-    if not expect_failed:
+    if expected_sessions is not None:
         [(turn, sessions)] = recorded["track_flash"]
         assert turn == _FLASH_TURN_STATS
         assert sessions is not None
-        assert (sessions.lens_failures, sessions.lens_timeouts) == (len(fail_lens_units), 0)
+        assert (sessions.lens_failures, sessions.devex_failed) == expected_sessions
+        assert sessions.lens_timeouts == 0
 
 
 @pytest.mark.asyncio

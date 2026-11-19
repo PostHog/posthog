@@ -535,6 +535,43 @@ class TestTable(APIBaseTest):
         pending_lookups = [q["sql"] for q in several.captured_queries if "self_managed_table" in q["sql"]]
         assert len(pending_lookups) == 1
 
+    def _synced_table(self, source: ExternalDataSource, name: str) -> DataWarehouseTable:
+        table = DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern=f"https://example.com/{name}.parquet",
+            external_data_source_id=source.pk,
+        )
+        ExternalDataSchema.objects.create(name=name, team=self.team, source=source, table=table)
+        return table
+
+    def test_external_schema_query_count_does_not_grow_with_tables(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_type="Stripe",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        url = f"/api/projects/{self.team.pk}/warehouse_tables/?include_columns=false"
+        self._synced_table(source, "charges")
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as one_table:
+            self.client.get(url)
+        for name in ("customers", "invoices", "refunds"):
+            self._synced_table(source, name)
+        with CaptureQueriesContext(connection) as four_tables:
+            response = self.client.get(url)
+
+        assert sorted(row["external_schema"]["name"] for row in response.json()["results"]) == [
+            "charges",
+            "customers",
+            "invoices",
+            "refunds",
+        ]
+        assert len(four_tables.captured_queries) == len(one_table.captured_queries)
+
     def test_list_tables_exposes_hogql_name_and_honors_include_columns(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

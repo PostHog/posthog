@@ -6,7 +6,7 @@ from rest_framework import exceptions
 from rest_framework.request import Request
 
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget

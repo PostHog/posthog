@@ -28,6 +28,7 @@ import { parseTeammateInboxScope } from '../inboxMembership'
 import {
     INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_FOR_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
     INBOX_TAB_KEYS,
     InboxReportSectionKey,
@@ -158,7 +159,7 @@ export interface InboxFilterState {
 
 function parseScopeParam(raw: unknown): InboxScope {
     if (typeof raw === 'string') {
-        if (raw === 'entire-project' || raw === 'claimed-by-you') {
+        if (raw === 'entire-project' || raw === 'needs-you' || raw === 'claimed-by-you') {
             return raw
         }
         // Validate the teammate id so a malformed shared link falls back to the default scope
@@ -347,6 +348,7 @@ export interface inboxFiltersLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
     activeCreatedWindow: InboxCreatedWindow | null
+    activeScope: InboxScope
     activeScoutFilter: string[]
     activeSortDirection: InboxSortDirection
     activeSortField: InboxSortField
@@ -363,6 +365,7 @@ export interface inboxFiltersLogicValues {
         uuid: string
     } | null
     modelSortAvailable: boolean
+    needsYouScopeAvailable: boolean
     nonDefaultReportFilterCount: number
     personalSortAvailable: boolean
     priorityFilter: SignalReportPriority[]
@@ -431,6 +434,9 @@ export interface inboxFiltersLogicActions {
         }
     }
     migrateLegacyDefaultSort: () => {
+        value: true
+    }
+    needsYouScopeAvailabilityChanged: () => {
         value: true
     }
     resetUnavailableSort: () => {
@@ -506,7 +512,9 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
-        isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
+        isScopedToMe: (activeScope: InboxScope, user: UserType | null) => boolean
+        needsYouScopeAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        activeScope: (scope: InboxScope, needsYouScopeAvailable: boolean) => InboxScope
         modelSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
         personalSortAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSortField: (
@@ -615,6 +623,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Fires when the Source filter flag changes while a stored selection exists, so the lists
         // reload with or without that selection.
         sourceFilterAvailabilityChanged: true,
+        // Fires when the Needs you flag changes while the Needs you scope is stored, so the lists
+        // reload with the scope they now apply.
+        needsYouScopeAvailabilityChanged: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         // The report states (Needs decision, Review and merge, …) shown in the flat Reports list.
         // Multi-select: the open-work states are selected by default (DEFAULT_STATE_FILTER), and an
@@ -874,9 +885,21 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 activeCreatedWindow !== null,
         ],
         isScopedToMe: [
-            (s) => [s.scope, s.user],
+            (s) => [s.activeScope, s.user],
             (scope: InboxScope, user: UserType | null): boolean =>
                 !!user?.uuid && (scope === INBOX_SCOPE_FOR_YOU || parseTeammateInboxScope(scope) === user.uuid),
+        ],
+        needsYouScopeAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE],
+        ],
+        // The scope the lists request and render with. A Needs you scope stored or shared while the flag
+        // is off falls back to the default scope, so the list never applies a scope the picker cannot show.
+        // The raw `scope` stays stored and in the URL.
+        activeScope: [
+            (s) => [s.scope, s.needsYouScopeAvailable],
+            (scope: InboxScope, needsYouScopeAvailable: boolean): InboxScope =>
+                scope === INBOX_SCOPE_NEEDS_YOU && !needsYouScopeAvailable ? INBOX_SCOPE_FOR_YOU : scope,
         ],
         // The flag is the rollout. The backend also lets every staff user sort by the model, but the menu stays
         // behind the flag so that staff on an instance with no scores do not get it.
@@ -1002,6 +1025,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             const hasSelection = values.sourceProductFilter.length > 0 || values.scoutFilter.length > 0
             if (wasAvailable !== undefined && available !== wasAvailable && hasSelection) {
                 actions.sourceFilterAvailabilityChanged()
+            }
+        },
+        needsYouScopeAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
+            if (wasAvailable !== undefined && available !== wasAvailable && values.scope === INBOX_SCOPE_NEEDS_YOU) {
+                actions.needsYouScopeAvailabilityChanged()
             }
         },
     })),

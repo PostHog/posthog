@@ -887,7 +887,11 @@ async def run_signal_pipeline(
                         billing_exempt=system_source_exempt(output.source_product),
                     )
                 capture_pipeline_stage(
-                    "signal_data_source_filtered", team, organization, output, {"steering_applied": steering.active}
+                    "signal_data_source_filtered",
+                    team,
+                    organization,
+                    output,
+                    {"filter_reason": "not_actionable", "steering_applied": steering.active},
                 )
 
     if not outputs:

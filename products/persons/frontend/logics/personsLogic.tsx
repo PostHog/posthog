@@ -15,15 +15,18 @@ import { delay } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
+import { flagCallsListReachesPastRetention } from 'scenes/feature-flags/flagEvaluationsTable'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -47,6 +50,7 @@ import {
     parsePersonFromHogQLRow,
     pickBestPersonDistinctId,
 } from '../person-utils'
+import { createInitialFlagCallsPayload } from '../personFlagCallsQuery'
 
 function reportPersonPropertyUpdated(
     action: 'added' | 'updated' | 'removed',
@@ -152,6 +156,8 @@ export interface personsLogicValues {
     exceptionsQuery: DataTableNode | null
     exporterProps: TriggerExportProps[]
     feedEnabled: boolean
+    flagCallsQuery: DataTableNode | null
+    flagCallsReachPastRetention: boolean
     hiddenListProperties: AnyPropertyFilter[]
     listFilters: PersonListParams
     person: PersonType | null
@@ -165,7 +171,7 @@ export interface personsLogicValues {
     sidePanelContext: SidePanelSceneContext
     splitMergeModalShown: boolean
     surveyResponsesQuery: DataTableNode | null
-    todayPeopleRecent: TodayPeopleRecent | null
+    todayRecent: TodayPeopleRecent | null
     urlId: any
 }
 
@@ -284,6 +290,9 @@ export interface personsLogicActions {
     setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => {
         exceptionsQuery: DataTableNode | null
     }
+    setFlagCallsQuery: (flagCallsQuery: DataTableNode | null) => {
+        flagCallsQuery: DataTableNode | null
+    }
     setHiddenListProperties: (payload: AnyPropertyFilter[]) => {
         payload: AnyPropertyFilter[]
     }
@@ -328,13 +337,17 @@ export interface personsLogicMeta {
             },
             featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
-        todayPeopleRecent: (person: PersonType | null) => TodayPeopleRecent | null
+        todayRecent: (person: PersonType | null) => TodayPeopleRecent | null
         sidePanelContext: (person: PersonType | null) => SidePanelSceneContext
         exporterProps: (listFilters: PersonListParams, arg: any) => TriggerExportProps[]
         urlId: (arg: any) => any
         feedEnabled: (featureFlags: FeatureFlagsSet) => boolean
         primaryDistinctId: (person: PersonType | null) => string | null
         eventsQueryIsDirty: (eventsQuery: DataTableNode | null, person: PersonType | null) => boolean
+        flagCallsReachPastRetention: (
+            currentTeam: TeamPublicType | TeamType | null,
+            flagCallsQuery: DataTableNode | null
+        ) => boolean
     }
 }
 
@@ -383,6 +396,7 @@ export const personsLogic = kea<personsLogicType>([
         setDistinctId: (distinctId: string) => ({ distinctId }),
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
+        setFlagCallsQuery: (flagCallsQuery: DataTableNode | null) => ({ flagCallsQuery }),
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
         resetEventsQuery: true,
     }),
@@ -392,6 +406,7 @@ export const personsLogic = kea<personsLogicType>([
             if (person.id != null) {
                 actions.setEventsQuery(createInitialEventsPayload(person.id))
                 actions.setExceptionsQuery(createInitialExceptionsPayload(person.id))
+                actions.setFlagCallsQuery(createInitialFlagCallsPayload(person.id))
                 actions.setSurveyResponsesQuery(createInitialSurveyResponsesPayload(person.id))
             }
         }
@@ -460,7 +475,7 @@ export const personsLogic = kea<personsLogicType>([
                                     values: { id: uuid },
                                     tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
-                                { refresh: 'blocking' }
+                                { refresh: 'force_blocking' }
                             )
                         } catch (error) {
                             // The blocking query is aborted when navigation moves on before it resolves.
@@ -591,6 +606,12 @@ export const personsLogic = kea<personsLogicType>([
                 setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
+        flagCallsQuery: [
+            null as DataTableNode | null,
+            {
+                setFlagCallsQuery: (_, { flagCallsQuery }) => flagCallsQuery,
+            },
+        ],
         surveyResponsesQuery: [
             null as DataTableNode | null,
             {
@@ -649,7 +670,7 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
 
-        [TODAY_PEOPLE_RECENT_KEY]: [
+        [TODAY_RECENT_KEY]: [
             (s) => [s.person],
             (person: PersonType | null): TodayPeopleRecent | null =>
                 person?.id != null
@@ -698,6 +719,13 @@ export const personsLogic = kea<personsLogicType>([
                 }
                 return !objectsEqual(eventsQuery, createInitialEventsPayload(person.id))
             },
+        ],
+        flagCallsReachPastRetention: [
+            (s) => [s.currentTeam, s.flagCallsQuery],
+            (currentTeam: TeamPublicType | TeamType | null, flagCallsQuery: DataTableNode | null): boolean =>
+                !!flagCallsQuery &&
+                isEventsQuery(flagCallsQuery.source) &&
+                flagCallsListReachesPastRetention(currentTeam, flagCallsQuery.source),
         ],
     })),
     listeners(({ actions, values, cache }) => ({

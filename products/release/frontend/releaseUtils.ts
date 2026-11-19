@@ -1,9 +1,13 @@
+import { combineUrl } from 'kea-router'
+
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { hasDeniedApprovalRequest, isSchedulePaused } from 'scenes/feature-flags/scheduleOccurrences'
 import { urls } from 'scenes/urls'
 
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ExperimentStatus } from '~/types'
 
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
@@ -11,10 +15,15 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import {
+    NAME_PREFILL_PARAM,
+    SOURCE_PREFILL_PARAM,
+    SOURCE_RECORD_PREFILL_PARAM,
+} from 'products/workflows/frontend/Broadcasts/broadcastAudiencePrefill'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
-import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, MetricGoalApi, ReleaseDTOApi } from './generated/api.schemas'
 
 export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released' | 'ended'
 
@@ -44,9 +53,9 @@ export interface ReleaseFlagAudience {
     variants: { key: string; percent: number }[]
 }
 
-export type ReleaseEventKind = 'release' | 'flag' | 'experiment' | 'early_access' | 'schedule' | 'broadcast'
+export type ReleaseEventKind = 'release' | 'flag' | 'experiment' | 'early_access' | 'schedule' | 'broadcast' | 'survey'
 
-export const CALENDAR_DAYS_BEFORE = 17
+export const CALENDAR_DAYS_BEFORE = 60
 export const CALENDAR_DAYS_AFTER = 60
 
 export interface ReleaseEvent {
@@ -57,6 +66,7 @@ export interface ReleaseEvent {
     detail?: string
     href?: string
     upcoming?: boolean
+    flagId?: number
 }
 
 export interface ReleaseSuggestion {
@@ -67,16 +77,27 @@ export interface ReleaseSuggestion {
     to: string
 }
 
-export type ReleaseSpanTone = 'default' | 'info' | 'warning' | 'success'
+export const releaseSourceRecord = (releaseId: string): string => `release:${releaseId}`
+
+export function releaseSidebarEntryName(
+    entry: FileSystemEntry,
+    releasesById: ReadonlyMap<string, { name: string }>
+): string | null {
+    if (entry.type === 'release') {
+        return releasesById.get(entry.ref ?? '')?.name ?? null
+    }
+    return splitPath(entry.path).pop() || entry.path
+}
 
 export interface ReleaseSpan {
     key: string
-    kind: 'flag' | 'early_access' | 'experiment' | 'experiment_done'
-    tone?: ReleaseSpanTone
+    kind: 'flag' | 'early_access' | 'experiment' | 'experiment_done' | 'survey'
     from: string
     to: string
+    ongoing?: boolean
     label?: string
     href: string
+    count?: number
 }
 
 export interface ReleaseRow {
@@ -85,6 +106,8 @@ export interface ReleaseRow {
     description: string
     createdAt: string
     owner: ReleaseDTOApi['owner']
+    metricInsightIds: number[]
+    metricGoals: MetricGoalApi[]
     missingFlagIds: number[]
     headline: string
     detail: string
@@ -140,6 +163,28 @@ export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | '
     early_access: 'warning',
     released: 'success',
     ended: 'default',
+}
+
+export const STAGE_COLOR_VARS = [
+    '[--release-flag:var(--color-product-feature-flags-light)]',
+    '[--release-experiment:var(--color-product-experiments-light)]',
+    '[--release-early-access:var(--color-product-early-access-features-light)]',
+    '[--release-survey:var(--color-product-surveys-light)]',
+    '[--release-released:#1f7a4a]',
+    'dark:[--release-flag:var(--color-product-feature-flags-dark)]',
+    'dark:[--release-experiment:var(--color-product-experiments-dark)]',
+    'dark:[--release-early-access:var(--color-product-early-access-features-dark)]',
+    'dark:[--release-survey:var(--color-product-surveys-dark)]',
+    'dark:[--release-released:#3fb878]',
+].join(' ')
+
+export const STAGE_COLOR: Record<ReleaseStage, string> = {
+    planned: 'var(--muted-foreground)',
+    flag: 'var(--release-flag)',
+    experiment: 'var(--release-experiment)',
+    early_access: 'var(--release-early-access)',
+    released: 'var(--release-released)',
+    ended: 'var(--muted-foreground)',
 }
 
 export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
@@ -328,7 +373,7 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     const denied = hasDeniedApprovalRequest(change as never)
     const expired = !!change.end_date && dayjs(change.end_date).isBefore(dayjs())
     const live = !isSchedulePaused(change as never) && !denied && !expired
-    const base = { kind: 'schedule' as const, href }
+    const base = { kind: 'schedule' as const, href, flagId: Number(change.record_id) }
 
     if (change.is_recurring) {
         const events: ReleaseEvent[] = []
@@ -438,7 +483,7 @@ function upcomingSendEvents(flow: SendCalendarFlowApi, now: dayjs.Dayjs): Releas
                 key: `send-schedule-${schedule.id}-${time.valueOf()}`,
                 date: time.toISOString(),
                 kind: 'broadcast' as const,
-                title: `Broadcast: ${flow.name || 'Untitled broadcast'}`,
+                title: `Broadcast scheduled: ${flow.name || 'Untitled broadcast'}`,
                 detail: 'Scheduled to send',
                 href: urls.broadcast(flow.id),
                 upcoming: true,
@@ -685,7 +730,9 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         audiences,
         audienceSummary:
             new Set(audiences.map((audience) => audience.summary)).size > 1
-                ? `Differs across ${audiences.length} flags`
+                ? audiences.every((audience) => audience.percent !== null)
+                    ? `${audiences.filter((audience) => isFullyRolledOut(audience.flag)).length} of ${audiences.length} flags reach everyone`
+                    : `Differs across ${audiences.length} flags`
                 : audiences[0]?.summary,
         firstFlagCreated: flags.map((flag) => flag.created_at).sort()[0] ?? null,
     }
@@ -772,8 +819,10 @@ function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; d
     if (flags.length) {
         return {
             status: 'Behind a flag',
-            headline: 'Behind a flag',
-            detail: audienceSummary ? `${audienceSummary}.` : '',
+            headline: audienceSummary
+                ? `${audienceSummary.charAt(0).toUpperCase()}${audienceSummary.slice(1)}`
+                : 'Behind a flag',
+            detail: '',
         }
     }
     if (facts.pendingFlags) {
@@ -989,43 +1038,56 @@ function releaseEvents(release: ReleaseDTOApi, facts: ReleaseFacts, index: Relea
     ]
 }
 
-function releaseSuggestions(facts: ReleaseFacts, stage: ReleaseStage): ReleaseSuggestion[] {
-    const { complete, flags, experiments, earlyAccess, finished, broadcasts } = facts
-    if (!complete || !flags.length) {
+function releaseSuggestions(facts: ReleaseFacts, stage: ReleaseStage, hasSurveys: boolean): ReleaseSuggestion[] {
+    const { complete, flags, experiments, earlyAccess, broadcasts, ended } = facts
+    if (!complete || !flags.length || ended || stage === 'planned' || stage === 'ended') {
         return []
     }
-    const suggestions: ReleaseSuggestion[] = []
-    if (!broadcasts.length) {
-        suggestions.push({
-            key: 'broadcast',
-            title: 'Tell users about it',
-            detail: 'Send a broadcast when the release reaches more users, then link it here to see it on the calendar.',
-            label: 'New broadcast',
-            to: urls.broadcastNew(),
-        })
+    const experiment: ReleaseSuggestion = {
+        key: 'experiment',
+        title: 'Measure the impact',
+        detail: 'Run an experiment on this flag.',
+        label: 'New experiment',
+        to: urls.experiment('new'),
     }
-    if (finished) {
-        return suggestions
+    const earlyAccessFeature: ReleaseSuggestion = {
+        key: 'early-access',
+        title: 'Let users opt in early',
+        detail: 'Offer it as an early access feature.',
+        label: 'New early access feature',
+        to: urls.earlyAccessFeature('new'),
     }
-    if (!experiments.length) {
-        suggestions.push({
-            key: 'experiment',
-            title: 'Measure the impact',
-            detail: 'Run an experiment on this flag to see if the release helps.',
-            label: 'New experiment',
-            to: urls.experiment('new'),
-        })
+    const survey = (audience: string): ReleaseSuggestion => ({
+        key: 'survey',
+        title: 'Ask what they think',
+        detail: `A short survey for ${audience}.`,
+        label: 'New survey',
+        to: urls.survey('new'),
+    })
+    const broadcast = (title: string, detail: string): ReleaseSuggestion => ({
+        key: 'broadcast',
+        title,
+        detail,
+        label: 'New broadcast',
+        to: urls.broadcastNew(),
+    })
+    const byStage: Record<'flag' | 'experiment' | 'early_access' | 'released', (ReleaseSuggestion | false)[]> = {
+        flag: [
+            !experiments.length && experiment,
+            !earlyAccess.length && earlyAccessFeature,
+            !hasSurveys && survey('people who get the flag'),
+        ],
+        experiment: [!hasSurveys && survey('people in the test')],
+        early_access: [
+            !broadcasts.length && broadcast('Invite users to try it', 'Announce the beta to the users who can opt in.'),
+            !hasSurveys && survey('people who opted in'),
+        ],
+        released: [
+            !broadcasts.length && broadcast("Tell users it's live", 'Announce the release to everyone.'),
+            !hasSurveys && survey('everyone who has it'),
+        ],
     }
-    if (!earlyAccess.length && stage === 'flag') {
-        suggestions.push({
-            key: 'early-access',
-            title: 'Let users opt in first',
-            detail: 'Interested users try the release before everyone gets it.',
-            label: 'New early access feature',
-            to: urls.earlyAccessFeature('new'),
-        })
-    }
-    return suggestions
+    return byStage[stage].filter((suggestion): suggestion is ReleaseSuggestion => !!suggestion)
 }
 
 function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end: string): ReleaseSpan {
@@ -1036,6 +1098,7 @@ function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end:
         kind: finished ? 'experiment_done' : 'experiment',
         from,
         to: finished && experiment.end_date ? experiment.end_date.slice(0, 10) : end,
+        ongoing: !finished,
         label: finished
             ? 'Experiment complete'
             : isExperimentPaused(experiment)
@@ -1045,23 +1108,22 @@ function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end:
     }
 }
 
-function flagLook(facts: ReleaseFacts): Pick<ReleaseSpan, 'label' | 'tone' | 'href'> {
+function flagLook(facts: ReleaseFacts): Pick<ReleaseSpan, 'label' | 'href'> {
     const { flags, audiences, released, ended } = facts
     const more = flags.length > 1 ? ` +${flags.length - 1}` : ''
     const href = urls.featureFlag(flags[0].id)
     if (ended) {
-        return { label: `Archived${more}`, tone: 'default', href }
+        return { label: `Archived${more}`, href }
     }
     if (released) {
-        return { label: `Everyone${more}`, tone: 'success', href }
+        return { label: `Everyone${more}`, href }
     }
     if (!flags[0].active) {
-        return { label: `${flags[0].key} off${more}`, tone: 'default', href }
+        return { label: `${flags[0].key} off${more}`, href }
     }
     const percent = audiences[0]?.percent
     return {
         label: `${flags[0].key} ${percent === null || percent === undefined ? '' : `${percent}%`}${more}`.trim(),
-        tone: 'default',
         href,
     }
 }
@@ -1079,7 +1141,14 @@ function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
                 ? dayjs(earlyAccessFrom).subtract(1, 'day').format('YYYY-MM-DD')
                 : end
         if (!earlyAccessFrom || earlyAccessFrom > from) {
-            spans.push({ ...flagLook(facts), key: 'flag', kind: 'flag', from, to })
+            spans.push({
+                ...flagLook(facts),
+                key: 'flag',
+                kind: 'flag',
+                from,
+                to,
+                ongoing: !earlyAccessFrom && !facts.ended,
+            })
         }
     }
     for (const item of opened) {
@@ -1092,6 +1161,7 @@ function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
                     : `Early access, ${item.stage}`,
             from: item.created_at.slice(0, 10),
             to: end,
+            ongoing: true,
             href: urls.earlyAccessFeature(item.id),
         })
     }
@@ -1124,12 +1194,25 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         description: release.description,
         createdAt: release.created_at,
         owner: release.owner,
+        metricInsightIds: [...(release.metric_insight_ids ?? [])],
+        metricGoals: [...(release.metric_goals ?? [])],
         missingFlagIds: facts.missingFlagIds,
         ...releaseCopy(facts),
         lifecycle: releaseLifecycle(release, facts, stage),
         audiences: facts.audiences,
         events,
-        suggestions: releaseSuggestions(facts, stage),
+        suggestions: releaseSuggestions(facts, stage, !!release.survey_ids?.length).map((suggestion) =>
+            suggestion.key === 'broadcast'
+                ? {
+                      ...suggestion,
+                      to: combineUrl(urls.broadcastNew(), {
+                          [NAME_PREFILL_PARAM]: release.name,
+                          [SOURCE_PREFILL_PARAM]: 'release',
+                          [SOURCE_RECORD_PREFILL_PARAM]: releaseSourceRecord(release.id),
+                      }).url,
+                  }
+                : suggestion
+        ),
         flags: facts.flags,
         experiments: facts.experiments,
         earlyAccess: facts.earlyAccess,

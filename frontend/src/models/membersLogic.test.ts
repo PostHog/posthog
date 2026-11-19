@@ -1,9 +1,18 @@
-import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER, MOCK_USER_UUID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_ORGANIZATION_MEMBER,
+    MOCK_DEFAULT_USER,
+    MOCK_SECOND_ORGANIZATION_MEMBER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -90,6 +99,46 @@ describe('membersLogic', () => {
             const result = logic.values.selectableMembers().map((member) => member.user.uuid)
             expect(result).not.toContain(MOCK_USER_UUID)
             expect(result).toContain(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
+        })
+    })
+
+    describe('postRemoveMember', () => {
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+        })
+
+        it.each([200, 503, 0])('preserves the member removal when the user refresh returns %s', async (status) => {
+            organizationLogic.mount()
+            await expectLogic(organizationLogic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.loadAllMembers()
+            }).toFinishAllListeners()
+
+            expect(logic.values.memberCount).toBe(2)
+            const updatedOrganization = { ...MOCK_DEFAULT_ORGANIZATION, member_count: 1 }
+            useMocks({
+                get: {
+                    '/api/organizations/@current/': updatedOrganization,
+                    '/api/users/@me/': () =>
+                        status === 0
+                            ? HttpResponse.error()
+                            : [status, { ...MOCK_DEFAULT_USER, organization: updatedOrganization }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.postRemoveMember(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
+            }).toFinishAllListeners()
+
+            expect(logic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
+            expect(organizationLogic.values.currentOrganization?.member_count).toBe(1)
+            expect(userLogic.values.user?.uuid).toBe(MOCK_USER_UUID)
+            expect(userLogic.values.user?.organization?.member_count).toBe(status === 200 ? 1 : 2)
+            expect(logic.values.memberCount).toBe(status === 200 ? 1 : 2)
         })
     })
 })

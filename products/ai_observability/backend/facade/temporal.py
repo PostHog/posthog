@@ -4,7 +4,7 @@ The worker registers ``WORKFLOWS``/``ACTIVITIES`` on the LLMA task queue. Isolat
 workflow sandbox imports never land on the web request path.
 """
 
-from products.ai_observability.backend.eval_suggestions.client import (
+from products.ai_observability.backend.temporal.eval_suggestions_client import (
     SCHEDULE_ID as EVAL_SUGGESTIONS_SCHEDULE_ID,
     create_eval_suggestions_schedule,
 )

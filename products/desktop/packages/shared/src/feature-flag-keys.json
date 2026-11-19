@@ -32,6 +32,7 @@
   "SPOKEN_NARRATION_FLAG": "posthog-code-spoken-narration",
   "TASK_ANALYSIS_FLAG": "posthog-code-task-analysis",
   "TASK_COST_VISIBLE_FLAG": "posthog-code-task-cost-visible",
+  "TASKS_GITLAB_FLAG": "tasks-gitlab",
   "TASKS_PREWARM_SANDBOX_FLAG": "tasks-prewarm-sandbox",
   "TWIG_CLOUD_MODE_FLAG": "twig-cloud-mode-toggle",
   "USER_SPEND_LIMIT_FLAG": "ai-gateway-user-spend-limit"

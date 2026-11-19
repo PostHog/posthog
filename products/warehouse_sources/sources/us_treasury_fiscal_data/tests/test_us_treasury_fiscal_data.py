@@ -54,6 +54,8 @@ def run(
         ("debt_to_penny", "v2/accounting/od/debt_to_penny", "record_date", "tot_pub_debt_out_amt"),
         ("avg_interest_rates", "v2/accounting/od/avg_interest_rates", "record_date", "avg_interest_rate_amt"),
         ("rates_of_exchange", "v1/accounting/od/rates_of_exchange", "effective_date", "exchange_rate"),
+        ("interest_expense", "v2/accounting/od/interest_expense", "record_date", "month_expense_amt"),
+        ("mts_table_1", "v1/accounting/mts/mts_table_1", "record_date", "current_month_dfct_sur_amt"),
     ],
 )
 @pytest.mark.parametrize(
@@ -111,6 +113,86 @@ def test_requests_pagination_and_normalization(
     # The cursor stays in storage until the pipeline calls `on_complete`.
     assert result.final_state == FiscalDataResumeConfig(page=2, lower_bound=expected_filter)
     assert result.completed_state is None
+
+
+@pytest.mark.parametrize(
+    ("name", "path", "sort", "partition_key", "row", "expected"),
+    [
+        (
+            "auctions_query",
+            "v1/accounting/od/auctions_query",
+            "record_date,cusip,auction_date",
+            "record_date",
+            {
+                "record_date": "2026-10-30",
+                "cusip": "91282CRR4",
+                "auction_date": "2026-10-22",
+                "maturity_date": "2031-10-15",
+                "high_yield": "null",
+                "offering_amt": "26000000000",
+                "currently_outstanding": "30000000000.000000",
+                "price_per100": "99.875",
+            },
+            {
+                "record_date": date(2026, 10, 30),
+                "cusip": "91282CRR4",
+                "auction_date": date(2026, 10, 22),
+                "maturity_date": date(2031, 10, 15),
+                "high_yield": None,
+                "offering_amt": Decimal("26000000000"),
+                "currently_outstanding": Decimal("30000000000"),
+                "price_per100": "99.875",
+            },
+        ),
+        (
+            "ofs2_estimated_ownership_treasury_securities",
+            "v1/accounting/tb/ofs2_estimated_ownership_treasury_securities",
+            "end_of_month,securities_owner",
+            "end_of_month",
+            {
+                "record_date": "2026-09-30",
+                "end_of_month": "2016-03-31",
+                "securities_owner": "Foreign And International",
+                "securities_bil_amt": "6284.1",
+            },
+            {
+                "record_date": date(2026, 9, 30),
+                "end_of_month": date(2016, 3, 31),
+                "securities_owner": "Foreign And International",
+                "securities_bil_amt": Decimal("6284.1"),
+            },
+        ),
+    ],
+)
+def test_full_refresh_tables(
+    name: str, path: str, sort: str, partition_key: str, row: dict[str, str], expected: dict[str, object]
+) -> None:
+    result = run(
+        name,
+        [ScriptedResponse(json={"data": [row], "meta": {"total-pages": 1}})],
+        incremental=False,
+        watermark="2026-01-01",
+    )
+
+    assert result.raised is None
+    assert result.params("sort") == [sort]
+    assert result.params("filter") == [None]
+    assert result.requests[0].path == "/services/api/fiscal_service/" + path
+    assert result.response is not None
+    assert result.response.sort_mode is None
+    assert result.response.partition_keys == [partition_key]
+    assert result.rows == [expected]
+
+    rejected = SourceDriver(UsTreasuryFiscalDataSource(), UsTreasuryFiscalDataSourceConfig()).run(
+        name,
+        [],
+        should_use_incremental_field=True,
+        incremental_field="record_date",
+        incremental_field_type=IncrementalFieldType.Date,
+    )
+    assert isinstance(rejected.raised, ValueError)
+    assert "full refresh only" in str(rejected.raised)
+    assert rejected.requests == []
 
 
 @pytest.mark.parametrize("lower_bound", [None, "2025-01-01"])

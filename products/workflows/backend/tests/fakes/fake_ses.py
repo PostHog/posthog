@@ -28,6 +28,7 @@ class SesIdentity:
     checks_paused: bool = False
     feedback_forwarding: bool = True
     reports_mail_from_status: bool = True
+    mail_from_setup_expired: bool = False
 
 
 class FakeSes:
@@ -91,6 +92,8 @@ class FakeSes:
         assert identity.mail_from_domain is not None
         if identity.checks_paused:
             return PENDING
+        if identity.mail_from_setup_expired:
+            return "Failed"
         expected_exchange = f"feedback-smtp.{self.region}.amazonses.com."
         exchanges = [
             rdata.exchange.to_text()
@@ -109,11 +112,14 @@ class FakeSes:
                 "get_identity_verification_attributes": self._get_identity_verification_attributes,
                 "get_identity_dkim_attributes": self._get_identity_dkim_attributes,
                 "get_identity_mail_from_domain_attributes": self._get_identity_mail_from_domain_attributes,
+                "delete_identity": self._delete_identity,
             },
             "sesv2": {
                 "create_tenant": self._create_tenant,
                 "create_tenant_resource_association": self._create_tenant_resource_association,
                 "list_resource_tenants": self._list_resource_tenants,
+                "list_email_identities": self._list_email_identities,
+                "delete_tenant_resource_association": self._delete_tenant_resource_association,
                 "put_email_identity_feedback_attributes": self._put_email_identity_feedback_attributes,
             },
             "sts": {"get_caller_identity": lambda: {"Account": ACCOUNT_ID}},
@@ -136,7 +142,9 @@ class FakeSes:
 
     def _set_identity_mail_from_domain(self, *, Identity: str, MailFromDomain: str, **_options: Any) -> dict:
         self.writes.append("set_identity_mail_from_domain")
-        self._existing(Identity, "SetIdentityMailFromDomain").mail_from_domain = MailFromDomain
+        identity = self._existing(Identity, "SetIdentityMailFromDomain")
+        identity.mail_from_domain = MailFromDomain
+        identity.mail_from_setup_expired = False
         return {}
 
     def _get_identity_verification_attributes(self, *, Identities: list[str]) -> dict[str, Any]:
@@ -207,6 +215,33 @@ class FakeSes:
                 if ResourceArn in resources
             ]
         }
+
+    def _delete_tenant_resource_association(self, *, TenantName: str, ResourceArn: str) -> dict:
+        self.writes.append("delete_tenant_resource_association")
+        resources = self.tenant_resources.get(TenantName, set())
+        if ResourceArn not in resources:
+            raise ClientError({"Error": {"Code": "NotFoundException"}}, "DeleteTenantResourceAssociation")
+        resources.discard(ResourceArn)
+        return {}
+
+    def _list_email_identities(self, **_paging: Any) -> dict[str, Any]:
+        return {
+            "EmailIdentities": [
+                {
+                    "IdentityType": "DOMAIN",
+                    "IdentityName": identity.domain,
+                    "VerificationStatus": self.verification_status(identity).upper(),
+                }
+                for identity in self.identities.values()
+            ]
+        }
+
+    def _delete_identity(self, *, Identity: str) -> dict:
+        self.writes.append("delete_identity")
+        if any(self.identity_arn(Identity) in resources for resources in self.tenant_resources.values()):
+            raise ClientError({"Error": {"Code": "ConflictException"}}, "DeleteIdentity")
+        self.identities.pop(Identity, None)
+        return {}
 
     def _known(self, domains: list[str]) -> list[SesIdentity]:
         return [self.identities[domain] for domain in domains if domain in self.identities]

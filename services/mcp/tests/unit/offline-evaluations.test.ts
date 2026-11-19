@@ -27,7 +27,10 @@ function createContext(response: unknown): { context: Context; request: ReturnTy
 async function getTool(context: Context, name: string): Promise<Tool> {
     const tools = await getToolsFromContext(context, {
         tools: [name],
-        featureFlags: { 'ai-observability-offline-evaluations': true },
+        featureFlags: {
+            'ai-observability-offline-evaluations': true,
+            'ai-observability-composite-validation': true,
+        },
     })
     return tools.find((tool) => tool.name === name)!
 }
@@ -55,16 +58,22 @@ describe('offline evaluation MCP tools', () => {
         expect(result).toMatchObject(response)
     })
 
-    it('sends exact scorer-version identities and typed result values on upload', async () => {
+    it('sends exact scorer versions, reported values, and composite calculation requests on upload', async () => {
         const { context, request } = createContext({ items: [], results: [] })
         const tool = GENERATED_TOOLS['llma-offline-experiment-upload']!()
         const items = [{ id: itemId, payload: { input: { question: 'q' }, output: 'a', metadata: { source: 'ci' } } }]
-        const results = [{ item_id: itemId, scorer_version_id: versionId, status: 'ok', value: false }]
+        const results = [
+            { item_id: itemId, scorer_version_id: versionId, status: 'ok', value: false },
+            { item_id: itemId, scorer_version_id: '00000000-0000-4000-8000-000000000004', calculate: true },
+        ]
         await tool.handler(context, tool.schema.parse({ id: experimentId, items, results }))
         expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'POST',
             path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/upload/`,
-            body: { items, results },
+            body: {
+                items,
+                results: [results[0], { ...results[1], status: 'ok' }],
+            },
         })
         expect(
             tool.schema.safeParse({ id: experimentId, results: [{ ...results[0], scorer_version_id: 1 }] }).success
@@ -81,6 +90,28 @@ describe('offline evaluation MCP tools', () => {
                 .success
         ).toBe(false)
     })
+
+    it.each([undefined, { true_label: 'Correct' }])(
+        'validates a composite formula with config %j without saving a scorer',
+        async (config) => {
+            const { context, request } = createContext({ valid: true })
+            const tool = await getTool(context, 'llma-score-definition-validate')
+            const body = {
+                kind: 'boolean',
+                composition: { expression: 'correct', inputs: [{ alias: 'correct', scorer_version_id: versionId }] },
+                ...(config ? { config } : {}),
+            }
+
+            const result = await tool.handler(context, tool.schema.parse(body))
+
+            expect(result).toMatchObject({ valid: true })
+            expect(request).toHaveBeenCalledExactlyOnceWith({
+                method: 'POST',
+                path: '/api/projects/17/llm_analytics/score_definitions/validate_composition/',
+                body,
+            })
+        }
+    )
 
     it.each([
         ['llma-offline-experiment-item-payload-get', 'item_id', 'items'],

@@ -364,6 +364,7 @@ describe('transformExperimentResults', () => {
                     status: 'finding' as const,
                     values: {},
                     rule: null,
+                    rows: [],
                 },
             ],
         }

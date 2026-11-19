@@ -124,6 +124,7 @@ export interface AxisSeries<T> {
 }
 
 export interface DataVisualizationLogicProps {
+    captureQueryTelemetry?: boolean
     loadQueue?: DataNodeLogicProps['loadQueue']
     key: string
     query: VisualizationNode
@@ -994,6 +995,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
+                captureQueryTelemetry: props.captureQueryTelemetry,
                 loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 key: props.key,
@@ -1019,6 +1021,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         actions: [
             dataNodeLogic({
+                captureQueryTelemetry: props.captureQueryTelemetry,
                 loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 retainResponseOnUnmount: props.retainResponseOnUnmount,
@@ -2034,6 +2037,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             if (values.query.kind === NodeKind.BIVisualizationNode) {
                 captureBIWorksheetAction('chart_settings_changed', values.query.config, {
                     setting_keys: Object.keys(settings),
+                })
+            } else {
+                posthog.capture('sql chart settings updated', {
+                    setting_keys: Object.keys(settings),
+                    heatmap_setting_keys: settings.heatmap ? Object.keys(settings.heatmap) : undefined,
                 })
             }
             actions.setQuery((query) => ({

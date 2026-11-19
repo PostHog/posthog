@@ -332,6 +332,7 @@ pub fn test_recovery(kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
             pod_name: "test-pod".to_string(),
             recv_timeout: Duration::from_secs(2),
             pool_size: 2,
+            cluster: None,
         })
         .expect("build recovery pool"),
     )
@@ -942,15 +943,54 @@ pub fn test_handoff_handler_with_inflight(
 /// anything — which is how all four of its call sites became deletable
 /// with the suite green. Requiring it makes that configuration
 /// unbuildable rather than merely discouraged.
+/// The same handler over a cache the caller holds, refilling after each warm.
+#[allow(dead_code)]
+pub fn test_handoff_handler_with_fill(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+    cache: Arc<PartitionedCache>,
+    fill: Option<personhog_leader::warming::FillConfig>,
+    writer_group: &str,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    handoff_handler_over(
+        topic,
+        fenced,
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
+        live_authority(),
+        cache,
+        writer_group,
+    )
+    .with_fill(fill)
+}
+
 fn handoff_handler_with(
     topic: &str,
     fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
     inflight: Arc<personhog_leader::inflight::InflightTracker>,
     authority: Arc<AuthorityClock>,
 ) -> personhog_leader::coordination::LeaderHandoffHandler {
-    let warming = test_warming_config("test", KAFKA_BOOTSTRAP);
-    personhog_leader::coordination::LeaderHandoffHandler::new(
+    handoff_handler_over(
+        topic,
+        fenced,
+        inflight,
+        authority,
         Arc::new(PartitionedCache::new(1 << 20)),
+        "personhog-writer",
+    )
+}
+
+fn handoff_handler_over(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+    inflight: Arc<personhog_leader::inflight::InflightTracker>,
+    authority: Arc<AuthorityClock>,
+    cache: Arc<PartitionedCache>,
+    writer_group: &str,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    let mut warming = test_warming_config("test", KAFKA_BOOTSTRAP);
+    warming.writer_consumer_group = writer_group.to_string();
+    personhog_leader::coordination::LeaderHandoffHandler::new(
+        cache,
         inflight,
         Arc::new(DirtyIndex::new(1_000_000)),
         warming,
@@ -961,7 +1001,7 @@ fn handoff_handler_with(
         Arc::new(personhog_leader::warming::WarmClientPools::new(
             &test_kafka_config(),
             "test",
-            "personhog-writer",
+            writer_group,
         )),
         fenced,
         authority,

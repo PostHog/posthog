@@ -17,6 +17,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
@@ -31,12 +32,15 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
+    PinnedTraffic,
+    assigns_nobody_by_split,
     grade_pinned_share,
     pinned_conditions,
     pinned_share_severity,
+    pinned_traffic,
     pinned_variant_keys,
 )
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, flag_to_check
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip, CheckValues, flag_to_check
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange
 
@@ -48,7 +52,7 @@ ALL_CONDITIONS_PINNED = "all_conditions_pinned"
 # Some conditions pin a variant. The users they match count in that variant's results without random
 # assignment, so they bias the comparison unless the analysis excludes them, for example as test users.
 SOME_CONDITIONS_PINNED = "some_conditions_pinned"
-# Every condition that includes users pins the variant that one property names, so the code that sets the
+# Every condition that includes users pins a variant by the value of one property, so the code that sets the
 # property assigns the variants. The comparison is valid if that code assigns at random, which PostHog can't see.
 ASSIGNED_BY_PROPERTY = "assigned_by_property"
 # Every condition that includes users pins a variant and matches only some users, so only those users enter the
@@ -65,13 +69,6 @@ class _Pins:
     graded: PinnedConditions
 
 
-def assigns_nobody_by_split(flag: FlagState) -> bool:
-    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
-    return bool(flag.reachable_conditions) and all(
-        condition.pinned_variant is not None for condition in flag.reachable_conditions
-    )
-
-
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides in place that SOME_CONDITIONS_PINNED is graded by, or None when it is not graded."""
     flag = flag_to_check(ctx, before_launch=True)
@@ -81,6 +78,51 @@ def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     if pins is None or pins.all_pinned:
         return None
     return pins.graded
+
+
+def forced_variant_values(ctx: HealthContext) -> CheckValues:
+    flag = flag_to_check(ctx, before_launch=True)
+    if isinstance(flag, CheckSkip):
+        return {}
+    forced = sum(1 for condition in flag.reachable_conditions if condition.pinned_variant is not None)
+    values = {ExperimentHealthValueKey.FORCED_CONDITION_COUNT: forced}
+    measured = _measured_traffic(ctx)
+    traffic = ctx.condition_set_traffic
+    if measured is None or traffic is None:
+        return values
+    return {
+        **values,
+        ExperimentHealthValueKey.MATCHED_COUNT: measured.matched_people,
+        ExperimentHealthValueKey.TRAFFIC_SINCE_AT: measured.since.astimezone(UTC).isoformat(),
+        ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: (
+            round(traffic.remotely_evaluated_calls / traffic.calls * 100, 2) if traffic.calls else None
+        ),
+    }
+
+
+def forced_variant_rows(ctx: HealthContext) -> CheckRows:
+    measured = _measured_traffic(ctx)
+    if measured is None:
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.VARIANT: variant.key,
+            ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: round(variant.people),
+            ExperimentHealthValueKey.FORCED_COUNT: variant.pinned_people,
+            ExperimentHealthValueKey.FORCED_PERCENTAGE: round(variant.share * 100, 2),
+        }
+        for variant in measured.variants
+        if variant.key not in ctx.excluded_variant_keys
+    )
+
+
+def _measured_traffic(ctx: HealthContext) -> PinnedTraffic | None:
+    """The traffic that grades SOME_CONDITIONS_PINNED, under the same conditions as its grade."""
+    graded = overrides_to_grade(ctx)
+    traffic = ctx.condition_set_traffic
+    if graded is None or not graded.weighted or traffic is None:
+        return None
+    return pinned_traffic(graded, traffic)
 
 
 def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
@@ -333,9 +375,9 @@ def _closed_detail(
 
 def _assigned_by_property_detail(variant_property: str, set_after_launch: str) -> str:
     return (
-        f'Each release condition that includes users matches the users whose property "{variant_property}" holds a '
-        f'variant key, and serves them that variant. So the code that sets "{variant_property}" assigns the '
-        f"variants, not PostHog.{set_after_launch} If it assigns at random, each variant gets similar users. If it "
+        "Each release condition that includes users serves one variant to the users with one value of the property "
+        f'"{variant_property}". So the code that sets "{variant_property}" assigns the variants, not '
+        f"PostHog.{set_after_launch} If it assigns at random, each variant gets similar users. If it "
         "assigns by who the users are, for example by plan or country, a difference in the results can come from "
         "those users and not from the variant."
     )

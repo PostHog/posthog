@@ -43,6 +43,14 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
         import('../../products/dashboards/frontend/dashboardActivityDescriber').then(
             (module) => module.dashboardActivityDescriber
         ),
+    [ActivityScope.DATA_QUALITY_CHECK]: () =>
+        import('../../products/data_quality/frontend/activityDescriber').then(
+            (module) => module.dataQualityCheckActivityDescriber
+        ),
+    [ActivityScope.DATA_QUALITY_CHECK_SCHEDULE]: () =>
+        import('../../products/data_quality/frontend/activityDescriber').then(
+            (module) => module.dataQualityCheckScheduleActivityDescriber
+        ),
     [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () =>
         import('scenes/data-warehouse/saved_queries/activityDescriptions').then(
             (module) => module.dataWarehouseSavedQueryActivityDescriber
@@ -128,6 +136,10 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
     [ActivityScope.STAMPHOG_REPO_CONFIG]: () =>
         import('../../products/stamphog/frontend/activityDescriber').then(
             (module) => module.stamphogRepoConfigActivityDescriber
+        ),
+    [ActivityScope.SUBSCRIPTION]: () =>
+        import('../../products/subscriptions/frontend/activityDescriber').then(
+            (module) => module.subscriptionActivityDescriber
         ),
     [ActivityScope.SURVEY]: () =>
         import('scenes/surveys/surveyActivityDescriber').then((module) => module.surveyActivityDescriber),

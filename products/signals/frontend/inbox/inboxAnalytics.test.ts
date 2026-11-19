@@ -58,6 +58,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)?.inbox_client).toBe('cloud')
     })
@@ -73,6 +77,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
             tab: 'pulls',
@@ -97,6 +105,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],
             scope: 'entire-project',
+            personalRankingStatus: null,
+            forYouReportCount: null,
+            sortField: 'priority',
+            rankerId: null,
         })
         const props = lastCapture(INBOX_EVENTS.VIEWED)
         expect(props).toMatchObject({
@@ -361,11 +373,11 @@ describe('inboxAnalytics', () => {
 
     it('sends an unload close instantly so the dwell time leaves before the page does', () => {
         captureInboxReportClosed(
-            { report: makeReport(), timeSpentMs: 4200, closeMethod: 'page_unload' },
+            { report: makeReport(), timeSpentMs: 4200, activeTimeMs: 3100, closeMethod: 'page_unload' },
             { send_instantly: true }
         )
         const call = (posthog.capture as jest.Mock).mock.calls.find(([name]) => name === INBOX_EVENTS.REPORT_CLOSED)
-        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200 })
+        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200, active_time_ms: 3100 })
         expect(call?.[2]).toEqual({ send_instantly: true })
     })
 

@@ -11,7 +11,7 @@ Read [`posthog/admin/console/AGENTS.md`](../../../posthog/admin/console/AGENTS.m
 
 ## 1. Decide where it goes
 
-- **Plain create, read, update or delete on one model** stays in Django admin. The console is not a second CRUD layer.
+- **Plain create, read, update or delete on one model** stays in Django admin, and so does a Python tweak of one of its fields or forms (see "Django admin" in `.agents/architecture.md`). The console is not a second CRUD layer.
   A changelist action (`actions = (...)`) stays too when it does only what staff could do in the change form of the selected rows.
   It writes fields of those rows, shows no page of its own, and starts nothing itself: no send, job, outside call, or write to another model.
   It calls `self.log_change(request, obj, ...)` for each row, because an action leaves no admin history.
