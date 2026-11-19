@@ -1681,10 +1681,14 @@ class ProjectViewSet(
             ):
                 return
 
-            admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=project.organization_id,
-                level__gte=OrganizationMembership.Level.ADMIN,
-            ).values_list("user_id", flat=True)
+            admin_user_ids = (
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
+                    organization_id=project.organization_id,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
+                )
+                .values_list("user_id", flat=True)
+            )
 
             creator = user.first_name or user.email
             for admin_user_id in admin_user_ids:
