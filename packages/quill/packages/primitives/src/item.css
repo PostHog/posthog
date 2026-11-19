@@ -80,7 +80,7 @@
         background-color: var(--fill-hover);
     }
 
-    /* Semantic tones for callouts, orthogonal to variant. Each sets a tint (pastel surface) + accent
+    /* Semantic tones, orthogonal to variant. Each sets a tint (pastel surface) + accent
        (readable foreground) pair, applied via shared rules below. */
     .quill-item--tone-info {
         --quill-item-tint: color-mix(in oklab, var(--info) 50%, var(--card));

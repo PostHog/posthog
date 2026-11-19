@@ -6,7 +6,7 @@
      *
      * Everything in the first row lines up on the first line of text. When the
      * callout has actions, that row is as tall as a button, so the icon, the text
-     * and the close button move down to the button's centre. The offset does not
+     * and the close button move down to the button's center. The offset does not
      * depend on whether the actions wrap, so the close button keeps its place.
      */
     .quill-callout {
@@ -30,7 +30,7 @@
         color: var(--quill-item-accent, var(--muted-foreground));
     }
 
-    /* The title's line is taller than a description line, so nudge the icon and close button to its centre */
+    /* The title's line is taller than a description line, so nudge the icon and close button to its center */
     .quill-callout:has(> [data-slot='callout-content'] > [data-slot='callout-title']:first-child)
         > .quill-callout__icon {
         translate: 0 0.125rem;
