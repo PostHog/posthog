@@ -10304,9 +10304,9 @@ Diffed against: <https://www.reverb-api.com/docs>
 - [x] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
 - [x] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
 - [x] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
-- [ ] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
-- [ ] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium)
-- [ ] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
+- [x] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
+- [x] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium). The per-conversation message detail was not added: Reverb publishes no response shape for it, and the list already carries each conversation's last message.
+- [x] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
 
 Note: The official documentation index was fetched with curl, followed by guides for payouts, refunds, payments, promotions, offers, messages, and feedback. Their request examples confirm the listed GET paths; the public reference page does not publish a downloadable specification. Line items, payments, promotion statistics, and message details require requests for each parent record. Order status filters duplicate the existing Orders table, while listing writes and offer settings are excluded.
 
