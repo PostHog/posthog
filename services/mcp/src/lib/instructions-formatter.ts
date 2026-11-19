@@ -97,7 +97,6 @@ export interface InstructionsContext {
     inboxClaimEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
     learnToolEnabled?: boolean | undefined
-    /** Whether this connection lists `exec-read` and `exec-write` in place of `exec`. */
     splitWrites?: boolean | undefined
 }
 
