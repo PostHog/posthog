@@ -14,8 +14,15 @@ import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipel
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { filteredMetric, rejectsEventName } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { EventNameGate, buildEventNameGate, runsOnEvents, triggersOnEvents } from './event-name-gate'
+import {
+    EventNameGate,
+    buildEventNameGate,
+    filteredFlowMetric,
+    runsOnEvents,
+    triggersOnEvents,
+} from './event-name-gate'
 import { parseBatch, readEventNameHeader, readTeamIdHeader } from './message-parsing'
 import {
     counterEventNameSource,
@@ -112,12 +119,29 @@ export class CdpEventsConsumer<
             this.hogFunctionPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: runsOnEvents,
+                // A team's event matches few of its functions. Dropping the rest here skips a filter run per function per event.
+                invocationFilterFn: (fn, globals) => {
+                    if (!rejectsEventName(fn.filters, globals.event.event)) {
+                        return true
+                    }
+                    this.hogFunctionMonitoringService.queueAppMetric(filteredMetric(fn), 'hog_function')
+                    return false
+                },
             }),
             // Source-compatibility lives in the consumer. The events consumer matches event-triggered
             // flows only; other trigger types (data-warehouse-table, batch, schedule, webhook, manual)
             // are dispatched from their respective consumers and never reach the executor from here.
             this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
-                eligibilityFn: triggersOnEvents,
+                eligibilityFn: (flow, globals) => {
+                    if (!triggersOnEvents(flow)) {
+                        return false
+                    }
+                    if (!rejectsEventName(flow.trigger.filters, globals.event.event)) {
+                        return true
+                    }
+                    this.hogFunctionMonitoringService.queueAppMetric(filteredFlowMetric(flow), 'hog_flow')
+                    return false
+                },
             }),
         ])
         const hogInvocations = hogBuild.invocations

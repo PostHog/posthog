@@ -2,6 +2,8 @@ import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { Counter, register } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
@@ -969,6 +971,29 @@ describe('CdpEventsConsumer', () => {
 
                     expect(await outcome(true)).toEqual(parsed)
                     expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
+                })
+
+                it('skips the filter of a destination that rejects the event name while another destination runs', async () => {
+                    const catchAll = await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    })
+                    const prefilter = register.getSingleMetric('cdp_hog_function_prefilter_result') as Counter
+                    prefilter.reset()
+
+                    await handleBatch([withHeaders(createIncomingEvent(team.id, { event: 'signed_up' }))])
+
+                    const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: any[]) => invocations)
+                    expect(queued.map((x: any) => x.functionId)).toEqual([catchAll.id])
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                        .map(({ value }: any) => `${value.metric_name} ${value.count}`)
+                    expect(metrics).toEqual(['filtered 1'])
+                    expect((await prefilter.get()).values.map(({ labels }) => labels.result)).not.toContain(
+                        'bytecode_execution_skipped__pre_filtered_out'
+                    )
                 })
 
                 it('parses an event without the name header and leaves it to the pre-filter, with skipping on', async () => {
