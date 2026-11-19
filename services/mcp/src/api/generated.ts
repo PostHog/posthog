@@ -83125,7 +83125,7 @@ export namespace Schemas {
     }
 
     /**
-     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
      * @nullable
      */
     export type PaginatedSignalReportListListPersonalRankingStatus = {
@@ -83151,6 +83151,8 @@ export namespace Schemas {
          * @nullable
          */
       fallback_reason: string | null;
+      /** True when no ranking is stored and a build of yours is queued or running. The web and desktop inbox start that build on the first page of sort=recommended or sort=personal, unless the request passes ordering or scope=teammate. Else false. */
+      building: boolean;
     } | null | null;
 
     export interface ReviewerControlResponse {
@@ -84116,7 +84118,7 @@ export namespace Schemas {
          */
       ranking_id?: string | null;
       /**
-         * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+         * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
          * @nullable
          */
       personal_ranking_status?: PaginatedSignalReportListListPersonalRankingStatus;
