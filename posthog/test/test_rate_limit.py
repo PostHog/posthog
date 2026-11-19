@@ -1148,13 +1148,14 @@ class TestReserveUnits(BaseTest):
             with self.assertRaises(exceptions.Throttled):
                 self._reserve([throttle_class], 1)
 
-    def test_a_reservation_no_limit_can_hold_is_refused_without_a_retry_wait(self):
+    @parameterized.expand([("over_the_limit", 4), ("at_the_limit_before_its_drf_unit", 3)])
+    def test_a_reservation_no_limit_can_hold_is_refused_without_a_retry_wait(self, _name, units):
         with (
             patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
             patch.object(_PSAKTeamThrottleForTest, "rate", "3/minute"),
         ):
             with self.assertRaises(exceptions.Throttled) as refusal:
-                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 4)
+                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], units)
             response = exception_handler(refusal.exception, {"request": self._request()})
 
             assert response is not None
@@ -1397,6 +1398,9 @@ class TestReserveUnits(BaseTest):
                     failing_primary as primary_location,
                     override_settings(CACHES=self._lagging_reader_caches(primary_location=primary_location)),
                 ):
+                    redis_cache = caches["default"]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.client.get_client(write=True)
                     outcome = self._send([TransactionalEmailBurstThrottle], 1)
             finally:
                 with override_settings(CACHES=reader_only):
@@ -1404,6 +1408,39 @@ class TestReserveUnits(BaseTest):
                         TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
                     )
 
+        self.assertEqual(outcome, "60")
+
+    @parameterized.expand([("single", 1), ("batch", 3)])
+    def test_a_send_admitted_from_the_replica_leaves_the_primary_charges_alone(self, _name, recipients):
+        now = time.time()
+        lagging = self._lagging_reader_caches()
+        history_unreachable = {
+            **lagging,
+            "throttle_history": {**lagging["throttle_history"], "LOCATION": "redis://127.0.0.1:1/0"},
+        }
+        with (
+            patch.object(TransactionalEmailBurstThrottle, "rate", "4/minute"),
+            patch.object(TransactionalEmailBurstThrottle, "timer", lambda _throttle: now),
+            override_settings(CACHES=lagging),
+        ):
+            redis_cache = caches["default"]
+            assert isinstance(redis_cache, RedisCache)
+            key = TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
+            primary_client, reader_client = clients = [
+                redis_cache.client.get_client(write=True),
+                redis_cache.client.get_client(write=False),
+            ]
+            try:
+                self.assertEqual(self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True] * 4)
+                redis_cache.set(key, [now], 60, client=reader_client)
+                with override_settings(CACHES=history_unreachable):
+                    admitted_from_the_replica = self._send([TransactionalEmailBurstThrottle], recipients)
+                outcome = self._send([TransactionalEmailBurstThrottle], 1)
+            finally:
+                for client in clients:
+                    redis_cache.delete(key, client=client)
+
+        self.assertIsNone(admitted_from_the_replica)
         self.assertEqual(outcome, "60")
 
 

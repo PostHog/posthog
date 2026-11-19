@@ -26,6 +26,10 @@ def lagging_reader_caches(key_prefix: str, primary_location: str | None = None) 
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": primary_location or settings.REDIS_URL,
             "KEY_PREFIX": key_prefix,
-            "OPTIONS": {"SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
+            "OPTIONS": {
+                "CONNECTION_FACTORY": "posthog.caching.throttle_history_cache.ThrottleHistoryConnectionFactory",
+                "SOCKET_CONNECT_TIMEOUT": 0.2,
+                "SOCKET_TIMEOUT": 0.2,
+            },
         },
     }

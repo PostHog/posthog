@@ -175,6 +175,7 @@ THROTTLE_HISTORY_CACHE_ALIAS = "throttle_history"
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     DRF_UNITS_PER_REQUEST = 1
     reads_history_from_primary = False
+    history_from_replica = False
     primary_cache = ConnectionProxy(caches, THROTTLE_HISTORY_CACHE_ALIAS)
     units_to_check: int | None = None
     units_to_charge = 0
@@ -253,17 +254,20 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.now = self.timer()
         while self.history and self.history[-1] <= self.now - duration:
             self.history.pop()
-        self.retry_wait = self._wait_for_room(units + self.DRF_UNITS_PER_REQUEST, num_requests, duration)
-        if len(self.history) + units > num_requests:
+        cost = units + self.DRF_UNITS_PER_REQUEST if self.units_to_check is not None else units
+        self.retry_wait = self._wait_for_room(cost, num_requests, duration)
+        if math.isinf(self.retry_wait) or len(self.history) + units > num_requests:
             return False
-        self.units_to_charge = units
+        self.units_to_charge = 0 if self.history_from_replica else units
         return True
 
     def _primary_history(self, key: str) -> list[float]:
+        self.history_from_replica = False
         try:
             return self.primary_cache.get(key, [])
         except Exception as e:
             capture_exception(e)
+            self.history_from_replica = True
             return self.cache.get(key, [])
 
     def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
@@ -282,7 +286,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
             return False
         self.units_to_charge = 0
-        return self.key is None or self.throttle_success()
+        return self.key is None or self.history_from_replica or self.throttle_success()
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):

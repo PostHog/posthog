@@ -882,7 +882,12 @@ CACHES["aeo_prompt_suggestions"] = {
 CACHES["throttle_history"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
-    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "CONNECTION_FACTORY": "posthog.caching.throttle_history_cache.ThrottleHistoryConnectionFactory",
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
 }
 
 # The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
