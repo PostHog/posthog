@@ -71,6 +71,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
 - **Each run:** one profile, one lease, one cap.
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
+- **Live log:** while the card runs, the host copies the run's `live.jsonl` to `live.jsonl` under the run's prefix every 5 seconds, whole lines only, and once more when the card ends. A failed copy never fails the run, and each copy has a time limit. `SCENARIO_LIVE_COPY=off` in the host's environment turns the copy off, and the run behaves as it did before the copy existed.
 - **Reader capacity:** a card with a `pg.failover` valve is judged on the reader's capacity around the failover request. Other cards skip that judgment, and the reader's capacity still prices the run.
 - **Locally:** both cards are `invalid`, the failover card at its valve and the scale card at its CPU bar, because only a run host carries the run manifest.
 
