@@ -1,13 +1,21 @@
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseQueryTimeOut
+
 from products.ai_observability.backend.facade.api import TRACE_TURNS_MAX_IDS
-from products.ai_observability.backend.logic.traces.turn_queries import TURN_SIDE_MAX_BYTES
+from products.ai_observability.backend.logic.traces import trace_queries
+from products.ai_observability.backend.logic.traces.turn_queries import (
+    TURN_PICKS_QUERY_NAME,
+    TURN_SIDE_MAX_BYTES,
+    TURNS_QUERY_NAME,
+)
 
 from .trace_fixtures import PAGE_BOUNDS, T0, QuerySlotRecorder, TraceEvents, post_page_read
 
@@ -67,11 +75,80 @@ class TestTraceTurnsViewSet(ClickhouseTestMixin, APIBaseTest):
         response = post_turns(self, ["trace-1"])
 
         (item,) = response.json()["items"]
-        assert (item["output"], item["outputMissingReason"], item["inputMissingReason"]) == (
-            {"kind": "messages", "messages": []},
-            "too_large",
-            None,
-        )
+        assert (item["output"], item["outputMissingReason"], item["inputMissingReason"]) == (None, "too_large", None)
+
+    def test_turns_side_with_nothing_to_show_is_null_without_a_reason(self) -> None:
+        events = TraceEvents(self.team)
+        events.add("trace-1", properties={"$ai_input": CHAT["$ai_input"]})
+        events.seed()
+
+        response = post_turns(self, ["trace-1"])
+
+        (item,) = response.json()["items"]
+        assert (item["output"], item["outputMissingReason"]) == (None, None)
+
+    @parameterized.expand(
+        [
+            ("values read", TURNS_QUERY_NAME),
+            ("picks read", TURN_PICKS_QUERY_NAME),
+        ]
+    )
+    def test_turns_timed_out_read_gives_null_sides_with_a_reason(self, _name: str, query_name: str) -> None:
+        events = TraceEvents(self.team)
+        events.add("trace-1", properties=CHAT)
+        events.seed()
+        execute = trace_queries.execute_hogql_query
+
+        def read_times_out(*args: Any, **kwargs: Any) -> Any:
+            if kwargs["query_type"] == query_name:
+                raise ClickHouseQueryTimeOut()
+            return execute(*args, **kwargs)
+
+        with patch.object(trace_queries, "execute_hogql_query", side_effect=read_times_out):
+            response = post_turns(self, ["trace-1"])
+
+        assert response.json()["items"] == [
+            {
+                "traceId": "trace-1",
+                "input": None,
+                "output": None,
+                "inputMissingReason": "timed_out",
+                "outputMissingReason": "timed_out",
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "generation",
+                "$ai_generation",
+                CHAT,
+                "00000000-0000-4000-8000-000000000000",
+            ),
+            (
+                "trace state",
+                "$ai_trace",
+                {
+                    "$ai_input_state": [{"role": "user", "content": "Where is my parcel?"}],
+                    "$ai_output_state": [{"role": "assistant", "content": "On its way."}],
+                },
+                "trace-1",
+            ),
+        ]
+    )
+    def test_turns_messages_carry_the_node_the_trace_view_opens(
+        self, _name: str, event: str, properties: dict[str, object], node_id: str
+    ) -> None:
+        events = TraceEvents(self.team)
+        events.add("trace-1", event=event, properties=properties)
+        events.seed()
+
+        response = post_turns(self, ["trace-1"])
+
+        (item,) = response.json()["items"]
+        messages = [*item["input"]["messages"], *item["output"]["messages"]]
+        assert {message["sourceNodeId"] for message in messages} == {node_id}
+        assert all(message["id"].startswith(f"{node_id}-") for message in messages)
 
     def test_turns_normalizes_outside_query_slot(self) -> None:
         events = TraceEvents(self.team)

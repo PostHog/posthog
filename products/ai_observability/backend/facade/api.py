@@ -385,11 +385,19 @@ def load_trace_turns(
 def _to_turn(trace_id: str, sides: TurnSides) -> contracts.TraceTurn:
     return contracts.TraceTurn(
         trace_id=trace_id,
-        input=sides.input.value,
-        output=sides.output.value,
+        input=_readable(sides.input.value),
+        output=_readable(sides.output.value),
         input_missing_reason=_reason(sides.input.unread),
         output_missing_reason=_reason(sides.output.unread),
     )
+
+
+def _readable(content: contracts.TraceSideContent | None) -> contracts.TraceSideContent | None:
+    if isinstance(content, contracts.TraceMessagesSide) and not content.messages:
+        return None
+    if isinstance(content, contracts.TraceJsonSide) and content.value is None:
+        return None
+    return content
 
 
 def _reason(unread: Unreadable | None) -> contracts.TracePreviewMissingReason | None:
