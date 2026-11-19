@@ -1416,7 +1416,7 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
+                className="flex flex-1 min-h-0 flex-col justify-center-safe items-center overflow-y-auto border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 {singleStatement ? (
