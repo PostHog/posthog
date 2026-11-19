@@ -72,7 +72,8 @@ _SEARCH: dict[str, int] = {"optimize_read_in_order": 0}
 
 _ENGAGEMENT = "(" + ", ".join(f"'{status}'" for status in EMAIL_ENGAGEMENT_STATUSES) + ")"
 _FIRST_ROW = "status IN ('queued', 'scheduled')"
-# A scheduled send that hasn't gone out yet is waiting to go out, the same as a queued one.
+# A scheduled send that hasn't gone out yet is waiting to go out, the same as a queued one, since its first row. A
+# reschedule writes another scheduled row but doesn't queue the send again.
 _STATUS = "if(status = 'scheduled', 'queued', status)"
 
 # One row per message. `argMaxIf` keeps the delivery status, and the `anyIf` columns read the one row that sets each.
@@ -80,7 +81,11 @@ _MESSAGE_COLUMNS = f"""
     message_id,
     min(created_at) AS queued_at,
     argMaxIf({_STATUS}, version, status NOT IN {_ENGAGEMENT}) AS delivery_status,
-    argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT}) AS delivery_status_at,
+    if(
+        delivery_status = 'queued',
+        minIf(status_at, {_FIRST_ROW}),
+        argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT})
+    ) AS delivery_status_at,
     argMaxIf(reason, version, status NOT IN {_ENGAGEMENT}) AS delivery_reason,
     anyIf(recipient, recipient != '') AS message_recipient,
     anyIf(function_id, function_id != '') AS message_function_id,

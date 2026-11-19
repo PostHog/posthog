@@ -343,6 +343,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert [event["kind"] for event in detail["timeline"]] == timeline
         assert datetime.fromisoformat(detail["timeline"][0]["at"]) == NOW - timedelta(minutes=10)
+        assert listed[0]["status_at"] == detail["timeline"][-1]["at"]
 
     @parameterized.expand(
         [
