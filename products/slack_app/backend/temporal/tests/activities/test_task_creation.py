@@ -703,6 +703,23 @@ def _rendered_follow_up(messages: list[SlackThreadMessage], text: str) -> str:
             [ThreadMessage(author="<@U_THEO|theo>", body="the export looks off")],
         ),
         (
+            _build_posthog_code_task_description(
+                "",
+                [
+                    SlackThreadMessage(user="theo", user_id="U_THEO", text="the export looks off", ts="1.000"),
+                    SlackThreadMessage(user="mira", user_id="U_MIRA", text="please check the totals", ts="2.000"),
+                    SlackThreadMessage(user="theo", user_id="U_THEO", text="thanks, looking too", ts="3.000"),
+                ],
+                "2.000",
+                mentioner_slack_user_id="U_MIRA",
+            ),
+            "please check the totals",
+            [
+                ThreadMessage(author="<@U_THEO|theo>", body="the export looks off"),
+                ThreadMessage(author="<@U_THEO|theo>", body="thanks, looking too"),
+            ],
+        ),
+        (
             _rendered_follow_up(
                 [SlackThreadMessage(user="theo", user_id="U_THEO", text="first line\nsecond line", ts="2.000")],
                 "mira: and now?",
@@ -711,7 +728,7 @@ def _rendered_follow_up(messages: list[SlackThreadMessage], text: str) -> str:
             [ThreadMessage(author="<@U_THEO|theo>", body="first line\nsecond line")],
         ),
     ],
-    ids=["mention_with_text", "mention_without_text", "follow_up"],
+    ids=["mention_with_text", "mention_without_text", "mention_without_text_then_reply", "follow_up"],
 )
 def test_context_selector_separates_rendered_thread_from_request(prompt, request_text, thread):
     split = split_thread_context(prompt)

@@ -3,8 +3,9 @@ from posthog.dataclasses import frozen
 THREAD_CONTEXT_TAGS = ("slack_thread_context", "slack_thread_context_update")
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
 # The Slack app sends this title when the mention carried no text; the request is then the
-# last thread message, from the person who tagged the app.
+# message, inside the block, from the person its role line names as having tagged the app.
 _EMPTY_REQUEST = "Task from Slack"
+_MENTIONER_ROLE = "tagged the posthog app: "
 
 
 @frozen
@@ -19,12 +20,19 @@ class SplitPrompt:
     thread: tuple[ThreadMessage, ...] = ()
 
 
-def _thread_messages(block: str) -> list[ThreadMessage]:
+def _mentioner(header: str) -> str:
+    start = header.lower().find(_MENTIONER_ROLE)
+    if start < 0:
+        return ""
+    return header[start + len(_MENTIONER_ROLE) :].split("\n")[0].split(" (")[0]
+
+
+def _thread_messages(block: str) -> tuple[str, list[ThreadMessage]]:
     # The block opens with a header that ends at the first blank line. Each message after it is
     # an unindented `author:` line followed by its body, indented two spaces.
-    _, separator, entries = block.partition("\n\n")
+    header, separator, entries = block.partition("\n\n")
     if not separator:
-        return []
+        return "", []
     messages: list[tuple[str, list[str]]] = []
     for line in entries.split("\n"):
         if line and not line[0].isspace():
@@ -32,12 +40,13 @@ def _thread_messages(block: str) -> list[ThreadMessage]:
         elif messages:
             messages[-1][1].append(line.removeprefix("  "))
     parsed = [ThreadMessage(author=author, body="\n".join(lines).strip()) for author, lines in messages]
-    return [message for message in parsed if message.body != _INITIATOR_PLACEHOLDER]
+    return _mentioner(header), [message for message in parsed if message.body != _INITIATOR_PLACEHOLDER]
 
 
 def split_thread_context(text: str) -> SplitPrompt:
     """Separate the Slack thread blocks in a prompt from the request around them."""
     thread: list[ThreadMessage] = []
+    mentioner = ""
     rest = text
     while True:
         opened = [(rest.find(f"<{tag}>"), tag) for tag in THREAD_CONTEXT_TAGS]
@@ -49,9 +58,14 @@ def split_thread_context(text: str) -> SplitPrompt:
         end = rest.find(closing, start)
         if end < 0:
             break
-        thread.extend(_thread_messages(rest[start + len(tag) + 2 : end]))
+        block_mentioner, messages = _thread_messages(rest[start + len(tag) + 2 : end])
+        mentioner = mentioner or block_mentioner
+        thread.extend(messages)
         rest = rest[:start] + rest[end + len(closing) :]
     request = rest.strip()
     if request == _EMPTY_REQUEST and thread:
-        request = thread.pop().body
+        # Replies posted after the mention can follow it in the block, so the last message is not
+        # always the request.
+        mentioned = [i for i, message in enumerate(thread) if message.author == mentioner]
+        request = thread.pop(mentioned[-1] if mentioned else -1).body
     return SplitPrompt(request=request, thread=tuple(thread))

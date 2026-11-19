@@ -91,6 +91,7 @@ class TestSelection(SimpleTestCase):
         self.skill: dict[str, object] = {"name": "activation-guide", "description": "Activation definition"}
         self.rows: dict[str, list[dict[str, object]]] = {"llm_skills/search/": [self.skill]}
         self.status = 200
+        self.states: list[dict[str, JsonValue]] = []
         self.requests: list[httpx.Request] = []
         client = httpx.Client
         self.enterContext(
@@ -101,6 +102,7 @@ class TestSelection(SimpleTestCase):
         )
 
     def decide(self, *, state: dict[str, JsonValue], questions: dict[str, Question]) -> SystemOneResult:
+        self.states.append(state)
         return parse_system_one_response(
             {"model": "test", "answers": {key: {"noul": 0.95} for key in questions}}, questions
         )
@@ -257,7 +259,7 @@ class TestSelection(SimpleTestCase):
             query = sent.url.params["query" if "search/" in sent.url.path else "search"]
             self.assertTrue(query.startswith(f"{request} / Weekly onboarding funnel dropped below its floor"))
             self.assertNotIn("Reply in this thread", query)
-        state = self.model.decide.call_args.kwargs["state"]
+        state = self.states[-1]
         self.assertEqual(state["user_request"], request)
         self.assertEqual(state["history"], f"User: \n\n{request}\nAssistant: Done.")
         self.assertEqual(
