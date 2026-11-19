@@ -309,7 +309,8 @@ export function getDefaultKafkaMskCdpIntakeProducerEnvConfig(): KafkaMskCdpIntak
     return {
         KAFKA_MSK_CDP_INTAKE_PRODUCER_CLIENT_ID: '',
         KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: '',
-        KAFKA_MSK_CDP_INTAKE_PRODUCER_SECURITY_PROTOCOL: '',
+        // MSK takes TLS clients; plaintext is only for a local stand-in.
+        KAFKA_MSK_CDP_INTAKE_PRODUCER_SECURITY_PROTOCOL: 'ssl',
         KAFKA_MSK_CDP_INTAKE_PRODUCER_COMPRESSION_CODEC: '',
         // Same as the WarpStream intake producer: a route's answer waits on the ack.
         KAFKA_MSK_CDP_INTAKE_PRODUCER_LINGER_MS: '5',

@@ -3,6 +3,7 @@ import { KafkaProducer, ProducerMessage, TopicMessage } from './producer'
 const FIRST_RETRY_MS = 5_000
 // node-rdkafka leaks a little native memory on each failed connect, so a long outage retries rarely.
 const MAX_RETRY_MS = 5 * 60_000
+const CHECK_TIMEOUT_MS = 10_000
 
 // Connects in the background, retrying with backoff, and fails produces until connected, so a cluster that is
 // down fails the produces that pick it rather than the boot of every pod that registers it. A produce never waits on
@@ -82,12 +83,14 @@ export class LazyKafkaProducer implements KafkaProducer {
         return this.ready().queueMessages(topicMessages)
     }
 
-    async checkConnection(timeoutMs?: number): Promise<void> {
-        return (this.connected ?? (await this.startConnect()) ?? this.ready()).checkConnection(timeoutMs)
+    async checkConnection(timeoutMs = CHECK_TIMEOUT_MS): Promise<void> {
+        await this.waitConnected(timeoutMs)
+        return this.ready().checkConnection(timeoutMs)
     }
 
-    async checkTopicExists(topic: string, timeoutMs?: number): Promise<void> {
-        return (this.connected ?? (await this.startConnect()) ?? this.ready()).checkTopicExists(topic, timeoutMs)
+    async checkTopicExists(topic: string, timeoutMs = CHECK_TIMEOUT_MS): Promise<void> {
+        await this.waitConnected(timeoutMs)
+        return this.ready().checkTopicExists(topic, timeoutMs)
     }
 
     async disconnect(): Promise<void> {

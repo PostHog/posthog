@@ -185,7 +185,7 @@ describe('KafkaProducerRegistryBuilder', () => {
         }
     })
 
-    it('registerLazy stops waiting on a connect that never settles after 5s, and fails its produces', async () => {
+    it('registerLazy stops waiting on a connect that never settles after 5s, and fails its produces and checks in time', async () => {
         jest.useFakeTimers()
         try {
             jest.mocked(KafkaProducerWrapper.createWithConfig).mockReturnValue(new Promise(() => {}))
@@ -204,6 +204,11 @@ describe('KafkaProducerRegistryBuilder', () => {
 
             const message = { topic: 't', value: Buffer.from('v'), key: null }
             await expect((await building).getProducer('MSK').produce(message)).rejects.toThrow('not connected yet')
+
+            const check = (await building).getProducer('MSK').checkTopicExists('t', 1_000)
+            const outcome = expect(check).rejects.toThrow('not connected yet')
+            await jest.advanceTimersByTimeAsync(1_000)
+            await outcome
         } finally {
             jest.useRealTimers()
         }
