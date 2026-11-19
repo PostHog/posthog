@@ -17,9 +17,8 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import execute as clickhouse_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -59,7 +58,6 @@ from products.workflows.backend.facade.message_assets import (
 RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
 # The send API stamps a message id with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
-_EVENTS_RANGE_MARGIN = timedelta(days=1)
 # A conversion window longer than this would reach past what the log keeps.
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
@@ -592,7 +590,7 @@ def transactional_email_results(
             batch_first_send,
             window,
             min(batch_first_send.values()),
-            max(batch_first_send.values()) + window + _EVENTS_RANGE_MARGIN,
+            max(batch_first_send.values()) + window + timedelta(seconds=1),
         )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
     revenue = sum(conversion.revenue for conversion in conversions.values())
@@ -747,7 +745,7 @@ def _max_query_size(team_id: int) -> int:
     team_limit = _clickhouse_size_in_bytes(
         CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
     )
-    return team_limit or clickhouse_execute.default_settings()["max_query_size"]
+    return team_limit or default_settings()["max_query_size"]
 
 
 def _clickhouse_size_in_bytes(setting: object) -> int:
@@ -799,7 +797,7 @@ def _escaped_literal_bytes(value: str) -> int:
 def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
     start = min(send.since for send in sends)
-    end = max(send.since for send in sends) + window + _EVENTS_RANGE_MARGIN
+    end = max(send.since for send in sends) + window + timedelta(seconds=1)
     response = execute_hogql_query(
         """
         SELECT DISTINCT sends.message_id
@@ -822,12 +820,12 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
         placeholders={
             "revenue": ast.Constant(value=None),
             "event": ast.Constant(value=event),
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
+            "start_ms": ast.Constant(value=_epoch_ms(start)),
+            "end_ms": ast.Constant(value=_epoch_ms(end)),
             "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
             "message_ids": ast.Constant(value=[send.message_id for send in sends]),
             "recipients": ast.Constant(value=[send.recipient for send in sends]),
-            "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
+            "since_ms": ast.Constant(value=[_epoch_ms(send.since) for send in sends]),
             "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(sends)),
         },
@@ -874,10 +872,14 @@ _RECIPIENT_EVENTS = """
         {revenue} AS value
     FROM events
     WHERE event = {event}
-      AND timestamp >= {start} AND timestamp < {end}
+      AND timestamp >= fromUnixTimestamp64Milli({start_ms}) AND timestamp < fromUnixTimestamp64Milli({end_ms})
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
+
+
+def _epoch_ms(value: datetime) -> int:
+    return int(value.timestamp() * 1000)
 
 
 @frozen
@@ -931,13 +933,11 @@ def _conversions(
         placeholders={
             "revenue": revenue,
             "event": ast.Constant(value=event),
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
+            "start_ms": ast.Constant(value=_epoch_ms(start)),
+            "end_ms": ast.Constant(value=_epoch_ms(end)),
             "distinct_ids": ast.Constant(value=distinct_ids),
             "recipients": ast.Constant(value=recipients),
-            "sent_at_ms": ast.Constant(
-                value=[int(first_send[recipient].timestamp() * 1000) for recipient in recipients]
-            ),
+            "sent_at_ms": ast.Constant(value=[_epoch_ms(first_send[recipient]) for recipient in recipients]),
             "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(recipients)),
         },

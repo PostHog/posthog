@@ -614,10 +614,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["converted"] == 1
 
     def test_counts_a_person_once_when_their_distinct_ids_need_separate_person_lookups(self, _flag):
-        names = ["phone", "laptop", *[f"other-{index}" for index in range(SPLIT_LOOKUP_OTHERS)]]
+        others = [f"other-{index}" for index in range(SPLIT_LOOKUP_OTHERS)]
+        names = ["phone", *others, "laptop"]
         distinct_ids = {name: f"split-{name}-{'€' * 433}" for name in names}
         create_person(team=self.team, distinct_ids=[distinct_ids["phone"], distinct_ids["laptop"]])
-        for name in names[2:]:
+        for name in others:
             create_person(team=self.team, distinct_ids=[distinct_ids[name]])
         for minutes_ago, name in enumerate(names, start=100):
             self._record_distinct_id(
@@ -788,7 +789,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
         self._welcomed: list[str] = []
-        self._run_token = UUIDT().hex
         with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": "0"}}):
             few = self._queries_naming_the_sends_after_adding(3)
             more = self._queries_naming_the_sends_after_adding(3)
@@ -798,7 +798,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def _queries_naming_the_sends_after_adding(self, count: int) -> int:
         for _ in range(count):
-            name = f"welcome-{self._run_token}-{len(self._welcomed)}"
+            name = f"welcome-{len(self._welcomed)}"
             self._welcomed.append(name)
             create_person(team=self.team, distinct_ids=[name])
             message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
@@ -815,9 +815,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             """
             SELECT uniqExact(query_id) FROM system.query_log
             WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
-              AND position(query, %(run_token)s) > 0
+              AND position(query, %(impact_request)s) > 0
             """,
-            {"since_micros": since_micros, "run_token": self._run_token},
+            {
+                "since_micros": since_micros,
+                "impact_request": f"request:_api_projects_{self.team.id}_transactional_email_log_impact_",
+            },
         )
         return queries
 
