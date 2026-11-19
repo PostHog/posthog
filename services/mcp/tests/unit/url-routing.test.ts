@@ -393,6 +393,8 @@ describe('URL Routing', () => {
             ['?resources=docs', { 'x-posthog-mcp-resources': 'apps' }, ['apps']],
             ['?resources=nope!,docs', {}, ['docs']],
             ['?resources=posthog://skills/logs', {}, []],
+            ['?resources=%20', {}, []],
+            ['?resources=,,', {}, undefined],
             ['?resources=', {}, undefined],
             ['', {}, undefined],
         ])('parses %s with headers %j as %j', (search, headers, expected) => {
