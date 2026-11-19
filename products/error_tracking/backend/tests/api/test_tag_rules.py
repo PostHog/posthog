@@ -111,10 +111,11 @@ class TestIssueTagRuleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("label", {"label": "Big customer"}, "Big customer", 1, DISABLED, True, []),
-            ("same_filters", {"filters": ENTERPRISE_PLAN}, "Enterprise", 1, None, True, []),
-            ("same_property", {"filters": ENTERPRISE_OR_PRO_PLAN}, "Enterprise", 2, None, True, []),
-            ("new_property", {"filters": CHECKOUT_PAGE}, "Enterprise", 2, None, False, [2]),
+            ("label", {"label": "Big customer"}, "Big customer", "", 1, DISABLED, True, []),
+            ("description", {"description": "Pays yearly"}, "Enterprise", "Pays yearly", 1, DISABLED, True, []),
+            ("same_filters", {"filters": ENTERPRISE_PLAN}, "Enterprise", "", 1, None, True, []),
+            ("same_property", {"filters": ENTERPRISE_OR_PRO_PLAN}, "Enterprise", "", 2, None, True, []),
+            ("new_property", {"filters": CHECKOUT_PAGE}, "Enterprise", "", 2, None, False, [2]),
         ]
     )
     def test_only_a_filter_edit_restarts_the_rule(
@@ -122,6 +123,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
         _name: str,
         payload: dict[str, Any],
         label: str,
+        description: str,
         version: int,
         disabled_data: dict[str, Any] | None,
         keeps_key_and_labels: bool,
@@ -135,12 +137,13 @@ class TestIssueTagRuleAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
         updated = self.client.get(self._url(rule["id"])).json()
-        assert (updated["key"] == rule["key"], updated["label"], updated["version"], updated["disabled_data"]) == (
-            keeps_key_and_labels,
-            label,
-            version,
-            disabled_data,
-        )
+        assert (
+            updated["key"] == rule["key"],
+            updated["label"],
+            updated["description"],
+            updated["version"],
+            updated["disabled_data"],
+        ) == (keeps_key_and_labels, label, description, version, disabled_data)
         assert ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(id=tag.id).exists() == keeps_key_and_labels
         # The issue list filters and shows only the keys in the team's tag definitions, so a key left out matches nothing.
         definitions = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/tag_definitions/").json()
@@ -253,14 +256,17 @@ class TestIssueTagRuleAPI(APIBaseTest):
         }
         assert rules.get(label="Pro plan").filters["values"][0]["values"][0]["type"] == "event"
 
-    @parameterized.expand([("get",), ("patch",), ("delete",)])
-    def test_another_projects_rule_is_not_found(self, method: str) -> None:
+    @parameterized.expand(
+        [(method, target) for method in ("get", "patch", "delete") for target in ("another_project", "malformed_id")]
+    )
+    def test_a_rule_outside_the_project_is_not_found(self, method: str, target: str) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         other_rule = ErrorTrackingIssueTagRule.objects.for_team(other_team.id).create(
             team=other_team, label="Theirs", filters=ENTERPRISE_PLAN, bytecode=[], order_key=0
         )
+        rule_id = str(other_rule.id) if target == "another_project" else "not-a-uuid"
 
-        response = getattr(self.client, method)(self._url(str(other_rule.id)), data={"label": "Mine"}, format="json")
+        response = getattr(self.client, method)(self._url(rule_id), data={"label": "Mine"}, format="json")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert ErrorTrackingIssueTagRule.objects.unscoped().get(id=other_rule.id).label == "Theirs"
