@@ -160,6 +160,10 @@ class DependencyEdgeSerializer(serializers.Serializer):
 class DependenciesResponseSerializer(serializers.Serializer):
     edges = DependencyEdgeSerializer(many=True, help_text="One edge per caller and callee, most requests first.")
     truncated = serializers.BooleanField(help_text="True when more edges matched than the response holds.")
+    sampled = serializers.BooleanField(
+        help_text="True when the window held more traces than the sample reads, so the counts cover only the sampled traces."
+    )
+    trace_count = serializers.IntegerField(help_text="How many whole traces the edges were computed from.")
     environment = serializers.CharField(
         allow_null=True,
         allow_blank=True,

@@ -250,19 +250,22 @@ def _endpoints_query(
     return query
 
 
-def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
+def sampled_traces_query(
+    date_from: datetime, date_to: datetime, environment: str | None, trace_where: ast.Expr | None = None
+) -> ast.SelectQuery:
     # DISTINCT with LIMIT stops reading once it has enough trace IDs, where GROUP BY would first
     # aggregate every trace in the window.
     query = parse_select(
         """
         SELECT DISTINCT trace_id
         FROM posthog.trace_spans
-        WHERE {where} AND {env_where}
+        WHERE {where} AND {env_where} AND {trace_where}
         LIMIT {limit}
         """,
         placeholders={
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
+            "trace_where": trace_where or ast.Constant(value=True),
             "limit": ast.Constant(value=MAP_TRACE_LIMIT),
         },
     )
@@ -442,7 +445,7 @@ def list_endpoints_health(
 
 def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, environment: str | None) -> ServiceMapResult:
     # The sample runs once, so the edges and the reported trace count describe the same traces.
-    trace_ids = [row[0] for row in _run(team, _sampled_traces_query(date_from, date_to, environment))]
+    trace_ids = [row[0] for row in _run(team, sampled_traces_query(date_from, date_to, environment))]
     if not trace_ids:
         return ServiceMapResult(edges=[], trace_count=0)
     edges = [
