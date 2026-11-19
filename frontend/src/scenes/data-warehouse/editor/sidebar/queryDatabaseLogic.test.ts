@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { IconDocument } from '@posthog/icons'
@@ -214,22 +216,29 @@ describe('queryDatabaseLogic', () => {
             after: 'select * from orders_by_week',
         }
 
+        // A child environment: its id differs from its project's, and saved queries belong to the environment.
+        const environment = { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.project_id + 1 }
+        let renameTeamIds: string[] = []
+
         function useRenamePlanMocks(
             plans: { dependents: (typeof dependent)[]; plan_token: string }[],
             renameResponses: [number, Record<string, unknown>][]
         ): unknown[] {
             const renameBodies: unknown[] = []
+            renameTeamIds = []
             useMocks({
                 get: {
                     '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
                     '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
                 },
                 post: {
-                    '/api/projects/:team_id/warehouse_saved_queries/:id/rename_plan/': () => {
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/rename_plan/': ({ params }) => {
+                        renameTeamIds.push(String(params.team_id))
                         const plan = plans.length > 1 ? plans.shift()! : plans[0]
                         return [200, { name: 'orders_by_week', blocked: [], ...plan }]
                     },
-                    '/api/projects/:team_id/warehouse_saved_queries/:id/rename/': async ({ request }) => {
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/rename/': async ({ request, params }) => {
+                        renameTeamIds.push(String(params.team_id))
                         renameBodies.push(await request.json())
                         return renameResponses.length > 1 ? renameResponses.shift()! : renameResponses[0]
                     },
@@ -239,7 +248,7 @@ describe('queryDatabaseLogic', () => {
         }
 
         async function openAndSubmit(): Promise<ReturnType<typeof queryDatabaseLogic>> {
-            initKeaTests()
+            initKeaTests(true, environment)
             const logic = queryDatabaseLogic()
             logic.mount()
             await expectLogic(dataWarehouseViewsLogic.findMounted()!, () => {
@@ -313,6 +322,7 @@ describe('queryDatabaseLogic', () => {
             await expectLogic(logic, () => logic.actions.submitRenameView()).toFinishAllListeners()
 
             expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])
+            expect(renameTeamIds).toEqual([String(environment.id), String(environment.id), String(environment.id)])
             expect(logic.values.renameView).toMatchObject({
                 plan: { plan_token: 'token-2' },
                 submitError: 'The views that reference this one changed. Review the new changes, then rename again.',

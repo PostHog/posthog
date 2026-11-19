@@ -27,23 +27,28 @@ class ModelReferenceRewriteError(Exception):
     """The query cannot be rewritten with proof that nothing else changed."""
 
 
-def _qualifier_length(field_chain: list[str], table_key: str) -> int | None:
-    """The number of leading segments of a field that name the table in scope as `table_key`.
+def _qualifier_binding(field_chain: list[str], scope: dict[str, list[str] | None]) -> tuple[int, list[str]] | None:
+    """The leading segments of a field that name a model read in scope, and that read's replacement.
 
-    Mirrors `lookup_table_by_name` and `lookup_table_by_nested_name` in the resolver, so a qualifier
-    is rewritten only when the resolver binds it to that table.
+    Mirrors `lookup_table_by_name` and `lookup_table_by_nested_name` in the resolver: a first segment that
+    is a table key wins, else the longest nested name among all tables in scope. A qualifier is rewritten
+    only when the table it binds to is the model.
     """
     if len(field_chain) < 2:
         return None
-    if field_chain[0] == table_key:
-        return 1
-    length: int | None = None
+    if field_chain[0] in scope:
+        target = scope[field_chain[0]]
+        return (1, target) if target is not None else None
+    match: tuple[int, list[str] | None] | None = None
     parts: list[str] = []
     for consumed, segment in enumerate(field_chain[:-1], start=1):
         parts.extend(segment.split("."))
-        if len(parts) >= 2 and "__".join(parts) == table_key:
-            length = consumed
-    return length
+        key = "__".join(parts)
+        if len(parts) >= 2 and key in scope:
+            match = consumed, scope[key]
+    if match is None or match[1] is None:
+        return None
+    return match[0], match[1]
 
 
 class _ModelReferenceFinder(TraversingVisitor):
@@ -53,46 +58,59 @@ class _ModelReferenceFinder(TraversingVisitor):
     view's expanded body is never visited, and the resolver overwrites view references anyway.
 
     The resolver looks up a qualifier only in the tables of the `SELECT` that holds the field. So a
-    qualifier is a reference only when that `SELECT` reads the model without an alias.
+    qualifier is a reference only when it binds to an unaliased read of the model in that `SELECT`.
     """
 
     def __init__(self, target_for: TargetFor) -> None:
         super().__init__()
         self.target_for = target_for
         self.cte_scopes: list[set[str]] = []
-        # Per open SELECT: the resolver's scope key of each unaliased model read, and its replacement.
-        self.unaliased_reads: list[dict[str, list[str]]] = []
+        # Per open SELECT: the resolver's scope key of each table it reads, and the replacement when that
+        # table is an unaliased read of the model.
+        self.table_scopes: list[dict[str, list[str] | None]] = []
         self.qualified_fields: list[list[ast.Field]] = []
         self.lambda_arguments: list[str] = []
         # Each reference is the field, the number of leading segments to replace, and the replacement.
         self.references: list[tuple[ast.Field, int, list[str]]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.cte_scopes.append(set(node.ctes or {}))
-        self.unaliased_reads.append({})
+        # The resolver registers a CTE only after resolving its definition, so a definition reads the
+        # model of the same name. A recursive CTE is registered first, so it can read itself.
+        ctes = node.ctes
+        names: set[str] = set()
+        self.cte_scopes.append(names)
+        self.table_scopes.append({})
         self.qualified_fields.append([])
         try:
-            super().visit_select_query(node)
+            for cte in (ctes or {}).values():
+                if cte.recursive:
+                    names.add(cte.name)
+                self.visit(cte)
+                names.add(cte.name)
+            node.ctes = None
+            try:
+                super().visit_select_query(node)
+            finally:
+                node.ctes = ctes
         finally:
             self.cte_scopes.pop()
-            reads = self.unaliased_reads.pop()
+            scope = self.table_scopes.pop()
             fields = self.qualified_fields.pop()
         for field in fields:
-            chain = [str(part) for part in field.chain]
-            for table_key, target in reads.items():
-                length = _qualifier_length(chain, table_key)
-                if length is not None:
-                    self.references.append((field, length, target))
-                    break
+            binding = _qualifier_binding([str(part) for part in field.chain], scope)
+            if binding is not None:
+                self.references.append((field, *binding))
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        # The parser puts a leading WITH on the first branch, and the resolver lets every branch read it.
+        # The parser puts a leading WITH on the first branch, and the resolver lets the later branches read it.
+        self.visit(node.initial_select_query)
         first = node.initial_select_query
-        while isinstance(first, ast.SelectSetQuery):
-            first = first.initial_select_query
-        self.cte_scopes.append(set(first.ctes or {}))
+        self.cte_scopes.append(set(first.ctes or {}) if isinstance(first, ast.SelectQuery) else set())
         try:
-            super().visit_select_set_query(node)
+            for expr in node.subsequent_select_queries:
+                self.visit(expr.select_query)
+            self.visit(node.limit)
+            self.visit(node.offset)
         finally:
             self.cte_scopes.pop()
 
@@ -101,17 +119,35 @@ class _ModelReferenceFinder(TraversingVisitor):
         if isinstance(table, ast.Field):
             # The table name is not visited as a field: `revenue.archive` is a table, not a column of `revenue`.
             raw_chain = [str(part) for part in table.chain]
-            target = self._target(raw_chain) if node.table_args is None else None
-            if target is not None:
-                self.references.append((table, len(raw_chain), target))
-                if node.alias is None and self.unaliased_reads:
-                    self.unaliased_reads[-1]["__".join(raw_chain)] = target
+            target = self._table_reference(table) if node.table_args is None else None
+            if self.table_scopes:
+                key = node.alias or "__".join(raw_chain)
+                self.table_scopes[-1][key] = target if node.alias is None else None
         else:
             self.visit(table)
+            if node.alias is not None and self.table_scopes:
+                self.table_scopes[-1][node.alias] = None
         for expr in node.table_args or []:
             self.visit(expr)
         self.visit(node.constraint)
         self.visit(node.next_join)
+
+    def visit_pivot_expr(self, node: ast.PivotExpr) -> None:
+        self._pivot_source(node.table)
+        for expr in [*node.aggregates, *node.columns, *(node.group_by or [])]:
+            self.visit(expr)
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> None:
+        self._pivot_source(node.table)
+        for column in node.columns:
+            self.visit(column)
+
+    def _pivot_source(self, table: ast.Expr) -> None:
+        # The resolver reads a bare PIVOT or UNPIVOT source as a table, in a scope of its own.
+        if isinstance(table, ast.Field):
+            self._table_reference(table)
+        else:
+            self.visit(table)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
         depth = len(self.lambda_arguments)
@@ -126,12 +162,16 @@ class _ModelReferenceFinder(TraversingVisitor):
         if self.qualified_fields and len(node.chain) > 1 and str(node.chain[0]) not in self.lambda_arguments:
             self.qualified_fields[-1].append(node)
 
-    def _target(self, raw_chain: list[str]) -> list[str] | None:
+    def _table_reference(self, table: ast.Field) -> list[str] | None:
+        raw_chain = [str(part) for part in table.chain]
         if any(".".join(raw_chain) in scope for scope in self.cte_scopes):
             return None
         # A backquoted segment can hold a dotted name, as `Database.get_table_node` accepts.
         chain = [part for segment in raw_chain for part in segment.split(".")]
-        return self.target_for(tuple(chain))
+        target = self.target_for(tuple(chain))
+        if target is not None:
+            self.references.append((table, len(raw_chain), target))
+        return target
 
 
 def _splice(text: str, field: ast.Field, length: int, target: list[str]) -> str:
