@@ -56,21 +56,21 @@ describe('EmailViewerModal', () => {
     })
 
     it.each([
-        { link: 'View email', tab: 'Email' },
-        { link: 'View activity', tab: 'Activity' },
-    ])('opens the viewer on the $tab tab from $link', ({ link, tab }) => {
+        { button: 'workflow-log-view-email', tab: 'Email' },
+        { button: 'workflow-log-view-email-activity', tab: 'Activity' },
+    ])('opens the viewer on the $tab tab from $button', ({ button, tab }) => {
         render(
             <Provider>
                 <EmailViewerChip workflowId="flow-1" invocationId="run-1" actionId="welcome" />
             </Provider>
         )
 
-        fireEvent.click(screen.getByText(link))
+        fireEvent.click(document.querySelector(`[data-attr="${button}"]`)!)
 
         expect(selectedTab()).toBe(tab)
     })
 
-    it('leaves out the activity link while the flag is off', () => {
+    it('shows only the view email link while the flag is off', () => {
         setActivityFlag(false)
         render(
             <Provider>
@@ -79,6 +79,6 @@ describe('EmailViewerModal', () => {
         )
 
         expect(screen.getByText('View email')).toBeInTheDocument()
-        expect(screen.queryByText('View activity')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="workflow-log-view-email-activity"]')).toBeNull()
     })
 })

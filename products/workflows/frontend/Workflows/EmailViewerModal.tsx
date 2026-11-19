@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { IconLetter, IconPulse } from '@posthog/icons'
-import { LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -122,31 +122,47 @@ export function EmailViewerChip({
     const [openTab, setOpenTab] = useState<EmailViewerTab | null>(null)
     return (
         <>
-            <Link
-                className="rounded p-1 -m-1 bg-border text-bg-primary"
-                onClick={(e) => {
-                    e.stopPropagation()
-                    setOpenTab('email')
-                }}
-            >
-                <span className="mr-1">
-                    <IconLetter />
+            {activityEnabled ? (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap align-middle">
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconLetter />}
+                        tooltip="View the email that was sent"
+                        data-attr="workflow-log-view-email"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenTab('email')
+                        }}
+                    >
+                        Email
+                    </LemonButton>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconPulse />}
+                        tooltip="See what the person did before and after this email"
+                        data-attr="workflow-log-view-email-activity"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenTab('activity')
+                        }}
+                    >
+                        Activity
+                    </LemonButton>
                 </span>
-                View email
-            </Link>
-            {activityEnabled && (
+            ) : (
                 <Link
-                    className="rounded p-1 -m-1 ml-3 bg-border text-bg-primary"
-                    data-attr="workflow-log-view-email-activity"
+                    className="rounded p-1 -m-1 bg-border text-bg-primary"
                     onClick={(e) => {
                         e.stopPropagation()
-                        setOpenTab('activity')
+                        setOpenTab('email')
                     }}
                 >
                     <span className="mr-1">
-                        <IconPulse />
+                        <IconLetter />
                     </span>
-                    View activity
+                    View email
                 </Link>
             )}
             <EmailViewerModal
