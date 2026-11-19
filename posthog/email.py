@@ -521,7 +521,11 @@ def _send_via_smtp(
 ) -> None:
     """Sends emails using SMTP"""
     # One client per process: a client made per send stays registered for interpreter exit and is never freed.
-    capture = ph_background_capture()
+    try:
+        capture = ph_background_capture(event_region=get_instance_region())
+    except Exception as err:
+        logger.warning("email_capture_client_failed", error=str(err))
+        capture = ScopedCapture(None)
     connection = None
     try:
         klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
@@ -586,7 +590,6 @@ def _send_via_smtp(
                             "template_name": template_name,
                             "campaign_key": campaign_key,
                             "provider": "smtp",
-                            "region": get_instance_region(),
                         },
                     )
                     EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
