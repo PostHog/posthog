@@ -443,6 +443,11 @@ describe('cloud controller', () => {
             'readerAcu.idleMax',
         ],
         [
+            'a reader idle limit at the reader maximum',
+            { profile: (p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax: p.readerAcu.max } }) },
+            'readerAcu.idleMax',
+        ],
+        [
             'a pooler image not pinned by digest',
             { profile: (p) => ({ ...p, pooler: { ...p.pooler, image: 'registry.example.com/pgbouncer:1' } }) },
             'pooler.image',
@@ -1247,7 +1252,7 @@ describe('cloud controller', () => {
             'a maximum before T0 under the reader minimum',
             {
                 readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
-                    minute.minute === -3 ? { ...minute, max: 0, avg: 0 } : minute
+                    minute.minute === -3 ? { minute: minute.minute, max: 0 } : minute
                 ),
             },
             () => undefined,
