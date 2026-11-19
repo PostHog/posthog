@@ -18,7 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
+from products.experiments.backend.recalculation.runs import STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     discover_scheduled_recalculation_candidates,
@@ -222,7 +222,7 @@ async def test_retry_backoff_cannot_start_another_attempt_after_the_window(delay
 def test_last_run_ends_before_the_next_hourly_firing():
     worst_case = RUN_START_WINDOW + START_ACTIVITY_TIMEOUT * START_ACTIVITY_MAX_ATTEMPTS + RUN_WAIT_TIMEOUT
 
-    assert RUN_WAIT_TIMEOUT >= _STALE_RECALC_THRESHOLD
+    assert RUN_WAIT_TIMEOUT >= STALE_RECALC_THRESHOLD
     assert worst_case < SCHEDULE_INTERVAL
 
 

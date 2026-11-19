@@ -22,7 +22,7 @@ from posthog.schema import PrecomputationMode
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
+from products.experiments.backend.recalculation.runs import STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS,
@@ -105,7 +105,7 @@ def test_in_progress_phase_ends_before_the_staleness_ttl():
         + _worst_case_seconds(RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS, RECALCULATION_PROGRESS_MAX_ATTEMPTS)
     )
 
-    assert worst_case < _STALE_RECALC_THRESHOLD.total_seconds()
+    assert worst_case < STALE_RECALC_THRESHOLD.total_seconds()
 
 
 async def _run_workflow(activities) -> dict:

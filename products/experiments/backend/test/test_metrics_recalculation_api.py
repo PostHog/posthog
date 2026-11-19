@@ -20,7 +20,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import RECALCULATION_AGE_LIMIT_FEATURE_FLAG
+from products.experiments.backend.recalculation.admission import RECALCULATION_AGE_LIMIT_FEATURE_FLAG
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalculation.routing import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
 from products.experiments.backend.test.utils import patch_calculation_key_version

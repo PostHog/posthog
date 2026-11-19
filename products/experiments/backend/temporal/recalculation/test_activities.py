@@ -44,7 +44,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation import build_job_payload, get_run_results
+from products.experiments.backend.recalculation.payloads import build_job_payload, get_run_results
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,

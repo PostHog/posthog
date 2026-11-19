@@ -22,7 +22,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import request_recalculation
+from products.experiments.backend.recalculation.admission import request_recalculation
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.recalculation.dispatch import (
     metrics_recalculation_workflow_id,

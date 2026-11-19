@@ -231,7 +231,7 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
 
 /**
  * Results that stop more than the threshold before the window end: now for a running experiment, the end date for a
- * stopped one. `_results_are_stale` in products/experiments/backend/recalculation.py repeats this rule, so change both.
+ * stopped one. `_results_are_stale` in products/experiments/backend/recalculation/admission.py repeats this rule, so change both.
  */
 const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
