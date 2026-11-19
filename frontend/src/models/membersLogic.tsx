@@ -394,7 +394,11 @@ export const membersLogic = kea<membersLogicType>([
         postRemoveMember: async ({ userUuid }) => {
             if (userUuid === userLogic.values.user?.uuid) {
                 location.reload()
+                return
             }
+            // Refresh member_count so it matches the shortened members list
+            organizationLogic.actions.loadCurrentOrganization()
+            userLogic.actions.loadUser(false)
         },
 
         ensureAllMembersLoaded: async () => {

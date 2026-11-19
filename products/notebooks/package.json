@@ -12,7 +12,10 @@
     },
     "devDependencies": {
         "@testing-library/react": "^16.3.3",
+        "@testing-library/user-event": "^14.6.8",
+        "html-to-image": "^1.11.13",
         "kea-test-utils": "catalog:",
+        "react-toastify": "^10.0.6",
         "storybook": "catalog:"
     },
     "peerDependencies": {

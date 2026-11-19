@@ -44,6 +44,7 @@ HEADER = """\
 # at every step, and /isolating-product-facade-contracts walks the migration.
 #
 # Once a product reaches the Isolated rung, regenerate this file and its line drops out.
+# A product in SKIP_WITHHELD (hogli_commands/product/isolation.py) stays here by DevEx decision.
 """
 
 

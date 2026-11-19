@@ -19,6 +19,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from google.genai import errors as genai_errors
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
+from structlog.testing import capture_logs
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -67,9 +68,10 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, GenerationNotFoundError, hydrate_event_reference
+from .evaluation_event_io import GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
+    LLM_JUDGE_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
@@ -1294,6 +1296,64 @@ def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
             )
 
 
+@pytest.mark.parametrize(
+    "attempt,backfill,exhausted",
+    [(1, False, False), (3, False, True), (3, True, False), (5, True, True)],
+)
+@pytest.mark.parametrize("provider,is_byok", [("openai", False), ("openai", True), ("openai_compatible", True)])
+@pytest.mark.parametrize("status", [500, 503])
+@override_settings(OPENAI_API_KEY="example-token")
+def test_provider_server_failures_are_reported_only_when_retries_end(
+    attempt: int, backfill: bool, exhausted: bool, provider: str, is_byok: bool, status: int
+) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(
+        env.info,
+        attempt=attempt,
+        retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY if backfill else LLM_JUDGE_RETRY_POLICY,
+        schedule_to_close_timeout=None,
+    )
+    key = (
+        MagicMock(
+            provider=provider,
+            encrypted_config={"api_key": "example-token", "base_url": "https://llm.example.com/v1"},
+        )
+        if is_byok
+        else None
+    )
+    with (
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "httpx.HTTPTransport.handle_request"
+            if provider == "openai"
+            else "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(
+                status,
+                headers={"Content-Type": "application/json"},
+                stream=httpx.ByteStream(b'{"error": {"message": "Example provider is unavailable."}}'),
+            ),
+        ) as transport,
+        capture_logs() as logs,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="gpt-5-mini", provider_key=key, is_byok=is_byok
+        )
+        with pytest.raises(openai.InternalServerError if exhausted else TransientJudgeError) as raised:
+            env.run(
+                call_llm_judge,
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+                backfill=backfill,
+            )
+
+    assert is_expected_activity_failure(raised.value) is (not exhausted)
+    assert any(log["event"] == "Unhandled error from LLM client" for log in logs) is exhausted
+    assert transport.call_count == 1
+
+
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
     hog_spec = require_user_error_spec("hog_error")
     permission_spec = require_user_error_spec("permission_error")
@@ -2339,15 +2399,15 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
-        "attempt,retryable",
+        "attempt,retryable,live_delay",
         [
-            pytest.param(1, True, id="first attempt"),
-            pytest.param(2, True, id="second attempt"),
-            pytest.param(3, False, id="last attempt"),
+            pytest.param(1, True, timedelta(seconds=30), id="first attempt"),
+            pytest.param(2, True, timedelta(seconds=90), id="second attempt"),
+            pytest.param(3, False, None, id="last attempt"),
         ],
     )
     def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
-        self, attempt: int, retryable: bool, live: bool
+        self, attempt: int, retryable: bool, live_delay: timedelta | None, live: bool
     ):
         reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
@@ -2360,8 +2420,7 @@ class TestRunEvaluationWorkflow:
         assert raised.value.non_retryable is not retryable
         assert is_expected_activity_failure(raised.value) is (retryable or not live)
         assert isinstance(raised.value, GenerationNotFoundError) is (not retryable and not live)
-        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
-        assert raised.value.next_retry_delay == expected_delay
+        assert raised.value.next_retry_delay == (live_delay if live else None)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

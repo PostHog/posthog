@@ -1,7 +1,6 @@
 import re
 import json
 import time
-import socket
 import urllib.parse
 from collections.abc import Callable
 from enum import Enum, auto
@@ -391,26 +390,6 @@ def parse_bool(value: Union[str, list[str]]) -> bool:
     return False
 
 
-def raise_if_user_provided_url_unsafe(url: str):
-    """Raise if the provided URL seems unsafe, otherwise do nothing.
-
-    Equivalent of plugin server raiseIfUserProvidedUrlUnsafe.
-    """
-    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)  # urlparse never raises errors
-    if not parsed_url.hostname:
-        raise ValueError("No hostname")
-    if parsed_url.scheme not in ("http", "https"):
-        raise ValueError("Scheme must be either HTTP or HTTPS")
-    # Disallow if hostname resolves to a private (internal) IP address
-    try:
-        addrinfo = socket.getaddrinfo(parsed_url.hostname, None)
-    except socket.gaierror:
-        raise ValueError("Invalid hostname")
-    for _, _, _, _, sockaddr in addrinfo:
-        if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
-            raise ValueError("Internal hostname")
-
-
 def raise_if_connected_to_private_ip(conn):
     """Raise if the HTTPConnection / HTTPSConnection we are given points to a private IP."""
     if not getattr(conn, "sock", None):  # Force the connection open to check the remote IP
@@ -442,7 +421,7 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
     Due to the lack of a hook after DNS resolution, we override the connection pool classes
     to check the remote IP after we connect to it, but before we send the request.
 
-    Intended as a second line of defense after raise_if_user_provided_url_unsafe.
+    Intended as a second line of defense after the URL has been validated.
     """
 
     def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):

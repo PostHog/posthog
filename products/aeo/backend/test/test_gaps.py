@@ -10,6 +10,8 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
+from products.aeo.backend.brand import names_brand
+from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.facade.api import import_prompts, list_citation_gaps, update_prompt
 from products.aeo.backend.facade.contracts import PromptImport, PromptUpdate
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -32,6 +34,7 @@ class TestListCitationGaps(BaseTest):
         answer_text: str | None = None,
         queries: list[str] | None = None,
         version: int | None = None,
+        mode: str = "web_search",
     ) -> None:
         target_urls = [url for url in cited_urls if "example.com" in url]
         AEOCitationCheck.objects.for_team(self.team.id).create(
@@ -42,6 +45,7 @@ class TestListCitationGaps(BaseTest):
             prompt_source=prompt.prompt_source,
             prompt_hash=prompt.prompt_hash,
             prompt_version=version,
+            mode=mode,
             engine=engine,
             model=engine,
             check_failed=failed,
@@ -50,6 +54,7 @@ class TestListCitationGaps(BaseTest):
             target_urls=target_urls,
             search_queries=queries or [],
             answer_text=answer_text,
+            names_brand=None if failed else names_brand(answer_text, own_domains(self.team.id)),
         )
 
     def test_returns_only_uncited_active_prompts_with_competitor_evidence(self) -> None:
@@ -69,12 +74,18 @@ class TestListCitationGaps(BaseTest):
             queries=["session replay tools", "open source replay"],
         )
         self._check(gap, "exa-answer", cited_urls=[], failed=True)
+        self._check(gap, "claude-web-search", cited_urls=[], answer_text="From memory: try PostHog.", mode="no_search")
 
         always_cited = self._prompt("example pricing")
         self._check(always_cited, "claude-web-search", cited_urls=["https://example.com/pricing"])
 
         only_failed = self._prompt("engine outage")
         self._check(only_failed, "claude-web-search", cited_urls=[], failed=True)
+
+        only_no_search = self._prompt("what is posthog")
+        self._check(
+            only_no_search, "openai-web-search", cited_urls=[], answer_text="An analytics suite.", mode="no_search"
+        )
 
         inactive = self._prompt("retired prompt", active=False)
         self._check(inactive, "claude-web-search", cited_urls=["https://rival.example/x"])
@@ -107,10 +118,10 @@ class TestListCitationGaps(BaseTest):
     def test_counts_brand_mentions_by_the_registrable_domain_name(
         self, _name: str, answer_text: str, own_brand_on_this_team: bool, mentioned_checks: int
     ) -> None:
-        prompt = self._prompt("best session replay tool")
-        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
         other_team = Team.objects.create(organization=self.organization, name="Other")
         create_own_brand(self.team if own_brand_on_this_team else other_team, "example.co.uk")
+        prompt = self._prompt("best session replay tool")
+        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
 
         gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
 

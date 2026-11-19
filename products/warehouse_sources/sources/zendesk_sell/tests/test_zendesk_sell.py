@@ -11,6 +11,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.zendesk_sell._config import ZendeskSellSourceConfig
@@ -96,6 +97,147 @@ class TestPagination:
 
         # The token flows through framework auth, which registers it for value-based log/error redaction.
         assert result.session_options[0]["redact_values"] == ("token",)
+
+
+def _fan_out_script(parent_path: str, child_path: str) -> Any:
+    parent_page_2 = f"https://api.getbase.com{parent_path}?page=2&per_page=100"
+    child_1_page_2 = f"https://api.getbase.com{child_path.format(1)}?page=2&per_page=100"
+    return route(
+        {
+            parent_path: [
+                _response(_envelope([{"id": 1}, {"id": 2}], next_page=parent_page_2)),
+                _response(_envelope([{"id": 3}], next_page=None)),
+            ],
+            child_path.format(1): [
+                _response(_envelope([{"key": 10}], next_page=child_1_page_2)),
+                _response(_envelope([{"key": 11}], next_page=None)),
+            ],
+            child_path.format(2): [_response(_envelope([], next_page=None))],
+            child_path.format(3): [_response(_envelope([{"key": 30}], next_page=None))],
+        }
+    )
+
+
+FAN_OUT_CASES = [
+    ("associated_contacts", "associated_contacts", "/v2/deals", "/v2/deals/{}/associated_contacts", "deal_id"),
+    ("line_items", "line_items", "/v2/orders", "/v2/orders/{}/line_items", "order_id"),
+]
+
+
+class TestFanOut:
+    @parameterized.expand(FAN_OUT_CASES)
+    def test_walks_every_parent_and_child_page(
+        self, _name: str, schema: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run(schema, _fan_out_script(parent_path, child_path))
+
+        assert result.raised is None
+        # Rows are unwrapped from the envelope and carry their parent id under its own name.
+        assert result.rows == [
+            {"key": 10, parent_key: 1},
+            {"key": 11, parent_key: 1},
+            {"key": 30, parent_key: 3},
+        ]
+        assert result.paths == [
+            parent_path,
+            child_path.format(1),
+            child_path.format(1),
+            child_path.format(2),
+            parent_path,
+            child_path.format(3),
+        ]
+
+    @parameterized.expand(FAN_OUT_CASES)
+    def test_resume_skips_finished_parents(
+        self, _name: str, schema: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        first = driver.run(schema, _fan_out_script(parent_path, child_path))
+        # The state committed after the second page of parent 1, so parent 1 is finished.
+        resume_state = first.committed_states[1]
+        assert isinstance(resume_state, ZendeskSellResumeConfig)
+        assert resume_state.next_url is None
+
+        resumed = driver.run(schema, _fan_out_script(parent_path, child_path), resume_state=resume_state)
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"key": 30, parent_key: 3}]
+        assert child_path.format(1) not in resumed.paths
+
+    @parameterized.expand(FAN_OUT_CASES)
+    def test_skips_parent_deleted_before_its_children_are_read(
+        self, _name: str, schema: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run(
+            schema,
+            route(
+                {
+                    parent_path: [_response(_envelope([{"id": 1}, {"id": 2}], next_page=None))],
+                    child_path.format(1): [_response({"errors": []}, status=404)],
+                    child_path.format(2): [_response(_envelope([{"key": 20}], next_page=None))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"key": 20, parent_key: 2}]
+
+    def test_child_item_without_data_fails_fast(self) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run(
+            "line_items",
+            route(
+                {
+                    "/v2/orders": [_response(_envelope([{"id": 1}], next_page=None))],
+                    "/v2/orders/1/line_items": [
+                        _response({"items": [{"meta": {"type": "line_item"}}], "meta": {"links": {}}})
+                    ],
+                }
+            ),
+        )
+
+        assert isinstance(result.raised, KeyError)
+
+
+class TestPerResourceType:
+    def test_reads_each_resource_type_and_tags_rows(self) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run(
+            "custom_fields",
+            route(
+                {
+                    "/v2/lead/custom_fields": [_response(_envelope([{"id": 1, "name": "Budget"}], next_page=None))],
+                    "/v2/contact/custom_fields": [_response(_envelope([], next_page=None))],
+                    "/v2/deal/custom_fields": [_response({"errors": []}, status=404)],
+                    "/v2/prospect_and_customer/custom_fields": [
+                        _response(_envelope([{"id": 1, "name": "Tier"}, {"id": 2, "name": "Region"}], next_page=None))
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # Ids can repeat across resource types, so each row carries the type it was read for.
+        assert result.rows == [
+            {"id": 1, "name": "Budget", "resource_type": "lead"},
+            {"id": 1, "name": "Tier", "resource_type": "prospect_and_customer"},
+            {"id": 2, "name": "Region", "resource_type": "prospect_and_customer"},
+        ]
+        assert result.paths == [
+            "/v2/lead/custom_fields",
+            "/v2/contact/custom_fields",
+            "/v2/deal/custom_fields",
+            "/v2/prospect_and_customer/custom_fields",
+        ]
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_auth_errors_still_raise(self, _name: str, status: int) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run("custom_fields", always(_response({}, status=status)))
+
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestRetryClassification:

@@ -20,6 +20,7 @@ from .yaml_loader import load_recipe_yaml
 logger = structlog.get_logger(__name__)
 
 DEFAULT_RECIPES_DIR: Final = Path(__file__).parent / "default_recipes"
+CANDIDATE_RECIPE_ID: Final = "unsaved"
 
 # The first matching rule wins, so this order is load-bearing. It matches the TypeScript registry.
 DEFAULT_RECIPE_FILES: Final = (
@@ -75,8 +76,13 @@ def compile_stored_recipe(stored: StoredRecipe) -> Recipe | None:
 
 def check_stored_recipe_source(source: str) -> None:
     """Raises `RecipeCompileError` when `compile_stored_recipe` would skip this source."""
-    # A recipe being saved for the first time has no database id yet, and a stored recipe needs no `id:` of its own.
-    _compile_stored_source(StoredRecipe(id="unsaved", source=source))
+    compile_candidate_recipe(source)
+
+
+def compile_candidate_recipe(source: str) -> Recipe:
+    """Compiles a recipe that is not saved yet the way a saved one compiles, raising `RecipeCompileError`."""
+    # A recipe not saved yet has no database id, and a stored recipe needs no `id:` of its own.
+    return _compile_stored_source(StoredRecipe(id=CANDIDATE_RECIPE_ID, source=source))
 
 
 def _compile_stored_source(stored: StoredRecipe) -> Recipe:

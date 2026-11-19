@@ -1,4 +1,4 @@
-"""What each routing trigger decides: a pull request event, a finished review, and the safety net.
+"""What each routing trigger decides: a pull request event, a finished review, a retracted approval, and the safety net.
 
 Every trigger takes the same path. It reads the stored record and lets an own claim continue from
 its last saved step. Then its guards decide on the record and the live pull request. Then
@@ -26,6 +26,7 @@ from products.stamphog.backend.logic.routing.service import (
     SCOPE_PINNED,
     STATUS_DONE,
     STATUS_WAITING,
+    TRIGGER_APPROVAL_RETRACTED,
     TRIGGER_EXTERNAL_REVIEW,
     TRIGGER_SAFETY_NET,
     RoutingBusy,
@@ -79,6 +80,9 @@ class ReviewPath:
     finished_review: Callable[[StamphogRepoConfig, int, str], FinishedReview | None]
     # Whether (repo_config, pr_number, head_sha) has a review that is not superseded, finished or not.
     has_review: Callable[[StamphogRepoConfig, int, str], bool]
+    # Whether a stamphog approval that nobody dismissed covers (repo_config, pr_number, head_sha), as posted or
+    # retained through a clean base merge.
+    approval_stands: Callable[[StamphogRepoConfig, int, str], bool]
 
 
 def verdict_outcome(status: ReviewRunStatus, verdict: ReviewVerdict) -> str:
@@ -208,6 +212,24 @@ def _live_head(client: StamphogGitHubClient, repo_config: StamphogRepoConfig, pr
     return pr
 
 
+def _finished_review_step(
+    pr: dict[str, Any], state: _State, *, head_sha: str, mode: RoutingMode, review_path: ReviewPath
+) -> _Step | None:
+    """Route the head by its finished review, or None while it has none that ends the wait."""
+    finished = review_path.finished_review(state.repo_config, state.pr_number, head_sha)
+    if finished is None or _reviews_again(finished.outcome, silent=finished.silent):
+        return None
+    outcome = finished.outcome
+    # A retraction after the review, such as a base retarget, leaves the approving run as the head's latest finished
+    # review. Only an approval that still stands may hold the head to its pinned owners, so the head keeps waiting.
+    if outcome == ReviewVerdict.APPROVED and not review_path.approval_stands(
+        state.repo_config, state.pr_number, head_sha
+    ):
+        return None
+    scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
+    return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
+
+
 def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, review_path: ReviewPath) -> _Step | None:
     repo_config = state.repo_config
     mode = RoutingMode(repo_config.routing_mode)
@@ -217,6 +239,20 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
         return None
     head_sha = _head_sha(pr)
     record = state.record
+    if (
+        mode == RoutingMode.FALLBACK
+        and record is not None
+        and record.get("head_sha") == head_sha
+        and record.get("status") == STATUS_WAITING
+        and not record.get(FULL_ROUTED_HEAD)
+    ):
+        # A verdict that finished while the pull request was a draft found no live head to route, and the safety
+        # net can have fired in that time too. When the pull request is ready again, nothing else routes the head.
+        step = _finished_review_step(pr, state, head_sha=head_sha, mode=mode, review_path=review_path)
+        if step is None:
+            # A net that fired during the draft found no live head and scheduled nothing, so the head needs a new one.
+            review_path.schedule_safety_net(repo_config, state.pr_number)
+        return step
     if record is not None and record.get("head_sha") == head_sha:
         # Both modes route once per head, whatever started it. The `opened` task reads the live pull
         # request, so it already routes a draft marked ready before the task ran, and the
@@ -230,11 +266,9 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     if wait:
         # A fast verdict can land before this task stores a record, and the verdict task drops it as a PR that
         # opened before routing was on. So a head that already has a verdict routes by it instead of waiting.
-        finished = review_path.finished_review(repo_config, state.pr_number, head_sha)
-        if finished is not None and not _reviews_again(finished.outcome, silent=finished.silent):
-            outcome = finished.outcome
-            scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
-            return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
+        step = _finished_review_step(pr, state, head_sha=head_sha, mode=mode, review_path=review_path)
+        if step is not None:
+            return step
     return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=action, wait=wait)
 
 
@@ -336,16 +370,26 @@ def _fallback_repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConf
     return repo_config
 
 
-def _upgrades_pinned(at_head: dict[str, Any], outcome: str, *, silent: bool) -> bool:
-    # A re-review of the same head, after a base retarget or a manual request, can withdraw the
-    # approval. Its non-approval still owes the full routing that the pinned-only routing left out.
-    # A silent WAIT counts as one, because nothing reviews the head again after it.
-    return (
-        outcome != ReviewVerdict.APPROVED
-        and not _reviews_again(outcome, silent=silent)
-        and at_head.get("status") == STATUS_DONE
-        and at_head.get("scope") == SCOPE_PINNED
-    )
+def _is_pinned_done(record: dict[str, Any]) -> bool:
+    return record.get("status") == STATUS_DONE and record.get("scope") == SCOPE_PINNED
+
+
+def _reopens_pinned(at_head: dict[str, Any], outcome: str) -> bool:
+    # A re-review of the same head, after a base retarget, a manual request or the trigger label, dismissed the
+    # approval before it ran. Its non-approval still owes the full routing that the pinned-only routing left out.
+    # A visible WAIT makes the head wait again, because the next verdict can be another WAIT and only the safety
+    # net routes the head after that.
+    return outcome != ReviewVerdict.APPROVED and _is_pinned_done(at_head)
+
+
+def _owes_live_head(record: dict[str, Any], *, head_sha: str, live_head_sha: str) -> bool:
+    """Whether a verdict for a head that the author pushed past still owes a routing of the live head."""
+    if record.get("status") == STATUS_WAITING:
+        # The record waits on the old head, or on the live head when the opening event read the pull request
+        # after the push.
+        return record.get("head_sha") in (head_sha, live_head_sha)
+    # The approval behind a pinned-only routing covers its own head only, and an unlabeled push starts no review.
+    return _is_pinned_done(record) and record.get(PINNED_ROUTED_HEAD) != live_head_sha
 
 
 def _verdict_step(
@@ -366,15 +410,11 @@ def _verdict_step(
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
     at_head = record if record is not None and record.get("head_sha") == head_sha else None
-    if (
-        at_head is not None
-        and at_head.get("status") != STATUS_WAITING
-        and not _upgrades_pinned(at_head, outcome, silent=silent)
-    ):
+    if at_head is not None and at_head.get("status") != STATUS_WAITING and not _reopens_pinned(at_head, outcome):
         # Another task already routed or claimed this head.
         return None
     wait = _reviews_again(outcome, silent=silent)
-    if wait and at_head is not None:
+    if wait and at_head is not None and at_head.get("status") == STATUS_WAITING:
         # The safety net already covers this head.
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
@@ -382,11 +422,8 @@ def _verdict_step(
         return None
     if _head_sha(pr) != head_sha:
         # In label mode a push to an unlabeled pull request supersedes no run, so a run of the old head can
-        # still end here. Its verdict, an approval too, says nothing about the live head. The record waits on
-        # the old head, or on the live head when the opening event read the pull request after the push.
-        if record is None or record.get("status") != STATUS_WAITING:
-            return None
-        if record.get("head_sha") not in (head_sha, _head_sha(pr)):
+        # still end here. Its verdict, an approval too, says nothing about the live head.
+        if record is None or not _owes_live_head(record, head_sha=head_sha, live_head_sha=_head_sha(pr)):
             return None
         return _full_step_on_live_head(pr, state, trigger=verdict_trigger(outcome), review_path=review_path)
     return _Step(
@@ -429,7 +466,7 @@ def route_after_verdict(
     _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
-def _safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | None:
+def _safety_net_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
@@ -438,7 +475,17 @@ def _safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | Non
         return None
     # The current head, which can differ from the head this net was scheduled for.
     head_sha = _head_sha(pr)
-    if record is not None and record.get(PINNED_ROUTED_HEAD) == head_sha:
+    # A record that waits again on its approved head took a WAIT after the approval, which the WAIT's run dismissed.
+    if record is not None and record.get(PINNED_ROUTED_HEAD) == head_sha and record.get("status") != STATUS_WAITING:
+        return None
+    # A clean base merge keeps the approval on a new head without a routing of that head. Its pinned owners are those
+    # of the approved head, because the merge changed none of the pull request's own files.
+    if (
+        record is not None
+        and record.get(PINNED_ROUTED_HEAD)
+        and record.get("status") != STATUS_WAITING
+        and review_path.approval_stands(state.repo_config, state.pr_number, head_sha)
+    ):
         return None
     return _Step(pr=pr, head_sha=head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_SAFETY_NET)
 
@@ -457,5 +504,57 @@ def route_on_safety_net(
     state = _load_state(repo_config, pr_number, task_id)
     if _resume(client, state):
         return
-    step = _safety_net_step(client, state)
+    step = _safety_net_step(client, state, review_path=review_path)
     _execute(client, state, step, review_path, retry_when_busy=False)
+
+
+def _retracted_approval_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
+    record = state.record
+    if record is None or record.get(FULL_ROUTED_HEAD):
+        return None
+    if not _is_pinned_done(record):
+        return None
+    pr = _live_head(client, state.repo_config, state.pr_number)
+    if pr is None:
+        return None
+    live_head_sha = _head_sha(pr)
+    # The task carries no identity of the approval it was queued for. A review that approved the live head after
+    # that retraction already routed it, so the retraction is stale.
+    if review_path.approval_stands(state.repo_config, state.pr_number, live_head_sha):
+        return None
+    # The payload can admit a review that a later gate refuses, such as the author's write permission, and then
+    # no verdict routes the head. The net routes it in that case, and does nothing once a routing covers the head.
+    review_path.schedule_safety_net(state.repo_config, state.pr_number)
+    if live_head_sha != record.get("head_sha"):
+        return _full_step_on_live_head(pr, state, trigger=TRIGGER_APPROVAL_RETRACTED, review_path=review_path)
+    # A base retarget retracts the approval of the head that the run reviewed, and that run still counts as a
+    # review of the head. Only a visible review judges the retargeted diff, so the head waits for its verdict. The
+    # waiting record lets the net route the head when a later gate refuses that review.
+    wait = review_path.will_review(state.repo_config, pr, count_silent=False)
+    return _Step(
+        pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_APPROVAL_RETRACTED, wait=wait
+    )
+
+
+def route_after_approval_retracted(
+    *, team_id: int, repo_config_id: str, pr_number: int, task_id: str, review_path: ReviewPath
+) -> None:
+    """Route a FALLBACK pull request in full after a retraction removed the approval that held it to its pinned owners.
+
+    A push to an unlabeled pull request, or a base retarget, retracts the approval and starts no review, so no
+    verdict comes to upgrade the pinned-only routing. A review of the live head, or a visible one that comes for
+    it such as for the trigger label, routes it by its verdict instead. ``task_id`` is the Celery task id, which a
+    retry of the same task keeps, so a retry knows its own claim.
+    """
+    repo_config = _fallback_repo_config(team_id, repo_config_id)
+    if repo_config is None:
+        return
+    client = StamphogGitHubClient(repo_config.installation_id)
+    state = _load_state(repo_config, pr_number, task_id)
+    if _resume(client, state):
+        return
+    if is_foreign_claim(state.stored, task_id):
+        # The claim can end in a pinned-only routing, which this retraction still upgrades, so decide after it ends.
+        raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
+    step = _retracted_approval_step(client, state, review_path=review_path)
+    _execute(client, state, step, review_path, retry_when_busy=True)

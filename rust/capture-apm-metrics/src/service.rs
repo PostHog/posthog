@@ -36,6 +36,7 @@ pub struct MetricsService {
     pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
     pub(crate) k8s_resource_attributes: Arc<K8sResourceAttributes>,
+    pub(crate) keep_stale_markers: bool,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +52,7 @@ impl MetricsService {
         remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
         k8s_resource_attributes: Arc<K8sResourceAttributes>,
+        keep_stale_markers: bool,
     ) -> Self {
         Self {
             sink: kafka_sink,
@@ -59,6 +61,7 @@ impl MetricsService {
             remote_write_max_expanded_bytes,
             series_label_gate,
             k8s_resource_attributes,
+            keep_stale_markers,
         }
     }
 }
@@ -172,12 +175,18 @@ pub async fn export_metrics_http(
         }
     }
 
-    let labelled = service.series_label_gate.decide(token, &mut rows);
+    let (labelled, records_bytes) = service.series_label_gate.decide_metered(token, &mut rows);
 
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
+        .write_metrics(
+            token,
+            rows,
+            body.len() as u64,
+            Some(records_bytes),
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send metrics to Kafka: {}", e);

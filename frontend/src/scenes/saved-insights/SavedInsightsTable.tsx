@@ -19,7 +19,7 @@ import { InsightModel } from '~/types'
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './InsightIcon'
 
-interface SavedInsightsTableProps {
+export interface SavedInsightsTableProps {
     isSelected?: (insight: InsightModel) => boolean
     onToggle?: (insight: InsightModel) => void
     isToggling?: (insight: InsightModel) => boolean

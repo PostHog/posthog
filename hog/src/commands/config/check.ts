@@ -1,5 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { CONFIG_FILE, findConfig, validateConfig, type ConfigProblem } from '@/core/config'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 
 type CheckResult =
     | { status: 'missing'; next: string }
@@ -37,5 +38,5 @@ export default defineCommand({
         }
     },
 
-    exitCode: (result) => (result.status === 'valid' ? 0 : 1),
+    exitCode: (result) => (result.status === 'valid' ? EXIT_SUCCESS : EXIT_FAILURE),
 })

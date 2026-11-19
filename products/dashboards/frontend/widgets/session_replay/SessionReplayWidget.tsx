@@ -28,7 +28,7 @@ import {
     WidgetListCount,
     WIDGET_LIST_COUNT_RECORDINGS,
 } from '../../components/WidgetCard'
-import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardHeader'
+import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardTopHeading'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
 import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSavedFiltersLogic'

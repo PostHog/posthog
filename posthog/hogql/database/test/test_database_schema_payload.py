@@ -73,7 +73,7 @@ class TestDatabaseSchemaPayload(BaseTest):
                 self.team, DatabaseSchemaQuery(tables=["big_table_0"]), user=self.user
             )
         request_seconds = time.perf_counter() - start
-        assert sum(hydrated_table_rows) == 2
+        assert sum(hydrated_table_rows) == 1
         assert response.tables["big_table_0"] == one_table["big_table_0"]
 
         full_bytes = len(json.dumps({name: table.model_dump() for name, table in full.items()}))

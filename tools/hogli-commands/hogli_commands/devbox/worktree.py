@@ -7,7 +7,6 @@ import re
 import sys
 import hashlib
 import subprocess
-import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,10 +30,10 @@ from .cli import _preferred_region, devbox_clone, devbox_start, resolve_default_
 from .coder import (
     REGION_NAME_SUFFIXES,
     _fail,
+    app_url,
     ensure_runtime_ready,
     extract_workspace_label,
     fetch_user_workspaces,
-    get_coder_url,
     get_username,
     get_workspace,
     get_workspace_name,
@@ -211,11 +210,6 @@ def _git_dir(root: Path) -> Path:
         ["git", "rev-parse", "--absolute-git-dir"], cwd=root, capture_output=True, text=True, check=True
     )
     return Path(result.stdout.strip())
-
-
-def _app_url(workspace_name: str) -> str:
-    host = urllib.parse.urlparse(get_coder_url()).hostname or ""
-    return f"https://app--{workspace_name}--{get_username()}.{host}"
 
 
 @dataclass(frozen=True)
@@ -520,7 +514,7 @@ def devbox_worktree(
         return
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()
-    click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
+    click.echo(f"App URL, once the stack runs on the box: {app_url(target.workspace_name)}")
 
 
 def _print_plan(root: Path, box_step: str, sync_step: str, on_clean: str | None, dry_run: bool) -> bool:

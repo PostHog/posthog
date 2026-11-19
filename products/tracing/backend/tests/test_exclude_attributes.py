@@ -17,6 +17,23 @@ from products.tracing.backend.logic import TraceSpansQueryRunner
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
 
+EXPECTED_EVENTS = [
+    {
+        "name": "cache.miss",
+        "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 1000, tzinfo=dt.UTC),
+        "attributes": {},
+    },
+    {
+        "name": "exception",
+        "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 2000, tzinfo=dt.UTC),
+        "attributes": {
+            "exception.type": "ValueError",
+            "exception.stacktrace": 'line 1\n  raise ValueError("bad")',
+            "exception.escaped": "false",
+        },
+    },
+]
+
 
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
@@ -79,13 +96,24 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
-    def _run(self, *, exclude: bool, single_trace: bool = False) -> list[dict]:
+    def _run(
+        self,
+        *,
+        exclude: bool,
+        single_trace: bool = False,
+        flat: bool = False,
+        prop: dict | None = None,
+        include_events: bool = False,
+    ) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             orderBy="timestamp",
             limit=100,
             excludeAttributes=exclude,
             traceId=(1).to_bytes(16, "big").hex() if single_trace else None,
+            flatSpans=flat or None,
+            includeEvents=include_events or None,
+            filterGroup={"type": "AND", "values": [{"type": "AND", "values": [prop]}]} if prop else None,
         )
         return TraceSpansQueryRunner(query, self.team).run().results
 
@@ -107,31 +135,35 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list_query_skips_events", False, False, None),
-            ("excluded_from_single_trace", True, True, None),
-            (
-                "single_trace_returns_events_earliest_first",
-                True,
-                False,
-                [
-                    {
-                        "name": "cache.miss",
-                        "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 1000, tzinfo=dt.UTC),
-                        "attributes": {},
-                    },
-                    {
-                        "name": "exception",
-                        "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 2000, tzinfo=dt.UTC),
-                        "attributes": {
-                            "exception.type": "ValueError",
-                            "exception.stacktrace": 'line 1\n  raise ValueError("bad")',
-                            "exception.escaped": "false",
-                        },
-                    },
-                ],
-            ),
+            ("list_query_skips_events", False, False, False, None),
+            ("excluded_from_single_trace", True, True, False, None),
+            ("single_trace_returns_events_earliest_first", True, False, False, EXPECTED_EVENTS),
+            ("list_query_returns_events_when_asked", False, False, True, EXPECTED_EVENTS),
+            ("excluded_from_list_query_that_asks", False, True, True, None),
         ]
     )
-    def test_events(self, _name, single_trace, exclude, expected_events):
-        results = self._run(exclude=exclude, single_trace=single_trace)
+    def test_events(self, _name, single_trace, exclude, include_events, expected_events):
+        results = self._run(exclude=exclude, single_trace=single_trace, include_events=include_events)
         self.assertEqual(results[0].get("events"), expected_events)
+
+    @parameterized.expand(
+        [
+            (f"{name}_{'flat' if flat else 'trace_list'}", prop, flat)
+            for name, prop in [
+                (
+                    "span_attribute",
+                    {"key": "http.method", "type": "span_attribute", "operator": "exact", "value": "POST"},
+                ),
+                (
+                    "resource_attribute",
+                    {"key": "host.name", "type": "span_resource_attribute", "operator": "exact", "value": "web-1"},
+                ),
+            ]
+            for flat in (False, True)
+        ]
+    )
+    def test_attribute_filter_with_excluded_attributes(self, _name, prop, flat):
+        results = self._run(exclude=True, flat=flat, prop=prop)
+        self.assertEqual([row["name"] for row in results], ["GET /api"])
+        self.assertEqual(results[0]["attributes"], {})
+        self.assertEqual(results[0]["resource_attributes"], {})

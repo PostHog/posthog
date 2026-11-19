@@ -14,10 +14,12 @@ from posthog.schema_enums import AlertState
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.facade.api import ERRORED_ALERT_PAGE_GROWTH
 from products.alerts.backend.models import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
+from products.pulse.backend.config import MAX_ITEMS_PER_DETECTOR
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
 from products.subscriptions.backend.facade.testing import create_subscription, create_subscription_delivery
@@ -191,8 +193,10 @@ class TestResourceHealthGather(BaseTest):
         restricted = self._insight("Restricted insight")
         visible = self._insight("Visible insight")
         AccessControl.objects.create(resource="insight", resource_id=restricted.id, team=self.team, access_level="none")
-        self._alert(insight=restricted, name="Restricted alert")
         visible_alert = self._alert(insight=visible, name="Visible alert")
+        # Newer than the visible alert, and more than one page of them.
+        for _ in range(MAX_ITEMS_PER_DETECTOR * ERRORED_ALERT_PAGE_GROWTH):
+            self._alert(insight=restricted, name="Restricted alert")
         self._set_refresh_state(restricted, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
         self._set_refresh_state(visible, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
 

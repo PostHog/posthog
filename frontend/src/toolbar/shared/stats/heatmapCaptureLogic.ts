@@ -6,10 +6,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { ToolbarRequestError } from '~/toolbar/shared/toolbarRequestError'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 import {
     RESPONSIVE_CAPTURE_WIDTHS,
     WidthCapture,
@@ -173,8 +172,7 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
             }
             const button = {
                 label: 'Open in PostHog',
-                action: () =>
-                    window.open(joinWithUiHost(values.uiHost, urls.heatmap(captureResult.short_id)), '_blank'),
+                action: () => window.open(toolbarAppUrl(urls.heatmap(captureResult.short_id)), '_blank'),
             }
             // Without an explicit id, the toast id is a hash of the message, so two saves that produce
             // the same message share one id and react-toastify drops the second toast while the first

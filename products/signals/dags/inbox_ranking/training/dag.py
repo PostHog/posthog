@@ -12,8 +12,9 @@ sweep needs into the deployment's own object store and writes a manifest naming 
 (`serving/manifest.json`, `serving/models/<key>/`). The manifest is the dag's serving decision:
 which models a pass scores, and which of them the inbox would order on. Two paths write
 `served.json`, both through `write_served_pointer`: the publish itself, which every
-`INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS` serves the newest version of the served recipe that
-passed the promotion gate, and `inbox_ranking_promote_job` (`training/promote.py`), which a person
+auto-promotion interval serves the newest version of the served recipe that passed the promotion
+gate (the `inbox-ranking-auto-promotion` flag payload sets the interval, and
+`INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS` is the fallback), and `inbox_ranking_promote_job` (`training/promote.py`), which a person
 runs to switch recipe or roll back. The automatic step never changes `model_name`. The
 `<name>/champion.json` objects that the retired per-family promotion wrote stay in place, and the
 manifest still reads them for the cross-family role.
@@ -48,7 +49,12 @@ from posthog.storage import object_storage
 
 from products.signals.backend.ranking.features import FEATURE_SETS
 from products.signals.backend.ranking.model_contract import model_mismatch, trained_head_files
-from products.signals.backend.ranking.overrides import MODEL_KEY_PATTERN, RankingOverrides, read_ranking_overrides
+from products.signals.backend.ranking.overrides import (
+    MODEL_KEY_PATTERN,
+    RankingOverrides,
+    read_auto_promotion_interval,
+    read_ranking_overrides,
+)
 from products.signals.backend.ranking.serving_manifest import (
     PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
     PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
@@ -89,6 +95,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     PROVENANCE_STATE_COLUMNS,
     Snapshot,
     assemble_snapshot,
+    birth_day_mask,
 )
 from products.signals.dags.inbox_ranking.training.families import (
     MODEL_FAMILIES,
@@ -114,6 +121,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     model_promoted_event,
     promotion_event,
+    run_times,
     serving_manifest_event,
     unseen_calibration_events,
     unseen_head_evaluated_events,
@@ -373,24 +381,54 @@ def snapshot_dates(partition_key: str, lookback_days: int) -> list[datetime.date
 
 
 def load_snapshots(
-    client, bucket: str, prefix: str, dates: list[datetime.date], *, required: datetime.date | None = None
+    client,
+    bucket: str,
+    prefix: str,
+    dates: list[datetime.date],
+    *,
+    required: datetime.date | None = None,
+    birth_horizons: Sequence[int] | None = None,
 ) -> dict[datetime.date, Snapshot]:
     """The report-state and labels snapshots that exist for `dates`, indexed by report_id. Days
     missing either object are skipped: the example builder treats a gap as unknowable labels.
     `required` is the one day that must be present; the training job is scheduled independently
     of the dataset job, so without it a failed dataset run would yield a candidate named after a
-    day it never saw."""
+    day it never saw.
+
+    `birth_horizons` is for a caller that builds birth-grain examples only. Each day then keeps the
+    rows of the reports born on it or a horizon before it, and drops every other row before
+    `assemble_snapshot`. The horizon days keep the state rows too, because a status head's provenance
+    check reads the state of the label's own day. A report deleted before a horizon day keeps its
+    label row there."""
     snapshots: dict[datetime.date, Snapshot] = {}
-    for date in dates:
+    born: dict[datetime.date, pd.Index] = {}
+    for date in sorted(dates):
         key = date.isoformat()
-        state = read_parquet_if_exists(client, bucket, partition_object_key(prefix, STATE_TABLE, key))
-        labels = read_parquet_if_exists(client, bucket, partition_object_key(prefix, LABELS_TABLE, key))
+        state = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, STATE_TABLE, key),
+            columns=["report_id", *_STATE_READ_COLUMNS],
+            skip_absent_columns=True,
+        )
+        labels = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, LABELS_TABLE, key),
+            columns=["report_id", *_LABEL_COLUMNS],
+            skip_absent_columns=True,
+        )
         if state is None or labels is None:
             continue
-        state_columns = [column for column in _STATE_READ_COLUMNS if column in state.column_names]
-        state_frame = state.select(["report_id", *state_columns]).to_pandas().set_index("report_id")
-        label_columns = [column for column in _LABEL_COLUMNS if column in labels.column_names]
-        labels_frame = labels.select(["report_id", *label_columns]).to_pandas().set_index("report_id")
+        state_frame = state.to_pandas().set_index("report_id")
+        labels_frame = labels.to_pandas().set_index("report_id")
+        if birth_horizons is not None:
+            born[date] = state_frame.index[birth_day_mask(state_frame, date).to_numpy()]
+            keep = born[date].append(
+                [born[earlier] for days in birth_horizons if (earlier := date - datetime.timedelta(days=days)) in born]
+            )
+            state_frame = state_frame[state_frame.index.isin(keep)]
+            labels_frame = labels_frame[labels_frame.index.isin(keep)]
         snapshots[date] = assemble_snapshot(date, state_frame, labels_frame)
     if required is not None and required not in snapshots:
         raise dagster.Failure(f"state and labels snapshots for {required.isoformat()} are required but missing")
@@ -569,11 +607,12 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
 def _publish_manifest(
     context: RunContext, partition_key: str, run_id: str, *, auto_promote: bool = False
 ) -> dict[str, dagster.MetadataValue]:
+    started_at = datetime.datetime.now(datetime.UTC)
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
     overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     auto_metadata = (
         {
-            "auto_promotion": dagster.MetadataValue.text(
+            "auto_promotion": dagster.MetadataValue.json(
                 _auto_promote(context, client, bucket, prefix, partition_key, run_id, overrides)
             )
         }
@@ -646,6 +685,7 @@ def _publish_manifest(
                     served_family=served_family,
                     manifest=None,
                     reason=decision.reason,
+                    times=run_times(started_at),
                 )
             ],
         )
@@ -698,6 +738,7 @@ def _publish_manifest(
                         *(family.champion for family in families if family.champion),
                     )
                 },
+                times=run_times(started_at),
             )
         ],
     )
@@ -737,15 +778,17 @@ def _auto_promote(
     partition_key: str,
     run_id: str,
     overrides: RankingOverrides,
-) -> str:
+) -> dict[str, Any]:
     """Move `served.json` to the newest version of the served recipe that passed the promotion
-    gate, when the interval has passed. Returns what the step did.
+    gate, when the interval has passed. Returns what the step did, the interval and its source.
 
     The step never fails the publish: an S3 error skips it for the day and the manifest still
     publishes with the current pointer. A first promotion and a recipe switch stay with a person.
     """
+    interval = read_auto_promotion_interval(settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS)
+    interval_note = f"interval {interval.days}d from {interval.source}"
     try:
-        result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides)
+        result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides, interval.days)
         if promotion is not None:
             write_served_pointer(
                 context,
@@ -761,10 +804,11 @@ def _auto_promote(
                 auto=True,
             )
     except (BotoCoreError, ClientError, ValueError, KeyError) as error:
-        context.log.warning(f"auto promotion skipped for dt={partition_key}: {error!r}")
-        return f"not promoted: {error!r}"
-    context.log.info(f"auto promotion for dt={partition_key}: {result}")
-    return result
+        context.log.warning(f"auto promotion skipped for dt={partition_key} ({interval_note}): {error!r}")
+        result = f"not promoted: {error!r}"
+    else:
+        context.log.info(f"auto promotion for dt={partition_key} ({interval_note}): {result}")
+    return {"result": result, "interval_days": interval.days, "source": interval.source}
 
 
 @frozen
@@ -777,7 +821,7 @@ class _AutoPromotionWrite:
 
 
 def _auto_promotion_choice(
-    client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides
+    client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides, interval_days: int
 ) -> tuple[str, _AutoPromotionWrite | None]:
     """What the step does, and the pointer write when it promotes."""
     pointer = read_served_pointer(client, bucket, prefix)
@@ -787,7 +831,6 @@ def _auto_promotion_choice(
         client, bucket, prefix, pointer["model_name"], pointer["model_version"], partition_key
     )
     now = datetime.datetime.now(datetime.UTC)
-    interval_days = settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS
     choice = auto_promotion_candidate(
         pointer,
         decisions,

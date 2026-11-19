@@ -14,7 +14,6 @@ import { datasetsApi } from './datasetsApi'
 import { type DatasetItemDraft, type TraceStep, isSameTraceStep } from './traceStepDatasetItem'
 
 export interface saveToDatasetButtonLogicProps {
-    partialDatasetItem: Partial<DatasetItemCreateApi> | null
     step: TraceStep | null
 }
 
@@ -234,7 +233,7 @@ export type saveToDatasetButtonLogicType = MakeLogicType<
 export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
     path(['scenes', 'ai-observability', 'saveToDatasetButtonLogic']),
 
-    props({ partialDatasetItem: null, step: null } as saveToDatasetButtonLogicProps),
+    props({ step: null } as saveToDatasetButtonLogicProps),
 
     actions({
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
@@ -396,10 +395,8 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                     return
                 }
 
-                const item = props.step
-                    ? await stepDraftToSave({ actions, values, cache }, props.step)
-                    : props.partialDatasetItem
-                if (props.step && !item) {
+                const item = props.step ? await stepDraftToSave({ actions, values, cache }, props.step) : null
+                if (!item) {
                     return
                 }
 

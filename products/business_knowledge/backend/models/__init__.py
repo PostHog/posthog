@@ -17,10 +17,12 @@ from .constants import (
 from .knowledge_chunk import KnowledgeChunk
 from .knowledge_document import KnowledgeDocument
 from .knowledge_gap_suggestion import KnowledgeGapSuggestion
+from .knowledge_key_library import KnowledgeKeyLibrary
 from .knowledge_learning_run import KnowledgeLearningRun
 from .knowledge_library import KnowledgeLibrary
 from .knowledge_library_repository import KnowledgeLibraryRepository
 from .knowledge_library_source import KnowledgeLibrarySource
+from .knowledge_run_citation import KnowledgeRunCitation
 from .knowledge_source import KnowledgeSource
 from .knowledge_usage_record import KnowledgeUsageKey, KnowledgeUsageRecord
 from .playground_chat import PlaygroundChat
@@ -36,10 +38,12 @@ __all__ = [
     "KnowledgeChunk",
     "KnowledgeDocument",
     "KnowledgeGapSuggestion",
+    "KnowledgeKeyLibrary",
     "KnowledgeLearningRun",
     "KnowledgeLibrary",
     "KnowledgeLibraryRepository",
     "KnowledgeLibrarySource",
+    "KnowledgeRunCitation",
     "KnowledgeSource",
     "KnowledgeUsageKey",
     "KnowledgeUsageRecord",

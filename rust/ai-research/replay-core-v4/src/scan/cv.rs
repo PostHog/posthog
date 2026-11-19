@@ -1051,6 +1051,14 @@ mod tests {
                     b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
                 )),
                 format!("/data/commands/0/args/0{blob}"),
+                Outcome::Stored("image/avif"),
+            ),
+            (
+                draw(bitmap(
+                    "image/avif",
+                    b"\x00\x00\x00\x20ftypavis\x00\x00\x00\x00avisavifmif1msf1",
+                )),
+                format!("/data/commands/0/args/0{blob}"),
                 Outcome::Marker(ImageDecline::Avif),
             ),
             (

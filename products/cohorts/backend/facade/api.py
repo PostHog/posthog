@@ -10,15 +10,15 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from django.db import connection
+from django.db import connection, router
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_static_cohort_count_refresh
 
-from products.cohorts.backend.models.cohort import Cohort, ImportResolution
+from products.cohorts.backend.models.cohort import Cohort, CohortType, ImportResolution
 
 
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
@@ -53,6 +53,32 @@ def get_cohort_ref(*, team_id: int, cohort_id: int) -> CohortRef | None:
         is_static=cohort.is_static,
         deleted=cohort.deleted,
     )
+
+
+def find_cohort_ref_by_description(*, team_id: int, description: str) -> CohortRef | None:
+    """The oldest cohort with this description, deleted or not, so an import can respect a cohort someone deleted."""
+    cohort = (
+        Cohort.objects.filter(team_id=team_id, description=description)
+        .only("id", "team_id", "created_by_id", "is_static", "deleted")
+        .order_by("id")
+        .first()
+    )
+    if cohort is None:
+        return None
+    return CohortRef(
+        id=cohort.id,
+        team_id=cohort.team_id,
+        created_by_id=cohort.created_by_id,
+        is_static=cohort.is_static,
+        deleted=cohort.deleted,
+    )
+
+
+def create_empty_static_cohort(*, team_id: int, name: str, description: str, created_by_id: int) -> CohortRef:
+    cohort = Cohort.objects.create(
+        team_id=team_id, name=name, description=description, is_static=True, count=0, created_by_id=created_by_id
+    )
+    return CohortRef(id=cohort.id, team_id=cohort.team_id, created_by_id=created_by_id, is_static=True, deleted=False)
 
 
 def add_person_to_static_cohort(*, team_id: int, cohort_id: int, person_uuid: str) -> bool:
@@ -205,3 +231,103 @@ def queue_static_cohort_resyncs(*, cohort_ids: list[int]) -> StaticCohortResync:
         queued=queued,
         skipped=tuple(candidate for candidate in candidates if candidate.skip_reason is not None),
     )
+
+
+@frozen
+class CohortSummary:
+    id: int
+    name: str
+    # Whether the cohort updates in real time, which workflow triggers need: its filters allow it, it is not static,
+    # and realtime is on for it.
+    is_realtime: bool
+
+
+def realtime_cohorts_available(*, team_id: int) -> bool:
+    """Whether the team's users can use realtime cohorts, in workflows and flags."""
+    from products.cohorts.backend.realtime_teams import is_serving_team
+
+    return is_serving_team(team_id)
+
+
+def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CohortSummary | None:
+    """The oldest cohort of the team that is not deleted and whose description starts with `prefix`."""
+    # Reads the writer, so a cohort created a moment ago by another import is found despite replica lag.
+    cohort = (
+        Cohort.objects.using(router.db_for_write(Cohort))
+        .filter(team_id=team_id, deleted=False, description__startswith=prefix)
+        .only("id", "name", "cohort_type", "is_static", "realtime_enabled_at")
+        .order_by("id")
+        .first()
+    )
+    if cohort is None:
+        return None
+    # A cohort switched to static, or one with realtime turned off, keeps its realtime type, but it no longer updates.
+    return CohortSummary(
+        id=cohort.id,
+        name=cohort.name or "",
+        is_realtime=cohort.cohort_type == CohortType.REALTIME and not cohort.is_static and cohort.realtime_enabled,
+    )
+
+
+def create_cohort_from_filters(
+    *, team_id: int, user_id: int, was_impersonated: bool, name: str, description: str, filters: dict[str, Any]
+) -> CohortSummary:
+    """Creates a dynamic cohort the way the cohort API does: checked filters, a queued calculation and an activity log entry.
+
+    Turns realtime on for the cohort when its filters allow it. A refusal leaves the cohort saved with realtime off.
+    Raises `ValueError` when the filters are not valid cohort filters.
+    """
+    from posthog.api.cohort import validate_filters_and_compute_realtime_support
+    from posthog.event_usage import report_user_action
+    from posthog.models import User
+    from posthog.models.activity_logging.activity_log import Detail, log_activity
+
+    from products.cohorts.backend.cohort_enablement import RealtimeLimitReached, RealtimeTurnOnRefused, turn_realtime_on
+
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    clean_filters, cohort_type, errors = validate_filters_and_compute_realtime_support(filters, team)
+    if errors:
+        raise ValueError("; ".join(errors))
+    cohort = Cohort.objects.create(
+        team_id=team_id,
+        name=name,
+        description=description,
+        filters=clean_filters,
+        cohort_type=cohort_type,
+        is_calculating=True,
+        created_by=user,
+    )
+    cohort.enqueue_calculation(initiating_user=user)
+    if cohort.cohort_type == CohortType.REALTIME:
+        # Only the new cohort may be turned on, so a cohort its filters include stays as its owner left it.
+        try:
+            turn_realtime_on(team_id, cohort.id, can_edit=lambda each: each.id == cohort.id)
+        except RealtimeLimitReached as error:
+            report_user_action(
+                user,
+                "cohort realtime limit reached",
+                {
+                    **cohort.get_analytics_metadata(),
+                    "limit": error.limit,
+                    "allowed": error.allowed,
+                    "used": error.used,
+                    "source": "workflow_import",
+                },
+                team=team,
+            )
+        except RealtimeTurnOnRefused:
+            pass
+        cohort.refresh_from_db(fields=["realtime_enabled_at"])
+    report_user_action(user, "cohort created", cohort.get_analytics_metadata(), team=team)
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=cohort.id,
+        scope="Cohort",
+        activity="created",
+        detail=Detail(name=cohort.name),
+    )
+    return CohortSummary(id=cohort.id, name=cohort.name or "", is_realtime=cohort.realtime_enabled)

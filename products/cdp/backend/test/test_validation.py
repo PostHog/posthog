@@ -15,6 +15,7 @@ from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, In
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import (
+    MAX_TASK_REPOSITORIES,
     FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -475,6 +476,22 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert "{person.properties.email}" in message
         assert "Liquid" in message
 
+    @parameterized.expand(
+        [
+            ("unclosed_brace", "Fix the { bug in checkout"),
+            ("json_example", 'Reply with JSON like {"status": "ok"}'),
+        ]
+    )
+    def test_literal_brace_in_hog_templated_input_says_how_to_escape_it(self, _name, value):
+        inputs_schema = [{"key": "prompt", "type": "string", "required": True}]
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"prompt": {"value": value}})
+        assert "To use a literal brace, type \\\\{ instead." in str(ctx.value.detail)
+
+        escaped = value.replace("{", "\\{")
+        assert validate_inputs(inputs_schema, {"prompt": {"value": escaped}})["prompt"]["value"] == escaped
+
     def test_liquid_templated_input_still_accepts_liquid_syntax(self):
         inputs_schema = [{"key": "field", "type": "string", "required": True, "templating": "liquid"}]
         inputs = {"field": {"value": "Hey {{ person.properties.name }}"}}
@@ -586,6 +603,51 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, {"email": {"value": value}})
 
         assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
+
+    @parameterized.expand(
+        [
+            (
+                "stale_wrap",
+                build_html_wrap_design("<p>Old</p>"),
+                {"version": 1, "doc": {"type": "doc"}},
+                "<p>New</p>",
+                True,
+            ),
+            (
+                "current_wrap",
+                build_html_wrap_design("<p>Same</p>"),
+                {"version": 1, "doc": {"type": "doc"}},
+                "<p>Same</p>",
+                False,
+            ),
+            (
+                "stale_old_editor_design",
+                {"body": {"rows": [{"columns": [{"contents": [{"type": "text", "values": {"text": "<p>Old</p>"}}]}]}]}},
+                {"version": 1, "doc": {"type": "doc"}, "html": "<p>Old</p>"},
+                "<p>New</p>",
+                True,
+            ),
+            (
+                "current_old_editor_design",
+                {
+                    "body": {
+                        "rows": [{"columns": [{"contents": [{"type": "text", "values": {"text": "<p>Same</p>"}}]}]}]
+                    }
+                },
+                {"version": 1, "doc": {"type": "doc"}, "html": "<p>Same</p>"},
+                "<p>Same</p>",
+                False,
+            ),
+        ]
+    )
+    def test_email_document_stored_with_the_design(self, _name, design, document, html, replaced):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        stored = {**design, "emailDocument": document}
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": stored}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == (build_html_wrap_design(html) if replaced else stored)
 
     def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
@@ -1671,7 +1733,12 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("repository_list", "task_repository", ["example-org/example-repo", "example-org/example-docs"], True),
             ("repository_not_string", "task_repository", 123, False),
             ("repository_list_not_strings", "task_repository", [{"name": "example-org/example-repo"}], False),
-            ("repository_list_too_long", "task_repository", [f"example-org/repo-{i}" for i in range(11)], False),
+            (
+                "repository_list_too_long",
+                "task_repository",
+                [f"example-org/repo-{i}" for i in range(MAX_TASK_REPOSITORIES + 1)],
+                False,
+            ),
             ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),

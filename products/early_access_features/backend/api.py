@@ -88,6 +88,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
+    imageUrl = serializers.URLField(source="image_url")
     flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
     payload = serializers.SerializerMethodField()
     assignee = serializers.SerializerMethodField()
@@ -100,6 +101,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "description",
             "stage",
             "documentationUrl",
+            "imageUrl",
             "flagKey",
             "payload",
             "assignee",
@@ -159,6 +161,12 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         allow_blank=True,
         help_text="URL to external documentation for this feature. Shown to users in the opt-in UI.",
     )
+    image_url = serializers.URLField(
+        max_length=800,
+        required=False,
+        allow_blank=True,
+        help_text="URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI.",
+    )
     payload = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(
         read_only=True,
@@ -176,6 +184,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "stage",
             "documentation_url",
+            "image_url",
             "payload",
             "created_at",
             "created_by",
@@ -377,6 +386,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "description",
             "stage",
             "documentation_url",
+            "image_url",
             "payload",
             "created_at",
             "created_by",
@@ -538,6 +548,14 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ids = parse_id_list(self.request.query_params.get("ids"), name="ids", parse=UUID)
             if ids is not None:
                 queryset = queryset.filter(id__in=ids)
+            search = self.request.query_params.get("search", "").strip()
+            if search:
+                queryset = queryset.filter(name__icontains=search)
+            created_by = parse_id_list(self.request.query_params.get("created_by_id"), name="created_by_id", parse=int)
+            if created_by:
+                queryset = queryset.filter(created_by_id__in=created_by)
+            oldest_first = self.request.query_params.get("order") == "created_at"
+            queryset = queryset.order_by(*(("created_at", "id") if oldest_first else ("-created_at", "-id")))
         return queryset
 
     @extend_schema(
@@ -548,7 +566,29 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=f"Comma-separated early access feature IDs, at most {MAX_LISTED_IDS}.",
-            )
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive match on the feature name.",
+            ),
+            OpenApiParameter(
+                "created_by_id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Comma-separated user IDs. Only features created by one of them are listed.",
+            ),
+            OpenApiParameter(
+                "order",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["-created_at", "created_at"],
+                description="Sort by creation time: -created_at (default) for newest first, created_at for oldest first.",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:

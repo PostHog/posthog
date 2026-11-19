@@ -122,6 +122,47 @@ describe('useChartCanvas', () => {
         expect([overlay.width, overlay.height]).toEqual([0, 0])
     })
 
+    it('repaints a chart in view at the zoomed pixel ratio once a pinch-zoom settles', () => {
+        let onViewportResize = (): void => {}
+        let onVisibilityChange: IntersectionObserverCallback = () => {}
+        const viewport = {
+            scale: 1,
+            addEventListener: (_event: string, listener: () => void) => {
+                onViewportResize = listener
+            },
+            removeEventListener: () => {},
+        }
+        Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true })
+        const originalIntersectionObserver = globalThis.IntersectionObserver
+        globalThis.IntersectionObserver = jest.fn((callback: IntersectionObserverCallback) => {
+            onVisibilityChange = callback
+            return { observe: () => {}, disconnect: () => {} }
+        }) as unknown as typeof IntersectionObserver
+
+        try {
+            const canvas = renderCanvas(jest.fn())
+            jest.useFakeTimers()
+
+            viewport.scale = 2
+            act(() => {
+                onViewportResize()
+                jest.advanceTimersByTime(150)
+            })
+            const entry = { isIntersecting: true } as IntersectionObserverEntry
+            act(() => onVisibilityChange([entry], {} as IntersectionObserver))
+            // The new dimensions commit, and the draw loop paints in the next frame.
+            act(() => {
+                jest.runAllTimers()
+            })
+
+            expect(canvas.width).toBe(mockRect.width * 2)
+        } finally {
+            jest.useRealTimers()
+            globalThis.IntersectionObserver = originalIntersectionObserver
+            Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true })
+        }
+    })
+
     it('repaints against a restored backing store after the 2D context is lost', () => {
         const drawStatic = jest.fn()
         const canvas = renderCanvas(drawStatic)

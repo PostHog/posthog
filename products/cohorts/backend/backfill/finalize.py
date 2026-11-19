@@ -30,7 +30,7 @@ import structlog
 from celery import current_app
 from prometheus_client import Counter, Gauge
 
-from posthog.tasks.utils import CeleryQueue
+from posthog.celery_queues import CeleryQueue
 
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
@@ -54,7 +54,7 @@ logger = structlog.get_logger(__name__)
 # would close a forbidden product-dependency cycle; dispatch by registered task name instead. The
 # task pins the same string via ``name=`` so moving its module can't silently rename it out from
 # under us; test_finalize.py asserts the two still agree.
-FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.update_team_service_flags_cache"
+FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.invalidate_team_flags_cache_for_cohorts"
 
 READINESS_STAMPS_COUNTER = Counter(
     "posthog_cohort_backfill_readiness_stamps_total",
@@ -131,7 +131,8 @@ def _finalizable_kinds() -> tuple[str, ...]:
     return (CohortBackfillKind.BEHAVIORAL,)
 
 
-def _dispatch_flags_cache_update(team_id: int) -> None:
+def refresh_readiness_caches(team_id: int) -> None:
+    invalidate_team_behavioral_cohort_cache(team_id)
     # send_task bypasses the task decorator's options, so the queue must be routed explicitly.
     current_app.send_task(FLAGS_CACHE_TASK, args=(team_id,), queue=CeleryQueue.FEATURE_FLAGS.value)
 
@@ -214,8 +215,7 @@ def finalize_backfill_runs() -> FinalizerPass:
     # after the per-run transactions have committed.
     for team_id in teams_to_invalidate:
         try:
-            invalidate_team_behavioral_cohort_cache(team_id)
-            _dispatch_flags_cache_update(team_id)
+            refresh_readiness_caches(team_id)
         except Exception:
             logger.exception("cohort_backfill_finalizer_cache_invalidation_failed", team_id=team_id)
             continue

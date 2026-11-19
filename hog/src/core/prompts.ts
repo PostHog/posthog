@@ -1,7 +1,7 @@
 import * as clack from '@clack/prompts'
 import { styleText } from 'node:util'
 
-import { HogError } from './errors'
+import { EXIT_CANCELLED, HogError } from './errors'
 
 export interface Choice<Value extends string> {
     value: Value
@@ -35,8 +35,7 @@ export interface Prompts {
     spinner(message: string): Spinner
 }
 
-// Ctrl-C at a prompt. 130 is the exit code shells report for SIGINT.
-const cancelled = (): HogError => new HogError('cancelled', 'Cancelled.', undefined, 130)
+const cancelled = (): HogError => new HogError('cancelled', 'Cancelled.', undefined, EXIT_CANCELLED)
 
 function answer<Value>(value: Value): Exclude<Value, symbol> {
     if (clack.isCancel(value)) {

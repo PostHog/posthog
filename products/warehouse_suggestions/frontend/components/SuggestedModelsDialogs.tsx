@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DeprecateSuggestionModal } from './DeprecateSuggestionModal'
+import { DismissSuggestionModal } from './DismissSuggestionModal'
 import { MaterializeSuggestionModal } from './MaterializeSuggestionModal'
 import { SavingsBannerMessage } from './SavingsBannerMessage'
 import { SuggestedModelsGroups } from './SuggestedModelsGroups'
@@ -22,6 +23,7 @@ export function SuggestedModelsDialogs(): JSX.Element {
             <MaterializeSuggestionModal />
             <UnmaterializeSuggestionModal />
             <DeprecateSuggestionModal />
+            <DismissSuggestionModal />
         </>
     )
 }

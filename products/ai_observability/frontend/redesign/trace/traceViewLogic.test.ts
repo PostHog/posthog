@@ -117,7 +117,7 @@ describe('traceViewLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
         expect(requestedPath).toMatch(/\/traces\/YS9i\/$/)
         expect(requestedHint).toEqual('2026-09-01T10:15:00Z')
-        expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
+        expect(logic.values.trace?.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
     })
 
     it.each([
@@ -278,7 +278,13 @@ describe('traceViewLogic', () => {
         })
     })
 
-    it('reports how long the reads took and how long a click waited', async () => {
+    it.each([
+        ['2026-09-01T10:15:00Z', 2.5],
+        ['2026-09-01T12:15:00+02:00', 2.5],
+        ['invalid', null],
+    ])('reports trace age and read timing for timestamp %s', async (createdAt, traceAgeMinutes) => {
+        jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-01T10:17:30Z'))
+        useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource({ createdAt })] } })
         const capture = jest.spyOn(posthog, 'capture')
         const logic = await mountedLogic()
 
@@ -290,6 +296,7 @@ describe('traceViewLogic', () => {
         expect(capture).toHaveBeenCalledWith('llma trace view loaded', {
             trace_load_ms: expect.any(Number),
             node_count: 4,
+            trace_age_minutes: traceAgeMinutes,
         })
         expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
             load_ms: expect.any(Number),
@@ -443,5 +450,47 @@ describe('traceViewLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
         })
+    })
+
+    it('has no evaluation outcomes when the evaluations read fails', async () => {
+        silenceKeaLoadersErrors()
+        useMocks({ get: { [EVALUATIONS_URL]: () => [500, { detail: 'Server error.' }] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values).toMatchObject({ evaluationResults: null, evalOutcomes: new Map() })
+    })
+
+    it('indexes the evaluation outcomes by node id', async () => {
+        const nodes = [
+            { nodeId: 'gen-1', outcome: 'fail' as const },
+            { nodeId: 'constructor', outcome: 'pass' as const },
+        ]
+        useMocks({
+            get: {
+                [EVALUATIONS_URL]: () => [
+                    200,
+                    makeEvaluationResults({ summary: { passed: 1, failed: 1, unrated: 0, nodes } }),
+                ],
+            },
+        })
+
+        const logic = await mountedLogic()
+
+        expect([...logic.values.evalOutcomes]).toEqual([
+            ['gen-1', 'fail'],
+            ['constructor', 'pass'],
+        ])
+    })
+
+    it('indexes the step labels the trace sends by node id', async () => {
+        const trace = makeTraceResource()
+        trace.tree[0].children[1].label = 'openai.chat #2'
+        useMocks({ get: { [TRACE_URL]: () => [200, trace] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values.stepLabels.get('gen-1')).toBe('openai.chat #2')
+        expect(logic.values.stepLabels.get('trace-1')).toBe('answer-billing-question')
     })
 })

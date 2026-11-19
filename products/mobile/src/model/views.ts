@@ -24,6 +24,8 @@ export type ViewEntry =
     | 'widget'
     | 'web_analytics'
     | 'tab'
+    /** A pinned view on Live's Meanwhile list. */
+    | 'live_meanwhile'
 
 export interface ViewRef {
     kind: ViewKind

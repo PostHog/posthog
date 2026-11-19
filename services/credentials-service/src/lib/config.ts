@@ -4,6 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { isProductionEnv } from '../db/role-guard'
+
 /** Where the pod's service account credentials are projected. */
 export const SERVICE_ACCOUNT_DIR = '/var/run/secrets/kubernetes.io/serviceaccount'
 
@@ -14,7 +16,6 @@ const SECRET_SOURCES: readonly SecretSourceKind[] = ['directory', 'kubernetes']
 export type KmsProviderKind = 'aws' | 'local'
 
 const KMS_PROVIDERS: readonly KmsProviderKind[] = ['aws', 'local']
-const LOCAL_KMS_REFUSED_ENVS: readonly string[] = ['prod-us', 'prod-eu']
 
 /** Wraps the per-record data keys with an AWS KMS key. */
 export interface AwsKmsConfig {
@@ -49,6 +50,27 @@ export interface KubernetesSourceConfig {
     caFile: string
 }
 
+/** The service's own Postgres database. */
+export interface DatabaseConfig {
+    url: string
+    poolSize: number
+    /** The user of CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL, when the pod can see that URL. */
+    migrateUser?: string
+}
+
+/** Where audit rows are sent as `$credentials_access` events. */
+export interface AuditExportConfig {
+    /** Base URL of the capture host. The service posts to `/batch/` on it. */
+    host: string
+    /** The project API key of the receiving project. */
+    apiKey: string
+    batchSize: number
+    intervalSeconds: number
+    timeoutMs: number
+    /** Egress proxy for the capture request. Set only when the host is outside the cluster. */
+    proxyUrl?: string
+}
+
 export interface Config {
     port: number
     host: string
@@ -77,8 +99,18 @@ export interface Config {
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
 
-    /** Unset until CREDENTIALS_SERVICE_KMS_PROVIDER is set: no route needs a KMS yet. */
+    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
     kms?: KmsConfig
+
+    /**
+     * Set when CREDENTIALS_SERVICE_DATABASE_URL is set. Without it the service serves platform
+     * secrets only, and the integration features are off.
+     */
+    database?: DatabaseConfig
+
+    /** Set when CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED is `true`. Without it no audit row leaves the database. */
+    auditExport?: AuditExportConfig
+
     /**
      * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
      * PEM file per caller. Unset means the service accepts no integrations token.
@@ -158,6 +190,82 @@ function kubernetesFromEnv(serviceAccountDir: string): KubernetesSourceConfig {
     }
 }
 
+/** The database settings, or undefined when no database URL is set. */
+export function loadDatabaseConfig(): DatabaseConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const database: DatabaseConfig = { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+    const migrateUrl = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
+    if (migrateUrl) {
+        try {
+            const migrateUser = decodeURIComponent(new URL(migrateUrl).username)
+            if (migrateUser) {
+                database.migrateUser = migrateUser
+            }
+        } catch {
+            throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not a valid URL')
+        }
+    }
+    return database
+}
+
+/**
+ * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
+ * one the service connects as, and gets grants from the migrations.
+ */
+export interface MigrateConfig {
+    url: string
+    /** Empty in single-role local development: the grants are then skipped. */
+    runtimeRole: string
+    partmanOptional: boolean
+}
+
+/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
+export function loadMigrateConfig(): MigrateConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
+    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
+        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
+    }
+    return { url, runtimeRole, partmanOptional: process.env.CREDENTIALS_SERVICE_PARTMAN_OPTIONAL === 'true' }
+}
+
+function auditExportFromEnv(): AuditExportConfig | undefined {
+    if (process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED !== 'true') {
+        return undefined
+    }
+    const host = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST
+    const apiKey = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY
+    if (!host || !apiKey) {
+        throw new Error(
+            'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true needs CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST and CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY'
+        )
+    }
+    const config: AuditExportConfig = {
+        host: httpUrlFromEnv('CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST', host),
+        apiKey,
+        batchSize: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_BATCH_SIZE', 500, 1),
+        intervalSeconds: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_INTERVAL_SECONDS', 10, 1),
+        timeoutMs: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_TIMEOUT_MS', 10_000, 1),
+    }
+    if (process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY === 'true') {
+        const proxy = process.env.HTTPS_PROXY
+        if (!proxy) {
+            throw new Error('CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY=true needs HTTPS_PROXY')
+        }
+        if (!config.host.startsWith('https:')) {
+            throw new Error('CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY=true needs an https capture host')
+        }
+        config.proxyUrl = httpUrlFromEnv('HTTPS_PROXY', proxy)
+    }
+    return config
+}
+
 function kmsFromEnv(env: string): KmsConfig | undefined {
     const raw = process.env.CREDENTIALS_SERVICE_KMS_PROVIDER
     if (!raw) {
@@ -172,7 +280,7 @@ function kmsFromEnv(env: string): KmsConfig | undefined {
 
     if (provider === 'local') {
         // The local keys sit in plain config, so they must never protect cloud customer data.
-        if (LOCAL_KMS_REFUSED_ENVS.includes(env) || env.startsWith('prod')) {
+        if (isProductionEnv(env)) {
             throw new Error(`CREDENTIALS_SERVICE_KMS_PROVIDER=local is not allowed in ${env}`)
         }
         return { provider, keys: localKmsKeysFromEnv() }
@@ -240,6 +348,21 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
+    }
+
+    const auditExport = auditExportFromEnv()
+    if (auditExport) {
+        config.auditExport = auditExport
+    }
+
+    const database = loadDatabaseConfig()
+    if (database) {
+        if (['dev', 'prod-us', 'prod-eu'].includes(config.env) && !auditExport) {
+            throw new Error(
+                'audit export must be on wherever the integrations database is on because retention drops unexported rows'
+            )
+        }
+        config.database = database
     }
 
     const integrationKeysDir = process.env.CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR
