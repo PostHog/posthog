@@ -1,3 +1,4 @@
+import re
 import hashlib
 from collections import Counter
 from collections.abc import Callable
@@ -6,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from django.db.models import DateTimeField, F
+from django.db.models import DateTimeField, F, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -21,10 +22,13 @@ logger = structlog.get_logger(__name__)
 
 FENCING_FLAG = "tasks-ended-run-fencing"
 TOKEN_HASHES_STATE_KEY = "gateway_token_hashes"
+REVOKE_PENDING_STATE_KEY = "gateway_token_revoke_pending"
 ENDED_WITHIN = timedelta(hours=1)
-MAX_TOKENS_PER_RUN = 20
+REVOKE_RETRY_WINDOW = timedelta(hours=24)
 MAX_HASHES_PER_REVOKE = 100
+MAX_TOKENS_PER_RUN = MAX_HASHES_PER_REVOKE
 _ENDED_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+_TOKEN_HASH = re.compile(r"[0-9a-f]{64}")
 
 
 class FenceOutcome(StrEnum):
@@ -47,29 +51,50 @@ class FencedTokens:
     count: int
 
 
-def record_run_gateway_token(run_id: UUID | str, token: str) -> None:
+def _stored_hashes(stored: object) -> tuple[str, ...]:
+    if not isinstance(stored, list):
+        return ()
+    hashes = [value for value in stored if isinstance(value, str) and _TOKEN_HASH.fullmatch(value)]
+    return tuple(hashes[-MAX_TOKENS_PER_RUN:])
+
+
+def record_run_gateway_token(run_id: UUID | str, token: str) -> list[str]:
     token_hash = hashlib.sha256(token.encode()).hexdigest()
+    dropped: list[str] = []
 
     def remember(state: dict[str, Any]) -> None:
-        state[TOKEN_HASHES_STATE_KEY] = [*state.get(TOKEN_HASHES_STATE_KEY, []), token_hash][-MAX_TOKENS_PER_RUN:]
+        kept = [*_stored_hashes(state.get(TOKEN_HASHES_STATE_KEY)), token_hash]
+        dropped.extend(kept[:-MAX_TOKENS_PER_RUN])
+        state[TOKEN_HASHES_STATE_KEY] = kept[-MAX_TOKENS_PER_RUN:]
 
     TaskRun.mutate_state_atomic(run_id, remember)
+    return dropped
 
 
 def _forget_run_gateway_tokens(run_id: UUID, token_hashes: tuple[str, ...]) -> None:
     revoked = set(token_hashes)
 
     def forget(state: dict[str, Any]) -> None:
-        left = [token_hash for token_hash in state.get(TOKEN_HASHES_STATE_KEY, []) if token_hash not in revoked]
+        stored = _stored_hashes(state.get(TOKEN_HASHES_STATE_KEY))
+        left = [token_hash for token_hash in stored if token_hash not in revoked]
         if left:
             state[TOKEN_HASHES_STATE_KEY] = left
         else:
             state.pop(TOKEN_HASHES_STATE_KEY, None)
+            state.pop(REVOKE_PENDING_STATE_KEY, None)
 
     TaskRun.mutate_state_atomic(run_id, forget)
 
 
+def _keep_for_retry(run_id: UUID) -> None:
+    def mark(state: dict[str, Any]) -> None:
+        state[REVOKE_PENDING_STATE_KEY] = True
+
+    TaskRun.mutate_state_atomic(run_id, mark)
+
+
 def ended_runs_with_tokens() -> list[EndedRunTokens]:
+    now = timezone.now()
     ended = (
         TaskRun.objects.filter(
             status__in=_ENDED_STATUSES,
@@ -77,14 +102,17 @@ def ended_runs_with_tokens() -> list[EndedRunTokens]:
             state__has_key=TOKEN_HASHES_STATE_KEY,
         )
         .annotate(ended_at=Coalesce(F("completed_at"), F("updated_at"), output_field=DateTimeField()))
-        .filter(ended_at__gte=timezone.now() - ENDED_WITHIN)
+        .filter(
+            Q(ended_at__gte=now - ENDED_WITHIN)
+            | Q(ended_at__gte=now - REVOKE_RETRY_WINDOW, state__has_key=REVOKE_PENDING_STATE_KEY)
+        )
         .order_by()
         .values_list("id", "team_id", "task__profile", f"state__{TOKEN_HASHES_STATE_KEY}")
     )
     return [
-        EndedRunTokens(run_id=run_id, team_id=team_id, profile=profile, token_hashes=tuple(token_hashes))
-        for run_id, team_id, profile, token_hashes in ended
-        if token_hashes
+        EndedRunTokens(run_id=run_id, team_id=team_id, profile=profile, token_hashes=token_hashes)
+        for run_id, team_id, profile, stored in ended
+        if (token_hashes := _stored_hashes(stored))
     ]
 
 
@@ -115,7 +143,9 @@ def fence_ended_runs(revoke: Callable[[list[str]], bool]) -> list[FencedTokens]:
             counts[(run.profile or NO_PROFILE, FenceOutcome.WOULD_REVOKE)] += len(run.token_hashes)
     for batch in _batches(enforced):
         if not revoke([token_hash for run in batch for token_hash in run.token_hashes]):
-            logger.warning("task_run_token_fencing_revoke_failed", runs=len(batch))
+            logger.warning("task_run_fencing_revoke_failed", runs=len(batch))
+            for run in batch:
+                _keep_for_retry(run.run_id)
             continue
         for run in batch:
             _forget_run_gateway_tokens(run.run_id, run.token_hashes)
