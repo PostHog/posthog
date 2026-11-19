@@ -589,14 +589,6 @@ export function createRunner(
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
-                const checkInvariants = async (samples: Sampled['samples']) => {
-                    const janitorResets = janitorResetsOf({ samples, sampledFrom: sampling.sampler.sampledFrom })
-                    return {
-                        janitorResets,
-                        invariants: await judge.check(card.invariants, card.gates, { janitorResets }),
-                    }
-                }
-                const atDeadline = watch ? await checkInvariants([...sampler.taken()]) : undefined
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
@@ -604,7 +596,13 @@ export function createRunner(
                 sampled = await sampler.stop()
                 await live.stop()
                 const down = await stopHealth()
-                const { janitorResets, invariants } = atDeadline ?? (await checkInvariants(sampled.samples))
+                const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
+                const invariants = await judge.check(
+                    card.invariants,
+                    card.gates,
+                    { janitorResets },
+                    { pullTruth: watch === undefined }
+                )
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
