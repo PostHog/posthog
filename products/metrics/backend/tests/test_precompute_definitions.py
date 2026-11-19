@@ -158,4 +158,7 @@ class TestGetOrCreatePrecomputedMetric(BaseTest):
         )
         created = get_or_create_precomputed_metric(self.team.pk, six_hours)
         assert created is not None and created.bucket_seconds == 6 * 3600
-        assert find_precomputed_metric(self.team.pk, dataclasses.replace(six_hours, bucket_seconds=3600)) is None
+        one_hour = dataclasses.replace(six_hours, bucket_seconds=3600)
+        assert find_precomputed_metric(self.team.pk, one_hour) is None
+        hourly = get_or_create_precomputed_metric(self.team.pk, one_hour)
+        assert hourly is not None and hourly.pk != created.pk and hourly.bucket_seconds == 3600

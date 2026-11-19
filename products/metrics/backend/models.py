@@ -224,7 +224,7 @@ class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "slot"], name="metrics_precomputed_unique_slot"),
             models.UniqueConstraint(
-                fields=["team", "metric_name", "metric_type", "kind", "labels_key"],
+                fields=["team", "metric_name", "metric_type", "kind", "labels_key", "bucket_seconds"],
                 name="metrics_precomputed_unique_definition",
             ),
         ]

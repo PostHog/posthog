@@ -116,7 +116,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="metricprecomputedmetric",
             constraint=models.UniqueConstraint(
-                fields=("team", "metric_name", "metric_type", "kind", "labels_key"),
+                fields=("team", "metric_name", "metric_type", "kind", "labels_key", "bucket_seconds"),
                 name="metrics_precomputed_unique_definition",
             ),
         ),
