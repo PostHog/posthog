@@ -576,8 +576,10 @@ tools:
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish.
         agent_note: >
-            When the workflow in this result has a test_sender_live warning, tell the user its message. Move those steps
-            to a verified sender only when the user asks; workflows-patch-action-email describes how.
+            The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's
+            message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email
+            describes how.
+        hooks: workflows/publishNoteHooks
         response:
             exclude:
                 - workflow.actions.*.config.inputs
@@ -606,10 +608,10 @@ tools:
         inject_body:
             status: active
         agent_note: >
-            When this workflow has a test_sender_live warning, tell the user its message. Move those steps to a
-            verified sender only when the user asks; workflows-patch-action-email describes how.
+            This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message.
+            Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.
         ui_app: workflow
-        hooks: workflows/hogFlowLinkHooks
+        hooks: workflows/enableHooks
         response:
             exclude:
                 - actions.*.config.inputs

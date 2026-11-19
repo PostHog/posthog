@@ -18,7 +18,8 @@ export const HOOK_SOURCE_HASHES: Record<string, readonly string[]> = {
     'signals/inboxMySettingsHooks': ['3a11ff810aa0'],
     'workflows/broadcastLinkHooks': ['4ed62789d159'],
     'workflows/dataSuggestionCreateHooks': ['7f0b14e101aa'],
-    'workflows/hogFlowLinkHooks': ['6b46979fb19d'],
+    'workflows/enableHooks': ['b761e5089fe9'],
+    'workflows/publishNoteHooks': ['a3b62cc94b7d'],
 }
 
 export function hookVersion(name: string): number | undefined {
