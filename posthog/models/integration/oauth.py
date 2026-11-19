@@ -393,6 +393,8 @@ POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 # scopes are auto-added and not part of this set.
 POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(OAUTH_SCOPES_SUPPORTED)
 
+POSTHOG_CONNECT_READ_ONLY_SCOPES = frozenset(s for s in POSTHOG_CONNECT_GRANTABLE_SCOPES if s.endswith(":read"))
+
 
 @frozen
 class _PosthogConnectTarget:

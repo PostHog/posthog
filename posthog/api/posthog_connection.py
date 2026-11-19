@@ -41,9 +41,9 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
-from posthog.models.integration import posthog_connect_base_url
+from posthog.models.integration import POSTHOG_CONNECT_READ_ONLY_SCOPES, posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
-from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
+from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes, scopes_caller_lacks
 from posthog.rate_limit import PostHogConnectionForwardThrottle
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback
 
@@ -119,6 +119,18 @@ def _enforce_caller_covers_connection_scopes(request: Request, integration: Inte
             missing_scopes,
             detail="Your API key must carry the scopes this connection was granted to use it. "
             f"Missing: {', '.join(missing_scopes)}.",
+        )
+
+
+def _enforce_caller_may_write_through_connection(request: Request, integration: IntegrationRecord) -> None:
+    granted = set(integration.config.get("granted_scopes") or [])
+    if granted and granted <= POSTHOG_CONNECT_READ_ONLY_SCOPES:
+        return
+    missing = scopes_caller_lacks(request, ["integration:write"])
+    if missing:
+        raise InsufficientScope(
+            missing,
+            detail="This PostHog connection was granted write scopes, so using it needs integration:write.",
         )
 
 
@@ -422,9 +434,10 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Forward a request through a PostHog connection",
         description="Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.",
     )
-    @action(detail=True, methods=["post"], url_path="forward", required_scopes=["integration:write"])
+    @action(detail=True, methods=["post"], url_path="forward", required_scopes=["integration:read"])
     def forward(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         integration = self._authorized_connection(request, pk)
+        _enforce_caller_may_write_through_connection(request, integration)
 
         serializer = PostHogConnectionForwardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -101,6 +101,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
     POSTHOG_CONNECT_KIND,
+    POSTHOG_CONNECT_READ_ONLY_SCOPES,
     POSTHOG_SLACK_SCOPE,
     PUBLIC_INTEGRATION_KIND_CHOICES,
     SLACK_INTEGRATION_KINDS,
@@ -1977,7 +1978,7 @@ class IntegrationViewSet(
                 if raw_scopes == "full":
                     scopes = sorted(POSTHOG_CONNECT_GRANTABLE_SCOPES)
                 elif raw_scopes == "read_only":
-                    scopes = sorted(s for s in POSTHOG_CONNECT_GRANTABLE_SCOPES if s.endswith(":read"))
+                    scopes = sorted(POSTHOG_CONNECT_READ_ONLY_SCOPES)
                 else:
                     scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
                     invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]

@@ -5,7 +5,7 @@
         "feature": "integrations",
         "summary": "Run a PostHog tool in another account, organization or region.",
         "title": "Run a tool in a connected PostHog project",
-        "required_scopes": ["integration:write"],
+        "required_scopes": ["integration:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,

@@ -89,6 +89,26 @@ class TestPostHogConnectionForward:
     def _target_url(self) -> str:
         return f"/api/environments/{self.team.pk}/posthog_connections/{self.integration.id}/target/"
 
+    def _oauth_token(self, scope: str) -> OAuthAccessToken:
+        application = OAuthApplication.objects.create(
+            name="Connection client",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            organization=self.organization,
+        )
+        return OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_connection_caller_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+
     @pytest.mark.parametrize("private", [True, False])
     @pytest.mark.parametrize("target_status", [200, 403, 500])
     def test_forward_preserves_trusted_capture_policy(
@@ -159,24 +179,7 @@ class TestPostHogConnectionForward:
 
     @pytest.mark.parametrize("sandbox", [False, True])
     def test_forward_preserves_sandbox_origin(self, client: HttpClient, sandbox: bool):
-        application = OAuthApplication.objects.create(
-            name="Connection client",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            user=self.user,
-            organization=self.organization,
-        )
-        token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token="pha_connection_caller_token",
-            expires=timezone.now() + timedelta(hours=1),
-            scope="integration:write task:write" + (" internal_run:read" if sandbox else ""),
-            scoped_teams=[self.team.id],
-        )
+        token = self._oauth_token("integration:write task:write" + (" internal_run:read" if sandbox else ""))
         self.integration.config["granted_scopes"] = ["task:write"]
         self.integration.save(update_fields=["config"])
 
@@ -305,6 +308,33 @@ class TestPostHogConnectionForward:
                     {"method": "GET", "path": "api/projects/2/insights/"},
                     content_type="application/json",
                 )
+        assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
+        assert mock_request.called == forwarded
+
+    @pytest.mark.parametrize(
+        "granted_scopes,forwarded",
+        [
+            (["insight:read", "query:read"], True),
+            (["insight:read", "insight:write"], False),
+            (["insight:read", "custom:read"], False),
+        ],
+    )
+    def test_forward_with_integration_read_token_needs_a_read_only_connection(
+        self, client: HttpClient, granted_scopes: list[str], forwarded: bool
+    ):
+        token = self._oauth_token("integration:read insight:read insight:write query:read custom:read")
+        self.integration.config["granted_scopes"] = granted_scopes
+        self.integration.save(update_fields=["config"])
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(200, {"results": []})
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/insights/"},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            )
+
         assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
         assert mock_request.called == forwarded
 

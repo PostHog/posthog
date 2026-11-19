@@ -12,6 +12,7 @@ from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
+from posthog.models.integration import POSTHOG_CONNECT_READ_ONLY_SCOPES
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
@@ -295,6 +296,10 @@ class TestResolveScopes(SimpleTestCase):
         assert SCOUT_GRANTABLE_WRITE_SCOPES <= set(MCP_WRITE_SCOPES) | SCOUT_GRANTABLE_INTERNAL_SCOPES
         # A default outside the allowlist would be stored on every new scout and dropped at mint time.
         assert SCOUT_DEFAULT_WRITE_SCOPES <= SCOUT_GRANTABLE_WRITE_SCOPES
+
+    @parameterized.expand([(preset,) for preset in SCOUT_SCOPE_PRESETS])
+    def test_scout_presets_cover_a_read_only_posthog_connection(self, preset: ScoutScopePreset) -> None:
+        assert POSTHOG_CONNECT_READ_ONLY_SCOPES <= set(resolve_scopes(preset))
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
