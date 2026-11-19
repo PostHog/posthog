@@ -480,6 +480,7 @@ Sandbox API writes do not grant permission to start implementation.
 An ineligible caller never falls back to a named reviewer or another member.
 Startup reads the authorization and reviewer content from the same version, including on deferred retries.
 Unchanged automatic proposals preserve the current version's authorization.
+Research and scout proposals that retain an existing reviewer also preserve that authorization when they add reviewers or update their evidence.
 Older reviewer versions without authorization pause until a person authorizes a reviewer edit or explicitly requests implementation.
 
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.

@@ -739,10 +739,7 @@ def test_human_pin_does_not_authorize_automatic_execution(
         )
         assert result.status == "blocked"
         resolve_editor.assert_not_called()
-        if has_automatic_reviewer:
-            assert [entry["user_uuid"] for entry in resolve_reviewer.call_args.args[2]] == [str(automatic.uuid)]
-        else:
-            resolve_reviewer.assert_not_called()
+        resolve_reviewer.assert_not_called()
         create_task.assert_not_called()
 
 

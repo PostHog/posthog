@@ -1898,7 +1898,7 @@ class SignalReportArtefact(UUIDModel):
             from posthog.models.team.team import Team
 
             from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
-            from products.signals.backend.reviewer_rules import ReviewerRules
+            from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 
             rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
             with transaction.atomic():
@@ -1922,10 +1922,19 @@ class SignalReportArtefact(UUIDModel):
                         attribution=attribution,
                         claim_id=claim_id,
                     )
-                unchanged = (
-                    update.current is not None and cls._parse_as(update.current, SuggestedReviewers) == update.reviewers
+                current_reviewers = cls._parse_as(update.current, SuggestedReviewers)
+                unchanged = current_reviewers == update.reviewers
+                retains_reviewers = (
+                    implementation_authorization is not None
+                    and implementation_authorization.mode == "reviewer"
+                    and (
+                        current_reviewers is None
+                        or any(
+                            contains_reviewer(tuple(current_reviewers.root), entry) for entry in update.reviewers.root
+                        )
+                    )
                 )
-                if update.current is not None and reviewer_edit is None and unchanged:
+                if update.current is not None and reviewer_edit is None and (unchanged or retains_reviewers):
                     implementation_authorization = ImplementationAuthorization.from_stored(
                         update.current.implementation_authorization
                     )

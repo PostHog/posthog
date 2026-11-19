@@ -31,6 +31,7 @@ from products.signals.backend.artefact_schemas import (
     PriorityAssessment,
     ReportLink,
     ReviewerCorrections,
+    SuggestedReviewerEntry,
     TaskRunArtefact,
 )
 from products.signals.backend.enums import ReportLinkKind
@@ -49,6 +50,7 @@ from products.signals.backend.models import (
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.scout_harness.tools.notes import list_notes
+from products.signals.backend.scout_report.persistence import add_scout_report_reviewers
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.facade import api as tasks_facade
@@ -2436,6 +2438,8 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             ("failed_lookup_user", False, True),
             ("sandbox_post", False, True),
             ("sandbox_put", False, True),
+            ("scout_add", False, False),
+            ("sandbox_scout_add", True, True),
         ]
     )
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -2528,7 +2532,19 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                 headers=headers,
             )
 
-            if scenario.endswith("deferred"):
+            if scenario.endswith("scout_add"):
+                SignalReportArtefact.objects.filter(id=response.json()["id"]).update(
+                    created_at=timezone.now() - timedelta(seconds=1)
+                )
+                assert add_scout_report_reviewers(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    additions=[SuggestedReviewerEntry(github_login="example-editor")],
+                    max_reviewers=2,
+                    attribution=ArtefactAttribution.system(),
+                )
+
+            if scenario.endswith(("deferred", "scout_add")):
                 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 
                 async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=str(report.id))
