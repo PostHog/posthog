@@ -62580,6 +62580,23 @@ export namespace Schemas {
       Sql: 'sql',
     } as const;
 
+    export type MetricsQueryProvenanceMode = typeof MetricsQueryProvenanceMode[keyof typeof MetricsQueryProvenanceMode];
+
+
+    export const MetricsQueryProvenanceMode = {
+      Precomputed: 'precomputed',
+      Mixed: 'mixed',
+      Raw: 'raw',
+    } as const;
+
+    export interface MetricsQueryProvenance {
+      mode: MetricsQueryProvenanceMode;
+      /** Buckets before this time came from precomputed metrics. Absent when no clause read them. */
+      precomputedUntil?: string | null;
+      /** Why clauses ran raw, one per clause. */
+      reasons?: string[] | null;
+    }
+
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -62612,6 +62629,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      provenance?: MetricsQueryProvenance | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -107653,6 +107671,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      provenance?: MetricsQueryProvenance | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
