@@ -15,7 +15,7 @@ import { PROFILE } from './fixtures'
 import { STOP_TIMEOUT_S, STOP_WAIT_MS } from './host'
 import { lease } from './lease'
 import { Controller, main } from './main'
-import { loadRunInputs } from './profile'
+import { PRODUCTION_READER_MONITORING_INTERVAL_SECONDS, loadRunInputs } from './profile'
 import { POLL_MS } from './stack'
 
 const T = new Date('2026-03-02T10:00:00.000Z')
@@ -162,8 +162,8 @@ describe('cloud controller', () => {
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
     it.each([
-        ['60m', '$47.99', /teardown tail.*\$5\.27/],
-        ['120m', '$53.26', /teardown tail.*\$10\.54/],
+        ['60m', '$47.86', /teardown tail.*\$5\.25/],
+        ['120m', '$53.12', /teardown tail.*\$10\.50/],
     ])(
         'prints the itemized worst-case estimate for the fixed six-hour TTL, with a %s teardown allowance',
         async (allowance, total, tail) => {
@@ -178,6 +178,26 @@ describe('cloud controller', () => {
             expect(out.join('\n')).toMatch(tail)
         }
     )
+
+    it.each<[string, Setup, string]>([
+        [
+            'the production setting when the profile names none',
+            {},
+            String(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),
+        ],
+        ['the interval the profile names', { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }) }, '5'],
+    ])('monitors the reader at %s and the writer every second', async (_, setup, readerInterval) => {
+        const { controller } = prepare(setup)
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const intervals = Object.fromEntries(
+            cloud.resources
+                .filter(({ type }) => type === 'AWS::RDS::DBInstance')
+                .map(({ logicalId, monitoringInterval }) => [logicalId, monitoringInterval])
+        )
+        expect(intervals).toEqual({ Writer: '1', Reader: readerInterval })
+    })
 
     it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {
         const { controller } = prepare({ env: api.credentials })
@@ -358,6 +378,11 @@ describe('cloud controller', () => {
             'pooler.settings',
         ],
         [
+            'a reader monitoring interval RDS does not offer',
+            { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 2 }) },
+            'readerMonitoringIntervalSeconds',
+        ],
+        [
             'a pooler setting that spans lines',
             {
                 profile: (p) => ({
@@ -450,7 +475,7 @@ describe('cloud controller', () => {
 
         await main(['run', profilePath(), FAILOVER_CARD], controller)
 
-        expect(out.join('\n')).toContain('Admitted estimate: $250.99 of the $200 cap')
+        expect(out.join('\n')).toContain('Admitted estimate: $250.86 of the $200 cap')
     })
 
     it('cleans up with only the cloud profile, after the runner profile is gone', async () => {
