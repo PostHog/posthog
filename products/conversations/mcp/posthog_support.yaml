@@ -16,8 +16,8 @@ tools:
             idempotent: false
         title: Draft a PostHog support ticket
         description: >
-            Draft a ticket to PostHog's human support team for the person to review and send. It sends nothing.
-            Load the writing-posthog-support-tickets skill first, and draft only after you checked the docs and did
-            the lookups it asks for. Each field is one part of the ticket. Afterwards, show the person the message and
-            the review_url, and tell them nothing is sent until they send it from PostHog.
+            Draft a ticket to PostHog's human support team for the person to review and send. It sends nothing. Load the
+            writing-posthog-support-tickets skill first, and draft only after you checked the docs and did the lookups
+            it asks for. Each field is one part of the ticket. Afterwards, show the person the message and the
+            review_url, and tell them nothing is sent until they send it from PostHog.
         feature_flag: mcp-posthog-support-tickets
