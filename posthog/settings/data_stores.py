@@ -893,6 +893,14 @@ CACHES["current_alias_usage"] = {
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},
 }
 
+# A pending WorkOS Radar login attempt is read when the session signs in, seconds after the password step wrote it.
+# Read from the writer, and give up fast, so the optional report never holds a login.
+CACHES["radar_login_attempt"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -969,6 +977,7 @@ if TEST:
     CACHES["admin_console_results"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["radar_login_attempt"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
