@@ -186,8 +186,7 @@ impl Sketch {
 
 struct KeySketch {
     sketch: Sketch,
-    /// Distinct series with this key removed. The key's share of the series is what removing
-    /// it would save, which a second label cannot inflate.
+    /// Distinct series with this key removed, so the series that removing the key saves.
     others: Sketch,
     name: Box<str>,
     rows: u64,
@@ -582,8 +581,10 @@ impl LabelCardinality {
     }
 
     /// A key must account for most of the metric's series and give most of its points a new
-    /// series. The first test skips a stable key, such as a user ID, beside a per-point key.
-    /// The second test skips a key, such as a pod name, whose series repeat.
+    /// series. A key accounts for the series when its values or the series it saves reach the
+    /// share. Values catch two labels that carry the same value. Saved series catch cardinality
+    /// split across two labels. Both skip a stable key, such as a user ID, beside a per-point key.
+    /// The new-series test skips a key, such as a pod name, whose series repeat.
     fn evaluate(&self, candidate: &mut Candidate) {
         candidate.flagged.clear();
         if self
@@ -597,8 +598,9 @@ impl LabelCardinality {
         for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
             let saved = series.saturating_sub(entry.others.estimate());
+            let share = self.settings.min_share * series as f64;
             if distinct < self.settings.value_limit
-                || (saved as f64) < self.settings.min_share * series as f64
+                || ((distinct as f64) < share && (saved as f64) < share)
                 || (entry.new_rows as f64) < self.settings.min_new_share * entry.rows as f64
             {
                 continue;
@@ -984,6 +986,36 @@ mod tests {
         assert_eq!(
             rule_keys(&detector),
             HashSet::from([rule_key("jobs", Scope::Attribute, "hax")])
+        );
+    }
+
+    #[test]
+    fn two_labels_with_the_same_value_are_both_flagged() {
+        let (detector, now) = detector(Mode::Shadow);
+        let timestamp = Utc::now().timestamp_millis();
+        let series: Vec<TimeSeries> = (0..1000)
+            .map(|i| TimeSeries {
+                labels: vec![
+                    label("__name__", "jobs"),
+                    label("request_id", &format!("r{i}")),
+                    label("trace_id", &format!("t{i}")),
+                ],
+                samples: vec![Sample {
+                    value: 1.0,
+                    timestamp,
+                }],
+            })
+            .collect();
+        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
+
+        assert_eq!(
+            rule_keys(&detector),
+            HashSet::from([
+                rule_key("jobs", Scope::Attribute, "request_id"),
+                rule_key("jobs", Scope::Attribute, "trace_id"),
+            ])
         );
     }
 
