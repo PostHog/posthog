@@ -3,7 +3,6 @@ from __future__ import annotations
 from functools import lru_cache
 
 from django.conf import settings
-from django.core.checks import Error, register
 
 from posthog.product_db_config import ProductDBRoute, load_product_db_routes
 from posthog.settings.base_variables import TEST
@@ -63,25 +62,3 @@ class ProductDBRouter:
             return False
 
         return None
-
-
-@register()
-def check_product_db_routes(app_configs, **kwargs):
-    errors: list[Error] = []
-
-    routes = get_product_db_routes()
-    app_label_to_database: dict[str, str] = {}
-
-    for route in routes:
-        existing = app_label_to_database.get(route.app_label)
-        if existing is not None and existing != route.database:
-            errors.append(
-                Error(
-                    f"product db route for '{route.app_label}' points to multiple databases",
-                    hint="Ensure each product app has exactly one database in db_routing.yaml",
-                    id="posthog.E003",
-                )
-            )
-        app_label_to_database[route.app_label] = route.database
-
-    return errors

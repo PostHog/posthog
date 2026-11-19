@@ -139,8 +139,9 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
             label="Ably",
             caption="Enter your Ably app API key, created in the [Ably dashboard](https://ably.com/dashboard). "
             "The key must include both the key ID and secret (`app-id.key-id:key-secret`).\n\n"
-            "Each table needs a capability on the key: `stats` for Stats, `channel-metadata` for "
-            "Channels and Presence, and `history` for Channel messages. Message history also needs "
+            "The key always needs the `stats` capability, because PostHog uses it to check the key. "
+            "The other tables need their own capability: `channel-metadata` for Channels and Presence, "
+            "and `history` for Channel messages. Message history also needs "
             "persistence turned on for the channel, otherwise Ably keeps messages for two minutes.",
             docsUrl="https://posthog.com/docs/cdp/sources/ably",
             iconPath="/static/services/ably.png",

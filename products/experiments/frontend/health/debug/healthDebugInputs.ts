@@ -216,7 +216,7 @@ export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
             help: 'The flag-change checks compare the changes with the exposures only for an exposure event without property filters. Every change counts from the first one, of any kind, with an exposure before it.',
         },
         ...(history
-            ? [{ label: 'Launched at', value: `${formatTimestamp(history.launched_at)} (${history.team_timezone})` }]
+            ? [{ label: 'Start date', value: `${formatTimestamp(history.start_date)} (${history.team_timezone})` }]
             : []),
         ...(hasCountedChange && history
             ? [
@@ -266,6 +266,11 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
             ? [
                   { label: 'Since', value: `${formatTimestamp(traffic.since)} (${traffic.team_timezone})` },
                   { label: 'Calls', value: formatCount(traffic.calls) },
+                  {
+                      label: 'Internal and test users',
+                      value: traffic.filters_test_accounts ? 'Left out' : 'Counted',
+                      help: 'The scan leaves out the calls that the filter for internal and test users excludes when the experiment applies that filter, as the results do.',
+                  },
                   {
                       label: 'Evaluated by the flag service',
                       value: `${formatCount(traffic.remotely_evaluated_calls)} (${formatShare(traffic.calls ? traffic.remotely_evaluated_calls / traffic.calls : null)})`,

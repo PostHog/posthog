@@ -41,6 +41,16 @@ describe('modelsBehindSchedule', () => {
         expect(modelsBehindSchedule([stale], NOW)).toEqual([])
     })
 
+    it('measures a model against the cadence it runs at, not its own setting', () => {
+        const inherited = node('inherited', {
+            sync_interval: '24hour',
+            effective_sync_interval: '1hour',
+            last_run_at: hoursAgo(3),
+        })
+
+        expect(modelsBehindSchedule([inherited], NOW).map((model) => model.intervalSeconds)).toEqual([3600])
+    })
+
     it('measures a model that has never finished a run from when it was created', () => {
         const never = node('never', { last_run_at: null, created_at: hoursAgo(10) })
 

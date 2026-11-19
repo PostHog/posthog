@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='trim_locked_person_lock_distinct_ids' */\n        SELECT id::bigint AS \"id!\", is_deleted AS \"is_deleted!\"\n        FROM posthog_persondistinctid\n        WHERE team_id = $1 AND person_id = $2\n        LIMIT $3\n        FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "239164ffc30a40e2a82aa9b6ad57dc925032e63ccdd8d22016fb4684b1ed306e"
+}

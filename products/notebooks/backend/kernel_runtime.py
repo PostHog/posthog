@@ -44,7 +44,7 @@ logger = structlog.get_logger(__name__)
 NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
 # Each sandbox is paid compute until its TTL. A normal user starts a few a day.
-NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR = 30
+NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR = 10
 NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM = 20
 
 

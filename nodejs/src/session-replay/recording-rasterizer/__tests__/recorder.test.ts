@@ -54,7 +54,6 @@ const cfg = {
     siteUrl: 'http://localhost:8000',
     captureBrowserLogs: false,
     recordingApiBaseUrl: 'http://localhost:6738',
-    recordingApiSecret: 'secret',
     screenshotFormat: 'jpeg' as const,
     screenshotJpegQuality: 80,
     maxRecordingCompressedBytes: 512 * 1024 * 1024,

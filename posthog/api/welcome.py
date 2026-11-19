@@ -20,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.api import dashboards_by_last_access
 
 logger = structlog.get_logger(__name__)
 
@@ -351,9 +352,22 @@ def _get_inviter(user: User, organization: Organization) -> dict[str, str] | Non
     if inviter is None:
         return None
     return {
-        "name": inviter.first_name or (inviter.email.split("@", 1)[0] if inviter.email else "A teammate"),
+        "name": _inviter_display_name(inviter, user),
         "email": inviter.email,
     }
+
+
+def _inviter_display_name(inviter: User, invitee: User) -> str:
+    name = inviter.first_name or (inviter.email.split("@", 1)[0] if inviter.email else "A teammate")
+    if not invitee.first_name or name.strip().casefold() != invitee.first_name.strip().casefold():
+        return name
+    # The dialog reads "<inviter> invited you. Welcome, <invitee>!", so a shared first name looks
+    # like the user invited themselves. Widen to the full name, or the email when that collides too.
+    full_name = f"{inviter.first_name} {inviter.last_name}".strip()
+    invitee_full_name = f"{invitee.first_name} {invitee.last_name}".strip()
+    if inviter.last_name and full_name.casefold() != invitee_full_name.casefold():
+        return full_name
+    return inviter.email or name
 
 
 def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
@@ -486,13 +500,12 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessControl) -> list[dict[str, Any]]:
     if not team_ids:
         return []
-    from products.dashboards.backend.models.dashboard import Dashboard
-
-    queryset = Dashboard.objects.filter(team_id__in=team_ids, deleted=False)
     # Apply per-object access control so restricted dashboard names/descriptions don't leak via
     # this aggregation endpoint (same pattern as the main dashboards viewset).
     try:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        dashboards = dashboards_by_last_access(
+            team_ids=team_ids, user_access_control=access_control, limit=_POPULAR_DASHBOARDS_MAX_ITEMS
+        )
     except Exception:
         logger.exception(
             "welcome.dashboard_access_control_failed",
@@ -500,9 +513,6 @@ def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessContr
         )
         return []
 
-    dashboards = list(
-        queryset.order_by(F("last_accessed_at").desc(nulls_last=True), "-created_at")[:_POPULAR_DASHBOARDS_MAX_ITEMS]
-    )
     return [
         {
             "id": dashboard.id,

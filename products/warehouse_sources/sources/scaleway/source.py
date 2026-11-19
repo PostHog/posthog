@@ -80,7 +80,7 @@ Grant the key the read permission sets for the data you want to sync, for exampl
 - `ProjectReadOnly` for projects
 - `BillingReadOnly` for invoices and billing consumptions
 - `AuditTrailReadOnly` for audit trail events
-- `InstancesReadOnly` for instance servers
+- `InstancesReadOnly` for instance servers, volumes, images, snapshots and IPs
 - `KubernetesReadOnly` for Kubernetes clusters, pools and nodes
 - `RelationalDatabasesReadOnly` for database instances
 """,

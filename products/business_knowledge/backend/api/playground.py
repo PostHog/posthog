@@ -13,12 +13,14 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import DefaultLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.tasks.backend.facade import api as tasks_facade
 
 from ..constants import MAX_OPEN_RUNS_PER_OWNER
 from ..models import PlaygroundChat
@@ -34,6 +36,11 @@ from .serializers import PlaygroundChatListSerializer, PlaygroundChatSerializer,
 from .settings import CanonicalTeamTokenPermission
 
 
+class PlaygroundChatPagination(DefaultLimitOffsetPagination):
+    default_limit = 100
+    max_limit = 100
+
+
 class BusinessKnowledgePlaygroundChatViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -43,6 +50,7 @@ class BusinessKnowledgePlaygroundChatViewSet(
     requires_resource_level_access = True
     queryset = PlaygroundChat.objects.unscoped()
     serializer_class = PlaygroundChatSerializer
+    pagination_class = PlaygroundChatPagination
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -51,7 +59,6 @@ class BusinessKnowledgePlaygroundChatViewSet(
     ]
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
-    pagination_class = None
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     @cached_property
@@ -80,12 +87,13 @@ class BusinessKnowledgePlaygroundChatViewSet(
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         # A refused first question leaves an untitled chat behind.
+        page = self.paginate_queryset(self.get_queryset().exclude(title="").order_by("-updated_at", "-id"))
         chats = serialize_playground_chat_list(
-            self.get_queryset().exclude(title="").order_by("-updated_at"),
+            page or [],
             team_id=self.team_id,
             user_id=cast(User, request.user).id,
         )
-        return Response(PlaygroundChatListSerializer(chats, many=True).data)
+        return self.get_paginated_response(PlaygroundChatListSerializer(chats, many=True).data)
 
     @extend_schema(
         request=None,
@@ -157,4 +165,6 @@ class BusinessKnowledgePlaygroundChatViewSet(
             )
         except SandboxRunInProgress:
             raise SandboxConflict()
+        except tasks_facade.TaskDoneError as error:
+            raise SandboxConflict(str(error))
         return Response(PlaygroundChatSerializer(payload).data, status=status.HTTP_201_CREATED)

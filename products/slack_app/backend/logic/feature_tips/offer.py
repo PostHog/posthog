@@ -30,7 +30,8 @@ from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.picker import choose_tip
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, mark_shown, parse_state
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, section_block
+from products.slack_app.backend.services.slack_messages import context_block, post_slack_ephemeral, section_block
+from products.slack_app.backend.services.slack_settings import parse_onboarding
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 if TYPE_CHECKING:
@@ -45,8 +46,14 @@ TIP_INTERVAL = timedelta(hours=24)
 FEATURE_TIP_CTA_ACTION_ID = "slack_app_feature_tip_cta"
 FEATURE_TIP_DISMISS_ACTION_ID = "slack_app_feature_tip_dismiss"
 FEATURE_TIP_OPT_OUT_ACTION_ID = "slack_app_feature_tip_opt_out"
+FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID = "slack_app_feature_tip_undo_opt_out"
 FEATURE_TIP_ACTION_IDS = frozenset(
-    {FEATURE_TIP_CTA_ACTION_ID, FEATURE_TIP_DISMISS_ACTION_ID, FEATURE_TIP_OPT_OUT_ACTION_ID}
+    {
+        FEATURE_TIP_CTA_ACTION_ID,
+        FEATURE_TIP_DISMISS_ACTION_ID,
+        FEATURE_TIP_OPT_OUT_ACTION_ID,
+        FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID,
+    }
 )
 
 
@@ -70,11 +77,16 @@ class _Reservation:
 
 def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     integration = request.integration
-    stored = list(
+    rows = list(
         SlackSettings.objects.filter(
             slack_workspace_id=integration.integration_id, slack_user_id=request.slack_user_id
-        ).values_list("feature_tips", flat=True)[:1]
+        ).values_list("feature_tips", "onboarding")[:1]
     )
+    stored = [rows[0][0]] if rows else []
+    # The onboarding thread already teaches the basics, so a tip during it would be a second message to read.
+    onboarding = parse_onboarding(rows[0][1]) if rows else None
+    if onboarding is not None and (onboarding.started_at or onboarding.root_ts) and not onboarding.completed:
+        return None
     # Most answers come from a reader who opted out or already got today's tip. They stop here,
     # before the lock. Their interaction count no longer gates anything.
     if stored and _skip_without_counting(parse_state(stored[0]), timezone.now()):
@@ -114,8 +126,8 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
             channel=request.channel,
             user=request.slack_user_id,
             thread_ts=request.thread_ts,
-            text=f"💡 Tip: {tip.title}. {body}",
-            blocks=tip_blocks(integration.id, tip, reservation.ctx, body),
+            text=f"💡 PostHog tip: {tip.title}. {body}",
+            blocks=tip_blocks(integration.id, tip, reservation.ctx, body, contextual=choice.source == "contextual"),
         )
     except Exception:
         logger.warning("slack_app_feature_tip_post_failed", feature=choice.feature, exc_info=True)
@@ -246,7 +258,9 @@ def _button(action_id: str, label: str, value: str, **extra: str) -> dict[str, A
     }
 
 
-def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext, body: str) -> list[dict[str, Any]]:
+def tip_blocks(
+    integration_id: int, tip: TipFeature, ctx: TipContext, body: str, *, contextual: bool = False
+) -> list[dict[str, Any]]:
     # The integration id lets the cross-region interactivity router find the region that owns the click.
     value = json.dumps({"integration_id": integration_id, "feature": tip.feature.value})
     buttons: list[dict[str, Any]] = []
@@ -256,7 +270,13 @@ def tip_blocks(integration_id: int, tip: TipFeature, ctx: TipContext, body: str)
         buttons.append(_button(FEATURE_TIP_CTA_ACTION_ID, cta.label, value, **extra))
     buttons.append(_button(FEATURE_TIP_DISMISS_ACTION_ID, "Not now", value))
     buttons.append(_button(FEATURE_TIP_OPT_OUT_ACTION_ID, "Don't show tips", value))
+    # Without a name, a reader can take the tip for a promotion from Slack itself.
+    home_tab = f"<{ctx.app_home_url}|Home tab>" if ctx.app_home_url else "Home tab"
+    note = f"Turn tips on or off in the {home_tab}."
+    if contextual:
+        note = f"I picked this tip from what you asked. {note}"
     return [
-        section_block(f"💡 *Tip: {tip.title}*\n{tip.emoji} {body}"),
+        section_block(f"💡 *PostHog tip: {tip.title}*\n{tip.emoji} {body}"),
         {"type": "actions", "elements": buttons},
+        context_block(note),
     ]

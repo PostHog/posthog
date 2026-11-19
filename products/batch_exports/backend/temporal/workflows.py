@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
@@ -75,7 +77,7 @@ WORKFLOWS = [
     FileDownloadBatchExportWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     backfill_schedule,
     create_batch_export_backfill_model,
     get_backfill_info,

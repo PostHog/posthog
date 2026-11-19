@@ -14,7 +14,7 @@ import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPicksStaleLogic } from '../highlightPicksStaleLogic'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { markScannerGoalDraftIntent } from '../scannerHandoffIntent'
-import { HighlightPicksBlockedState } from './HighlightPicksBlockedState'
+import { QuillHighlightPicksBlockedState } from './QuillHighlightPicksBlockedState'
 import { SCANNER_GOAL_STARTERS } from './scannerGoalStarters'
 
 const QUIET_WEEK_GOAL_KEYS = ['dead_end', 'frustration_score']
@@ -54,7 +54,7 @@ export function QuillHighlightPicksStaleBanner(): JSX.Element | null {
         return null
     }
     if (staleReason === 'all-disabled' || staleReason === 'all-capped' || staleReason === 'quota-exhausted') {
-        return <HighlightPicksBlockedState reason={staleReason} />
+        return <QuillHighlightPicksBlockedState reason={staleReason} />
     }
 
     const newest = (picks ?? []).reduce<string | null>(

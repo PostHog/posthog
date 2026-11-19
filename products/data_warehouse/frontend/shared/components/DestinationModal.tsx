@@ -9,7 +9,6 @@ import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { CREATABLE_DESTINATION_TYPES } from 'products/data_warehouse/frontend/shared/destinations/destinationDefinitions'
 import {
     DestinationModalLogicProps,
     destinationModalLogic,
@@ -19,8 +18,16 @@ import { DestinationIcon, destinationTypeLabel } from './DestinationIcon'
 
 export function DestinationModal(props: DestinationModalLogicProps): JSX.Element {
     const logic = destinationModalLogic(props)
-    const { isOpen, editing, editingIntegration, isDestinationFormSubmitting, destinationForm, definition } =
-        useValues(logic)
+    const {
+        isOpen,
+        editing,
+        editingIntegration,
+        selectedIntegration,
+        isDestinationFormSubmitting,
+        destinationForm,
+        definition,
+        creatableDestinationTypes,
+    } = useValues(logic)
     const { closeModal, submitDestinationForm, deleteDestination, setDestinationType, setIntegrationKind } =
         useActions(logic)
 
@@ -77,7 +84,7 @@ export function DestinationModal(props: DestinationModalLogicProps): JSX.Element
                                 value={value}
                                 onChange={setDestinationType}
                                 data-attr="warehouse-destination-type"
-                                options={CREATABLE_DESTINATION_TYPES.map((type) => ({
+                                options={creatableDestinationTypes.map((type) => ({
                                     value: type,
                                     label: destinationTypeLabel(type),
                                     icon: <DestinationIcon type={type} />,
@@ -136,7 +143,7 @@ export function DestinationModal(props: DestinationModalLogicProps): JSX.Element
                     }
                 </LemonField>
 
-                <Fields isNew={!editing} formValues={destinationForm} selectedIntegration={editingIntegration} />
+                <Fields isNew={!editing} formValues={destinationForm} selectedIntegration={selectedIntegration} />
 
                 {editing ? (
                     <LemonBanner type="info">

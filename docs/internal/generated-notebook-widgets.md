@@ -132,7 +132,7 @@ New SQL cells receive a unique name beginning with `sql_df_`; Python cells recei
 You can rename a dataframe below its results while its edit, filters, or query panel is also open. Results-only views hide the name controls.
 In Jupyter mode, dataframe names use smaller text. Code cells keep the name below their output alongside their visible source editor.
 The SQL and insight dataframe name rows are available to notebook editors.
-HogQL dataframe preparation is available without a feature flag. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
+HogQL dataframe preparation, Python, kernel-backed SQL, and direct connections are available without a rollout flag.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
 An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
 Widget generation continues with the available dataframes if an embedded insight cannot be prepared.
@@ -151,10 +151,12 @@ SQL and Python cells save their run ID, column metadata, and row count in the no
 A bounded preview keeps at most five rows within 8 KiB and up to 2,048 characters per console stream in the notebook, including runs created through MCP.
 The preview helper is shared with MCP, so the MCP TypeScript CI filter covers `products/notebooks/**`.
 Full results and images load from the saved run. Older browser tabs can still display the small preview.
-Saved result reads remain available if the execution flags are disabled, subject to notebook and query permissions.
+The saved-run result endpoints require notebook and query permissions.
 Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
+Saving the same AI notebook artifact again opens the existing notebook without replacing its content, subject to the usual access checks.
+Notebook creation completes even if navigation closes the page that started it.
 Click a cell's title or choose **Edit title** from its **More actions** menu to rename it without collapsing its panels. Enter or leaving the field saves; Escape cancels. The cell-type label toggles both panels, and the pencil toggles filters or the editor.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
@@ -176,7 +178,7 @@ Standalone AI notebook saves preserve Markdown separators and live MDX cells, in
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
 Inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
 The user clicks **Generate widget** in the inserted block's settings to start generation.
-Widgets do not grant access to SQLV2 or PythonV2 cells; those still require `revamped-py-notebooks`.
+SQLV2 and PythonV2 cells use the notebook's access and query permissions.
 
 The MCP tools `notebooks-widget-generate`, `notebooks-widget-status`, and `notebooks-widget-cancel` are available to authenticated users with their required notebook and query scopes.
 Generation also requires the organization's AI data processing consent and the `notebook:write` and `query:read` scopes.

@@ -166,6 +166,9 @@ Deletions in Pipedrive are not applied to tables synced by webhook. Switch a tab
         return {
             "401 Client Error": "Invalid Pipedrive API token. Please check your token and reconnect.",
             "403 Client Error": "Your Pipedrive user lacks permission for this data. Please check your access and reconnect.",
+            # Pipedrive returns 402 when a feature (e.g. Projects) isn't included in the account's
+            # plan. No retry fixes a plan limitation, so stop and point at the Pipedrive side.
+            "402 Client Error": "Your Pipedrive plan doesn't include this feature. Upgrade your Pipedrive plan, or disable the affected tables, then try again.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

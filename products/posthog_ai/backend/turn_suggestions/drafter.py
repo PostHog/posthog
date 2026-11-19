@@ -9,11 +9,13 @@ never decides.
 from datetime import date
 from typing import Any, TypeVar
 
+from django.conf import settings
+
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from posthog.llm.gateway_client import Product, build_openai_client, team_distinct_id
+from posthog.llm.gateway_client import build_ai_gateway_openai_client, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
 
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, truncate_text
@@ -31,8 +33,7 @@ logger = structlog.get_logger(__name__)
 DRAFT_MODEL = "gpt-6-luna"
 
 # PostHog pays for drafts, not the customer's AI credits. The Go gateway bills the wallet of the team
-# that owns its key, and the Python fallback route is one that bills no credit bucket.
-DRAFT_FALLBACK_PRODUCT: Product = "growth"
+# that owns its key.
 DRAFT_AI_PRODUCT = "posthog_ai_turn_suggestions"
 
 # A reasoning model spends the same token budget on its thinking and on the reply, and the reply
@@ -121,8 +122,8 @@ def _complete(
     try:
         # Inside the guard: an instance without a configured gateway raises here, and a failed draft offers nothing.
         distinct_id = team_distinct_id(team_id)
-        client = build_openai_client(
-            DRAFT_FALLBACK_PRODUCT,
+        client = build_ai_gateway_openai_client(
+            settings.AI_GATEWAY_API_KEY,
             ai_product=DRAFT_AI_PRODUCT,
             properties={"team_id": str(team_id)},
             distinct_id=distinct_id,

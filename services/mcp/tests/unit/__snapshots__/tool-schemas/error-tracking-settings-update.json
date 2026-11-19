@@ -1,6 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "adaptive_ingestion_enabled": {
+            "description": "Project preference for adaptive ingestion. Turning this on does not currently change ingestion.",
+            "type": "boolean"
+        },
+        "ai_issue_summaries_enabled": {
+            "description": "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds.",
+            "type": "boolean"
+        },
         "ingestion_enabled": {
             "description": "Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.",
             "type": "boolean"

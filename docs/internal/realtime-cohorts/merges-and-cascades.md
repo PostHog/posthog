@@ -30,8 +30,12 @@ In this example `p-2` and `p-1` stand for person UUIDs:
 ```
 
 The key is `"{team_id}:{old_person_uuid}"`, so the message lands on the old person's partition.
-The producer is gated per team and best effort.
+Node ingestion produces one for every team in its `PERSON_MERGE_EVENTS_TEAM_ALLOWLIST`, best effort.
 A failed send is logged and dropped.
+
+The processor drops a merge, and a transfer, of a team it does not process before it reads the store.
+It commits past the message and counts it in `merge_dropped_total`.
+So ingestion can produce merges for every team, and the processor writes nothing for the teams it does not process.
 
 ### The protocol
 
@@ -74,6 +78,8 @@ sequenceDiagram
    If the produce keeps failing, the outbox entry stays and a periodic redrive retries it.
 
 Stage 2 rows of cohorts no longer in the catalog are left for Stage 2 garbage collection.
+A processed team with no realtime cohort still drains and gets a tombstone.
+So a cohort that the team creates later finds the old person's late events under the survivor.
 
 **Apply, on the survivor's worker.**
 
@@ -185,7 +191,7 @@ With cascades on, the catalog promotes a referencing cohort to `Stage2Composable
 A reference reached only through negation never blocks promotion.
 A missing referenced cohort reads as "not a member", and negated that is "true".
 That answer is wrong for anyone who really is in the untracked cohort.
-"Email is set and not in cohort X", with X static or not realtime, matches every person with an email, including X's real members.
+"Email is set and not in cohort X", with X static, not realtime, or off, matches every person with an email, including X's real members.
 
 ### How a cascade flows
 
@@ -230,7 +236,7 @@ Cycles are also removed at catalog build, where any cohort in a reference cycle 
 
 ## Stage 2 garbage collection
 
-When a cohort is deleted, stops being realtime, or becomes excluded, its Stage 2 rows are useless.
+When a cohort is deleted, stops being realtime, is turned off, or becomes excluded, its Stage 2 rows are useless.
 Once an hour each worker scans a bounded slice of its Stage 2 rows and deletes rows whose cohort no longer registers membership in the current catalog.
 It resumes from a cursor, so large partitions are covered over several runs.
 

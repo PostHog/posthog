@@ -1,6 +1,8 @@
 import { DEFAULT_CHART_COLORS } from '@posthog/quill-charts'
 
-import { AI_LAB_SHADES, labColor, modelColors } from './colors'
+import { AI_LAB_SHADES } from 'lib/components/BrandMark/aiLabShades'
+
+import { labColor, modelColors } from './colors'
 
 const theme = { colors: [...DEFAULT_CHART_COLORS], axisColor: '#888888' }
 

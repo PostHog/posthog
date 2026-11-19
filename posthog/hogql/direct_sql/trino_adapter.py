@@ -41,6 +41,9 @@ DIRECT_TRINO_MAX_ROWS = 1_000_000
 RAW_TRINO_READ_ONLY_ERROR = "Raw Trino queries must be read-only SELECT statements."
 DIRECT_TRINO_ROW_CAP_ERROR = f"Trino query returned more than {DIRECT_TRINO_MAX_ROWS:,} rows. Add a LIMIT clause."
 DIRECT_TRINO_TIMEOUT_ERROR = "Trino query timed out."
+# Below this, a request has no realistic chance to complete before the deadline anyway; racing it
+# with a sub-second socket timeout only trades a clean timeout error for a confusing network one.
+_MIN_REQUEST_BUDGET_SECONDS = 1.0
 
 
 def ensure_read_only_raw_trino_statement(sql: str) -> str:
@@ -112,6 +115,10 @@ class _CancelWatchdog:
         if self.fired:
             raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
 
+    def expire(self) -> None:
+        self._fired.set()
+        self.check()
+
     @property
     def cancelled(self) -> bool:
         return self._cancelled.is_set()
@@ -137,7 +144,10 @@ def bounded_trino_cursor(
             remaining = 1.0
         else:
             watchdog.check()
-            remaining = max(watchdog.deadline - time.monotonic(), 0.001)
+            remaining = watchdog.deadline - time.monotonic()
+            if remaining < _MIN_REQUEST_BUDGET_SECONDS:
+                watchdog.expire()
+            remaining = max(remaining, 0.001)
         timeout = kwargs.get("timeout")
         if isinstance(timeout, tuple):
             kwargs["timeout"] = tuple(min(value or remaining / 2, remaining / 2) for value in timeout)

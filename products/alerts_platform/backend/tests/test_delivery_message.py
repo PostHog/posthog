@@ -15,6 +15,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageDetail,
     MessageImage,
     MessageLink,
+    RuleMetadata,
     SourceDescription,
     SourceKind,
 )
@@ -54,13 +55,16 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> AnnouncedTransition:
     return AnnouncedTransition(**fields)
 
 
-def _announcement(consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS) -> EvaluationAnnouncement:
+def _announcement(
+    consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS, rule: RuleMetadata | None = None
+) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         configuration_id="cfg-1",
         source=source,
         alert_name="API errors",
         consecutive_failures=consecutive_failures,
         transitions=(),
+        rule=rule or RuleMetadata(),
     )
 
 
@@ -226,3 +230,22 @@ class TestAlertMessage:
         message = _build(_announcement(), _transition(AlertEventKind.FIRING, condition={}))
 
         assert message.details == (MessageDetail(label="Value", value="300"),)
+
+    def test_a_rule_adds_its_labels_and_annotations_as_a_list_and_leaves_the_platform_text_alone(self) -> None:
+        rule = RuleMetadata(
+            labels={"team": "payments", "service": "checkout"},
+            annotations={"summary": "{{ $labels.service }} errors over limit", "runbook_url": "https://r.example.com"},
+        )
+        transition = _transition(AlertEventKind.FIRING, labels={"service": "web", "env": "prod"})
+
+        message = _build(_announcement(rule=rule), transition)
+        plain = _build(_announcement(), transition)
+
+        assert message.rule_details == (
+            MessageDetail(label="service", value="checkout"),
+            MessageDetail(label="team", value="payments"),
+            MessageDetail(label="runbook_url", value="https://r.example.com"),
+            MessageDetail(label="summary", value="checkout errors over limit"),
+        )
+        assert message.labels == {"service": "checkout", "env": "prod", "team": "payments"}
+        assert (message.headline, message.details, message.links) == (plain.headline, plain.details, plain.links)

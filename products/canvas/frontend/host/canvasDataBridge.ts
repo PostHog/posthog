@@ -10,7 +10,6 @@ import {
     canvasesActionsInvoke,
     canvasesActionsRetrieve,
     canvasesConnectorsCall,
-    canvasesRequestAgentCreate,
     canvasesStateRetrieve,
     canvasesStateSet,
     canvasesToolsInvoke,
@@ -165,6 +164,7 @@ function assertVariablesApplied(
 export class CanvasDataBridge {
     private readonly cache = new CanvasReadCache()
     private readonly connectorConsent = new Map<string, boolean>()
+    private readonly pendingConnectorConsent = new Map<string, Promise<boolean>>()
     private toolRegistry: Promise<CanvasToolDefinitionApi[]> | null = null
 
     constructor(
@@ -421,14 +421,10 @@ export class CanvasDataBridge {
         return this.toolRegistry
     }
 
-    private async agentRequest(payload: unknown): Promise<{ requestOutcome: string; taskId: string }> {
-        const { prompt } = canvasAgentRequestInputSchema.parse(payload)
-        if (!(await this.prompts.confirmAgentRequest(prompt))) {
-            throw new Error('Agent request canceled')
-        }
-        const { projectId, canvasId } = this.context()
-        const result = await canvasesRequestAgentCreate(projectId, canvasId, { prompt })
-        return { requestOutcome: result.request_outcome, taskId: result.task_id }
+    // The API refuses agent requests from a web app session, so the request fails here before it asks the viewer to confirm it.
+    private agentRequest(payload: unknown): Promise<never> {
+        canvasAgentRequestInputSchema.parse(payload)
+        return Promise.reject(new Error('Agent requests run through the PostHog MCP server, not the web app'))
     }
 
     private async connectorCall(payload: unknown): Promise<Omit<CanvasConnectorCallResultApi, 'approval_token'>> {
@@ -474,7 +470,7 @@ export class CanvasDataBridge {
 
     private async requireConnectorConsent(sourceVersionId: string, input: CanvasConnectorCallInput): Promise<void> {
         const key = `${sourceVersionId}:${input.provider}:${input.tool}`
-        const known = this.connectorConsent.get(key)
+        const known = this.pendingConnectorConsent.has(key) ? undefined : this.connectorConsent.get(key)
         // A denial sticks until the viewer interacts with the canvas again, so a render
         // loop cannot reopen the dialog.
         if (known === true || (known === false && !this.prompts.hasUserActivation())) {
@@ -483,14 +479,25 @@ export class CanvasDataBridge {
             }
             throw new Error('Connector access was not granted. Click in the canvas to try again.')
         }
-        const allowed = await this.prompts.requestConnectorPermission({
-            provider: input.provider,
-            tool: input.tool,
-            reason: 'canvas',
-        })
-        this.connectorConsent.set(key, allowed)
-        if (!allowed) {
+        if (!(await this.connectorConsentPrompt(key, input))) {
             throw new Error('Connector access was not granted. Click in the canvas to try again.')
         }
+    }
+
+    // A canvas often starts several connector reads at once. Each call for the same key
+    // awaits the one open prompt, so the viewer answers once instead of once per call.
+    private connectorConsentPrompt(key: string, input: CanvasConnectorCallInput): Promise<boolean> {
+        let pending = this.pendingConnectorConsent.get(key)
+        if (!pending) {
+            pending = this.prompts
+                .requestConnectorPermission({ provider: input.provider, tool: input.tool, reason: 'canvas' })
+                .then((allowed) => {
+                    this.connectorConsent.set(key, allowed)
+                    return allowed
+                })
+                .finally(() => this.pendingConnectorConsent.delete(key))
+            this.pendingConnectorConsent.set(key, pending)
+        }
+        return pending
     }
 }

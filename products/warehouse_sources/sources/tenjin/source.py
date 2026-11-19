@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.tenjin._config import TenjinSourceConfig
 from products.warehouse_sources.sources.tenjin.settings import DESCRIPTIONS, ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.tenjin.tenjin import (
+    REJECTED_REQUEST_MESSAGE,
     TenjinCredentialsError,
     TenjinResumeConfig,
     TenjinRetryableError,
@@ -61,7 +62,7 @@ class TenjinSource(ResumableSource[TenjinSourceConfig, TenjinResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.tenjin.com": "Tenjin denied access. Check that your access token is valid and has the Reporting Metrics API permission.",
             # A 400 means the report request itself is invalid (unknown metric or group_by). The
             # request shape is fixed per table, so retrying it identically can never succeed.
-            "400 Client Error: Bad Request for url: https://api.tenjin.com": "Tenjin rejected the report request. Check that your account has access to the requested report and metrics.",
+            REJECTED_REQUEST_MESSAGE: None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -135,7 +136,7 @@ Generate a token in the Tenjin dashboard under Automate > API Access Tokens. The
 Tenjin's Reporting Metrics API returns metrics aggregated per day, so these tables are daily time series rather than user-level events.""",
             iconPath="/static/services/tenjin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tenjin",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["mobile attribution", "user acquisition", "mmp"],
             fields=cast(
                 list[FieldType],

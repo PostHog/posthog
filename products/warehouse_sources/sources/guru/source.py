@@ -65,7 +65,7 @@ class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
 You authenticate with your Guru account email and a user API token. A Guru admin can generate user tokens from [Settings > Apps and integrations > API access](https://app.getguru.com/settings/integrations/api-access). Use a user token rather than a collection token — collection tokens are read-only and scoped to a single collection.""",
             iconPath="/static/services/guru.png",
             docsUrl="https://posthog.com/docs/cdp/sources/guru",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

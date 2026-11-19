@@ -13,6 +13,7 @@ import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import type { EventDefinition } from '../../../../types'
 import type { PagePosthogBridge } from '../../messaging/pagePosthogBridge'
 import type { PageDebugInfo, PageToolbarMoreState } from '../../messaging/pageToolbarBridge'
+import { jpegDataUrl } from './jpegDataUrl'
 
 export type PageMoreCommand =
     | { type: 'reload-debug-info' }
@@ -31,18 +32,6 @@ const PII_MASKING_STYLESHEET_ID = 'posthog-toolbar-extension-pii-masking'
 const SCREENSHOT_PREVIEW_WIDTH = 640
 
 type ScreenshotResult = PageToolbarMoreState['screenshot']['result']
-
-async function previewDataUrl(objectUrl: string): Promise<string> {
-    const image = new Image()
-    image.src = objectUrl
-    await image.decode()
-    const scale = Math.min(1, SCREENSHOT_PREVIEW_WIDTH / image.naturalWidth)
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(image.naturalWidth * scale)
-    canvas.height = Math.round(image.naturalHeight * scale)
-    canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.8)
-}
 
 interface ExtensionPageMoreLogicProps {
     /** Null when the page has no `window.posthog`. */
@@ -322,7 +311,7 @@ export const extensionPageMoreLogic = kea<extensionPageMoreLogicType>([
             setPiiMaskingColor: applyPiiMasking,
             openModal: async ({ previewUrl }) => {
                 try {
-                    actions.setScreenshotPreview(await previewDataUrl(previewUrl))
+                    actions.setScreenshotPreview(await jpegDataUrl(previewUrl, SCREENSHOT_PREVIEW_WIDTH))
                 } catch {
                     actions.takeScreenshotFailure("Couldn't read the screenshot")
                 }

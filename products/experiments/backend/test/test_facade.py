@@ -3,7 +3,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,13 +15,14 @@ from posthog.test.base import (
     _create_flag_evaluations,
     flush_persons_and_events,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -30,7 +30,14 @@ from posthog.models.user import User
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
-from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
+from products.access_control.backend.facade.testing import create_access_control
+from products.actions.backend.facade.testing import create_action
+from products.experiments.backend.facade import (
+    api,
+    count_running_experiments_needing_flag_calls_in_events,
+    create_experiment,
+    feature_flags as feature_flags_facade,
+)
 from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
@@ -47,7 +54,13 @@ from products.experiments.backend.facade.contracts import (
     TeamExperimentsSettingsUpdate,
 )
 from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -191,56 +204,145 @@ class TestCreateExperiment(APIBaseTest):
         assert not Experiment.objects.filter(team=self.team, name="Test Experiment").exists()
 
 
-class TestCountRunningExperimentsOnFeatureFlagCalled(BaseTest):
+FLAG_CALLS = {"kind": "EventsNode", "event": "$feature_flag_called"}
+FLAG_CALL_ACTION = {"kind": "ActionsNode", "id": "flag_call_action"}
+DELETED_FLAG_CALL_ACTION = {"kind": "ActionsNode", "id": "deleted_flag_call_action"}
+PAGEVIEW_ACTION = {"kind": "ActionsNode", "id": "pageview_action"}
+PURCHASES = {"kind": "EventsNode", "event": "purchase"}
+
+
+def _mean_metric(source: dict) -> dict:
+    return {"kind": "ExperimentMetric", "metric_type": "mean", "source": source}
+
+
+def _funnel_metric(*series: dict) -> dict:
+    return {"kind": "ExperimentMetric", "metric_type": "funnel", "series": list(series)}
+
+
+def _event_config(event: str) -> dict:
+    return {"kind": "ExperimentEventExposureConfig", "event": event, "properties": []}
+
+
+def _activation(config: dict) -> dict:
+    return {"activation_config": config}
+
+
+class TestCountRunningExperimentsNeedingFlagCallsInEvents(BaseTest):
+    RUNNING = {"start_date": datetime(2026, 8, 1, tzinfo=UTC)}
+
     @parameterized.expand(
         [
-            ("running_on_the_default_exposure", {}, datetime(2026, 8, 1, tzinfo=UTC), None, False, False, False, 1),
+            ("default_exposure_started_before_the_cutoff", {}, 0),
             (
-                "custom_exposure_event",
-                PAGEVIEW_EXPOSURE,
-                datetime(2026, 8, 1, tzinfo=UTC),
-                None,
-                False,
-                False,
-                False,
+                "explicit_flag_call_exposure",
+                {"exposure_criteria": {"exposure_config": _event_config("$feature_flag_called")}},
                 0,
             ),
-            ("draft", {}, None, None, False, False, False, 0),
-            ("ended", {}, datetime(2026, 8, 1, tzinfo=UTC), datetime(2026, 8, 20, tzinfo=UTC), False, False, False, 0),
-            ("archived", {}, datetime(2026, 8, 1, tzinfo=UTC), None, True, False, False, 0),
-            ("deleted", {}, datetime(2026, 8, 1, tzinfo=UTC), None, False, True, False, 0),
-            ("another_organization", {}, datetime(2026, 8, 1, tzinfo=UTC), None, False, False, True, 0),
+            ("custom_exposure_event", {"exposure_criteria": PAGEVIEW_EXPOSURE}, 0),
+            ("exposure_action_with_a_flag_call_step", {"exposure_criteria": {"exposure_config": FLAG_CALL_ACTION}}, 1),
+            (
+                "exposure_action_without_a_flag_call_step",
+                {"exposure_criteria": {"exposure_config": PAGEVIEW_ACTION}},
+                0,
+            ),
+            (
+                "activation_on_flag_calls",
+                {"exposure_criteria": _activation(_event_config("$feature_flag_called"))},
+                1,
+            ),
+            ("activation_on_an_action_with_a_flag_call_step", {"exposure_criteria": _activation(FLAG_CALL_ACTION)}, 1),
+            (
+                "activation_on_another_event",
+                {"exposure_criteria": _activation(_event_config("signed up"))},
+                0,
+            ),
+            ("primary_metric_on_flag_calls", {"metrics": [_mean_metric(FLAG_CALLS)]}, 1),
+            ("metric_on_a_deleted_flag_call_action", {"metrics": [_mean_metric(DELETED_FLAG_CALL_ACTION)]}, 1),
+            (
+                "secondary_funnel_step_on_a_flag_call_action",
+                {"metrics_secondary": [_funnel_metric(PURCHASES, FLAG_CALL_ACTION)]},
+                1,
+            ),
+            ("metric_on_another_event", {"metrics": [_mean_metric(PURCHASES)]}, 0),
+            (
+                "legacy_metric_on_flag_calls",
+                {"metrics": [{"kind": "ExperimentTrendsQuery", "count_query": {"series": [FLAG_CALLS]}}]},
+                0,
+            ),
+            (
+                "invalid_exposure_criteria_with_a_metric_on_flag_calls",
+                {
+                    "exposure_criteria": {"exposure_config": {"kind": "ExperimentEventExposureConfig"}},
+                    "metrics": [_mean_metric(FLAG_CALLS)],
+                },
+                1,
+            ),
+            ("saved_metric_on_flag_calls", {"saved_metric": _mean_metric(FLAG_CALLS)}, 1),
+            (
+                "rule_linked_with_a_metric_on_flag_calls",
+                {"rule_linked": True, "metrics": [_mean_metric(FLAG_CALLS)]},
+                1,
+            ),
+            (
+                "activation_and_metric_count_once",
+                {"exposure_criteria": _activation(FLAG_CALL_ACTION), "metrics": [_mean_metric(FLAG_CALLS)]},
+                1,
+            ),
+            ("draft", {"start_date": None, "metrics": [_mean_metric(FLAG_CALLS)]}, 0),
+            ("ended", {"end_date": datetime(2026, 8, 20, tzinfo=UTC), "metrics": [_mean_metric(FLAG_CALLS)]}, 0),
+            ("archived", {"archived": True, "metrics": [_mean_metric(FLAG_CALLS)]}, 0),
+            ("deleted", {"deleted": True, "metrics": [_mean_metric(FLAG_CALLS)]}, 0),
+            ("another_organization", {"other_organization": True, "metrics": [_mean_metric(FLAG_CALLS)]}, 0),
         ]
     )
-    def test_counts_only_running_experiments_that_count_exposures_on_feature_flag_called(
-        self,
-        _name: str,
-        exposure_criteria: dict,
-        start_date: datetime | None,
-        end_date: datetime | None,
-        archived: bool,
-        deleted: bool,
-        other_organization: bool,
-        expected: int,
+    def test_counts_running_experiments_that_read_flag_calls_without_the_exposure_copy(
+        self, _name: str, setup: dict[str, Any], expected: int
     ) -> None:
+        setup = {**self.RUNNING, **setup}
         team = (
             Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
-            if other_organization
-            else self.team
+            if setup.pop("other_organization", False)
+            else Team.objects.create(organization=self.organization, name="Second project")
         )
+        action_ids = {
+            "flag_call_action": create_action(
+                team=team, name="Flag called", steps_json=[{"event": "$pageview"}, {"event": "$feature_flag_called"}]
+            ).id,
+            "deleted_flag_call_action": create_action(
+                team=team, name="Deleted", steps_json=[{"event": "$feature_flag_called"}], deleted=True
+            ).id,
+            "pageview_action": create_action(team=team, name="Viewed", steps_json=[{"event": "$pageview"}]).id,
+        }
+
+        def with_action_ids(value: Any) -> Any:
+            if isinstance(value, dict):
+                if value.get("kind") == "ActionsNode":
+                    return {**value, "id": action_ids[value["id"]]}
+                return {key: with_action_ids(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [with_action_ids(item) for item in value]
+            return value
+
+        setup = with_action_ids(setup)
+        saved_metric = setup.pop("saved_metric", None)
+        rule_linked = setup.pop("rule_linked", False)
         flag = FeatureFlag.objects.create(team=team, key="experiment-flag", created_by=self.user)
-        Experiment.objects.create(
+        experiment = Experiment.objects.create(
             team=team,
             name="Experiment",
             feature_flag=flag,
-            exposure_criteria=exposure_criteria,
-            start_date=start_date,
-            end_date=end_date,
-            archived=archived,
-            deleted=deleted,
+            feature_flag_rule_id=uuid.uuid4() if rule_linked else None,
+            feature_flag_rule_snapshot={"flag": {}, "rule": {}} if rule_linked else None,
+            **setup,
         )
+        if saved_metric is not None:
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment,
+                saved_metric=ExperimentSavedMetric.objects.create(team=team, name="Saved", query=saved_metric),
+                metadata={"type": "primary"},
+            )
 
-        assert count_running_experiments_on_feature_flag_called(self.organization.id) == expected
+        assert count_running_experiments_needing_flag_calls_in_events(self.organization.id) == expected
 
 
 @time_machine.travel("2026-10-14T12:00:00Z", tick=False)
@@ -311,6 +413,12 @@ class TestHighlightFacts(BaseTest):
         self._experiment(
             "Not yours", start_date=now - timedelta(days=80), created_by=self._create_user("other@example.com")
         )
+        self._experiment(
+            "On a flag rule",
+            start_date=now - timedelta(days=62),
+            feature_flag_rule_id=uuid.uuid4(),
+            feature_flag_rule_snapshot={"flag": {}, "rule": {}},
+        )
 
         found = api.list_running_experiments(
             team_id=self.team.pk,
@@ -321,6 +429,53 @@ class TestHighlightFacts(BaseTest):
         )
 
         assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
+
+    @parameterized.expand([("the root team", False), ("a child environment", True)])
+    def test_names_only_the_experiments_the_user_can_view(self, _name: str, from_child: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        shown = self._experiment("Checkout redesign")
+        hidden_from_reader = self._experiment("Pricing copy")
+        deleted = self._experiment("Deleted", deleted=True)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        elsewhere = Experiment.objects.create(
+            team=other_team,
+            name="Elsewhere",
+            feature_flag=FeatureFlag.objects.create(team=other_team, key="elsewhere", created_by=self.user),
+            created_by=self.user,
+        )
+        create_access_control(
+            team_id=self.team.id, resource="experiment", resource_id=str(hidden_from_reader.id), access_level="none"
+        )
+
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+
+        names = api.viewable_experiment_names(
+            team=child if from_child else self.team,
+            user=self._create_user("reader@example.com"),
+            experiment_ids=[shown.id, hidden_from_reader.id, deleted.id, elsewhere.id],
+        )
+
+        assert names == {shown.id: "Checkout redesign"}
+
+    def test_lists_own_running_experiments_with_any_exposure_newest_first(self) -> None:
+        now = timezone.now()
+        self._experiment("Onboarding tips", start_date=now - timedelta(days=80))
+        self._experiment("Custom exposure", start_date=now - timedelta(days=2), exposure_criteria=PAGEVIEW_EXPOSURE)
+        self._experiment("Checkout copy", start_date=now - timedelta(days=10))
+        self._experiment("Draft")
+        self._experiment("Ended", start_date=now - timedelta(days=30), end_date=now - timedelta(days=1))
+        self._experiment("Archived", start_date=now - timedelta(days=30), archived=True)
+        self._experiment("Deleted", start_date=now - timedelta(days=30), deleted=True)
+        self._experiment(
+            "Not yours", start_date=now - timedelta(days=5), created_by=self._create_user("other@example.com")
+        )
+
+        found = api.list_own_running_experiments(team_id=self.team.pk, user_id=self.user.pk, limit=2)
+
+        assert [e.name for e in found] == ["Custom exposure", "Checkout copy"]
 
 
 @time_machine.travel("2026-10-28T12:00:00Z", tick=False)
@@ -664,6 +819,11 @@ class TestFlagLiveExperiments(BaseTest):
             "deleted_null": False,
             "no_experiment": False,
         }
+        assert feature_flags_facade.flag_ids_with_live_experiment(listed.values(), using="default") == frozenset(
+            flag_ids[key] for key in ("running", "stopped", "archived")
+        )
+        with self.assertNumQueries(0):
+            assert feature_flags_facade.flag_ids_with_live_experiment([], using="default") == frozenset()
 
 
 class TestDigestExperiments(BaseTest):
@@ -755,14 +915,6 @@ class TestPrecomputationSettings(BaseTest):
         )
 
 
-def _github_with_repositories(*full_names: str) -> MagicMock:
-    return MagicMock(
-        return_value=SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": full_name} for full_name in full_names]
-        )
-    )
-
-
 class TestTeamExperimentsSettings(BaseTest):
     def test_reads_every_setting(self) -> None:
         TeamExperimentsConfig.objects.create(
@@ -809,8 +961,8 @@ class TestTeamExperimentsSettings(BaseTest):
         )
 
         with patch(
-            "products.tasks.backend.facade.repo_selection.resolve_team_github_integration",
-            _github_with_repositories("PostHog/posthog"),
+            "products.tasks.backend.facade.repo_selection.team_repository_names",
+            return_value={"posthog/posthog": "PostHog/posthog"},
         ):
             updated = api.update_team_experiments_settings(
                 team_id=self.team.id,
@@ -885,8 +1037,8 @@ class TestTeamExperimentsSettings(BaseTest):
 
         with (
             patch(
-                "products.tasks.backend.facade.repo_selection.resolve_team_github_integration",
-                _github_with_repositories("PostHog/posthog"),
+                "products.tasks.backend.facade.repo_selection.team_repository_names",
+                return_value={"posthog/posthog": "PostHog/posthog"},
             ),
             pytest.raises(ExperimentValidationError) as raised,
         ):

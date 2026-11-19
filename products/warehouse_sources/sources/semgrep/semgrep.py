@@ -1,4 +1,7 @@
+import json
+import hashlib
 import dataclasses
+from collections.abc import Iterable
 from typing import Any, Optional
 
 import requests
@@ -11,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_chained_resource,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -82,31 +86,43 @@ class _PageNumberPaginator(BasePaginator):
 class _CursorPaginator(BasePaginator):
     """Cursor pagination carrying the next cursor in the response body.
 
-    Terminates on an empty page, a missing cursor, or a cursor unchanged from the request's — the
-    same guard the hand-rolled loop used so a server that keeps echoing its final cursor can't spin
-    forever.
+    Terminates on an empty page, a missing cursor, a false `has_more_key` flag, or a cursor
+    unchanged from the request's — the same guard the hand-rolled loop used so a server that keeps
+    echoing its final cursor can't spin forever.
     """
 
-    def __init__(self, cursor_param: str = "cursor", cursor_key: str = "cursor") -> None:
+    def __init__(
+        self, cursor_param: str = "cursor", cursor_key: str = "cursor", has_more_key: Optional[str] = None
+    ) -> None:
         super().__init__()
         self.cursor_param = cursor_param
         self.cursor_key = cursor_key
+        self.has_more_key = has_more_key
         self._cursor: Optional[str] = None
 
-    def init_request(self, request: requests.Request) -> None:
+    def _apply(self, request: requests.Request) -> None:
         if self._cursor is not None:
             if request.params is None:
                 request.params = {}
             request.params[self.cursor_param] = self._cursor
+
+    def init_request(self, request: requests.Request) -> None:
+        self._apply(request)
 
     def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
         if not data:
             self._has_next_page = False
             return
         try:
-            next_cursor = response.json().get(self.cursor_key)
+            body = response.json()
         except Exception:
-            next_cursor = None
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        next_cursor = body.get(self.cursor_key)
+        if self.has_more_key is not None and body.get(self.has_more_key) is False:
+            self._has_next_page = False
+            return
         if not next_cursor or next_cursor == self._cursor:
             self._has_next_page = False
             return
@@ -114,10 +130,7 @@ class _CursorPaginator(BasePaginator):
         self._has_next_page = True
 
     def update_request(self, request: requests.Request) -> None:
-        if self._cursor is not None:
-            if request.params is None:
-                request.params = {}
-            request.params[self.cursor_param] = self._cursor
+        self._apply(request)
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
@@ -127,6 +140,23 @@ class _CursorPaginator(BasePaginator):
         if cursor is not None:
             self._cursor = cursor
             self._has_next_page = True
+
+
+class _BodyCursorPaginator(_CursorPaginator):
+    """Cursor pagination for Semgrep's POST search endpoints, which take the page size and cursor in
+    the JSON body. It writes the whole body, because the framework sends a fan-out child no body."""
+
+    def __init__(self, page_size_param: str, page_size: int, has_more_key: Optional[str] = None) -> None:
+        super().__init__(has_more_key=has_more_key)
+        self.page_size_param = page_size_param
+        self.page_size = page_size
+
+    def _apply(self, request: requests.Request) -> None:
+        body = dict(request.json or {})
+        body[self.page_size_param] = self.page_size
+        if self._cursor is not None:
+            body[self.cursor_param] = self._cursor
+        request.json = body
 
 
 def _client_session(api_token: str) -> requests.Session:
@@ -157,11 +187,47 @@ def _rename_deployment_fields(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _add_dependency_key(row: dict[str, Any]) -> dict[str, Any]:
+    # A dependency is one package version declared at one lockfile location of one repository.
+    defined_at = row.get("definedAt") or {}
+    manifest = row.get("manifestDefinition") or {}
+    package = row.get("package") or {}
+    parts = [
+        row.get("repositoryId"),
+        row.get("ecosystem"),
+        package.get("name"),
+        package.get("versionSpecifier"),
+        defined_at.get("path"),
+        defined_at.get("startLine"),
+        manifest.get("path"),
+    ]
+    row["dependency_key"] = hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()
+    return row
+
+
+_ROW_MAPS = {"dependencies": _add_dependency_key}
+
+
 def _fanout_paginator(config: SemgrepEndpointConfig) -> BasePaginator:
     assert config.page_size is not None
+    if config.pagination == "body_cursor":
+        assert config.page_size_param is not None
+        return _BodyCursorPaginator(config.page_size_param, config.page_size, has_more_key=config.has_more_key)
     if config.pagination == "cursor":
         return _CursorPaginator()
     return _PageNumberPaginator(page_size=config.page_size)
+
+
+def _deployments_resource() -> EndpointResource:
+    return {
+        "name": "deployments",
+        "endpoint": {
+            "path": "/deployments",
+            "data_selector": "deployments",
+            "data_selector_required": True,
+            "paginator": SinglePagePaginator(),
+        },
+    }
 
 
 def _child_resolve_param(
@@ -187,23 +253,17 @@ def _fanout_source(
 
     child_params: dict[str, Any] = {
         param_name: {"type": "resolve", "resource": "deployments", "field": resolve_field},
-        ("limit" if config.pagination == "cursor" else "page_size"): config.page_size,
         **config.params,
     }
+    if config.pagination != "body_cursor":
+        child_params["limit" if config.pagination == "cursor" else "page_size"] = config.page_size
 
-    parent_resource: EndpointResource = {
-        "name": "deployments",
-        "endpoint": {
-            "path": "/deployments",
-            "data_selector": "deployments",
-            "data_selector_required": True,
-            "paginator": SinglePagePaginator(),
-        },
-    }
+    parent_resource = _deployments_resource()
     child_resource: EndpointResource = {
         "name": endpoint,
         "include_from_parent": ["id", "slug"],
         "endpoint": {
+            "method": config.method,
             "path": config.path,
             "params": child_params,
             "data_selector": config.data_key,
@@ -237,8 +297,60 @@ def _fanout_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    child = next(r for r in resources if r.name == endpoint)
-    return child.add_map(_rename_deployment_fields)
+    child = next(r for r in resources if r.name == endpoint).add_map(_rename_deployment_fields)
+    row_map = _ROW_MAPS.get(endpoint)
+    return child.add_map(row_map) if row_map is not None else child
+
+
+def _repository_fanout_source(
+    api_token: str, endpoint: str, config: SemgrepEndpointConfig, team_id: int, job_id: str
+) -> Iterable[Any]:
+    # deployments -> repositories with dependencies -> per-repository child. A two-level chain
+    # carries no resume state, so an interrupted run starts the chain again.
+    repositories_config = SEMGREP_ENDPOINTS["dependency_repositories"]
+    repositories_resource: EndpointResource = {
+        "name": "dependency_repositories",
+        "include_from_parent": ["id", "slug"],
+        # Runs before the child reads these rows, so the child resolves the flat `deployment_id`.
+        "data_map": _rename_deployment_fields,
+        "endpoint": {
+            "method": repositories_config.method,
+            "path": repositories_config.path,
+            "params": {"deployment_id": {"type": "resolve", "resource": "deployments", "field": "id"}},
+            "data_selector": repositories_config.data_key,
+            "data_selector_required": True,
+            "paginator": _fanout_paginator(repositories_config),
+        },
+    }
+    child_resource: EndpointResource = {
+        "name": endpoint,
+        "include_from_parent": ["deployment_id", "deployment_slug", "id", "name"],
+        "endpoint": {
+            "method": config.method,
+            "path": config.path,
+            "params": {
+                "deployment_id": {"type": "resolve", "resource": "dependency_repositories", "field": "deployment_id"},
+                "repository_id": {"type": "resolve", "resource": "dependency_repositories", "field": "id"},
+            },
+            "data_selector": config.data_key,
+            "data_selector_required": True,
+            "paginator": _fanout_paginator(config),
+        },
+    }
+    return build_chained_resource(
+        resources=[_deployments_resource(), repositories_resource, child_resource],
+        child_name=endpoint,
+        parent_name="dependency_repositories",
+        parent_field_renames={
+            "deployment_id": "deployment_id",
+            "deployment_slug": "deployment_slug",
+            "id": "repository_id",
+            "name": "repository_name",
+        },
+        client_config=_client_config(api_token, SinglePagePaginator()),
+        team_id=team_id,
+        job_id=job_id,
+    )
 
 
 def _single_source(api_token: str, endpoint: str, config: SemgrepEndpointConfig, team_id: int, job_id: str) -> Any:
@@ -269,8 +381,14 @@ def semgrep_source(
 ) -> SourceResponse:
     config = SEMGREP_ENDPOINTS[endpoint]
 
+    resource: Any
+    supports_resume = True
     if config.pagination == "none":
         resource = _single_source(api_token, endpoint, config, team_id, job_id)
+    elif config.parent == "dependency_repositories":
+        resource = _repository_fanout_source(api_token, endpoint, config, team_id, job_id)
+        # The two-level chain saves no checkpoint, so a hand-off would restart it from the start.
+        supports_resume = False
     else:
         resource = _fanout_source(api_token, endpoint, config, team_id, job_id, resumable_source_manager)
 
@@ -284,6 +402,7 @@ def semgrep_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode=config.sort_mode,
+        supports_resume=supports_resume,
     )
 
 

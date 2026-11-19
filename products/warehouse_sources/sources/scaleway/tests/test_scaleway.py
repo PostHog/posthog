@@ -48,6 +48,11 @@ class TestBaseParams:
             ("projects", "page_size", "organization_id"),
             ("invoices", "page_size", "organization_id"),
             ("instance_servers", "per_page", "organization"),
+            ("instance_volumes", "per_page", "organization"),
+            # Without the organization filter, images would return Scaleway's whole public catalog.
+            ("instance_images", "per_page", "organization"),
+            ("instance_snapshots", "per_page", "organization"),
+            ("instance_ips", "per_page", "organization"),
             ("audit_trail_events", "page_size", "organization_id"),
             ("billing_consumptions", "page_size", "organization_id"),
             ("kubernetes_clusters", "page_size", "organization_id"),
@@ -84,6 +89,10 @@ class TestResolvePath:
         [
             ("users", "fr-par", "/iam/v1alpha1/users"),
             ("instance_servers", "nl-ams-1", "/instance/v1/zones/nl-ams-1/servers"),
+            ("instance_volumes", "fr-par-2", "/instance/v1/zones/fr-par-2/volumes"),
+            ("instance_images", "pl-waw-3", "/instance/v1/zones/pl-waw-3/images"),
+            ("instance_snapshots", "it-mil-1", "/instance/v1/zones/it-mil-1/snapshots"),
+            ("instance_ips", "nl-ams-2", "/instance/v1/zones/nl-ams-2/ips"),
             ("audit_trail_events", "fr-par", "/audit-trail/v1alpha1/regions/fr-par/events"),
             ("kubernetes_clusters", "it-mil", "/k8s/v1/regions/it-mil/clusters"),
             ("database_instances", "pl-waw", "/rdb/v1/regions/pl-waw/instances"),
@@ -141,15 +150,23 @@ class TestTokenPagination:
 
 
 class TestFanOut:
-    def test_iterates_every_zone_and_advances_scope_between_them(self) -> None:
+    @parameterized.expand(
+        [
+            ("instance_servers", "servers"),
+            ("instance_volumes", "volumes"),
+            ("instance_images", "images"),
+            ("instance_snapshots", "snapshots"),
+            ("instance_ips", "ips"),
+        ]
+    )
+    def test_iterates_every_zone_and_advances_scope_between_them(self, endpoint: str, data_key: str) -> None:
         # Each zone returns one short page, so the connector visits every zone once.
-        responses = [_response({"servers": [{"id": f"srv-{z}"}]}) for z in INSTANCE_ZONES]
+        responses = [_response({data_key: [{"id": f"{data_key}-{z}"}]}) for z in INSTANCE_ZONES]
 
-        result = _drive("instance_servers", responses)
+        result = _drive(endpoint, responses)
 
-        assert len(result.requests) == len(INSTANCE_ZONES)
-        for zone in INSTANCE_ZONES:
-            assert any(f"/zones/{zone}/servers" in path for path in result.paths)
+        assert result.paths == [f"/instance/v1/zones/{zone}/{data_key}" for zone in INSTANCE_ZONES]
+        assert all(query["organization"] == ("org-123",) for query in result.queries)
         # Between scopes the bookmark advances so a crash resumes at the next zone, not the first.
         assert [state.scope_index for state in result.saved_states] == list(range(1, len(INSTANCE_ZONES)))
         assert len(result.rows) == len(INSTANCE_ZONES)

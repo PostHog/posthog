@@ -127,13 +127,15 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES` | `2` | Cap on concurrent large symbol set parses across all providers. Each large parse reserves at least this share of the memory budget. |
 | `SYMBOL_SET_PARSE_MEMORY_BUDGET_BYTES` | `1000000000` | Shared budget for the estimated peak memory of large parses. A parse waits until its estimate fits. A parse estimated above the whole budget runs alone. |
 | `SYMBOL_SET_PARSE_MEMORY_MULTIPLIER` | `8` | Estimated peak parse memory, as a multiple of the decompressed symbol set size. |
+| `SYMBOL_SET_MAX_DECOMPRESSED_BYTES` | `536870912` | Cap on the decompressed size of a symbol set container. A larger container fails to parse. |
+| `SYMBOL_SET_MAX_EXTRACTED_BYTES` | `1610612736` | Cap on the bytes a native or Apple parse reads out of the symbol set's ZIP, summed over every entry it reads. A DWARF entry past the cap fails the parse. Bundled sources past the cap are dropped, and the frame still resolves. |
 | `MAX_ITEM_CONCURRENCY` | `64` | Process-wide cap on concurrently processed exception items. Excess items receive `ERROR_KIND_OVERLOADED`. |
 | `SERVICE_INSTANCE_ID` | random UUID | Identifier surfaced to callers via `LoadEvent` on the Subscribe stream. |
 | `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` heartbeat cadence when callers do not suggest one. Load events may be emitted earlier when draining changes or in-flight load crosses coarse thresholds. |
 | `SUBSCRIBE_MIN_TICK_MS` | `100` | Lower bound for the Subscribe tick cadence. |
 | `SUBSCRIBE_MAX_TICK_MS` | `10000` | Upper bound for the Subscribe tick cadence. |
 
-All four symbol set parse settings must be positive integers. Invalid values prevent the service from starting.
+All six symbol set parse settings must be positive integers. Invalid values prevent the service from starting.
 
 The server inherits the narrow subset of cymbal's env-var surface needed by `build_symbol_resolver` and internal gRPC authentication: `INTERNAL_API_SECRET`, Postgres, object storage, symbol-store cache/resolver tuning, and outbound HTTP controls. Frame result cache knobs such as `FRAME_RESOLVED_TTL_SECONDS` and `FRAME_UNRESOLVED_TTL_SECONDS` are read through cymbal's shared symbol resolver config, not duplicated in `cymbal-resolution`'s own `Config`. It does not connect to Kafka, Redis, or the signals API.
 

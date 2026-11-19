@@ -6,9 +6,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cohort_core::events::CohortStreamEvent;
 use cohort_event_shuffler::config::Config;
 use cohort_event_shuffler::consumer::EventShuffler;
-use cohort_event_shuffler::event::CohortStreamEvent;
 use cohort_event_shuffler::filter_team_index::{TeamGate, TeamIndex};
 use cohort_event_shuffler::producer::CohortStreamProducer;
 use common_cohort_team_access::TeamAccess;
@@ -128,7 +128,7 @@ async fn collect_output(
             Ok(Ok(msg)) => {
                 if let Some(payload) = msg.payload() {
                     let envelope: CohortStreamEvent = serde_json::from_slice(payload)
-                        .expect("output payload must be an envelope");
+                        .expect("the processor must decode every envelope");
                     collected.push((msg.partition(), envelope));
                     if collected.len() >= expected && grace_until.is_none() {
                         grace_until = Some(Instant::now() + Duration::from_secs(1));

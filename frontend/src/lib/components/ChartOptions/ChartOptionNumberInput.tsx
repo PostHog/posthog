@@ -2,7 +2,10 @@ import { useId } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ChartOptionLabel } from './ChartOptionLabel'
+import { QuillChartOptionNumberInput } from './QuillChartOptionNumberInput'
 import { parseChartOptionNumber, useChartOptionNumberDraft } from './useChartOptionNumberDraft'
 
 export interface ChartOptionNumberInputProps {
@@ -19,8 +22,13 @@ export interface ChartOptionNumberInputProps {
 }
 
 export function ChartOptionNumberInput(props: ChartOptionNumberInputProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const id = useId()
     const { draft, setDraft, commit } = useChartOptionNumberDraft(props.value, props.onChange)
+
+    if (todayRailNav) {
+        return <QuillChartOptionNumberInput {...props} draft={draft} setDraft={setDraft} commit={commit} />
+    }
 
     const { label, info, min, max, suffix, placeholder, disabledReason, 'data-attr': dataAttr } = props
     return (

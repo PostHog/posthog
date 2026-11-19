@@ -195,6 +195,40 @@ class TestNonRetryableErrors:
         assert expected_snippet in matches[0]
 
 
+class TestTransientConnectionErrorsStayRetryable:
+    @parameterized.expand(
+        [
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Read timed out. (read timeout=60.0)",
+            ),
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Max retries exceeded with url: /api/events",
+            ),
+            (
+                "chunked_encoding",
+                "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)",
+            ),
+        ]
+    )
+    def test_exhausted_connection_failure_keeps_retrying_with_a_friendly_message(
+        self, _name: str, observed_error: str
+    ) -> None:
+        # These are the exact exception strings `_fetch_page`'s tenacity retry already exhausts on
+        # (see TestFetchPageRetries below). They must never reach get_non_retryable_errors and
+        # disable the schema - a single slow Klaviyo response must not pause syncing for good - and
+        # once Temporal's own retries are also exhausted the stored message must stay friendly
+        # rather than the raw urllib3 text.
+        source = KlaviyoSource()
+        assert not error_message_matches(observed_error, source.get_non_retryable_errors().keys())
+        assert error_message_matches(observed_error, source.get_retryable_errors())
+        messages = [
+            message for pattern, message in source.get_retry_exhausted_errors().items() if pattern in observed_error
+        ]
+        assert messages and "clears on its own" in messages[0]
+
+
 class TestFetchPageRetries:
     @parameterized.expand(
         [

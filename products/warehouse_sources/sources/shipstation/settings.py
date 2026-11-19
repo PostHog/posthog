@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # ShipStation runs two live vendor APIs. v1 is the original ssapi.shipstation.com API (HTTP Basic
 # with an API key + secret, US Pacific DateTimes). v2 is the ShipStation API v2 (ShipEngine-based)
@@ -12,13 +12,14 @@ SHIPSTATION_V1 = "v1"
 SHIPSTATION_V2 = "v2"
 SHIPSTATION_SUPPORTED_VERSIONS = (SHIPSTATION_V1, SHIPSTATION_V2)
 SHIPSTATION_DEFAULT_VERSION = SHIPSTATION_V2
+PAGE_SIZE = 500
 
 
 @dataclass(frozen=False)
 class ShipStationEndpointConfig:
     name: str
     path: str
-    primary_key: str
+    primary_key: str | list[str]
     # Body key the list of rows lives under (orders/shipments/etc. wrap rows and
     # include total/page/pages); None for endpoints returning a bare array.
     data_key: Optional[str] = None
@@ -32,6 +33,10 @@ class ShipStationEndpointConfig:
     # Stable creation-time field used for datetime partitioning.
     partition_key: Optional[str] = None
     paginated: bool = True
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
+    params: dict[str, str] = field(default_factory=dict)
+    fanout: Optional[DependentEndpointConfig] = None
 
 
 # ShipStation v1 (ssapi.shipstation.com) — all DateTime values are US Pacific
@@ -124,6 +129,45 @@ SHIPSTATION_ENDPOINTS: dict[str, ShipStationEndpointConfig] = {
         path="/warehouses",
         primary_key="warehouseId",
         paginated=False,
+    ),
+    "users": ShipStationEndpointConfig(
+        name="users",
+        path="/users",
+        primary_key="userId",
+        paginated=False,
+        params={"showInactive": "true"},
+    ),
+    "marketplaces": ShipStationEndpointConfig(
+        name="marketplaces",
+        path="/stores/marketplaces",
+        primary_key="marketplaceId",
+        paginated=False,
+    ),
+    "services": ShipStationEndpointConfig(
+        name="services",
+        path="/carriers/listservices?carrierCode={carrierCode}",
+        primary_key=["carrierCode", "code"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="carriers",
+            resolve_param="carrierCode",
+            resolve_field="code",
+            include_from_parent=["code"],
+            parent_field_renames={"code": "carrierCode"},
+        ),
+    ),
+    "packages": ShipStationEndpointConfig(
+        name="packages",
+        path="/carriers/listpackages?carrierCode={carrierCode}",
+        primary_key=["carrierCode", "code"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="carriers",
+            resolve_param="carrierCode",
+            resolve_field="code",
+            include_from_parent=["code"],
+            parent_field_renames={"code": "carrierCode"},
+        ),
     ),
 }
 
@@ -238,6 +282,46 @@ SHIPSTATION_V2_ENDPOINTS: dict[str, ShipStationEndpointConfig] = {
         data_key="tags",
         paginated=False,
     ),
+    "users": ShipStationEndpointConfig(
+        name="users",
+        path="/users",
+        primary_key="user_id",
+        data_key="users",
+        page_size=100,
+    ),
+    "services": ShipStationEndpointConfig(
+        name="services",
+        path="/carriers/{carrier_id}/services",
+        primary_key=["carrier_id", "service_code"],
+        data_key="services",
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="carriers",
+            resolve_param="carrier_id",
+            resolve_field="carrier_id",
+            include_from_parent=["carrier_id"],
+            parent_field_renames={"carrier_id": "carrier_id"},
+        ),
+    ),
+    "packages": ShipStationEndpointConfig(
+        name="packages",
+        path="/carriers/{carrier_id}/packages",
+        primary_key=["carrier_id", "package_code"],
+        data_key="packages",
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="carriers",
+            resolve_param="carrier_id",
+            resolve_field="carrier_id",
+            include_from_parent=["carrier_id"],
+            parent_field_renames={"carrier_id": "carrier_id"},
+        ),
+    ),
+}
+
+SHIPSTATION_CARRIER_ENDPOINTS = {
+    SHIPSTATION_V1: ShipStationEndpointConfig(name="carriers", path="/carriers", primary_key="code", paginated=False),
+    SHIPSTATION_V2: SHIPSTATION_V2_ENDPOINTS["carriers"],
 }
 
 V2_ENDPOINTS = tuple(SHIPSTATION_V2_ENDPOINTS.keys())

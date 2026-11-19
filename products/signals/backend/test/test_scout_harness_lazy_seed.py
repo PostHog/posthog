@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,6 +36,8 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     _validate_records,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+
+from ee.billing.billing_types import USAGE_TYPE_VALUES
 
 _SCHEMA_JSON = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
 
@@ -407,6 +410,31 @@ class TestDiscoverCanonicalSkills:
             body="# Bar\n",
         )
         with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
+    @pytest.mark.parametrize("marker,expected", [("", False), ("false", False), ("true", True)])
+    def test_trial_model_preservation_marker(self, tmp_path: Path, marker: str, expected: bool) -> None:
+        setting = f"scout-preserve-trial-model: {marker}\n" if marker else ""
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{setting}---\n",
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].preserve_trial_model is expected
+
+    @pytest.mark.parametrize(
+        "name,marker",
+        [("signals-scout-bar", '"false"'), ("signals-scout-bar", "null"), ("authoring-scouts", "true")],
+    )
+    def test_rejects_invalid_trial_model_marker(self, tmp_path: Path, name: str, marker: str) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name=name,
+            frontmatter=f"---\nname: {name}\ndescription: bar skill\nscout-preserve-trial-model: {marker}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="'scout-preserve-trial-model' must be a boolean"):
             discover_canonical_skills(tmp_path)
 
     def test_parses_scout_role(self, tmp_path: Path) -> None:
@@ -785,6 +813,23 @@ class TestShippedStructuredOutputSchemas:
         ):
             with pytest.raises(InvalidStructuredOutputError):
                 _validate_records([StructuredOutputRecord(payload=rejected)], schema)
+
+
+class TestShippedBillingScoutVocabulary:
+    def test_every_billing_usage_type_has_a_product_key_row(self) -> None:
+        # The scout prices and routes a meter only through this table, so a usage type billing adds
+        # without a row here is a meter the scout reads but can neither price nor hand off.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == "signals-scout-billing"]
+        (reference,) = [f.content for f in skill.files if f.path == "references/usage-types.md"]
+        vocabulary = reference.split("## Three vocabularies for one meter", 1)[1].split("\n## ", 1)[0]
+        mapped = {
+            usage_type
+            for line in vocabulary.splitlines()
+            if line.startswith("| `")
+            for usage_type in re.findall(r"`([a-z0-9_]+)`", line.split("|")[1])
+        }
+
+        assert set(USAGE_TYPE_VALUES) - mapped == set()
 
 
 class TestDeprecationFrontmatter:

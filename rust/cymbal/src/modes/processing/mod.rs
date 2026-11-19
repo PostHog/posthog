@@ -13,6 +13,7 @@ pub mod app_context;
 pub mod config;
 pub mod fingerprinting;
 pub mod issue_resolution;
+pub mod ledger;
 pub mod normalization;
 pub mod redis_heal;
 pub mod router;

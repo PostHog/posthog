@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -42,6 +43,17 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertTrue(app.is_dcr_client)
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
+
+    def test_register_without_signing_key_answers_server_error_naming_the_setting(self):
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", ""):
+            response = self.client.post(
+                "/oauth/register/", {"redirect_uris": ["https://example.com/callback"]}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["error"], "server_error")
+        self.assertIn("OIDC_RSA_PRIVATE_KEY", response.json()["error_description"])
+        self.assertFalse(OAuthApplication.objects.filter(is_dcr_client=True).exists())
 
     @mock_anti_ssrf_dns_lookup()
     def test_register_full_client(self, _resolve):

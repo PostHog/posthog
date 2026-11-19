@@ -385,13 +385,22 @@ class TestClientRequest:
         assert MANAGEMENT_HOST in str(error.value)
         assert len(network.requests_log) == 4
 
-    @parameterized.expand([(429,), (500,), (503,)])
-    def test_retries_transient_statuses_then_succeeds(self, status: int) -> None:
+    @parameterized.expand(
+        [
+            ("throttled", 429, None),
+            ("server_error", 500, None),
+            ("unavailable", 503, None),
+            ("truncated_body", 200, b'{"properties": {"rows": [[1.5, 20240101'),
+        ]
+    )
+    def test_retries_transient_responses_then_succeeds(self, _name: str, status: int, body: Optional[bytes]) -> None:
         sleeps: list[float] = []
         with scripted_network(
             [
                 _token_response(),
-                ScriptedResponse(status=status, headers={"x-ms-ratelimit-microsoft.consumption-retry-after": "9"}),
+                ScriptedResponse(
+                    status=status, body=body, headers={"x-ms-ratelimit-microsoft.consumption-retry-after": "9"}
+                ),
                 _query_response([]),
             ]
         ) as network:
@@ -400,9 +409,15 @@ class TestClientRequest:
         assert sleeps == [9.0]
         assert [request.path for request in network.requests_log[1:]] == ["/q", "/q"]
 
-    def test_exhausted_retries_raise_retryable_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("throttled", ScriptedResponse(status=429)),
+            ("truncated_body", ScriptedResponse(body=b'{"properties": {"rows": [')),
+        ]
+    )
+    def test_exhausted_retries_raise_retryable_error(self, _name: str, answer: ScriptedResponse) -> None:
         sleeps: list[float] = []
-        with scripted_network([_token_response(), *[ScriptedResponse(status=429) for _ in range(6)]]) as network:
+        with scripted_network([_token_response(), *[answer for _ in range(6)]]) as network:
             with pytest.raises(AzureCostManagementRetryableError):
                 _client(sleeps.append).request("POST", f"{MANAGEMENT_HOST}/q")
 

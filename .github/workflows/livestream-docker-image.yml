@@ -43,7 +43,8 @@ jobs:
 
         steps:
             - name: Assert master publish role is configured
-              if: github.ref == 'refs/heads/master'
+              # Only the repo with CD_DEPLOY_ENABLED publishes master images; elsewhere master builds without pushing.
+              if: github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
               env:
                   MASTER_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |

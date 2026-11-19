@@ -19,6 +19,7 @@ import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
+import todayAnalyticsSidebar from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
@@ -53,6 +54,10 @@ const hogFunctionTemplateRetrieveMock: MockSignature = ({ params }) => {
     }
     return HttpResponse.json({ ...hogFunctionTemplate })
 }
+
+// The tags endpoint pages its response only when the request carries `search`.
+const tagsMock: MockSignature = ({ request }) =>
+    HttpResponse.json(new URL(request.url).searchParams.has('search') ? EMPTY_PAGINATED_RESPONSE : [])
 
 const hogFunctionTemplatesMock: MockSignature = ({ request }) => {
     const types = new URL(request.url).searchParams.get('types')
@@ -101,16 +106,26 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/marketing_analytics/source_validation/': { errors_by_source: {} },
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/ui_customization/analytics_sidebar/': todayAnalyticsSidebar,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/events_retention/': {
             retention_months: null,
             retained_from: null,
             docs_url: 'https://posthog.com/docs/data/events-retention',
             project_retention_months: null,
+            next_deletion_on: null,
+            next_deletion_before: null,
+            scheduled_pass_on: null,
+            first_pass_on: '2027-02-03',
+            default_period_deletes: false,
             organization_retention_months: null,
+            default_retention_months: 84,
+            default_is_grandfathered: true,
             plan_retention_months: 84,
             min_retention_months: 1,
             max_retention_months: 84,
+            retention_months_choices: [1, 3, 12, 24, 36, 60, 84],
+            next_monthly_cleanup_on: '2026-11-03',
         },
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -179,9 +194,13 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/events_retention_setting/': {
             organization_retention_months: null,
+            default_retention_months: 84,
+            default_is_grandfathered: true,
             plan_retention_months: 84,
             min_retention_months: 1,
             max_retention_months: 84,
+            retention_months_choices: [1, 3, 12, 24, 36, 60, 84],
+            next_monthly_cleanup_on: '2026-11-03',
         },
         '/api/organizations/:organization_id/resource_access': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/members/': toPaginatedResponse([
@@ -371,10 +390,11 @@ export const defaultMocks: Mocks = {
             completed_at: null,
             github_optional_available: false,
         },
+        '/api/projects/:team_id/signals/scout/notes/': [],
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},
-        '/api/projects/:team_id/tags/': [],
+        '/api/projects/:team_id/tags/': tagsMock,
     },
     post: {
         'https://us.i.posthog.com/e/': posthogCORSResponse,

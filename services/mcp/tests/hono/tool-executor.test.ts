@@ -341,6 +341,7 @@ describe('ToolExecutor', () => {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
+                        drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                         isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                     } as any,
@@ -597,6 +598,7 @@ describe('ToolExecutor', () => {
                             capabilities: { supportsInstructions },
                             isCliModeEnabled: vi.fn(() => true),
                             isInlineExecUiHost: vi.fn(() => false),
+                            drawsTimeSeriesCharts: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                             isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                         } as any,
@@ -619,6 +621,61 @@ describe('ToolExecutor', () => {
             }
         )
 
+        it.each([
+            { label: 'skills flag on', skillsEnabled: true, consumer: undefined, expectLearn: true },
+            {
+                label: 'plugin consumer with skills flag on',
+                skillsEnabled: true,
+                consumer: 'plugin',
+                expectLearn: false,
+            },
+            { label: 'skills flag off', skillsEnabled: false, consumer: undefined, expectLearn: false },
+        ])(
+            'offers and serves a learn tool in tools mode only when skills are available: $label',
+            async ({ skillsEnabled, consumer, expectLearn }) => {
+                const skills = new SkillCatalog([
+                    {
+                        name: 'sample-skill',
+                        description: 'A sample skill.',
+                        files: [makeSkillFile('SKILL.md', '# Sample skill')],
+                    },
+                ])
+                const instructionsBuilder = new InstructionsBuilder('')
+                const skillExecutor = new ToolExecutor(catalog, instructionsBuilder, {
+                    getCatalog: () => skills,
+                } as any)
+                const state = makeToolExecutorState([], {
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    ...(consumer
+                        ? {
+                              sessionContext: {
+                                  mcpClientName: 'cursor-vscode',
+                                  mcpClientVersion: '1.0',
+                                  mcpProtocolVersion: '2025-03-26',
+                                  mcpConsumer: consumer,
+                                  mcpVendorClient: undefined,
+                              },
+                          }
+                        : {}),
+                })
+
+                const listed = await skillExecutor.handleToolsList(state)
+                expect(listed.tools.some((tool) => tool.name === 'learn')).toBe(expectLearn)
+                expect(instructionsBuilder.build(state).includes('call the `learn` tool')).toBe(expectLearn)
+
+                const call = (command: string): Promise<{ content: { text: string }[]; isError?: boolean }> =>
+                    skillExecutor.handleToolCall({ name: 'learn', arguments: { command } }, state) as any
+                const result = await call('posthog:sample-skill')
+                if (!expectLearn) {
+                    expect(result.isError).toBe(true)
+                    expect(result.content[0]!.text).toBe('Tool learn not found')
+                    return
+                }
+                expect(result.content[0]!.text).toContain('# Sample skill')
+                expect((await call('learn posthog:sample-skill')).content[0]!.text).toContain('# Sample skill')
+            }
+        )
+
         it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
             const state = makeToolExecutorState(
                 catalog
@@ -632,6 +689,7 @@ describe('ToolExecutor', () => {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
+                        drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                         isAnthropicConnector: vi.fn(() => true),
                     } as any,
@@ -666,7 +724,7 @@ describe('ToolExecutor', () => {
             expect(properties.tool_input!.description).toBeTruthy()
             expect(properties.context!.description).toBeTruthy()
             expect(properties.llm_model!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
             expect(renderUiEntry.annotations).toEqual({
                 destructiveHint: false,
                 idempotentHint: true,
@@ -733,8 +791,9 @@ describe('ToolExecutor', () => {
                 } as any)
             }
 
-            async function renderSurvey(): Promise<any> {
+            async function renderSurvey(isCursor = false): Promise<any> {
                 const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+                vi.mocked(state.clientProfile.isCursor).mockReturnValue(isCursor)
                 return executor.handleToolCall(
                     { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
                     state
@@ -748,6 +807,16 @@ describe('ToolExecutor', () => {
 
                 expect(result._meta[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
                 expect(result.structuredContent).not.toHaveProperty('name')
+                expect(result.structuredContent).not.toHaveProperty([APP_DATA_META_KEY])
+            })
+
+            it('carries the data in structuredContent instead of _meta for Cursor', async () => {
+                stubInnerTool(async () => ({ id: 'abc', name: 'NPS' }))
+
+                const result = await renderSurvey(true)
+
+                expect(result.structuredContent[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
+                expect(result._meta).not.toHaveProperty([APP_DATA_META_KEY])
             })
 
             it('preloads query charts through exec as JSON, like the app does', async () => {

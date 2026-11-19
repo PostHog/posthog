@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { HogFlowInvocationApi } from '../../../generated/api.schemas'
 import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction, HogFlowActionNode } from '../types'
@@ -490,10 +492,9 @@ describe('hogFlowOutputMappingLogic', () => {
         describe('setMappingVariable', () => {
             it('creates the workflow variable when the name is new, then maps and persists it', async () => {
                 const node = makeActionNode('action-new-var')
-                await expectLogic(editorLogic, () => {
-                    editorLogic.actions.setNodesRaw([node])
-                    editorLogic.actions.setSelectedNodeId('action-new-var')
-                }).toMatchValues({ selectedNode: node })
+                // Saving the new variable rebuilds the nodes from the workflow, so the step must be in it.
+                wfLogic.actions.setWorkflowInfo({ actions: [node.data] })
+                editorLogic.actions.setSelectedNodeId('action-new-var')
                 logic.actions.initMappings([{ key: '', result_path: 'output.verdict' }])
 
                 await expectLogic(logic, () => {
@@ -607,6 +608,50 @@ describe('hogFlowOutputMappingLogic', () => {
                 await expectLogic(logic).toMatchValues({
                     selectedAction: node.data,
                 })
+            })
+        })
+
+        describe('runOutputTest', () => {
+            it('reports the test email a run of the step sent', async () => {
+                const email = {
+                    ...makeActionNode('email').data,
+                    type: 'function_email',
+                    config: { inputs: {} },
+                } as HogFlowAction
+                const node = { ...makeActionNode('email'), data: email }
+                const submitted: HogFlowInvocationApi[] = []
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                            submitted.push((await request.json()) as HogFlowInvocationApi)
+                            return [
+                                200,
+                                {
+                                    status: 'success',
+                                    logs: [],
+                                    nextActionId: null,
+                                    execResult: {},
+                                    emailSendResult: { status: 'accepted' },
+                                },
+                            ]
+                        },
+                    },
+                })
+                const capture = jest.spyOn(posthog, 'capture')
+                await expectLogic(wfLogic).toFinishAllListeners()
+                wfLogic.actions.setWorkflowValues({ actions: [email] })
+                editorLogic.actions.setNodesRaw([node])
+                editorLogic.actions.setSelectedNodeId('email')
+
+                await expectLogic(logic, () => logic.actions.runOutputTest()).toFinishAllListeners()
+
+                expect(logic.values.testError).toBeNull()
+                expect(submitted.map((body) => [body.current_action_id, body.mock_async_functions])).toEqual([
+                    ['email', false],
+                ])
+                expect(capture.mock.calls.filter(([event]) => event === 'workflows test email sent')).toEqual([
+                    ['workflows test email sent', { step_type: 'function_email', sender_kind: 'own_domain' }],
+                ])
             })
         })
     })

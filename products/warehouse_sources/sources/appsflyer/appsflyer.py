@@ -1,10 +1,11 @@
 import io
 import re
 import csv
+import json
 from collections.abc import Buffer, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -24,6 +25,18 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
+QUOTA_EXHAUSTED_MARKER = "limit reached"
+# Leads the retryable error a used-up quota raises, so the source can name that case once retries run out.
+QUOTA_EXHAUSTED_ERROR = "AppsFlyer daily report API quota is used up"
+MASTER_API_PATH = "/api/master-agg-data/"
+# AppsFlyer answers a Master API call with an empty 404 when the account's plan has no Master API,
+# so the app id can be valid while this report never syncs.
+MASTER_API_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include the Master API"
+RAW_DATA_PATH = "/api/raw-data/"
+# AppsFlyer answers a raw-data pull with 400 and "Your current subscription package doesn't include
+# raw data reports" when the account's plan has no raw data.
+RAW_DATA_NOT_IN_PLAN_MARKER = "include raw data reports"
+RAW_DATA_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include raw data reports"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -58,6 +71,7 @@ REPORT_CHUNK_BYTES = 1 << 16
 # Keep AppsFlyer's rejection reason short enough to read in a setup error.
 MAX_REJECTION_REASON_CHARS = 300
 _HTML_MARKUP = re.compile(r"<\s*(!doctype|html|head|body)\b", re.IGNORECASE)
+_JSON_ERROR_KEYS = ("error", "message", "detail")
 
 
 @frozen
@@ -106,6 +120,14 @@ class AppsFlyerRetryableError(Exception):
     pass
 
 
+class AppsFlyerRawDataNotInPlanError(Exception):
+    pass
+
+
+class AppsFlyerMasterApiNotInPlanError(Exception):
+    pass
+
+
 class AppsFlyerCredentialsError(Exception):
     """A credential check failed for a reason we can explain to the user (bad token, bad app id)."""
 
@@ -138,9 +160,26 @@ def _validate_app_id(app_id: str) -> str:
     return app_id
 
 
+def _json_error_text(body: str) -> str:
+    """AppsFlyer sometimes rejects with a JSON body like {"error": "..."}; show its text, never the raw JSON."""
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for key in _JSON_ERROR_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str):
+            return " ".join(value.split())
+    return ""
+
+
 def _rejection_reason(response: requests.Response, api_token: str) -> str | None:
     """Return AppsFlyer's own reason for a rejected request, or None when the body has no plain text."""
     reason = " ".join(response.text.split())
+    if reason.startswith(("{", "[")):
+        reason = _json_error_text(reason)
     if not reason or reason.startswith("<") or _HTML_MARKUP.search(reason):
         return None
     return reason.replace(_normalize_token(api_token), "[redacted]")[:MAX_REJECTION_REASON_CHARS]
@@ -149,6 +188,11 @@ def _rejection_reason(response: requests.Response, api_token: str) -> str | None
 def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:
     reason = _rejection_reason(response, api_token)
     return AppsFlyerCredentialsError(f"{message} AppsFlyer said: {reason}" if reason else message)
+
+
+def _is_quota_exhausted(response: requests.Response) -> bool:
+    """AppsFlyer answers 403 (sometimes 429) with a "limit reached" body once the daily report quota is spent."""
+    return response.status_code in (403, 429) and QUOTA_EXHAUSTED_MARKER in response.text.lower()
 
 
 def _normalize_header(header: str) -> str:
@@ -190,9 +234,9 @@ def _parse_csv_rows(
 
 def _report_url(config: AppsFlyerEndpointConfig, app_id: str, params: dict[str, str]) -> str:
     if config.kind == AppsFlyerReportKind.MASTER:
-        path = f"/api/master-agg-data/v4/app/{quote(app_id)}"
+        path = f"{MASTER_API_PATH}v4/app/{quote(app_id)}"
     elif config.kind == AppsFlyerReportKind.RAW:
-        path = f"/api/raw-data/export/app/{quote(app_id)}/{config.report}/v5"
+        path = f"{RAW_DATA_PATH}export/app/{quote(app_id)}/{config.report}/v5"
     else:
         path = f"/api/agg-data/export/app/{quote(app_id)}/{config.report}/v5"
     return f"{APPSFLYER_BASE_URL}{path}?{urlencode(params)}"
@@ -266,13 +310,27 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
 def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
+    if _is_quota_exhausted(response):
+        response.close()
+        raise AppsFlyerRetryableError(f"{QUOTA_EXHAUSTED_ERROR} (retryable): status={response.status_code}, url={url}")
+
     if response.status_code == 429 or response.status_code >= 500:
         response.close()
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        body = response.text
+        logger.error(f"AppsFlyer API error: status={response.status_code}, body={body[:500]}, url={url}")
         response.close()
+        path = urlparse(url).path
+        if (
+            response.status_code == 400
+            and path.startswith(RAW_DATA_PATH)
+            and RAW_DATA_NOT_IN_PLAN_MARKER in body.lower()
+        ):
+            raise AppsFlyerRawDataNotInPlanError(f"{RAW_DATA_NOT_IN_PLAN_ERROR}: status=400")
+        if response.status_code == 404 and path.startswith(MASTER_API_PATH):
+            raise AppsFlyerMasterApiNotInPlanError(f"{MASTER_API_NOT_IN_PLAN_ERROR}: status=404")
         response.raise_for_status()
 
     return response
@@ -295,7 +353,8 @@ def _iter_report_rows(session: requests.Session, url: str, logger: FilteringBoun
 def validate_credentials(api_token: str, app_id: str) -> bool:
     """Confirm the token and app id are valid with a one-day report probe.
 
-    Returns ``True`` when the probe succeeds. Raises ``AppsFlyerCredentialsError`` with a
+    Returns ``True`` when the probe succeeds, or when AppsFlyer refuses it only because the daily
+    report quota is used up. Raises ``AppsFlyerCredentialsError`` with a
     user-facing message when AppsFlyer rejects the token or app id (the status code tells the
     two apart) or returns any other unexpected status, ``AppsFlyerRetryableError`` on
     rate-limit / 5xx responses, and lets transport errors propagate so the caller can tell a
@@ -321,6 +380,12 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
+    if _is_quota_exhausted(response):
+        # A used-up quota says nothing against the token or app id (those answer 401, 403 or 404).
+        # The wizard probes again when the source is created, often after the credentials step spent
+        # the last call, so refusing here threw away a finished setup until the next day. The sync
+        # retries the quota error and runs once the quota resets, like Microsoft Clarity's.
+        return True
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:

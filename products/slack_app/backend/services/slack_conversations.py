@@ -42,8 +42,8 @@ def resolve_conversation_type(
 ) -> SlackThreadTaskMapping.ConversationType:
     """The shape of the conversation ``channel_id`` names.
 
-    Never raises: an unresolvable conversation comes back as ``UNKNOWN``, which reads as
-    non-private downstream. Task creation must not fail over this.
+    Never raises: an unresolvable conversation comes back as ``UNKNOWN``, which keeps the task
+    with its creator downstream. Task creation must not fail over this.
     """
     channel_type = event.get("channel_type")
     if channel_type in _CHANNEL_TYPE_TO_CONVERSATION_TYPE:
@@ -109,6 +109,11 @@ def channel_ext_shared_state(slack: SlackIntegration, channel: str) -> bool | No
     For a caller that can wait and ask again, a failed lookup is not the same as a shared
     channel.
     """
+    # A DM with the app is never a Slack Connect channel. The lookup below also cannot answer
+    # for a `D…` id because the app does not request `im:read`, so without this check every DM
+    # reads as shared and is sent to an approval it can never get.
+    if channel.startswith("D"):
+        return False
     try:
         info = slack.client.conversations_info(channel=channel)
         conversation: dict[str, Any] = info.get("channel") or {}

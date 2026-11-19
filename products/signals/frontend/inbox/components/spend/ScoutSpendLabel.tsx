@@ -40,7 +40,7 @@ export function ScoutSpendLabel({
                     average ? 'Average usage across runs with recorded amounts in the last 30 days.' : undefined
                 }
             />
-            <span>{average ? 'avg per run · last 30 days' : 'usage · last 30 days'}</span>
+            <span>{average ? 'avg per run · last 30 days' : 'used · last 30 days'}</span>
         </span>
     )
 }

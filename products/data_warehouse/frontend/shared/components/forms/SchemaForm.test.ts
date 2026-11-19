@@ -1,6 +1,6 @@
 import type { ExternalDataSourceSyncSchema } from '~/types'
 
-import { getDirectQuerySelectionDescription, getSyncFieldPlaceholder } from './SchemaForm'
+import { getDirectQuerySelectionDescription, getSyncFieldPlaceholder, getUnreadableTablesNotice } from './SchemaForm'
 import { getDefaultExpandedSchemaKeys, groupTablesBySchema, splitQualifiedTableName } from './schemaGroupingUtils'
 
 const makeSchema = (table: string): ExternalDataSourceSyncSchema => ({
@@ -41,6 +41,31 @@ describe('SchemaForm', () => {
         [null, 'No sync field selected'],
     ] as const)('labels the sync field cell for a %s table', (syncType, expected) => {
         expect(getSyncFieldPlaceholder(syncType)).toEqual(expected)
+    })
+
+    it.each([
+        ['every table is readable', [null, null], null],
+        [
+            'one table is unreadable',
+            ['Missing rak_promotion_code_read', null, null],
+            "Your credentials can't read 1\u00a0table. Import the other tables now, then turn these on from the source's Schemas tab after you grant access.",
+        ],
+        [
+            'several tables are unreadable',
+            ['Missing rak_promotion_code_read', 'Missing rak_invoice_item_read', null],
+            "Your credentials can't read 2\u00a0tables. Import the other tables now, then turn these on from the source's Schemas tab after you grant access.",
+        ],
+        [
+            'every table is unreadable',
+            ['Missing rak_charge_read', 'Missing rak_customer_read'],
+            "Your credentials can't read any of these tables. Grant read access in your source provider, then go back a step and try again.",
+        ],
+    ] as const)('shows the unreadable tables notice when %s', (_, permissionErrors, expected) => {
+        const schemas = permissionErrors.map((permission_error, index) => ({
+            ...makeSchema(`table_${index}`),
+            permission_error,
+        }))
+        expect(getUnreadableTablesNotice(schemas)).toEqual(expected)
     })
 
     it('splits fully qualified table names into schema and table labels', () => {

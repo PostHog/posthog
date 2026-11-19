@@ -4,7 +4,7 @@
 //! The index rows go to the index topic, and the Parquet sink writes them to S3. The flush does not wait for their
 //! delivery: the data is stored by then, and a lost row is counted.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -15,15 +15,16 @@ use metrics::counter;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
+use replay_core_v4::inspect::dom::UrlLimit;
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::keys::batch::{FlushKeys, KeyStore, SessionId};
 use replay_core_v4::keys::kms::AwsKms;
-use replay_core_v4::keys::rows::{key_month, write_day};
+use replay_core_v4::keys::rows::write_day;
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use tokio::sync::Semaphore;
 
 use crate::batch::Block;
-use crate::history::{mark_fresh, FetchHistory};
+use crate::history::{fresh_urls, FetchHistory, Fresh};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records, FetchJobs, FlushUrls};
@@ -147,7 +148,10 @@ async fn resolve_keys(
         .into_iter()
         .collect();
     let keys = writer.keys.keys_for_flush(&sessions, day).await?;
-    counter!("ai_research_v4_recorder_dropped_sessions_total").increment(keys.dropped.len() as u64);
+    for (_, cause) in &keys.dropped {
+        counter!("ai_research_v4_recorder_dropped_sessions_total", "cause" => cause.as_str())
+            .increment(1);
+    }
     Ok(keys)
 }
 
@@ -171,19 +175,13 @@ pub async fn write_flush(
         }
     };
     drop(resolved);
-    let month = key_month(&day);
     let attempt = FlushAttempt::new(now);
     let already_sent = |reference: &str| {
         writer
             .sent_urls
             .contains_key(&(day.clone(), reference.to_owned()))
     };
-    let urls = FlushUrls::new(
-        blocks.iter().map(|block| &**block),
-        &keys,
-        month,
-        &already_sent,
-    );
+    let urls = FlushUrls::new(blocks.iter().map(|block| &**block), &keys, &already_sent);
 
     let object_key = object_key(&day, now);
     let seals: Vec<_> = blocks
@@ -194,17 +192,12 @@ pub async fn write_flush(
                 team_id: block.session.team_id,
                 session_id: block.session.session_id.clone(),
             };
-            let key = keys.sessions.get(&id)?.clone();
-            let team_key = *keys.team_months.get(&block.session.team_id)?;
-            let (block, object_key, month, work) = (
-                block.clone(),
-                object_key.clone(),
-                month.to_owned(),
-                work.clone(),
-            );
+            let (key, team_key) = keys.session(&id)?;
+            let (key, team_key) = (key.clone(), *team_key);
+            let (block, object_key, work) = (block.clone(), object_key.clone(), work.clone());
             let seal = seal_blocking(&writer.seal_permits, move || {
                 let compressed = work.compressed(Arc::as_ptr(&block) as usize, || {
-                    compress_block(&block, &key, &team_key, &month)
+                    compress_block(&block, &key, &team_key)
                 })?;
                 seal_compressed(&compressed, &object_key)
             });
@@ -212,11 +205,11 @@ pub async fn write_flush(
         })
         .collect();
     let mut done = Vec::with_capacity(seals.len());
-    let (results, ()) = tokio::join!(
+    let (results, fresh) = tokio::join!(
         stream::iter(seals)
             .buffer_unordered(concurrency.max(1))
             .collect::<Vec<_>>(),
-        mark_fresh_urls(writer, &urls, &day),
+        fresh_flush_urls(writer, &urls, &day),
     );
     for (index, result) in results {
         match result {
@@ -231,16 +224,6 @@ pub async fn write_flush(
             Err(error) => return Err(error.into()),
         }
     }
-    // Fail closed: a block that still holds a declined URL, a credential or a private host, is not stored.
-    done.retain(|(index, block)| {
-        let Some(outcome) = block.counts.dropped else {
-            return true;
-        };
-        let session = &blocks[*index].session;
-        tracing::warn!(team_id = session.team_id, session_id = %session.session_id, outcome, "a block is not stored");
-        counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => outcome).increment(1);
-        false
-    });
     let (indices, mut sealed): (Vec<usize>, Vec<_>) = done.into_iter().unzip();
 
     // This attempt's own copy: a retry fills the writer's columns again from zero.
@@ -249,17 +232,29 @@ pub async fn write_flush(
         stats[index].images_extracted += block.counts.extracted;
         stats[index].image_bytes += block.counts.bytes;
         stats[index].images_inline += block.counts.inline;
+        for image in &block.images {
+            stats[index].image_ref_sketch.insert(&image.reference);
+        }
         stats[index].written_jsonl_bytes += block.counts.jsonl_bytes;
         stats[index].max_written_event_bytes = block.counts.max_line_bytes;
         stats[index].url_fingerprints = std::mem::take(&mut block.url_fingerprints);
         stats[index].surfacing.visited_url_fingerprints =
             std::mem::take(&mut block.visited_url_fingerprints);
+        // A reader must see the reason: the block can hold a declined URL, a credential or a private host.
+        if let Some(outcome) = block.counts.unread {
+            let session = &blocks[index].session;
+            tracing::warn!(team_id = session.team_id, session_id = %session.session_id, outcome, "a block is stored without a full read");
+            counter!("ai_research_v4_recorder_unread_blocks_total", "outcome" => outcome)
+                .increment(1);
+            stats[index].unread_reason = Some(outcome.to_owned());
+        }
     }
     // Before the index is written: building the jobs counts each block's image URLs into its stats. A dropped block's
-    // images are not stored, so the fetcher does not fetch them.
+    // images are not stored, and a block past the edit budget holds no reference to its images, so the fetcher does not
+    // fetch them.
     let mut kept = vec![false; blocks.len()];
     for &index in &indices {
-        kept[index] = true;
+        kept[index] = blocks[index].url_limit != Some(UrlLimit::Edits);
     }
     let jobs = fetch_jobs(
         &urls,
@@ -270,7 +265,8 @@ pub async fn write_flush(
             .filter(|(index, _)| kept[*index])
             .map(|(index, (block, stats))| (index, &**block, stats)),
         now.timestamp_millis(),
-        &already_sent,
+        &day,
+        &|reference: &str| already_sent(reference) || fresh.references.contains(reference),
     );
     drop(urls);
 
@@ -279,7 +275,6 @@ pub async fn write_flush(
         new_images(&mut sealed),
         &keys,
         &day,
-        month,
         &writer.images_bucket,
         &writer.store,
         now,
@@ -309,35 +304,49 @@ pub async fn write_flush(
     let flush_captured_at_ms = blocks.iter().filter_map(|b| b.captured_at_ms).min();
     let mut index = image_rows
         .iter()
+        .chain(&fresh.rows)
         .map(|row| IndexMessage::image(row, flush_captured_at_ms))
         .collect::<Result<Vec<_>, _>>()?;
+    counter!("ai_research_v4_recorder_packed_url_image_rows_total")
+        .increment(fresh.rows.len() as u64);
     for row in block_index_rows(&entries, &keys, &attempt)? {
         index.push(IndexMessage::block(&row)?);
     }
+    let with_rows: HashSet<&str> = fresh.rows.iter().map(|row| &*row.image_ref).collect();
+    let (packed, unpacked): (HashSet<String>, HashSet<String>) = fresh
+        .references
+        .iter()
+        .cloned()
+        .partition(|reference| with_rows.contains(reference.as_str()));
     produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
     send_index(
         &writer.index_producer,
         &writer.index_topic,
         &day,
         index,
+        &writer.sent_urls,
+        packed,
         flush_done.clone(),
     );
+    for reference in unpacked {
+        writer.sent_urls.insert((day.clone(), reference), ());
+    }
     Ok(())
 }
 
-async fn mark_fresh_urls(writer: &Writer, urls: &FlushUrls, day: &str) {
+async fn fresh_flush_urls(writer: &Writer, urls: &FlushUrls, day: &str) -> Fresh {
     let Some(history) = &writer.fetch_history else {
-        return;
+        return Fresh::default();
     };
     let deadline = tokio::time::Instant::now() + HISTORY_READ_BUDGET;
-    mark_fresh(
+    fresh_urls(
         history.as_ref(),
         &writer.sent_urls,
         urls.unsent_references(),
         day,
         deadline,
     )
-    .await;
+    .await
 }
 
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.
@@ -395,11 +404,15 @@ async fn produce_jobs(writer: &Writer, jobs: FetchJobs, day: &str, now_ms: i64) 
 }
 
 /// Hands the index rows to the producer and returns without waiting for their delivery. The returned task counts the outcomes, then finishes `done`. `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the sink files them with those.
+/// `sent_on_delivery` names image rows whose reference `sent_urls` takes only once the row reaches the topic. A later
+/// flush on the same day then sends a lost row again.
 pub fn send_index(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,
     write_day: &str,
     messages: Vec<IndexMessage>,
+    sent_urls: &moka::sync::Cache<(String, String), ()>,
+    mut sent_on_delivery: HashSet<String>,
     done: FlushDone,
 ) -> tokio::task::JoinHandle<()> {
     let mut deliveries = Vec::with_capacity(messages.len());
@@ -425,15 +438,24 @@ pub fn send_index(
             .key(&message.key)
             .payload(&message.payload)
             .headers(headers);
+        let marks = (message.index == Index::Images)
+            .then(|| sent_on_delivery.take(&message.key))
+            .flatten();
         match producer.send_result(record) {
-            Ok(delivery) => deliveries.push((message.index, delivery)),
+            Ok(delivery) => deliveries.push((message.index, marks, delivery)),
             Err((error, _)) => failed.add(message.index, error.to_string()),
         }
     }
+    let (sent_urls, write_day) = (sent_urls.clone(), write_day.to_owned());
     tokio::spawn(async move {
-        for (index, delivery) in deliveries {
+        for (index, marks, delivery) in deliveries {
             match delivery.await {
-                Ok(Ok(_)) => counter!("ai_research_v4_recorder_index_rows_total", "index" => index.as_str(), "outcome" => "delivered").increment(1),
+                Ok(Ok(_)) => {
+                    counter!("ai_research_v4_recorder_index_rows_total", "index" => index.as_str(), "outcome" => "delivered").increment(1);
+                    if let Some(reference) = marks {
+                        sent_urls.insert((write_day.clone(), reference), ());
+                    }
+                }
                 Ok(Err((error, _))) => failed.add(index, error.to_string()),
                 Err(_) => failed.add(index, "the producer dropped the row".to_owned()),
             }
@@ -498,6 +520,10 @@ mod tests {
         let (cluster, producer) = create_mock_kafka().await;
         cluster.create_topic(TOPIC, 1, 1).unwrap();
         let done = FlushDone::default();
+        let sent_urls = crate::urls::sent_urls(100);
+        let sent = |reference: &str| {
+            sent_urls.contains_key(&("2026-10-15".to_owned(), reference.to_owned()))
+        };
         let delivered = send_index(
             &producer,
             TOPIC,
@@ -506,15 +532,19 @@ mod tests {
                 message(Index::Blocks, "session-1", Some(1_000)),
                 message(Index::Images, "image:v4:7:2026-10:abc", None),
             ],
+            &sent_urls,
+            HashSet::from(["image:v4:7:2026-10:abc".to_owned()]),
             done.clone(),
         );
         // The test runtime has one thread, so the delivery task has not run yet.
         assert!(!done.is_finished());
+        assert!(!sent("image:v4:7:2026-10:abc"));
         producer
             .flush(Timeout::After(Duration::from_secs(5)))
             .unwrap();
         delivered.await.unwrap();
         assert!(done.is_finished());
+        assert!(sent("image:v4:7:2026-10:abc"));
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", cluster.bootstrap_servers())

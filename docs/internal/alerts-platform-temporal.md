@@ -534,13 +534,15 @@ python manage.py backfill_platform_insight_alert_configurations
 
 It copies every insight alert, on every cadence.
 A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
-An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
-A paused AI detector check, refused for a withdrawn rollout or consent or for no AI credits left, is not retried. It records an errored check and leaves the alert enabled, as production does.
+An AI or forecast detector check runs on the AI queue, whose worker holds the AI gateway credentials, with production's retries: a check whose gateway call reaches no result is retried, and only its last attempt records the error.
+A paused check is not retried. An AI detector check pauses for a withdrawn rollout or consent, or for no AI credits left. A forecast detector check pauses for a withdrawn rollout or consent, a gateway 402 or 403, or no usable gateway. A paused check records an errored check and leaves the alert enabled, as production does.
+An AI detector alert runs `AI_DETECTOR_ALERT_POLICY` on both stacks, so it announces a firing once and stays quiet until a clear check ends the firing.
+Production marks each quiet firing check with `firing_not_renotified`, so the investigation safety net and the cutover do not treat it as a held notification.
 Every other check gets one 12-minute attempt.
-An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
-Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
-An AI detector alert created or turned back on later waits for the next backfill run with the flag.
-A copy made without the flag is switched off at its next check when its alert has since moved to the AI detector.
+AI and forecast detector checks call the AI gateway on both stacks while both run, and each call is billed to the project, so the backfill leaves those alerts out.
+Pass `--include-ai-detector` to copy both kinds, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
+An AI or forecast detector alert created or turned back on later waits for the next backfill run with the flag.
+A copy made without the flag is switched off at its next check when its alert has since moved to the AI or forecast detector.
 The AI queue's worker needs `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file too, or those checks query as the worker's own ClickHouse user.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
@@ -569,6 +571,59 @@ Pass `--ids-file` to either backfill, with one alert id per line, to copy only t
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
+
+## Evaluation fleet capacity
+
+Every source in `SOURCE_BINDINGS` evaluates on `alerts-platform-evaluation-task-queue`, so all sources draw on one set of worker activity slots.
+The fleet's slots are its pod count times `MAX_CONCURRENT_ACTIVITIES`.
+The deployment's values set both for each region. Neither is a Temporal limit, so both can grow.
+
+### What holds a slot
+
+| Pool                  | Setting                                              | Default       | Holds an evaluation worker slot                                                   |
+| --------------------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------- |
+| Insight checks        | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS`        | the query cap | For the whole check, including while it waits for a query slot                    |
+| Insight queries       | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS`   | 10            | None of its own: a query runs inside a check's slot                               |
+| Insight chart renders | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS` | 3             | While the export workflow draws the chart, up to the export's render timeout      |
+| Logs batches          | `ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES`          | 5             | While the batch runs. The wait for a pool slot is a workflow timer and holds none |
+| Metrics batches       | `ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES`       | 5             | While the batch runs                                                              |
+| Traces batches        | `ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES`        | 5             | While the batch runs                                                              |
+
+Billing and warehouse checks have no pool of their own. Their keys per tick bound them.
+
+The pools that hold slots must fit inside the fleet's slots together, with room left for activities outside any pool, such as planning and recording.
+A pool larger than its share does not fail loudly.
+Its work waits for a worker while holding its pool slot, so the pool turns away other checks it had room for.
+That shows as `alerts_platform_checks_deferred_total{source}` and as scheduler lag for the source.
+When a source's pool grows, or a new source adds one, add it to this sum for every region first.
+
+### Ways to grow
+
+1. Add pods. Slots grow with the pod count, and the cost is each pod's CPU and memory request. This is the first choice.
+2. Raise `MAX_CONCURRENT_ACTIVITIES`. Activity threads in one process share the GIL, and query parsing is CPU-heavy, so more slots per pod give each check less CPU. A region lowered this value for that reason, so raise it only while watching activity and workflow task latency.
+3. Give a source its own queue and fleet when its checks hold a slot for minutes, as [the dispatcher section](#tick-loop-and-source-dispatchers) describes.
+4. Stop holding a slot while waiting. Wait on a workflow timer, as the logs pool wait does, or run the slow work as its own workflow, so no activity blocks on it.
+
+Chart renders are the open case for the fourth option.
+A render activity holds a slot here while the export runs on another queue.
+Sending the firing first and editing the chart into the Slack message afterwards would need no slot here. The late chart already does that when the render pool is full.
+
+### Limits outside the fleet
+
+More slots do not raise these limits:
+
+- **ClickHouse.** Each source queries as its own user, so the user's concurrent query limit bounds the source's query pool, whatever the slot count. Size the insight query cap from refused queries, as the rollout steps above describe.
+- **The export fleet.** A chart render runs as an export workflow on `analytics-platform-task-queue`. That fleet also runs other exports and autoscales on its own slot use, up to a maximum pod count. A larger render pool moves load there, so check its slot use at peak before raising the render pool.
+- **The render browser.** The export draws the chart in Browserless, an external browser service with its own limit on concurrent sessions.
+- **Snuffle.** Metrics checks send PromQL to Snuffle, so its capacity bounds the metrics pool.
+
+### Sizing a new source
+
+1. Write down what one check holds a slot for, and for how long.
+2. Give the source a pool whose cap protects the system it queries.
+3. Add the cap to the sum of slot-holding pools, and check that every region still fits. Add pods before raising a cap past the free slots.
+4. Give the source its own queue if its checks hold a slot for minutes.
+5. Watch `alerts_platform_checks_deferred_total` and scheduler lag for the source while its share grows.
 
 ## Held deliveries
 
@@ -675,5 +730,29 @@ Retries have separate activity attempt spans.
 
 Tests verify local logging, queue-labelled SDK metrics, and trace relationships without an application database or an external collector.
 Charts rollout must separately configure all three deployments and verify Prometheus scraping and delivery to the tracing collector.
-This change does not configure deployments, dashboards, alert rules, or SLO emission.
-The `alerts-platform` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
+This change does not configure deployments or dashboards.
+
+## Missed checks and the check SLO
+
+Per-path counters (`checks_skipped`, `checks_deferred`, `checks_unfinished`) only see the early returns someone thought to count.
+Two signals catch a missed check whatever held it back:
+
+- `alerts_platform_configurations_overdue{source, owner}` is pushed by the inventory every tick.
+  It counts enabled configurations that are not BROKEN and whose `next_check_at` is older than their grace.
+  The grace is twice the check interval with a 2-minute floor, or a fixed 2 hours for a calendar recurrence.
+  The same push carries `_unscheduled` (no `next_check_at`), `_oldest_due_seconds`, and `_broken`.
+- `alerts_platform_check_completion_lag_ms{source}` is recorded by `record_outcomes` after its transaction commits, once per configuration it wrote.
+  It measures wall time from the due time to the commit, for every source, so a source that records no scheduler lag of its own is still measured.
+  A replay that writes nothing adds no sample.
+
+The SLO, measured over 1 hour:
+
+- p90 completion lag is at most 60 seconds for logs, metrics, and traces, and at most 300 seconds for insight.
+- `alerts_platform_configurations_overdue{owner="platform"} == 0`.
+  Source-owned configurations are listed too, but their due times belong to the source's own stack.
+
+`checks_deferred` counts rediscovery events, not distinct late checks: a check deferred on three ticks counts three times.
+Read lateness from the overdue gauge, not from that counter.
+
+The alert rules for these signals are vmalert rules in the private PostHog/charts repo, in `alerts/specs/alerts-platform.yaml`.
+All of them are `warning`.

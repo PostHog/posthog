@@ -43,7 +43,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.clickhouse.client import sync_execute
 from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Element, Organization, OrganizationMembership, Team
 from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS
 from posthog.models.group.util import create_group
@@ -53,6 +53,7 @@ from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -216,12 +217,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert set(by_distinct_id) == {"good", "dict", "list", "int"}
         # String session id is checked for a recording (none exists, so False); non-string ones are skipped.
         assert by_distinct_id["good"]["$has_recording"] is False
-        for distinct_id in ("dict", "list", "int"):
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert isinstance(by_distinct_id[distinct_id]["$session_id"], str)
-                assert by_distinct_id[distinct_id]["$has_recording"] is False
-            else:
-                assert "$has_recording" not in by_distinct_id[distinct_id]
+        for distinct_id in ("dict", "list"):
+            assert "$has_recording" not in by_distinct_id[distinct_id]
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The native table declares `$session_id` as a string, so a number comes back as its text.
+            assert by_distinct_id["int"]["$session_id"] == "12345"
+            assert by_distinct_id["int"]["$has_recording"] is False
+        else:
+            assert "$has_recording" not in by_distinct_id["int"]
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(
@@ -1401,9 +1404,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         expect_pushdown = person_id_pushdown is not False
-        assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
-        assert response.modifiers is not None
-        assert response.modifiers.personIdPushdown is expect_pushdown
+        assert ("globalIn(person.id, (SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
         assert "properties.$feature_flag," not in response.hogql
         assert len(response.results) == 1
         star, *columns = response.results[0]
@@ -1433,6 +1434,62 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "variant-a",
             "",
             "full",
+        ]
+
+    def test_flag_evaluations_only_organization_lists_one_persons_flag_calls_by_person_id(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID, "flag-user-second-device"],
+            properties={"email": FLAG_EVALUATIONS_EMAIL},
+        )
+        other_person = _create_person(team_id=self.team.pk, distinct_ids=["other-flag-user"])
+        first_device_call = self._create_flag_calls_in_both_tables(person_id=person.uuid)
+        second_device_call = self._insert_flag_evaluation(
+            "flag-user-second-device",
+            person.uuid,
+            timestamp=FLAG_CALL_TIMESTAMP - timedelta(minutes=5),
+            properties={"$feature_flag": "second-device-flag", "$feature_flag_response": True, "$lib": "posthog-ios"},
+        )
+        self._insert_flag_evaluation("other-flag-user", other_person.uuid)
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=[
+                    "*",
+                    "properties.$feature_flag",
+                    "properties.$feature_flag_response",
+                    "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+                    "properties.$lib",
+                    "timestamp",
+                ],
+                event="$feature_flag_called",
+                personId=str(person.uuid),
+                after="-24h",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert len([query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]) == 1
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [(str(star["uuid"]), *columns) for star, *columns in response.results] == [
+            (
+                str(first_device_call),
+                FLAG_EVALUATIONS_FLAG_KEY,
+                "variant-a",
+                "https://example.com/pricing",
+                "web",
+                FLAG_CALL_TIMESTAMP,
+            ),
+            (
+                str(second_device_call),
+                "second-device-flag",
+                "true",
+                None,
+                "posthog-ios",
+                FLAG_CALL_TIMESTAMP - timedelta(minutes=5),
+            ),
         ]
 
     @parameterized.expand(
@@ -1468,11 +1525,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {},
                 EVENTS_FLAG_KEY,
             ),
+            # A filter that mixes flag calls with other events reads the union, which takes new flag calls from
+            # flag_evaluations.
             (
                 "flag_evaluations_only_with_a_second_event_in_the_filter",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 {"event": "$feature_flag_called", "events": ["$pageview"]},
-                EVENTS_FLAG_KEY,
+                FLAG_EVALUATIONS_FLAG_KEY,
             ),
             (
                 "flag_evaluations_only_with_action_steps",
@@ -1490,6 +1549,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_flag_key: str,
         reads_forced_to_events: bool = False,
     ):
+        # The native JSON events table holds no flag calls.
+        # FLAG_EVALUATIONS_READS_FORCE_EVENTS therefore does not move its reads to events.
+        if reads_forced_to_events and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            expected_flag_key = FLAG_EVALUATIONS_FLAG_KEY
         self._set_flag_evaluations_mode(mode)
         self._create_flag_calls_in_both_tables()
 
@@ -1518,7 +1581,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(from_flag_evaluations, CachedEventsQueryResponse)
         assert isinstance(from_events, CachedEventsQueryResponse)
         assert [row[0] for row in from_flag_evaluations.results] == [FLAG_EVALUATIONS_FLAG_KEY]
-        assert [row[0] for row in from_events.results] == [EVENTS_FLAG_KEY]
+        forced_flag_key = (
+            FLAG_EVALUATIONS_FLAG_KEY if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_FLAG_KEY
+        )
+        assert [row[0] for row in from_events.results] == [forced_flag_key]
 
     @parameterized.expand(
         [
@@ -1651,6 +1717,37 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert sorted(row[0] for row in response.results) == ["first-retained-day-user", "recent-user"]
 
+    def test_flag_evaluations_person_filter_matches_each_of_the_persons_distinct_ids(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        _create_person(team_id=self.team.pk, distinct_ids=["id1", "id2"])
+        flush_persons_and_events()
+        person = get_person_by_distinct_id(self.team.pk, "id1")
+        assert person is not None
+        self._insert_flag_evaluation("id1", person.uuid)
+        self._insert_flag_evaluation("id2", person.uuid)
+        self._insert_flag_evaluation("someone-else", uuid.uuid4())
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["distinct_id"],
+                event="$feature_flag_called",
+                personId=str(person.pk),
+                after="-30d",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert sorted(row[0] for row in response.results) == ["id1", "id2"]
+        page_queries = [sql for sql in queries if re.search(r"\bFROM\s+flag_evaluations\b", sql)]
+        assert len(page_queries) == 1
+        assert (
+            "in(cityHash64(flag_evaluations.distinct_id), tuple(cityHash64('id1'), cityHash64('id2')))"
+            in page_queries[0]
+        )
+        assert "in(flag_evaluations.distinct_id, tuple('id1', 'id2'))" in page_queries[0]
+
     @snapshot_clickhouse_queries
     def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
@@ -1740,10 +1837,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_person_properties_stripped_from_person_column(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 
@@ -1827,10 +1923,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_display_property_does_not_break_person_display_name(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 
@@ -1980,10 +2075,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_cached_results_not_served_across_restriction_boundaries(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 

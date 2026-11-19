@@ -1,0 +1,15 @@
+version = 1
+
+[git]
+default_branch = "master"
+
+[github]
+repository = "PostHog/posthog"
+
+[changelog]
+show_acknowledgments = false
+show_release_date = false
+
+[packages]
+ignore_unpublished = false
+ignore = []

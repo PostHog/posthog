@@ -21,7 +21,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.utils import human_list
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl

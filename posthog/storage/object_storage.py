@@ -1,5 +1,6 @@
 import abc
 import threading
+from collections.abc import Iterator
 from typing import IO, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -12,9 +13,18 @@ from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
+MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024
+
 
 class ObjectStorageError(Exception):
     pass
+
+
+@frozen
+class StoredObjectSummary:
+    key: str
+    etag: str | None
+    size: int
 
 
 class ObjectStorageClient(metaclass=abc.ABCMeta):
@@ -60,6 +70,16 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def list_object_summaries(self, bucket: str, prefix: str, *, limit: int | None = None) -> list[StoredObjectSummary]:
+        """Every object under `prefix`, or the first `limit`: empty for an empty prefix, ObjectStorageError on failure."""
+        pass
+
+    @abc.abstractmethod
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        """Yield every key under the prefix, one listing page at a time. Raises ObjectStorageError on any failure."""
+        pass
+
+    @abc.abstractmethod
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         pass
 
@@ -77,6 +97,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    @abc.abstractmethod
+    def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
+        """Not atomic: callers serialize appends to one key. Returns whether this call created the object."""
         pass
 
     @abc.abstractmethod
@@ -140,6 +165,13 @@ class UnavailableStorage(ObjectStorageClient):
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
 
+    def list_object_summaries(self, bucket: str, prefix: str, *, limit: int | None = None) -> list[StoredObjectSummary]:
+        raise ObjectStorageError("object storage is unavailable")
+
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        # This raises instead of yielding nothing, because an empty listing tells the caller that the prefix holds no keys.
+        raise ObjectStorageError("object storage is unavailable")
+
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         return None
 
@@ -154,6 +186,9 @@ class UnavailableStorage(ObjectStorageClient):
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
+
+    def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
+        return False
 
     def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
         pass
@@ -287,6 +322,40 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def list_object_summaries(self, bucket: str, prefix: str, *, limit: int | None = None) -> list[StoredObjectSummary]:
+        summaries: list[StoredObjectSummary] = []
+        request: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+        try:
+            while True:
+                response = self.aws_client.list_objects_v2(**request)
+                summaries.extend(
+                    StoredObjectSummary(key=obj["Key"], etag=obj.get("ETag"), size=int(obj.get("Size", 0)))
+                    for obj in response.get("Contents") or []
+                )
+                if limit is not None and len(summaries) >= limit:
+                    return summaries[:limit]
+                token = response.get("NextContinuationToken")
+                if not response.get("IsTruncated") or not token:
+                    return summaries
+                request["ContinuationToken"] = token
+        except Exception as e:
+            logger.exception("object_storage.list_object_summaries_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("list_objects failed") from e
+
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        pages = self.aws_client.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix=prefix, PaginationConfig={"PageSize": page_size}
+        )
+        try:
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    yield obj["Key"]
+        except Exception as e:
+            logger.exception("object_storage.iter_keys_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("list failed") from e
+
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         object_bytes = self.read_bytes(bucket, key, missing_ok=missing_ok)
         if object_bytes:
@@ -354,6 +423,67 @@ class ObjectStorage(ObjectStorageClient):
             )
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
+
+    def _get_object_or_none(self, bucket: str, key: str) -> dict | None:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        try:
+            return self.aws_client.get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "NoSuchKey":
+                return None
+            raise
+
+    def _append_by_part_copy(self, bucket: str, key: str, content: bytes) -> None:
+        upload_id = self.aws_client.create_multipart_upload(Bucket=bucket, Key=key)["UploadId"]
+        try:
+            existing_part = self.aws_client.upload_part_copy(
+                Bucket=bucket, Key=key, UploadId=upload_id, PartNumber=1, CopySource={"Bucket": bucket, "Key": key}
+            )
+            new_part = self.aws_client.upload_part(
+                Bucket=bucket, Key=key, UploadId=upload_id, PartNumber=2, Body=content
+            )
+            self.aws_client.complete_multipart_upload(
+                Bucket=bucket,
+                Key=key,
+                UploadId=upload_id,
+                MultipartUpload={
+                    "Parts": [
+                        {"PartNumber": 1, "ETag": existing_part["CopyPartResult"]["ETag"]},
+                        {"PartNumber": 2, "ETag": new_part["ETag"]},
+                    ]
+                },
+            )
+        except Exception:
+            self.aws_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+            raise
+
+    def _try_append_by_part_copy(self, bucket: str, key: str, suffix: bytes, existing_length: int) -> bool:
+        try:
+            self._append_by_part_copy(bucket, key, suffix)
+            return True
+        except Exception as e:
+            logger.warning("object_storage.append_by_part_copy_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+        head = self.head_object(bucket, key)
+        return head is not None and head["ContentLength"] == existing_length + len(suffix)
+
+    def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
+        try:
+            existing = self._get_object_or_none(bucket, key)
+            if existing is not None and existing["ContentLength"] >= MULTIPART_MIN_PART_BYTES:
+                existing["Body"].close()
+                if self._try_append_by_part_copy(bucket, key, separator + content, existing["ContentLength"]):
+                    return False
+                existing = self._get_object_or_none(bucket, key)
+            existing_content = existing["Body"].read() if existing is not None else b""
+            body = b"".join((existing_content, separator, content)) if existing_content else content
+            self.aws_client.put_object(Bucket=bucket, Key=key, Body=body)
+            return not existing_content
+        except Exception as e:
+            logger.exception("object_storage.append_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("append failed") from e
 
     def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
         """
@@ -546,6 +676,12 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
     )
 
 
+def append(file_name: str, content: bytes, *, separator: bytes, bucket: str | None = None) -> bool:
+    return object_storage_client().append(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content, separator=separator
+    )
+
+
 def write_from_file(file_name: str, file_path: str, bucket: str | None = None) -> None:
     return object_storage_client().write_from_file(
         bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
@@ -595,6 +731,20 @@ def read_object(
 
 def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
     return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def list_object_summaries(
+    prefix: str, bucket: str | None = None, *, limit: int | None = None
+) -> list[StoredObjectSummary]:
+    return object_storage_client().list_object_summaries(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix, limit=limit
+    )
+
+
+def iter_keys(prefix: str, bucket: str | None = None, *, page_size: int = 1000) -> Iterator[str]:
+    return object_storage_client().iter_keys(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix, page_size=page_size
+    )
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:

@@ -26,8 +26,9 @@ const asBound = (value: number | undefined): number | undefined =>
     typeof value === 'number' && isFinite(value) ? value : undefined
 
 export function MetricsChartSettings(): JSX.Element {
-    const { displayType, goalLines, yAxisSettings, reduce } = useValues(metricsViewerLogic)
-    const { addGoalLine, updateGoalLine, removeGoalLine, setYAxisSetting, setReduce } = useActions(metricsViewerLogic)
+    const { displayType, goalLines, yAxisSettings, reduce, statSparkline } = useValues(metricsViewerLogic)
+    const { addGoalLine, updateGoalLine, removeGoalLine, setYAxisSetting, setReduce, setStatSparkline } =
+        useActions(metricsViewerLogic)
     const [open, setOpen] = useState(false)
 
     const [minDraft, setMinDraft] = useState(yAxisSettings.min)
@@ -36,6 +37,7 @@ export function MetricsChartSettings(): JSX.Element {
     useEffect(() => setMaxDraft(yAxisSettings.max), [yAxisSettings.max])
 
     const showsReducer = !!METRICS_PANELS[displayType]?.reducesSeries
+    const isStat = displayType === 'stat'
     const isLog = yAxisSettings.scale === 'log'
     // Bars encode magnitude as length from zero, so quill ignores both a floated baseline and pinned
     // bounds on them. The settings stay persisted and apply again on a line or area chart.
@@ -52,6 +54,7 @@ export function MetricsChartSettings(): JSX.Element {
     // Counts the persisted settings, not the drafts — a bound of 0 is still a bound.
     const changedCount =
         (showsReducer && reduce !== DEFAULT_REDUCER ? 1 : 0) +
+        (isStat && !statSparkline ? 1 : 0) +
         goalLines.length +
         (yAxisSettings.scale ? 1 : 0) +
         (beginsAtZero ? 0 : 1) +
@@ -78,6 +81,15 @@ export function MetricsChartSettings(): JSX.Element {
                                 data-attr="metrics-value-reducer"
                             />
                         </div>
+                    )}
+                    {isStat && (
+                        <LemonSwitch
+                            label="Show graph"
+                            tooltip="When off, the tile shows only the value."
+                            checked={statSparkline}
+                            onChange={setStatSparkline}
+                            data-attr="metrics-stat-sparkline"
+                        />
                     )}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Goal lines</LemonLabel>

@@ -12,6 +12,8 @@ from django.conf import settings
 import requests
 import structlog
 
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
 from posthog.security.outbound_proxy import internal_requests_session
 
 logger = structlog.get_logger(__name__)
@@ -104,6 +106,11 @@ def validate_sandbox_url(url: str) -> str | None:
     # In-cluster DNS answers for the hogland host with a private address.
     if is_hogland_sandbox_url(url):
         return None
+
+    if is_cloud() and (oob_domain := matched_oob_domain(hostname)) is not None:
+        logger.info("security.oob_domain_seen", host=hostname, domain=oob_domain, guard="tasks_sandbox_url")
+        # A sandbox URL names infrastructure we provisioned, so a listed name means bad state.
+        return "Host is not allowed"
 
     try:
         resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)

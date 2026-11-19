@@ -60,7 +60,14 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
+from posthog.temporal.alerts.alert_firing_signal import (
+    AlertFiringSignal,
+    alert_firing_skip_reason,
+    dispatch_alert_firing_signal,
+    prepare_alert_firing_signal,
+)
 from posthog.temporal.alerts.investigation import (
+    InvestigationDecision,
     carried_verdict_suppresses,
     claim_investigation_slot,
     decide_investigation,
@@ -71,6 +78,7 @@ from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
     AdmittedEvaluations,
     AlertInfo,
+    EmitAlertFiringSignalActivityInputs,
     EvaluateAlertActivityInputs,
     EvaluateAlertResult,
     NotifyAlertActivityInputs,
@@ -90,13 +98,15 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_EVALUATE_EXECUTOR,
+    UNAVAILABLE_ERRORS_BY_NAME,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
+    calls_ai_gateway,
     is_llm_detector_config,
 )
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
@@ -571,7 +581,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         return PrepareAlertResult(
             action=PrepareAction.EVALUATE,
-            uses_llm_detector=is_llm_detector_config(alert.detector_config),
+            uses_llm_detector=calls_ai_gateway(alert.detector_config),
             evaluation_fingerprint=evaluation_fingerprint,
         )
 
@@ -598,11 +608,12 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:
     """The error payload for an evaluation that ran out of retries without writing a check.
 
-    A provider the judge cannot reach is not the owner's configuration, and the raw transport
-    error is not written for them, so that case gets its own code and its own wording.
+    A provider the judge or the forecast cannot reach is not the owner's configuration, and the raw
+    transport error is not written for them, so that case gets its own code and its own wording.
     """
-    if inputs.error_type == LLMDetectorUnavailableError.__name__:
-        return {"code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE, "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE}
+    unavailable = UNAVAILABLE_ERRORS_BY_NAME.get(inputs.error_type or "")
+    if unavailable is not None:
+        return {"code": unavailable.error_code, "message": unavailable.owner_message}
     return {"message": inputs.error_message}
 
 
@@ -691,12 +702,14 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             raise
         except LLMDetectorPausedError as err:
             # Retrying cannot help, and the alert stays enabled so it resumes once access or credits return.
-            record_ai_detector_check_outcome("paused")
-            error = {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": str(err)}
+            if is_llm_detector_config(alert.detector_config):
+                record_ai_detector_check_outcome("paused")
+            error = {"code": err.error_code, "message": str(err)}
         except LLMDetectorMisconfiguredError as err:
             # Same fail-loud outcome as a bad query shape below, counted apart because a missing
             # creator is the owner's to fix and never a provider failure.
-            record_ai_detector_check_outcome("misconfigured")
+            if is_llm_detector_config(alert.detector_config):
+                record_ai_detector_check_outcome("misconfigured")
             invalid_configuration = str(err)
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
@@ -762,7 +775,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     new_state=AlertState(alert_check.state),
                 )
 
-            investigation = decide_investigation(alert, alert_check)
+            # A finished investigation delivers its check's notification, so a check that sends none skips it.
+            investigation = decide_investigation(alert, alert_check) if should_notify else InvestigationDecision()
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True
                 should_gate_notification = should_notify and bool(alert.investigation_gates_notifications)
@@ -783,6 +797,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # recorded on the check and can't affect the alert outcome.
         if should_run_metrics_investigation:
             run_metrics_alert_investigation(alert, alert_check)
+        signal_candidate = (
+            alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state) is None
+        )
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -792,6 +809,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             should_start_investigation=should_start_investigation,
             should_gate_notification=should_gate_notification,
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
+            signal_candidate=signal_candidate,
+            previous_state=AlertState(previous_state),
         )
 
     team_id = inputs.team_id
@@ -803,7 +822,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # could pick up an AI detector and run its model call on the shared pool.
         alert = await _load_alert_for_evaluation(inputs)
         team_id = alert.team_id
-        uses_llm_detector = is_llm_detector_config(alert.detector_config)
+        uses_llm_detector = calls_ai_gateway(alert.detector_config)
         if uses_llm_detector != inputs.uses_llm_detector:
             # The prepare phase picked the task queue from the detector type it read, and only
             # the AI worker holds the model credentials. An edit since then means this worker may
@@ -862,6 +881,41 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         lease=timeouts.evaluation_slot_lease,
         stop_work=_stop_work,
     )
+
+
+def _prepare_firing_signal(inputs: EmitAlertFiringSignalActivityInputs) -> AlertFiringSignal | None:
+    alert_check = (
+        AlertCheck.objects.select_related("alert_configuration__insight", "alert_configuration__team")
+        .filter(
+            id=inputs.alert_check_id,
+            alert_configuration_id=inputs.alert_id,
+            alert_configuration__team_id=inputs.team_id,
+        )
+        .first()
+    )
+    if alert_check is None:
+        return None
+    alert = alert_check.alert_configuration
+    # The evaluation ruled out a platform-owned alert. This covers an owner change since then.
+    if not alert.enabled or alert.platform_owned:
+        return None
+    return prepare_alert_firing_signal(
+        alert, alert_check, previous_state=inputs.previous_state, breaches=inputs.breaches
+    )
+
+
+@temporalio.activity.defn
+async def emit_alert_firing_signal(inputs: EmitAlertFiringSignalActivityInputs) -> None:
+    """Send the inbox signal for a check that started a firing episode.
+
+    The workflow runs it after the notification, so a slow or stuck send never delays the
+    notification. It skips a deleted or disabled alert, and runs the gates again against the
+    current alert, so an edit since the evaluation can still stop the signal.
+    """
+    signal = await database_sync_to_async(_prepare_firing_signal, thread_sensitive=False)(inputs)
+    if signal is not None:
+        # On the event loop, not in the thread: emit_signal needs the default executor.
+        await dispatch_alert_firing_signal(signal)
 
 
 def _lock_evaluation_alert(*, alert_id: str, team_id: int, insight_id: int) -> AlertConfiguration | None:
@@ -1059,11 +1113,11 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
             else "PostHog will try again at the next scheduled check."
         )
         title = f"{alert_name[:75]} could not be evaluated"
-        if error_code == LLM_DETECTOR_PAUSED_ERROR_CODE:
+        if error_code in DETECTOR_PAUSED_ERROR_CODES:
             body = f"PostHog could not evaluate this alert: {error_message}."
-        elif error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
-            # A check the AI detector could not complete is not something the owner can fix,
-            # so this case drops the advice to review the alert settings.
+        elif error_code in DETECTOR_UNAVAILABLE_ERROR_CODES:
+            # A check the AI or forecast detector could not complete is not something the owner
+            # can fix, so this case drops the advice to review the alert settings.
             body = (
                 f"PostHog could not evaluate this alert: {error_message}. "
                 f"{next_check_message} If it fails again, contact support."

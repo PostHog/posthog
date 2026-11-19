@@ -23,7 +23,6 @@ tools:
             region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or
             resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per
             hour, rounded to four decimal places, and each preset carries that total as hourly_price.
-        feature_flag: revamped-py-notebooks
     notebooks-configure-compute:
         operation: notebooks_kernel_config_create
         enabled: true
@@ -55,42 +54,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: revamped-py-notebooks
-    notebooks-create:
-        operation: notebooks_create
-        enabled: true
-        scopes:
-            - notebook:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{short_id}'
-        title: Create notebook
-        description: >
-            Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's
-            rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded
-            charts use `{type: "ph-query", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a)
-            `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display: "ActionsBar",
-            chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: "InsightVizNode",
-            source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for
-            product-analytics insights; or (c) `{kind: "SavedInsightNode", shortId: "..."}` to embed a saved insight.
-            The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give
-            every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what
-            a reader skims instead of the query.
-
-            The server stores the notebook as a markdown notebook: it converts this document, embedded charts included,
-            into markdown with component tags. When you update the notebook later, notebooks-retrieve shows its content
-            as one ph-markdown-notebook node, so keep that structure and edit attrs.markdown. For step-by-step data
-            analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead. After substantial visual
-            changes, check the final saved notebook once if browser access is already available. Skip browser checks for
-            small edits.
-        exclude_params:
-            - _create_in_folder
-        feature_flag: revamped-py-notebooks
-        feature_flag_behavior: disable
-        superseded_by:
-            - notebooks-create-markdown
     notebooks-destroy:
         operation: notebooks_destroy
         enabled: true
@@ -152,7 +115,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: revamped-py-notebooks
         response:
             informational_wrapper:
                 tag: notebook-content
@@ -201,7 +163,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: revamped-py-notebooks
         response:
             include:
                 - status
@@ -250,40 +211,8 @@ tools:
         feature_flag: notebooks-collaboration
         feature_flag_behavior: disable
         superseded_by:
-            - notebook-edit
-    notebooks-retrieve:
-        operation: notebooks_retrieve
-        enabled: true
-        scopes:
-            - notebook:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{short_id}'
-        title: Get notebook
-        description:
-            "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version,
-            and creation/modification metadata. Use this when you need the raw content or the current version number —
-            required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a
-            markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use
-            notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled). When you do not
-            have the notebook's short_id, find it with notebooks-list; searching by title is what its search parameter
-            is for."
-        param_overrides:
-            short_id:
-                description: >
-                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
-                    `notebooks-list` returns; not the notebook's UUID `id`.
-                aliases:
-                    - notebook_id
-                    - notebookId
-                    - shortId
-                    - notebook_short_id
-        feature_flag: revamped-py-notebooks
-        feature_flag_behavior: disable
-        superseded_by:
-            - notebooks-get
+            - notebooks-update-cell
+            - notebooks-add-cell
     notebooks-run-cell-interrupt:
         operation: notebooks_sql_v2_runs_interrupt_create
         enabled: true
@@ -307,7 +236,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: revamped-py-notebooks
     notebooks-run-cell-result:
         operation: notebooks_sql_v2_runs_retrieve
         enabled: true
@@ -336,7 +264,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: revamped-py-notebooks
         response:
             exclude:
                 - result.media.*.data

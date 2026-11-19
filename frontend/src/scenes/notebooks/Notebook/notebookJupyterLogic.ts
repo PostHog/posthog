@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { notebooksKernelRestartCreate } from 'products/notebooks/frontend/generated/api'
 
-import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
+import { kernelActionErrorMessage, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 import { notebookRunLogic } from './notebookRunLogic'
 
@@ -173,8 +173,8 @@ export const notebookJupyterLogic = kea<notebookJupyterLogicType>([
                 if (runAll) {
                     notebookRunLogic.findMounted({ shortId: props.shortId })?.actions.startRun()
                 }
-            } catch {
-                lemonToast.error('The kernel could not be restarted. Try again.')
+            } catch (error) {
+                lemonToast.error(kernelActionErrorMessage(error, 'The kernel could not be restarted. Try again.'))
             } finally {
                 actions.setIsRestartingKernel(false)
                 notebookKernelInfoLogic.findMounted({ shortId: props.shortId })?.actions.loadKernelInfo()

@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import {
     API_SCOPES,
+    clampToKeyCreationScopes,
     type ScopeAccessLevel,
     scopeMatchesSearch,
     scopesArrayToObject,
@@ -26,15 +27,14 @@ const REGION_OPTIONS: { value: PosthogConnectRegion; label: string }[] = [
     { value: 'EU', label: 'European Union (EU)' },
 ]
 
-// Only offer scopes an OAuth client can actually be granted (mirrors get_oauth_scopes_supported on
+// Only offer scopes an OAuth client can actually be granted (mirrors OAUTH_SCOPES_SUPPORTED on
 // the backend, which excludes privileged/internal/hidden scopes). openid/email are added server-side.
 const GRANTABLE_SCOPES = API_SCOPES.filter((scope) => !scope.unprivilegedExcluded)
 
 const readAllScopes = (): string[] =>
     GRANTABLE_SCOPES.filter((s) => !s.disabledActions?.includes('read')).map((s) => `${s.key}:read`)
 
-const fullAccessScopes = (): string[] =>
-    GRANTABLE_SCOPES.map((s) => (s.disabledActions?.includes('write') ? `${s.key}:read` : `${s.key}:write`))
+const fullAccessScopes = (): string[] => clampToKeyCreationScopes(GRANTABLE_SCOPES.map((s) => `${s.key}:write`))
 
 const SCOPE_PRESETS: { value: string; label: string; scopes: () => string[] }[] = [
     {

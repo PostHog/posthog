@@ -8,12 +8,13 @@ use crate::{
         feature_flag_list::PreparedFlags,
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList},
+        flag_request::KnownAbsentProperties,
         flag_service::FlagService,
     },
+    team::team_models::Team,
     utils::user_agent::{RuntimeType, UserAgentInfo},
 };
 use axum::extract::State;
-use chrono_tz::Tz;
 use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -388,9 +389,7 @@ fn collect_excluded_by_tags(
 #[allow(clippy::too_many_arguments)]
 pub async fn evaluate_for_request(
     state: &State<router::State>,
-    team_id: i32,
-    team_timezone: Tz,
-    use_explicit_exact_matching: bool,
+    team: &Team,
     distinct_id: String,
     device_id: Option<String>,
     filtered_flags: FeatureFlagList,
@@ -398,6 +397,7 @@ pub async fn evaluate_for_request(
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     groups: Option<HashMap<String, Value>>,
     hash_key_override: Option<String>,
+    known_absent_properties: KnownAbsentProperties,
     request_id: Uuid,
     request_entered_at: tokio::time::Instant,
     disable_flags: bool,
@@ -426,8 +426,10 @@ pub async fn evaluate_for_request(
         });
 
         let ctx = FeatureFlagEvaluationContext {
-            team_id,
-            team_timezone,
+            team_id: team.id,
+            // Interpret naive datetime filter values in the team timezone so flag
+            // evaluation matches HogQL/ClickHouse cohort membership.
+            team_timezone: team.parsed_timezone(),
             distinct_id,
             device_id,
             feature_flags: filtered_flags,
@@ -441,6 +443,7 @@ pub async fn evaluate_for_request(
             group_property_overrides,
             groups,
             hash_key_override,
+            known_absent_properties,
             flag_keys,
             optimize_experience_continuity_lookups: state
                 .config
@@ -452,11 +455,9 @@ pub async fn evaluate_for_request(
                 || only_use_override_person_properties.unwrap_or(false)
                 || *state.config.skip_writes,
             cohort_membership_provider: state.cohort_membership_provider.clone(),
-            enable_realtime_cohort_evaluation: state
-                .config
-                .realtime_cohort_evaluation_team_ids
-                .includes_team(team_id),
-            use_explicit_exact_matching,
+            enable_realtime_cohort_evaluation: team
+                .evaluates_realtime_cohorts(&state.config.realtime_cohort_evaluation_team_ids),
+            use_explicit_exact_matching: team.property_matching_version.uses_explicit_matching(),
             membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
             detailed_analysis: detailed_analysis.unwrap_or(false),
             only_use_override_person_properties: only_use_override_person_properties

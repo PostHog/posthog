@@ -216,6 +216,17 @@ def suggest_field_names(
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
+def zero_argument_function_call(name: str) -> Optional[str]:
+    """`name()` when `name` is a function that can be called with no arguments, such as `today`."""
+    # Imported here because `ast` imports this module and the functions package imports the parser
+    from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
+
+    meta = find_hogql_function(name) or find_hogql_aggregation(name) or find_hogql_posthog_function(name)
+    if meta is None or meta.min_args != 0:
+        return None
+    return f"{name}()"
+
+
 def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
     """Replacement text for the range `node` marks, or None when no edit is safe to offer.
 
@@ -289,19 +300,20 @@ def lookup_table_by_nested_name(
     return match
 
 
+def table_folds_identifier_case(table: Table, alias: Optional[str] = None) -> bool:
+    """Whether the resolver matches a qualifier to `table` in any case. An explicit `alias` keeps the user's exact
+    spelling, so only an alias that re-spells the table's own name counts."""
+    if not getattr(table, "case_insensitive_identifiers", False):
+        return False
+    return alias is None or (table.name is not None and table.name.lower() == alias.lower())
+
+
 def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
     if isinstance(table_type, ast.TableType):
-        return getattr(table_type.table, "case_insensitive_identifiers", False)
+        return table_folds_identifier_case(table_type.table)
     # A table referenced with different casing than discovery registers as an implicit alias.
-    # Fold only that re-spelling; an explicit alias keeps the user's exact name.
-    if isinstance(table_type, ast.TableAliasType):
-        inner = table_type.table_type
-        return (
-            isinstance(inner, ast.TableType)
-            and getattr(inner.table, "case_insensitive_identifiers", False)
-            and inner.table.name is not None
-            and inner.table.name.lower() == table_type.alias.lower()
-        )
+    if isinstance(table_type, ast.TableAliasType) and isinstance(table_type.table_type, ast.TableType):
+        return table_folds_identifier_case(table_type.table_type.table, table_type.alias)
     return False
 
 

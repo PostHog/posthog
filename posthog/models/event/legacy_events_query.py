@@ -1,8 +1,9 @@
 import uuid
 import random
 import builtins
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional, cast
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,7 +24,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import generate_short_id, relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 # Columns the events list/retrieve endpoints read. The order is the contract for zipping HogQL
 # result rows back into the dict shape `ClickhouseEventSerializer` expects. Deliberately NOT "*":
@@ -35,6 +37,7 @@ EVENT_LIST_SELECT_COLUMNS = ["uuid", "event", "properties", "timestamp", "distin
 EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
 EVENT_LIST_CACHE_TTL = 86400  # 24 hours
 EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
+EVENT_LIST_DEFAULT_AFTER_WINDOW = timedelta(hours=24)
 
 
 def _get_limit_size_category(limit: int) -> str:
@@ -79,6 +82,11 @@ def _execute_events_list_query(runner: EventsQueryRunner, database: Database) ->
     )
     rows = [dict(zip(EVENT_LIST_SELECT_COLUMNS, row)) for row in runner.paginator.results]
     return rows, runner.paginator.has_more()
+
+
+def resolve_before(before: Optional[str], tzinfo: ZoneInfo) -> datetime:
+    # Just past now, so events ingested a moment ago aren't excluded.
+    return relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
 
 
 def get_one_event(team: Team, pk: str) -> Optional[dict]:
@@ -146,9 +154,9 @@ class LegacyEventsListQuery:
         if before and after:
             try:
                 tzinfo = self.team.timezone_info
-                request_window_seconds = int(
-                    (relative_date_parse(before, tzinfo) - relative_date_parse(after, tzinfo)).total_seconds()
-                )
+                before_utc = relative_date_parse(before, tzinfo).astimezone(UTC)
+                after_utc = relative_date_parse(after, tzinfo).astimezone(UTC)
+                request_window_seconds = int((before_utc - after_utc).total_seconds())
             except (ValueError, TypeError):
                 pass
 
@@ -165,7 +173,9 @@ class LegacyEventsListQuery:
                 cached_window = cached_data.get("window")
         elif cached_data and isinstance(cached_data, int):
             cached_window = cached_data  # legacy cache format: bare window integer
-        if cached_window and cached_window in windows_to_try:
+        if cached_window and request_window_seconds is not None and cached_window >= request_window_seconds:
+            windows_to_try = []
+        elif cached_window and cached_window in windows_to_try:
             windows_to_try.remove(cached_window)
             windows_to_try.insert(0, cached_window)
 
@@ -196,13 +206,16 @@ class LegacyEventsListQuery:
                     successful_window = window
                     break
 
+            if not successful_window and (applied_window is not None or not windows_to_try):
+                # Windows were applied but came up short, or there were none — run the full range.
+                rows, has_more, applied_window = self.run_page(**page_kwargs)
+                if request_window_seconds in EVENT_LIST_TIME_WINDOWS and len(rows) >= half_limit:
+                    successful_window = request_window_seconds
+
             if successful_window:
                 new_cache_data = {"window": successful_window, "result_count": len(rows)}
                 if new_cache_data != cached_data:
                     cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
-            elif applied_window is not None or not windows_to_try:
-                # Windows were applied but came up short, or there were none — run the full range.
-                rows, has_more, applied_window = self.run_page(**page_kwargs)
 
         return rows, has_more
 
@@ -228,18 +241,12 @@ class LegacyEventsListQuery:
         """
         tzinfo = self.team.timezone_info
 
-        # Resolve the [after_dt, before_dt) bounds. `before` defaults to just past now (so events
-        # ingested a moment ago aren't excluded); `after` stays open unless requested.
+        # Resolve the [after_dt, before_dt) bounds. `after` stays open unless the caller passes one.
         # PATCH_EVENT_LIST_MAX_OFFSET clamps this deprecated endpoint's ClickHouse cost as a graduated
-        # rollout (0 = off, 1 = migration, 2 = enabled; see settings/data_stores.py): at 2 a missing
-        # `after` defaults to before-24h, and a range over a year is rejected (always at 2, ~1% at 1).
-        before_dt = relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
-        if after:
-            after_dt: Optional[datetime] = relative_date_parse(after, tzinfo)
-        elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
-            after_dt = before_dt - timedelta(hours=24)
-        else:
-            after_dt = None
+        # rollout (0 = off, 1 = migration, 2 = enabled; see settings/data_stores.py): a range over a
+        # year is rejected (always at 2, ~1% at 1).
+        before_dt = resolve_before(before, tzinfo)
+        after_dt: Optional[datetime] = relative_date_parse(after, tzinfo) if after else None
 
         if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and after_dt is not None:
             if (before_dt - after_dt) > timedelta(days=366) and (
@@ -261,8 +268,8 @@ class LegacyEventsListQuery:
         # is left to fail (int() raises) — bad input should error, not silently return nothing.
         if action_id:
             try:
-                action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-            except Action.DoesNotExist:
+                action = get_action(action_id=int(action_id), project_id=self.team.project_id)
+            except ActionNotFound:
                 return [], False, applied_window_seconds
             if not action.steps:
                 return [], False, applied_window_seconds

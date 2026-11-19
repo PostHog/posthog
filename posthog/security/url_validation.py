@@ -265,14 +265,11 @@ class BlockedName:
     pattern: str | None = None
 
 
-def _blocked_host_name(host: str) -> BlockedName | None:
-    """Why to reject a host on its name alone, or None when the name is acceptable.
+def internal_host_name(host: str) -> BlockedName | None:
+    """Why a host is inside our network on its name or IP literal alone, or None.
 
-    These checks run before resolution, so they also catch a name that resolves to a public
-    IP: split-horizon DNS, and a registered domain shaped like an internal one.
-
-    Canonicalizes again although every caller does. Matching below is exact or by suffix, so
-    an un-normalized host would fail it open.
+    No lookup, no out-of-band list and no log line, so a caller can inspect stored config
+    without reaching the network.
     """
     host = _canonicalize_host(host)
     if host in METADATA_HOSTS:
@@ -284,14 +281,31 @@ def _blocked_host_name(host: str) -> BlockedName | None:
             return BlockedName(reason=f"Internal domain pattern blocked: {pattern}", pattern=pattern)
     if _is_internal_ip_literal(host):
         return BlockedName(reason="Private IP address not allowed")
+    return None
+
+
+def _blocked_host_name(host: str) -> BlockedName | None:
+    """Why to reject a host on its name alone, or None when the name is acceptable.
+
+    These checks run before resolution, so they also catch a name that resolves to a public
+    IP: split-horizon DNS, and a registered domain shaped like an internal one.
+
+    Canonicalizes again although every caller does. Matching below is exact or by suffix, so
+    an un-normalized host would fail it open.
+    """
+    host = _canonicalize_host(host)
+    if (internal := internal_host_name(host)) is not None:
+        return internal
 
     if is_cloud():
-        # Detection only: these names resolve to ordinary public IPs, so every IP check passes
-        # them, and the lookup alone confirms the path to whoever runs the collaborator.
+        # These names resolve to ordinary public IPs, so every IP check below passes them. The
+        # lookup alone confirms the path to whoever runs the collaborator, so the refusal has to
+        # come from the name, before this host reaches the resolver.
         from posthog.security.oob_domains import matched_oob_domain  # noqa: PLC0415 — breaks an import cycle
 
         if (oob_domain := matched_oob_domain(host)) is not None:
             logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="url_validation")
+            return BlockedName(reason="Domain not allowed", pattern=oob_domain)
     return None
 
 

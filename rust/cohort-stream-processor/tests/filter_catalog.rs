@@ -8,10 +8,11 @@ use cohort_stream_processor::filters::{
     build_catalog_from_rows, CohortId, CohortLeaf, CohortRow, FilterCatalog, FilterNode, TeamId,
 };
 use cohort_stream_processor::stage2::{CohortEligibility, ExcludedReason};
+use common_types::cohort::TeamAllowlist;
 use serde_json::{json, Value};
 
 fn build_catalog(rows: Vec<CohortRow>) -> FilterCatalog {
-    build_catalog_from_rows(rows, false)
+    build_catalog_from_rows(rows, TeamAllowlist::All, false)
 }
 
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";

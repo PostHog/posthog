@@ -11,7 +11,8 @@ from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import find_action_team_id, get_actions
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = get_logger(__name__)
 
@@ -26,11 +27,12 @@ def refresh_affected_hog_functions(
     affected_hog_functions: list[HogFunction] = []
 
     if action_id:
-        action = Action.objects.get(id=action_id)
-        team_id = action.team_id
+        team_id = find_action_team_id(action_id=action_id)
+        if team_id is None:
+            raise ActionNotFound(f"Action {action_id} does not exist")
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
-            .filter(team_id=action.team_id)
+            .filter(team_id=team_id)
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:
@@ -66,14 +68,11 @@ def refresh_affected_hog_functions(
     if not affected_hog_functions:
         return 0
 
-    all_related_actions = (
-        Action.objects.select_related("team")
-        .filter(team_id=team_id)
-        .filter(
-            id__in=[
-                action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
-            ]
-        )
+    all_related_actions = get_actions(
+        team_id=team_id,
+        action_ids=[
+            action_id for hog_function in affected_hog_functions for action_id in hog_function.filter_action_ids
+        ],
     )
 
     actions_by_id = {action.id: action for action in all_related_actions}

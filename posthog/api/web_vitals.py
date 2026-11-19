@@ -11,6 +11,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
+WEB_VITALS_METRICS = ["INP", "LCP", "CLS", "FCP"]
+
 
 class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -48,35 +50,12 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {
                         "kind": "EventsNode",
                         "event": "$web_vitals",
-                        "name": "INP",
-                        "custom_name": "INP",
+                        "name": metric,
+                        "custom_name": metric,
                         "math": "p90",
-                        "math_property": "$web_vitals_INP_value",
-                    },
-                    {
-                        "kind": "EventsNode",
-                        "event": "$web_vitals",
-                        "name": "LCP",
-                        "custom_name": "LCP",
-                        "math": "p90",
-                        "math_property": "$web_vitals_LCP_value",
-                    },
-                    {
-                        "kind": "EventsNode",
-                        "event": "$web_vitals",
-                        "name": "CLS",
-                        "custom_name": "CLS",
-                        "math": "p90",
-                        "math_property": "$web_vitals_CLS_value",
-                    },
-                    {
-                        "kind": "EventsNode",
-                        "event": "$web_vitals",
-                        "name": "FCP",
-                        "custom_name": "FCP",
-                        "math": "p90",
-                        "math_property": "$web_vitals_FCP_value",
-                    },
+                        "math_property": f"$web_vitals_{metric}_value",
+                    }
+                    for metric in WEB_VITALS_METRICS
                 ],
                 "trendsFilter": {
                     "display": "ActionsLineGraph",
@@ -96,4 +75,11 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result is None:
             return Response({"error": "Failed to calculate web vitals"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response(result.model_dump(mode="json"), status=status.HTTP_200_OK)
+        response = result.model_dump(mode="json")
+        # posthog-js pins the toolbar to the SDK release, so customer sites keep running old toolbar code
+        # until they upgrade the SDK. Older toolbars find each metric by `action.custom_name` and throw
+        # when `action` is missing, so this field must stay while those SDK versions are in use.
+        for row in response["results"]:
+            row["action"] = {"custom_name": WEB_VITALS_METRICS[row["order"]]}
+
+        return Response(response, status=status.HTTP_200_OK)

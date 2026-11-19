@@ -907,6 +907,16 @@ class TestSplitTextForSlack(SimpleTestCase):
             assert chunk.count("```") == 2
             assert len(chunk) <= self._LIMIT
 
+    def test_oversized_code_block_with_label_near_limit_does_not_flood_chunks(self):
+        body = "\n".join(f"line {i:04d}" for i in range(800))
+        label = "x" * (self._LIMIT - 10)
+        chunks = _split_markdown_for_slack(f"```{label}\n{body}\n```", self._LIMIT)
+        assert len(chunks) < 10
+        for chunk in chunks:
+            assert chunk.startswith("```\n")
+            assert chunk.endswith("\n```")
+            assert len(chunk) <= self._LIMIT
+
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
         suffix = "\n\ntrailing paragraph"

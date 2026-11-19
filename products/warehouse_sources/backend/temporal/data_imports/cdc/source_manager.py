@@ -46,8 +46,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     parse_buffer_file_name,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_JOB_IDS_KEY,
+    companions_completed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
+    EMPTY_POSITION,
     LanePosition,
     content_columns,
     ensure_position_stats,
@@ -58,7 +62,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_SNAPSHOT_POSITION_KEY,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
     safe_parse_datetime,
@@ -230,7 +237,7 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | N
             continue
         if stamped.tzinfo is None:
             continue
-        if _companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
+        if companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
             tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
             return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
     return None
@@ -277,7 +284,7 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
         .order_by("-created_at")
         .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
     )
-    return not any(_companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
+    return not any(companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
 
 
 async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
@@ -309,18 +316,6 @@ def clear_listing(job_id: str, team_id: int) -> None:
             return
         snapshot = {k: v for k, v in stamped.items() if k not in (BUFFER_LISTED_AT_KEY, BUFFER_LISTED_TAIL_KEY)}
         ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
-
-
-def _companions_completed(companion_job_ids: list[str]) -> bool:
-    """Whether every companion table this run also wrote finished with it."""
-    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-
-    if not companion_job_ids:
-        return True
-    statuses = ExternalDataJob.objects.filter(id__in=companion_job_ids).values_list("status", flat=True)
-    return len(statuses) == len(companion_job_ids) and all(
-        status == ExternalDataJob.Status.COMPLETED for status in statuses
-    )
 
 
 # A run whose companion failed proves nothing, so look past it — but never far: an older listing
@@ -360,6 +355,20 @@ def _history_transform(
     return _apply
 
 
+def _seed_position(schema: ExternalDataSchema) -> LanePosition:
+    """Where a history table that holds only its snapshot seed stops.
+
+    The seed carries no position, and a resnapshot that stays in the buffer keeps changes from before
+    the snapshot read. The merge lane converges over them, but the history lane would version each one
+    a second time. Every change at or below the recorded position is in the seed.
+    """
+    recorded = (schema.sync_type_config or {}).get(CDC_SNAPSHOT_POSITION_KEY)
+    if not isinstance(recorded, int) or isinstance(recorded, bool):
+        return EMPTY_POSITION
+    # `drop_superseded_rows` keeps rows at the position itself, and those are in the seed too.
+    return LanePosition(position=recorded + 1, applied={})
+
+
 async def build_output_lanes(
     schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger, history: HistoryNaming | None
 ) -> tuple[list[OutputLane], int | None]:
@@ -373,7 +382,7 @@ async def build_output_lanes(
 
     The floor is the lowest position any lane holds — a file below it is settled for every table.
     A lane whose table reports no position holds the floor open, so nothing is deleted until every
-    lane can prove where it stops.
+    lane can prove where it stops. A history table holding only its seed stops at the snapshot's position.
     """
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
@@ -391,6 +400,8 @@ async def build_output_lanes(
         # rather than losing it, and duplication is the direction that can be repaired.
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
+        if lane.history is not None and position.position is None:
+            position = _seed_position(schema)
         positions.append(position.position)
         replay = ReplayFilter(position)
         lanes.append(

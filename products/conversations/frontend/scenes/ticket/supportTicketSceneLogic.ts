@@ -40,10 +40,11 @@ import {
     ImpersonationTicketContext,
     impersonationNoticeLogic,
 } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
+import { TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
-import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
@@ -285,7 +286,6 @@ export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
@@ -338,6 +338,7 @@ export interface supportTicketSceneLogicValues {
     ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
+    todayRecent: TodayPeopleRecent | null
     unsavedTicketChanges: string[]
 }
 
@@ -352,9 +353,6 @@ export interface supportTicketSceneLogicActions {
     loadTickets: (debounce?: boolean | undefined) => {
         debounce: boolean
     } // supportTicketsSceneLogic
-    loadTags: () => {
-        value: true
-    } // tagsModel
     appendMessage: (message: CommentType) => {
         message: CommentType
     }
@@ -595,6 +593,7 @@ export interface supportTicketSceneLogicProps {
 export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
+        todayRecent: (ticket: Ticket | null) => TodayPeopleRecent | null
         breadcrumbs: (id: number | string) => Breadcrumb[]
         emailReplyBlockedReason: (
             ticket: Ticket | null,
@@ -648,8 +647,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         actions: [
             supportTicketsSceneLogic,
             ['loadTickets'],
-            tagsModel,
-            ['loadTags'],
             impersonationNoticeLogic,
             ['setTicketContext'],
             supportMacrosLogic,
@@ -664,8 +661,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['draftModeDefault'],
             assigneeSelectLogic,
             ['resolveAssignee'],
-            tagsModel,
-            ['tags as availableTags'],
             userLogic,
             ['user', 'hasAvailableFeature'],
         ],
@@ -1058,6 +1053,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): TodayPeopleRecent | null =>
+                ticket?.ticket_number
+                    ? {
+                          type: 'ticket',
+                          name: `Ticket #${ticket.ticket_number}`,
+                          href: urls.supportTicketDetail(ticket.ticket_number),
+                      }
+                    : null,
+        ],
         breadcrumbs: [
             (_, p) => [p.id],
             (id: number | string): Breadcrumb[] => {
@@ -1268,7 +1274,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         automatedUpdate: !!message.item_context?.automated_update_key,
                         version: message.version,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
-                        fromZendesk: message.item_context?.from_zendesk === true,
+                        fromExternalImport:
+                            message.item_context?.from_zendesk === true ||
+                            message.item_context?.from_intercom === true ||
+                            message.item_context?.from_pylon === true,
+                        fromGithub: message.item_context?.from_github === true,
                         hasFullEmailContent: message.item_context?.has_full_email_content === true,
                         citations: Array.isArray(message.item_context?.citations)
                             ? message.item_context.citations.filter(
@@ -1457,10 +1467,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket as Ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
-                // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
-                if (values.tags.some((tag) => !values.availableTags.includes(tag))) {
-                    actions.loadTags()
-                }
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error

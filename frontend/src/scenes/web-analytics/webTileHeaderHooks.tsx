@@ -18,17 +18,18 @@ import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
 import { downloadTableDataAsCsv, getExportAdapter } from './webAnalyticsExportUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { withoutWebQueryModifiers } from './webQueryModifiers'
 
 const NO_ACTIVE_TAB_INSIGHT_PROPS: InsightLogicProps = {
     dashboardItemId: 'new-AdHoc.web-analytics-no-active-tab-fallback',
     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-export function useWebTileExportAdapter(
-    query: QuerySchema | undefined,
-    insightProps: InsightLogicProps
-): ExportAdapter | null {
-    // This header hook renders before the tile's chart. insightDataLogic (mounted below) connects to
+export function useWebTileInsightData(insightProps: InsightLogicProps): {
+    insightDataRaw: Record<string, any> | null
+    insightDataLoading: boolean
+} {
+    // Callers can render before the tile's chart, which loads lazily. insightDataLogic (mounted below) connects to
     // the shared, key-only dataNodeLogic without forwarding dataNodeCollectionId, so it would build
     // that logic first and bind it to a fallback collection — dropping the tile from the dashboard's
     // "reload all" (only the overview, which isn't an insight viz, kept reloading). Bind the node to
@@ -49,9 +50,15 @@ export function useWebTileExportAdapter(
     )
     useMountedLogic(collectionBoundDataNodeLogic)
 
-    const builtInsightDataLogic = insightDataLogic(insightProps)
-    const { insightDataRaw } = useValues(builtInsightDataLogic)
+    const { insightDataRaw, insightDataLoading } = useValues(insightDataLogic(insightProps))
+    return { insightDataRaw, insightDataLoading }
+}
 
+export function useWebTileExportAdapter(
+    query: QuerySchema | undefined,
+    insightProps: InsightLogicProps
+): ExportAdapter | null {
+    const { insightDataRaw } = useWebTileInsightData(insightProps)
     return useMemo(() => getExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 }
 
@@ -103,7 +110,7 @@ export function useWebTileOverflowMenuItems({
                     if (!query) {
                         return
                     }
-                    void copyToClipboard(JSON.stringify(query, null, 2), 'query JSON')
+                    void copyToClipboard(JSON.stringify(withoutWebQueryModifiers(query), null, 2), 'query JSON')
                 },
             },
         ]

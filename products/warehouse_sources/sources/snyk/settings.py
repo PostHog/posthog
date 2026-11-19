@@ -19,9 +19,9 @@ class SnykScope(Enum):
     # Fan out over the distinct groups of the organizations (GET /rest/groups/{group_id}/...).
     # Snyk lists groups only on a beta version, so the group ids come from the orgs' ``group_id``.
     PER_GROUP = "per_group"
-    # Fan out over every collection of every organization
-    # (GET /rest/orgs/{org_id}/collections/{collection_id}/...).
-    PER_COLLECTION = "per_collection"
+    # Fan out over every row of another per-org endpoint (``parent_endpoint``), for example
+    # GET /rest/orgs/{org_id}/collections/{collection_id}/...
+    PER_ORG_CHILD = "per_org_child"
 
 
 @dataclass(frozen=False)
@@ -46,6 +46,21 @@ class SnykEndpointConfig:
     default_incremental_field: Optional[str] = None
     # Snyk's documented ``limit`` maximum is 100 for these endpoints (default is 10).
     page_size: int = 100
+    # The audit log search endpoints name the page size ``size`` instead of ``limit``.
+    page_size_param: str = "limit"
+    # JSONPath of the row list. The audit log search endpoints nest it under ``data.items``.
+    data_selector: str = "data"
+    # PER_ORG_CHILD only: the per-org endpoint whose rows this endpoint fans out over, and the
+    # column (and path placeholder) that holds the parent row's id.
+    parent_endpoint: Optional[str] = None
+    parent_id_column: Optional[str] = None
+    # When ``window_start_param`` is missing, the endpoint returns only a recent slice (audit log
+    # search starts at the start of yesterday). A sync with no watermark sends the start of the
+    # vendor's retention window instead.
+    window_start_param: Optional[str] = None
+    retention_days: Optional[int] = None
+    # Audit log items have no id, so the transport hashes these fields into a synthetic ``id``.
+    synthetic_id_fields: tuple[str, ...] = ()
 
     @property
     def supports_incremental(self) -> bool:
@@ -62,12 +77,17 @@ def _timestamp_incremental_field(field_name: str) -> IncrementalField:
 
 
 # Endpoint catalog. Coverage mirrors the canonical Snyk streams (org inventory, projects,
-# targets, and the high-value issues/findings table), plus memberships and collections.
+# targets, and the high-value issues/findings table), plus memberships, collections, group
+# organizations, container images and audit logs.
 #
-# Incremental vs full refresh: only the issues endpoint documents genuine server-side
-# timestamp filters (``updated_after`` / ``created_after``), so only issues is marked
-# incremental. The other endpoints have no reliable server-side time filter, so they ship
-# full refresh and dedupe on their primary key.
+# Incremental vs full refresh: only the issues endpoint (``updated_after`` / ``created_after``)
+# and the audit log search (``from``) document genuine server-side timestamp filters, so only
+# they are marked incremental. The other endpoints have no reliable server-side time filter, so
+# they ship full refresh and dedupe on their primary key.
+# Snyk keeps audit logs for 90 days.
+AUDIT_LOG_RETENTION_DAYS = 90
+AUDIT_LOG_ID_FIELDS = ("created", "event", "org_id", "group_id", "project_id", "content")
+
 SNYK_ENDPOINTS: dict[str, SnykEndpointConfig] = {
     "organizations": SnykEndpointConfig(
         name="organizations",
@@ -109,9 +129,63 @@ SNYK_ENDPOINTS: dict[str, SnykEndpointConfig] = {
     # collection id is part of the key.
     "collection_projects": SnykEndpointConfig(
         name="collection_projects",
-        scope=SnykScope.PER_COLLECTION,
+        scope=SnykScope.PER_ORG_CHILD,
         path="/orgs/{org_id}/collections/{collection_id}/relationships/projects",
         primary_keys=["id", "collection_id", "organization_id"],
+        parent_endpoint="collections",
+        parent_id_column="collection_id",
+    ),
+    # Every org in each group, also the orgs the token is not a member of.
+    "group_organizations": SnykEndpointConfig(
+        name="group_organizations",
+        scope=SnykScope.PER_GROUP,
+        path="/groups/{group_id}/orgs",
+        primary_keys=["id", "group_id"],
+    ),
+    "container_images": SnykEndpointConfig(
+        name="container_images",
+        scope=SnykScope.PER_ORG,
+        path="/orgs/{org_id}/container_images",
+        primary_keys=["id", "organization_id"],
+    ),
+    # Links each image to the targets it was imported through. One image can have several refs.
+    "container_image_target_refs": SnykEndpointConfig(
+        name="container_image_target_refs",
+        scope=SnykScope.PER_ORG_CHILD,
+        path="/orgs/{org_id}/container_images/{image_id}/relationships/image_target_refs",
+        primary_keys=["id", "image_id", "organization_id"],
+        parent_endpoint="container_images",
+        parent_id_column="image_id",
+    ),
+    "org_audit_logs": SnykEndpointConfig(
+        name="org_audit_logs",
+        scope=SnykScope.PER_ORG,
+        path="/orgs/{org_id}/audit_logs/search",
+        primary_keys=["id", "organization_id"],
+        partition_key="created",
+        incremental_fields=[_timestamp_incremental_field("created")],
+        incremental_param_by_field={"created": "from"},
+        default_incremental_field="created",
+        page_size_param="size",
+        data_selector="data.items",
+        window_start_param="from",
+        retention_days=AUDIT_LOG_RETENTION_DAYS,
+        synthetic_id_fields=AUDIT_LOG_ID_FIELDS,
+    ),
+    "group_audit_logs": SnykEndpointConfig(
+        name="group_audit_logs",
+        scope=SnykScope.PER_GROUP,
+        path="/groups/{group_id}/audit_logs/search",
+        primary_keys=["id", "group_id"],
+        partition_key="created",
+        incremental_fields=[_timestamp_incremental_field("created")],
+        incremental_param_by_field={"created": "from"},
+        default_incremental_field="created",
+        page_size_param="size",
+        data_selector="data.items",
+        window_start_param="from",
+        retention_days=AUDIT_LOG_RETENTION_DAYS,
+        synthetic_id_fields=AUDIT_LOG_ID_FIELDS,
     ),
     "issues": SnykEndpointConfig(
         name="issues",

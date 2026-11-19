@@ -26,7 +26,12 @@ from posthog.temporal.delete_teams.workflows import (
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.django_db(
+        transaction=True, databases=["default", "ui_customization_db_writer", "ui_customization_db_reader"]
+    ),
+]
 
 WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
 

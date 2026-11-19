@@ -22,33 +22,53 @@ export interface DrawContext {
     /** Smooth the line/area with monotone-cubic interpolation instead of straight segments. */
     smooth?: boolean
     /** Largest drawable y (px) for line/area strokes. Charts drawing an x-axis line pass the
-     *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
-     *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
+     *  baseline minus half the default stroke width, and `drawLineSeriesLayer` raises it per series
+     *  for a wider stroke, so a baseline-hugging stroke rests exactly on the axis line instead of
+     *  straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
     /** Draw across missing values instead of breaking the line and area at them. */
     connectNulls?: boolean
 }
 
-function isDrawablePoint({ xScale, yScale, labels }: DrawContext, data: number[], i: number): boolean {
-    return xScale(labels[i]) != null && isFinite(yScale(data[i]))
+/** The y pixel of a data point. A log axis cannot place zero or a negative value, and its clamp
+ *  would draw that point on the axis floor, so it reads as a gap instead. */
+function pointY(yScale: DrawContext['yScale'], value: number): number {
+    return 'base' in yScale && !(value > 0) ? NaN : yScale(value)
 }
 
-/** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
+function isDrawablePoint({ xScale, yScale, labels }: DrawContext, data: number[], i: number): boolean {
+    return xScale(labels[i]) != null && isFinite(pointY(yScale, data[i]))
+}
+
+/** Default stroke width of series lines. Half of it is the stroke's overhang past a point, which the
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
+
+/** The series' stroke width: the default when unset, 0 (no line) for a NaN or negative width. */
+function lineStrokeWidth(series: ResolvedSeries): number {
+    return Math.max(0, series.stroke?.width ?? LINE_STROKE_WIDTH) || 0
+}
+
+/** The incomplete-period dash: `stroke.partial.pattern`, else 10px dashes with an 8px visible gap.
+ *  A round cap adds half the width to each end of a dash, so the gap grows with the width to stay
+ *  open on a wide line. At the default width this is `[10, 10]`. */
+function partialDashPattern(series: ResolvedSeries): number[] {
+    return series.stroke?.partial?.pattern ?? [10, lineStrokeWidth(series) + 8]
+}
 
 /** Dot radius for a point with no line through it, e.g. a series with one value. */
 const ISOLATED_POINT_RADIUS = 3
 
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
-    if (data.length === 0) {
+    const width = lineStrokeWidth(series)
+    if (data.length === 0 || width === 0) {
         return
     }
 
     const { ctx } = drawCtx
     ctx.strokeStyle = series.color
-    ctx.lineWidth = LINE_STROKE_WIDTH
+    ctx.lineWidth = width
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
@@ -79,9 +99,9 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
     const { ctx, xScale, yScale, labels, yFloor, smooth } = drawCtx
     const last = data.length - 1
     const x0 = xScale(labels[last - 1])
-    const rawY0 = yScale(data[last - 1])
+    const rawY0 = pointY(yScale, data[last - 1])
     const x1 = xScale(labels[last])
-    const rawY1 = yScale(data[last])
+    const rawY1 = pointY(yScale, data[last])
     if (x0 == null || x1 == null || !isFinite(rawY0) || !isFinite(rawY1)) {
         return false
     }
@@ -107,7 +127,7 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
 
     // Dashed: the split pixel out to the final point.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(splitX, splitY)
     ctx.lineTo(x1, y1)
     ctx.stroke()
@@ -189,7 +209,7 @@ function drawSmoothFractionalTail(drawCtx: DrawContext, series: ResolvedSeries, 
 
     // Dashed: the split point out to the final point, along the same curve.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(split.x, split.y)
     const end = tail[tail.length - 1]
     ctx.bezierCurveTo(split.secondCp1x, split.secondCp1y, split.secondCp2x, split.secondCp2y, end.x, end.y)
@@ -210,7 +230,7 @@ interface Stroke {
  */
 function planLineStrokes(series: ResolvedSeries, length: number, isDrawable?: (i: number) => boolean): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
-    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const partialPattern = partialDashPattern(series)
     let from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
     let to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
     // A boundary on a bridged missing value moves to the nearest drawn point, so the bridge is dashed like the area.
@@ -261,7 +281,7 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
     let started = false
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
-        const rawY = yScale(data[i])
+        const rawY = pointY(yScale, data[i])
         if (x == null || !isFinite(rawY)) {
             if (!connectNulls) {
                 // Reset so the next valid point starts a fresh subpath rather than
@@ -293,7 +313,7 @@ function collectSmoothRuns(drawCtx: DrawContext, data: number[], start: number, 
     let run: Point[] = []
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
-        const y = yScale(data[i])
+        const y = pointY(yScale, data[i])
         if (x == null || !isFinite(y)) {
             if (run.length > 0 && !connectNulls) {
                 runs.push(run)
@@ -493,7 +513,7 @@ export function drawArea(
     }
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
-        const rawTop = yScale(data[i])
+        const rawTop = pointY(yScale, data[i])
         if (x == null || !isFinite(rawTop)) {
             if (!connectNulls) {
                 breakSegment()
@@ -621,7 +641,7 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
 
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
-        const y = yScale(data[i])
+        const y = pointY(yScale, data[i])
         if (x == null || !isFinite(y)) {
             continue
         }
@@ -1071,13 +1091,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
     const zOrder = options.zOrder ?? 'per-series'
     const visible = series.filter((s) => !s.visibility?.excluded)
+    // `yFloor` is set for the default stroke; a wider stroke rests higher so it still sits on the axis.
+    const floorFor = (s: ResolvedSeries): number | undefined =>
+        yFloor == null ? undefined : yFloor - (lineStrokeWidth(s) - LINE_STROKE_WIDTH) / 2
 
     const paintArea = (s: ResolvedSeries): void => {
         if (!shouldFill(s)) {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor, connectNulls },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor: floorFor(s), connectNulls },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -1094,7 +1117,7 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
             xScale,
             yScale: resolveYScale(s),
             smooth,
-            yFloor,
+            yFloor: floorFor(s),
             connectNulls,
         }
         drawLine(drawCtx, s, yValuesFor(s))
@@ -1528,10 +1551,7 @@ interface ComposeDrawHoverOptions {
 }
 
 // Crosshair drawn first so the chart-type's highlight rings render on top.
-export function composeDrawHoverWithCrosshair(
-    getDrawHover: () => DrawHoverFn,
-    options: ComposeDrawHoverOptions
-): DrawHoverFn {
+export function composeDrawHoverWithCrosshair(drawHover: DrawHoverFn, options: ComposeDrawHoverOptions): DrawHoverFn {
     const { crosshairColor, crosshairDash, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
         if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
@@ -1541,7 +1561,7 @@ export function composeDrawHoverWithCrosshair(
                 drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation, crosshairDash)
             }
         }
-        return getDrawHover()(args)
+        return drawHover(args)
     }
 }
 

@@ -43,11 +43,18 @@ from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
+    NamingConvention,
+    fold_column_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
@@ -66,6 +73,11 @@ MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOM
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
 # Files x columns cap for the Add-action scan: Arrow holds about 12 bytes per cell, so the default is ~300 MB.
 MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "25000000"))
+
+# Matches WarehouseColumnStatistics.column_name's max_length. Source column names aren't bounded this way
+# (a deeply nested JSON schema can produce one far longer), so a name over the limit is trimmed with a
+# content hash rather than failing the whole table's stats write.
+COLUMN_NAME_DB_MAX_LENGTH = 400
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
@@ -657,8 +669,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         basis = "full"
 
     try:
-        for column_name, stat in stats_by_column.items():
-            _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
+        _write_statistics(team, table, schema.id, row_count, stats_by_column, delta_version, basis)
     except (OperationalError, InterfaceError):
         # The Delta-log read above can run long enough for the Postgres connection opened by the
         # earlier metadata queries (team/schema/existing-stats) to go stale — server restart, proxy
@@ -668,8 +679,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         # Delta-log read just to redo a handful of upserts.
         if not settings.TEST:
             close_old_connections()
-        for column_name, stat in stats_by_column.items():
-            _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
+        _write_statistics(team, table, schema.id, row_count, stats_by_column, delta_version, basis)
 
     log.info(
         "warehouse_statistics.done",
@@ -774,6 +784,35 @@ def _fold_since_stored_version(
         return None
 
 
+def _write_statistics(
+    team: Team,
+    table: DataWarehouseTable,
+    schema_id: uuid.UUID,
+    row_count: int,
+    stats_by_column: dict[str, _ColumnStat],
+    delta_version: int,
+    basis: str,
+) -> None:
+    """Persist every column's stats, with no bounds for a column masked at write time."""
+
+    def masked_columns() -> list[str] | None:
+        return (
+            ExternalDataSchema.objects.filter(team_id=team.id, id=schema_id)
+            .values_list("masked_columns", flat=True)
+            .first()
+        )
+
+    masked = {fold_column_name(column) for column in masked_columns() or []}
+    for column_name, stat in stats_by_column.items():
+        if fold_column_name(column_name) in masked:
+            # A masked column's bounds are plaintext until its rebuild lands, and digests after it.
+            stat = dataclasses.replace(stat, min_value=None, max_value=None, has_min_max=False)
+        _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
+    # A mask saved during the writes clears the bounds after its commit. This second read covers a mask
+    # saved before that point, so no lock on the schema row is needed.
+    clear_masked_column_bounds(team.id, table.id, masked_columns())
+
+
 def _upsert_statistics(
     team: Team,
     table: DataWarehouseTable,
@@ -808,7 +847,7 @@ def _upsert_statistics(
         defaults["full_scan_at"] = timezone.now()
     WarehouseColumnStatistics.objects.for_team(team.id).update_or_create(
         table=table,
-        column_name=column_name,
+        column_name=NamingConvention.normalize_identifier(column_name, max_length=COLUMN_NAME_DB_MAX_LENGTH),
         defaults=defaults,
     )
 

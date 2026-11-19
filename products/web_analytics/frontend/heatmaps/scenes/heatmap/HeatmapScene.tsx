@@ -1,3 +1,5 @@
+import './HeatmapScene.scss'
+
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
@@ -331,15 +333,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         className="flex-1 flex items-center justify-center min-h-96"
                                         data-attr="heatmap-generating-screenshot"
                                     >
-                                        <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
                                         <div className="text-sm text-center font-semibold">
-                                            <HedgehogDirector
-                                                className="w-32 h-32 mx-auto mb-2"
-                                                style={{
-                                                    animation: 'hog-wobble 1.2s ease-in-out infinite alternate',
-                                                    transformOrigin: '50% 50%',
-                                                }}
-                                            />
+                                            <HedgehogDirector className="HeatmapScene__hogWobble w-32 h-32 mx-auto mb-2" />
                                             Generating screenshot…
                                             <div className="text-muted text-xs mt-2">
                                                 This usually takes a few minutes

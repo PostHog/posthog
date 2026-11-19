@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 from products.warehouse_sources.sources.thinkific._config import ThinkificSourceConfig
 from products.warehouse_sources.sources.thinkific.source import ThinkificSource
 
@@ -41,3 +42,19 @@ class TestThinkificValidateCredentials:
         with patch(PATCH_VALIDATE, return_value=(False, status)):
             ok, _err = ThinkificSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
+
+    @parameterized.expand(
+        [
+            ("top_level_probes_itself", "enrollments", "/enrollments"),
+            ("coupons_probe_promotions", "coupons", "/promotions"),
+            ("course_reviews_probe_courses", "course_reviews", "/courses"),
+            ("chapters_probe_courses", "chapters", "/courses"),
+            ("contents_probe_courses", "contents", "/courses"),
+        ]
+    )
+    def test_schema_probe_path(self, _name: str, schema_name: str, expected_path: str) -> None:
+        # A fan-out path still holds its parent placeholder, so probing it would send a malformed URL.
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            ok, _err = ThinkificSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+        assert ok is True
+        assert network.requests_log[0].path == f"/api/public/v1{expected_path}"

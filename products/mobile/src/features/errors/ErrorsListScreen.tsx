@@ -1,12 +1,13 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Linking, RefreshControl, Text, View } from 'react-native'
-import type { ErrorsWindow } from '@/api/errorTracking'
+import type { ErrorsWindow, IssueSort } from '@/api/errorTracking'
 import { useViewer } from '@/auth/useViewer'
 import { changeNavPin } from '@/features/tabs/navPinActions'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { useIsNavPinned } from '@/features/tabs/navPinStore'
+import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
-import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
 import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
@@ -17,6 +18,7 @@ import { navListWebUrl } from '@/features/views/webLinks'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
 import { CheckCircleIcon } from '@/ui/icons/CheckCircleIcon'
+import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -28,7 +30,7 @@ import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { useScrollTitle } from '@/ui/useScrollTitle'
 import {
     type ErrorsChrome,
@@ -36,11 +38,14 @@ import {
     trackErrorsFilterChanged,
     trackErrorsOpened,
     trackErrorsOpenedInWeb,
+    trackErrorsSortChanged,
+    trackErrorsSortOpened,
     trackErrorsWindowChanged,
 } from './analytics'
+import { ErrorsSortSheet } from './ErrorsSortSheet'
 import { useErrorsContext, useIssuesList } from './hooks'
-import { IssueListRow } from './IssueListRow'
-import { agoPhrase, emptyCopy, filterRows, type IssueFilter, type IssueRow } from './issueModel'
+import { IssueListRow, IssueListRowSkeleton } from './IssueListRow'
+import { agoPhrase, emptyCopy, filterRows, type IssueFilter, type IssueRow, SORT_CAPTIONS } from './issueModel'
 
 const WINDOWS: readonly ErrorsWindow[] = ['24h', '7d']
 const FILTERS: readonly { key: Exclude<IssueFilter, 'all'>; label: string }[] = [
@@ -49,9 +54,13 @@ const FILTERS: readonly { key: Exclude<IssueFilter, 'all'>; label: string }[] = 
     { key: 'mine', label: 'Mine' },
 ]
 /** The bottom bar's design inset on a tab; a pushed screen has none. */
-const TAB_BOTTOM = 120
+const _TAB_BOTTOM = 120
 const STACK_BOTTOM = 40
 const STACK_TOAST_BOTTOM = 48
+const CARD_GAP = 8
+const SKELETON_CARDS = [0, 1, 2, 3, 4, 5]
+/** Brings the one-line caption trigger to a 44pt tap target. */
+const SORT_HIT_SLOP = { top: 14, bottom: 14, left: 8, right: 8 }
 
 function keyOf(row: IssueRow): string {
     return row.id
@@ -71,8 +80,10 @@ export function ErrorsListScreen({ chrome }: { chrome: 'tab' | 'stack' }): React
 function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
+    const listRef = useRef<FlatList<IssueRow>>(null)
     const router = useRouter()
     const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
     const scrollTitle = useScrollTitle('Errors')
     const access = useFeatureAccess('errors')
     const context = useErrorsContext()
@@ -81,16 +92,18 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     const toasts = useToasts()
     const pinned = useIsNavPinned('errors')
     const [window, setWindow] = useState<ErrorsWindow>('24h')
+    const [sort, setSort] = useState<IssueSort>('users')
     const [filter, setFilter] = useState<IssueFilter>('all')
     const [menuOpen, setMenuOpen] = useState(false)
-    const list = useIssuesList(window, filter)
+    const [sortOpen, setSortOpen] = useState(false)
+    const list = useIssuesList(window, filter, sort)
 
-    // Only a new visit counts, not a window change while the screen is open.
-    const windowRef = useRef(window)
-    windowRef.current = window
+    // Only a new visit counts, not a window or sort change while the screen is open.
+    const viewRef = useRef({ window, sort })
+    viewRef.current = { window, sort }
     useFocusEffect(
         useCallback(() => {
-            trackErrorsOpened({ chrome, window: windowRef.current })
+            trackErrorsOpened({ chrome, ...viewRef.current })
         }, [chrome])
     )
 
@@ -103,12 +116,12 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     }, [failed])
 
     const updated = list.updatedAt ? agoPhrase(new Date(list.updatedAt).toISOString(), now) : null
-    const status =
-        context.mode !== 'live' || access.state !== 'ok'
-            ? null
-            : list.isLoading
-              ? 'Loading…'
-              : `Most users first${updated ? ` · updated ${updated}` : ''}`
+    const showStatus = context.mode === 'live' && access.state === 'ok'
+    const status = !showStatus
+        ? null
+        : list.isLoading
+          ? 'Loading…'
+          : `${SORT_CAPTIONS[sort]}${updated ? ` · updated ${updated}` : ''}`
 
     const webUrl = navListWebUrl(context.scope, 'errors')
     const goBack = useViewBack()
@@ -119,7 +132,17 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     const changeWindow = (next: ErrorsWindow): void => {
         if (next !== window) {
             setWindow(next)
-            trackErrorsWindowChanged({ window: next })
+            trackErrorsWindowChanged({ window: next, sort })
+        }
+    }
+    const openSort = (): void => {
+        setSortOpen(true)
+        trackErrorsSortOpened({ sort })
+    }
+    const changeSort = (next: IssueSort): void => {
+        if (next !== sort) {
+            setSort(next)
+            trackErrorsSortChanged({ sort: next, previous: sort, window })
         }
     }
     const changeFilter = (next: IssueFilter): void => {
@@ -129,16 +152,36 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     }
 
     const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
-    const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
+    const contentBottom = chrome === 'tab' ? tabBottom : bottomOffset(insets, STACK_BOTTOM)
 
-    // A pushed screen draws its own title; on a tab the shared tabs header draws it.
+    // A pushed screen draws its own title; on a tab the shared tabs header draws it, as plain text.
     const stackTitle =
         chrome === 'stack' ? (
             <View style={styles.titleBlock}>
                 <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
                     Errors
                 </Text>
-                {status ? <Text style={styles.status}>{status}</Text> : null}
+                {showStatus ? (
+                    <View style={styles.statusLine}>
+                        <Pressable44
+                            onPress={openSort}
+                            hitSlop={SORT_HIT_SLOP}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${SORT_CAPTIONS[sort]}. Change the sort`}
+                            style={styles.sortTrigger}
+                            pressedStyle={styles.sortPressed}
+                            testID="errors-sort-trigger"
+                        >
+                            <Text style={styles.sortText}>{SORT_CAPTIONS[sort]}</Text>
+                            <ChevronDownIcon size={12} color={colors.secondary} />
+                        </Pressable44>
+                        {updated && !list.isLoading ? (
+                            <Text style={styles.status} numberOfLines={1}>
+                                {`· updated ${updated}`}
+                            </Text>
+                        ) : null}
+                    </View>
+                ) : null}
             </View>
         ) : null
     const header = (
@@ -241,12 +284,16 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
         }
         body = (
             <FlatList
+                ref={listRef}
                 onScroll={scrollTitle.onScroll}
                 scrollEventThrottle={16}
                 data={rows}
                 keyExtractor={keyOf}
-                renderItem={({ item }) => <IssueListRow row={item} now={now} myName={viewer.name} onOpen={openIssue} />}
-                ListHeaderComponent={header}
+                renderItem={({ item }) => (
+                    <IssueListRow row={item} window={window} sort={sort} myName={viewer.name} onOpen={openIssue} />
+                )}
+                ItemSeparatorComponent={CardGap}
+                ListHeaderComponent={header ?? undefined}
                 ListFooterComponent={
                     <ListPaginationFooter
                         noun="errors"
@@ -284,8 +331,15 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
 
     return (
         <View style={styles.fill}>
-            {chrome === 'tab' ? <TabHeaderPublisher status={status} /> : null}
+            {chrome === 'tab' ? (
+                <TabHeaderPublisher
+                    tab="errors"
+                    status={status}
+                    scrollToTop={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                />
+            ) : null}
             {body}
+            <ErrorsSortSheet visible={sortOpen} sort={sort} onSelect={changeSort} onClose={() => setSortOpen(false)} />
             {chrome === 'stack' ? (
                 <>
                     <ViewChrome title={scrollTitle.title} onBack={goBack} onMore={() => setMenuOpen(true)} />
@@ -294,12 +348,16 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
                         onClose={() => setMenuOpen(false)}
                         testID="errors-menu"
                         items={[
-                            {
-                                key: pinned ? 'unpin' : 'pin',
-                                label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
-                                Icon: PinIcon,
-                                onPress: () => changeNavPin('errors', !pinned, 'list_menu', toasts.show),
-                            },
+                            ...(NAV_PINS_ENABLED
+                                ? [
+                                      {
+                                          key: pinned ? 'unpin' : 'pin',
+                                          label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
+                                          Icon: PinIcon,
+                                          onPress: () => changeNavPin('errors', !pinned, 'list_menu', toasts.show),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'web',
                                 label: 'Open on web',
@@ -327,13 +385,9 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     )
 }
 
-/**
- * The pinned tab's status line in the shared tabs header. Its own component, so a pushed Errors screen never writes
- * the tab's header slot, and never clears it when it closes.
- */
-function TabHeaderPublisher({ status }: { status: string | null }): null {
-    useTabHeader('errors', { hint: null, status, editing: null, editPins: null, filter: null })
-    return null
+function CardGap(): ReactElement {
+    const styles = useStyles()
+    return <View style={styles.cardGap} />
 }
 
 function ErrorsListSkeleton(): ReactElement {
@@ -345,14 +399,8 @@ function ErrorsListSkeleton(): ReactElement {
             accessibilityRole="progressbar"
             testID="errors-loading"
         >
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-                <View key={index} style={styles.skeletonRow}>
-                    <View style={styles.skeletonLines}>
-                        <View style={[styles.block, styles.lineLong]} />
-                        <View style={[styles.block, styles.lineShort]} />
-                    </View>
-                    <View style={[styles.block, styles.spark]} />
-                </View>
+            {SKELETON_CARDS.map((index) => (
+                <IssueListRowSkeleton key={index} />
             ))}
         </View>
     )
@@ -371,7 +419,7 @@ const useStyles = createStyles(({ colors }) => ({
     },
     header: {
         gap: 14,
-        paddingBottom: 6,
+        paddingBottom: 10,
     },
     titleBlock: {
         gap: 2,
@@ -381,9 +429,29 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.screenTitle,
         color: colors.ink,
     },
+    statusLine: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        columnGap: 4,
+    },
+    sortTrigger: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    sortPressed: {
+        opacity: 0.6,
+    },
+    sortText: {
+        ...type.meta,
+        fontWeight: '600',
+        color: colors.ink,
+    },
     status: {
         ...type.meta,
         color: colors.tertiary,
+        flexShrink: 1,
     },
     controls: {
         flexDirection: 'row',
@@ -420,35 +488,11 @@ const useStyles = createStyles(({ colors }) => ({
     chipTextOff: {
         color: colors.disabled,
     },
+    cardGap: {
+        height: CARD_GAP,
+    },
     skeleton: {
         paddingHorizontal: layout.inboxGutter,
-    },
-    skeletonRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14,
-        paddingVertical: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.rowDivider,
-    },
-    skeletonLines: {
-        flex: 1,
-        gap: 8,
-    },
-    block: {
-        backgroundColor: colors.sunken,
-        borderRadius: 6,
-    },
-    lineLong: {
-        height: 14,
-        width: '80%',
-    },
-    lineShort: {
-        height: 12,
-        width: '55%',
-    },
-    spark: {
-        width: 72,
-        height: 32,
+        gap: CARD_GAP,
     },
 }))

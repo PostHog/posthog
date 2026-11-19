@@ -113,6 +113,10 @@ export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
 
+export const partialUpdateBodyIpRestrictionsItemMax = 64
+
+export const partialUpdateBodyIpRestrictionsMax = 100
+
 export const PartialUpdateBody = () => zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional().describe('Name of the organization.'),
     logo_media_id: zod.string().nullish(),
@@ -187,6 +191,15 @@ export const PartialUpdateBody = () => zod.object({
         .string()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(partialUpdateBodyIpRestrictionsItemMax))
+        .max(partialUpdateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const MembersListParams = () => zod.object({
@@ -324,7 +337,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     end_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.'
+        ),
     follow: zod
         .boolean()
         .default(advancedActivityLogsListQueryFollowDefault)
@@ -383,7 +398,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     start_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Lower bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.'
+        ),
     team_ids: zod
         .array(zod.number())
         .default(advancedActivityLogsListQueryTeamIdsDefault)
@@ -580,6 +597,30 @@ export const CommentsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
+ */
+export const CommentsSendToSlackCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this comment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
+export const CommentsSendToSlackCreateBody = () => zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
         ),
 })
 

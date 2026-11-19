@@ -630,6 +630,20 @@ export const engineeringAnalyticsDora = async (
     })
 }
 
+export const getEngineeringAnalyticsEnableUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/enable/`
+}
+
+/**
+ * Enable engineering analytics for this project. Creates the project's managed warehouse views and opts it into the background work (view sync after each GitHub or Depot load, the daily test census, CI failure log collection). Safe to call again: an enabled project stays enabled.
+ */
+export const engineeringAnalyticsEnable = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEngineeringAnalyticsEnableUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getEngineeringAnalyticsFlakyTestsUrl = (
     projectId: string,
     params?: EngineeringAnalyticsFlakyTestsParams

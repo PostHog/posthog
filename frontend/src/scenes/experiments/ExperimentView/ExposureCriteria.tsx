@@ -13,9 +13,20 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory } from '~/types'
 
+import { DefaultExposureEventNote } from 'products/experiments/frontend/components/DefaultExposureEventNote'
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { WarehouseNativeExposureFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeExposureFields'
+import {
+    EMPTY_WAREHOUSE_NATIVE_BINDING,
+    type MetricDataSources,
+    getExperimentMetricDataSources,
+    getExposureSourceBlockedReasons,
+    getWarehouseNativeExposure,
+    getWarehouseNativeExposureError,
+    getWarehouseNativeMismatchError,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, resolveFilterTestAccounts } from '../exposureContract'
@@ -25,9 +36,11 @@ import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 type ExposureCriteriaModalProps = {
     onSave: (exposureCriteria: ExperimentExposureCriteria) => void
+    /** Which data sources the metrics read. The wizard passes those of its draft, which `experimentLogic` does not hold. */
+    metricDataSources?: MetricDataSources
 }
 
-export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
+export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
     const { experiment, resolvedExposureEvent } = useValues(experimentLogic)
     const launched = isLaunched(experiment)
@@ -41,9 +54,27 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
     // still composes with activation, and the editor must classify it the way the backend does
     const isActivation = !!getActivationConfig(exposureCriteria)
-    const isCustom = !isActivation && !!exposureCriteria?.exposure_config
+    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+    const isCustom = !isActivation && !warehouseExposure && !!exposureCriteria?.exposure_config
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationCard = activationEventEnabled || isActivation
+    const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
+    // Keep an existing warehouse-native exposure editable even if the team is no longer flagged in
+    const showWarehouseNativeCard = warehouseNativeEnabled || !!warehouseExposure
+    const { warehouseNative: warehouseNativeBlockedReason, posthog: posthogBlockedReason } =
+        getExposureSourceBlockedReasons(
+            !!warehouseExposure,
+            metricDataSources ?? getExperimentMetricDataSources(experiment)
+        )
+    // A shared metric keeps its own connection and unit, so the save cannot move it to an edited exposure
+    const saveDisabledReason = warehouseExposure
+        ? (getWarehouseNativeExposureError(warehouseExposure) ??
+          getWarehouseNativeMismatchError(
+              warehouseExposure,
+              { warehouseNative: false, posthog: false },
+              (experiment.saved_metrics ?? []).map((savedMetric) => savedMetric?.query)
+          ))
+        : null
 
     return (
         <LemonModal
@@ -70,6 +101,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             closeExposureCriteriaModal()
                         }}
                         type="primary"
+                        disabledReason={saveDisabledReason}
                     >
                         Save
                     </LemonButton>
@@ -80,7 +112,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                 Exposure determines when a user enters your experiment. Only events that occur after exposure are
                 counted in your metrics.
             </div>
-            <div className="flex gap-4 mb-4">
+            <div className="flex flex-wrap gap-4 mb-4">
                 <SelectableCard
                     title="Default"
                     description={
@@ -89,7 +121,9 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             <strong>exposed</strong> to the experiment and included in the analysis.
                         </>
                     }
-                    selected={!isCustom && !isActivation}
+                    selected={!isCustom && !isActivation && !warehouseExposure}
+                    disabled={!!posthogBlockedReason}
+                    disabledReason={posthogBlockedReason ?? ''}
                     onClick={() => {
                         setExposureCriteria({
                             ...exposureCriteria,
@@ -109,6 +143,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             </>
                         }
                         selected={isActivation}
+                        disabled={!!posthogBlockedReason}
+                        disabledReason={posthogBlockedReason ?? ''}
                         onClick={() => {
                             // Re-clicking the selected card must not reset a configured event
                             if (isActivation) {
@@ -136,6 +172,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         </>
                     }
                     selected={isCustom}
+                    disabled={!!posthogBlockedReason}
+                    disabledReason={posthogBlockedReason ?? ''}
                     onClick={() => {
                         // Re-clicking the selected card must not reset a configured event
                         if (isCustom) {
@@ -152,7 +190,45 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         })
                     }}
                 />
+                {showWarehouseNativeCard && (
+                    <SelectableCard
+                        title="Warehouse-native"
+                        description={
+                            <>
+                                Read exposures with a SQL query that runs in your own warehouse. The metrics of the
+                                experiment then run there too, and only aggregated results leave the warehouse.
+                            </>
+                        }
+                        selected={!!warehouseExposure}
+                        disabled={!!warehouseNativeBlockedReason}
+                        disabledReason={warehouseNativeBlockedReason ?? ''}
+                        data-attr="experiment-exposure-warehouse-native"
+                        onClick={() => {
+                            // Re-clicking the selected card must not reset a configured query
+                            if (warehouseExposure) {
+                                return
+                            }
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                exposure_config: {
+                                    kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+                                    ...EMPTY_WAREHOUSE_NATIVE_BINDING,
+                                    query: '',
+                                },
+                                activation_config: undefined,
+                            })
+                        }}
+                    />
+                )}
             </div>
+            {warehouseExposure && (
+                <div className="mb-4">
+                    <WarehouseNativeExposureFields
+                        exposure={warehouseExposure}
+                        onChange={(exposure) => setExposureCriteria({ ...exposureCriteria, exposure_config: exposure })}
+                    />
+                </div>
+            )}
             {isCustom && exposureCriteria?.exposure_config && (
                 <div className="mb-4">
                     <SeriesActionFilter
@@ -177,6 +253,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         showNumericalPropsOnly={true}
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                    />
+                    <DefaultExposureEventNote
+                        config={exposureCriteria.exposure_config}
+                        defaultExposureEvent={resolvedExposureEvent}
                     />
                     <NegatedEventFilterNote
                         config={exposureCriteria.exposure_config}
@@ -251,16 +331,19 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
                     </div>
                 </div>
-                <TestAccountFilterSwitch
-                    checked={hasFilters && resolveFilterTestAccounts(exposureCriteria)}
-                    onChange={(checked: boolean) => {
-                        setExposureCriteria({
-                            ...exposureCriteria,
-                            filterTestAccounts: checked,
-                        })
-                    }}
-                    fullWidth
-                />
+                {/* Test account filters read PostHog person and event properties, which warehouse rows do not have */}
+                {!warehouseExposure && (
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && resolveFilterTestAccounts(exposureCriteria)}
+                        onChange={(checked: boolean) => {
+                            setExposureCriteria({
+                                ...exposureCriteria,
+                                filterTestAccounts: checked,
+                            })
+                        }}
+                        fullWidth
+                    />
+                )}
             </div>
         </LemonModal>
     )

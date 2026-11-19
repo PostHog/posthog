@@ -207,4 +207,46 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             archived="Whether the story has been archived.",
         ),
     },
+    "story_history": {
+        "description": "Changes to stories, including workflow state transitions.",
+        "docs_url": "https://developer.shortcut.com/api/rest/v3#Get-Story-History",
+        "columns": {
+            "id": "Unique identifier for the change.",
+            "story_id": "ID of the story that changed.",
+            "changed_at": "Time at which the change occurred.",
+            "actions": "Actions that make up the change.",
+            "references": "Entities referenced by the actions.",
+            "member_id": "ID of the member who made the change.",
+            "actor_name": "Name of the actor who made the change, when available.",
+            "version": "Version of the change format.",
+        },
+    },
+    "epic_workflow": {
+        "description": "The workspace workflow that defines the available epic states.",
+        "docs_url": "https://developer.shortcut.com/api/rest/v3#Get-Epic-Workflow",
+        "columns": _columns(
+            default_epic_state_id="ID of the default state for new epics.",
+            epic_states="States in the workflow, including their IDs, names, types, and positions.",
+        ),
+    },
+    "epic_comments": {
+        "description": "Discussion comments on epics, with nested replies.",
+        "docs_url": "https://developer.shortcut.com/api/rest/v3#List-Epic-Comments",
+        "columns": _columns(
+            epic_id="ID of the epic that contains the comment.",
+            author_id="ID of the member who wrote the comment.",
+            text="Text of the comment.",
+            deleted="Whether the comment is deleted.",
+            comments="Nested replies to the comment.",
+        ),
+    },
+    "documents": {
+        "description": "Documents that the API token's user can read, with titles and application URLs.",
+        "docs_url": "https://developer.shortcut.com/api/rest/v3#List-Docs",
+        "columns": {
+            "id": "Unique identifier for the document.",
+            "title": "Title of the document.",
+            "app_url": "Shortcut application URL for the document.",
+        },
+    },
 }

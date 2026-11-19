@@ -1,6 +1,11 @@
-import structlog
-from celery import shared_task
+from typing import Any
+from urllib.parse import urlparse
 
+import structlog
+from celery import Task, shared_task
+
+from posthog.event_usage import groups
+from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -18,7 +23,7 @@ def sync_mcp_server_templates_task() -> None:
 
 
 def queue_sync_mcp_server_templates() -> None:
-    """Queue the catalog sync once per deploy window (Redis lock so only one pod runs it)."""
+    """Queue the catalog sync once per deploy window (Redis lock so only one worker queues it)."""
     lock_key = "posthog_sync_mcp_server_templates_task_lock"
     try:
         r = get_client()
@@ -36,7 +41,7 @@ def queue_sync_mcp_server_templates() -> None:
     except Exception:
         logger.exception("Failed to queue sync_mcp_server_templates celery task")
         try:
-            # Give the lock back so the next pod startup retries the enqueue instead
+            # Give the lock back so the next worker startup retries the enqueue instead
             # of the sync silently dropping for the whole lock window.
             r.delete(lock_key)
         except Exception:
@@ -46,6 +51,7 @@ def queue_sync_mcp_server_templates() -> None:
 # A listing that fails here leaves the installation with no tool rows, and the
 # gateway refuses every call to a tool that has no row.
 @shared_task(
+    bind=True,
     ignore_result=True,
     autoretry_for=(ToolsFetchError,),
     retry_backoff=30,
@@ -54,10 +60,45 @@ def queue_sync_mcp_server_templates() -> None:
     max_retries=5,
 )
 @skip_team_scope_audit
-def sync_installation_tools_task(installation_id: str) -> None:
+def sync_installation_tools_task(self: Task, installation_id: str) -> None:
     try:
         installation = MCPServerInstallation.objects.get(id=installation_id)
     except MCPServerInstallation.DoesNotExist:
         logger.info("sync_installation_tools_task: installation gone", installation_id=installation_id)
         return
-    sync_installation_tools(installation)
+    try:
+        upstream = sync_installation_tools(installation)
+    except ToolsFetchError:
+        capture_tools_sync_outcome(
+            installation,
+            "mcp_store tools sync failed",
+            {
+                "attempt": self.request.retries + 1,
+                "will_retry": self.request.retries < (self.max_retries or 0),
+            },
+        )
+        raise
+    capture_tools_sync_outcome(
+        installation,
+        "mcp_store tools synced",
+        {"tool_count": len(upstream.tools), "protocol_version": upstream.protocol_version},
+    )
+
+
+def capture_tools_sync_outcome(installation: MCPServerInstallation, event: str, properties: dict[str, Any]) -> None:
+    template = installation.template
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=installation.user.distinct_id or str(installation.team.uuid),
+            event=event,
+            properties={
+                "server_name": template.name if template else installation.display_name,
+                "template_id": str(template.id) if template else None,
+                "server_host": urlparse(installation.url).hostname,
+                "auth_type": installation.auth_type,
+                "installation_id": str(installation.id),
+                **properties,
+                "$update_person_last_seen_at": False,
+            },
+            groups=groups(team=installation.team),
+        )

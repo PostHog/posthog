@@ -1,1 +1,1 @@
-0016_insight_alert_investigation_age_index
+0018_insight_alert_investigation_no_row

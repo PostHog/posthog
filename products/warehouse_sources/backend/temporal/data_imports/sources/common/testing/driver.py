@@ -199,7 +199,6 @@ class SourceDriver:
 _REAL_WEBHOOK_CHECKS = {
     "webhook_enabled": WebhookSourceManager.webhook_enabled,
     "schema_is_webhook": WebhookSourceManager.schema_is_webhook,
-    "webhook_unregistered": WebhookSourceManager.webhook_unregistered,
 }
 
 

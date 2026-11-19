@@ -9,6 +9,7 @@ const CREDENTIAL_TYPE_LABELS: Record<ActivityLogCredentialTypeEnumApi, string> =
     project_secret_key: 'Project secret API key',
     team_secret_token: 'Legacy secret key',
     id_jag: 'Cross-app access (XAA)',
+    oidc_workload: 'Trusted workload',
     scim: 'SCIM',
     vercel: 'Vercel',
     partner: 'Partner app',

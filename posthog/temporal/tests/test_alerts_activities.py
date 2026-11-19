@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.core.exceptions import ValidationError
 from django.db import OperationalError, connection, transaction
@@ -53,6 +53,7 @@ from posthog.temporal.alerts.activities import (
     _load_alert_for_evaluation,
     _lock_evaluation_alert,
     cleanup_alert_checks,
+    emit_alert_firing_signal,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -67,8 +68,9 @@ from posthog.temporal.alerts.admission import (
     inflight_alert_ids,
 )
 from posthog.temporal.alerts.investigation import MAX_INVESTIGATIONS_PER_EPISODE
-from posthog.temporal.alerts.retry_policy import SlotLease, alert_timeouts
+from posthog.temporal.alerts.retry_policy import ALERT_SIGNAL_SCHEDULE_TO_CLOSE, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
+    EmitAlertFiringSignalActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -86,17 +88,25 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_REJECTED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    ForecastDetectorPausedError,
+    ForecastDetectorUnavailableError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.source_configs import SignalSourceConfigSnapshot
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -1022,19 +1032,93 @@ class TestEvaluateAlert:
         assert inflight_alert_ids() == set()
 
     async def test_evaluate_firing_with_breaches(self, alert) -> None:
-        with patch(
-            "posthog.temporal.alerts.activities.check_alert_for_insight",
-            return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+        emit = AsyncMock(return_value=True)
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+            ),
+            patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
         ):
-            env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
 
+        # The signal goes out in a later workflow phase, so a slow send cannot delay the notification.
+        emit.assert_not_awaited()
+        assert result.signal_candidate is True
+        assert result.previous_state == AlertState.NOT_FIRING
         assert result.new_state == AlertState.FIRING
         assert result.should_notify is True
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
+
+    @pytest.mark.parametrize(
+        "alert_change,signal_error,expect_emit",
+        [
+            (None, None, True),
+            (None, RuntimeError("signals unavailable"), True),
+            ("deleted", None, False),
+            ("disabled", None, False),
+        ],
+    )
+    async def test_emit_alert_firing_signal(
+        self, alert, alert_change: str | None, signal_error: Exception | None, expect_emit: bool
+    ) -> None:
+        check = await _create_alert_check(alert, state=AlertState.FIRING)
+        if alert_change == "deleted":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).delete)()
+        elif alert_change == "disabled":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(enabled=False)
+        reached_default_executor = False
+
+        async def _emit(**_kwargs) -> bool:
+            nonlocal reached_default_executor
+            # emit_signal runs sync work on the default executor. A thread that waits for the
+            # emission holds the only worker, so this would time out.
+            await asyncio.wait_for(sync_to_async(lambda: None, thread_sensitive=False)(), timeout=5)
+            reached_default_executor = True
+            if signal_error is not None:
+                raise signal_error
+            return True
+
+        emit = AsyncMock(side_effect=_emit)
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+        try:
+            with (
+                patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_source_config",
+                    return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+                ),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_analytics_alert_scope",
+                    return_value="all_firing_alerts",
+                ),
+            ):
+                await ActivityEnvironment().run(
+                    emit_alert_firing_signal,
+                    EmitAlertFiringSignalActivityInputs(
+                        alert_id=str(alert.id),
+                        alert_check_id=str(check.id),
+                        team_id=alert.team_id,
+                        previous_state=AlertState.NOT_FIRING,
+                        breaches=["value above threshold"],
+                    ),
+                )
+        finally:
+            loop.set_default_executor(ThreadPoolExecutor())
+
+        assert reached_default_executor is expect_emit
+        if expect_emit:
+            emit.assert_awaited_once()
+            assert emit.await_args is not None
+            assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{check.id}"
+        else:
+            emit.assert_not_awaited()
 
     @pytest.mark.parametrize(
         "investigated,previous_verdict,owner,expect_investigation,expect_notify,expect_held",
@@ -1096,6 +1180,35 @@ class TestEvaluateAlert:
             await alert.arefresh_from_db()
             assert check.notification_sent_at is not None
             assert alert.last_notified_at == check.notification_sent_at
+
+    @pytest.mark.parametrize("already_firing", [False, True])
+    async def test_ai_detector_alert_notifies_and_investigates_only_the_first_firing_check(
+        self, ateam, already_firing: bool
+    ) -> None:
+        alert = await _create_alert(
+            ateam,
+            state=AlertState.FIRING if already_firing else AlertState.NOT_FIRING,
+            detector_config={"type": "llm"},
+        )
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            investigation_agent_enabled=True, investigation_gates_notifications=True
+        )
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            return_value=AlertEvaluationResult(value=100.0, breaches=["anomalous point"]),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=True, team_id=ateam.id),
+            )
+
+        assert result.new_state == AlertState.FIRING
+        assert result.should_notify is not already_firing
+        assert result.should_start_investigation is not already_firing
+        assert result.should_gate_notification is not already_firing
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert ((check.triggered_metadata or {}).get(FIRING_NOT_RENOTIFIED_KEY) is True) is already_firing
 
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(
@@ -1279,12 +1392,21 @@ class TestEvaluateAlert:
         await sync_to_async(check.refresh_from_db)()
         assert check.targets_notified
 
-    async def test_a_paused_ai_detector_errors_once_and_leaves_the_alert_enabled(self, alert_with_user) -> None:
-        message = "The AI detector is not enabled for your account."
+    @pytest.mark.parametrize(
+        "paused_error,code",
+        [
+            (LLMDetectorPausedError, LLM_DETECTOR_PAUSED_ERROR_CODE),
+            (ForecastDetectorPausedError, FORECAST_DETECTOR_PAUSED_ERROR_CODE),
+        ],
+    )
+    async def test_a_paused_detector_errors_once_and_leaves_the_alert_enabled(
+        self, alert_with_user, paused_error, code
+    ) -> None:
+        message = "The detector is not enabled for your account."
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=LLMDetectorPausedError(message),
+                side_effect=paused_error(message),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
         ):
@@ -1295,7 +1417,7 @@ class TestEvaluateAlert:
         assert (first.new_state, first.should_notify, repeated.should_notify) == (AlertState.ERRORED, True, False)
         mock_capture.assert_not_called()
         check = await sync_to_async(AlertCheck.objects.get)(pk=first.alert_check_id)
-        assert check.error == {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": message}
+        assert check.error == {"code": code, "message": message}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is True
 
@@ -1477,15 +1599,16 @@ class TestRecordFailedEvaluation:
             assert result_again.should_notify is (change != "owner")
 
     @pytest.mark.parametrize(
-        "error_type,expected_outcomes",
+        "error_type,expected_outcomes,expected_code",
         [
-            (LLMDetectorUnavailableError.__name__, ["unavailable"]),
-            ("ValueError", []),
-            (None, []),
+            (LLMDetectorUnavailableError.__name__, ["unavailable"], LLM_DETECTOR_UNAVAILABLE_ERROR_CODE),
+            (ForecastDetectorUnavailableError.__name__, [], FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE),
+            ("ValueError", [], None),
+            (None, [], None),
         ],
     )
     async def test_counts_one_unavailable_outcome_per_recorded_failure(
-        self, alert, error_type, expected_outcomes
+        self, alert, error_type, expected_outcomes, expected_code
     ) -> None:
         env = ActivityEnvironment()
         with patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome:
@@ -1501,6 +1624,8 @@ class TestRecordFailedEvaluation:
 
         assert result.alert_check_id is not None
         assert [call.args[0] for call in mock_outcome.call_args_list] == expected_outcomes
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert (check.error or {}).get("code") == expected_code
 
     async def test_does_not_count_an_unavailable_outcome_it_never_recorded(self, alert_with_user) -> None:
         # A disable between prepare and evaluate writes no errored check, so it is not a failed
@@ -1820,6 +1945,12 @@ class TestNotifyAlert:
                 False,
             ),
             ({"message": "No AI credits left.", "code": LLM_DETECTOR_PAUSED_ERROR_CODE}, False, True),
+            (
+                {"message": FORECAST_DETECTOR_UNAVAILABLE_MESSAGE, "code": FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE},
+                True,
+                False,
+            ),
+            ({"message": "The forecast service refused.", "code": FORECAST_DETECTOR_REJECTED_ERROR_CODE}, False, True),
         ],
     )
     async def test_error_email_marks_an_unavailable_detector(
@@ -2038,7 +2169,12 @@ def test_alert_timeouts_never_restart_a_live_attempt(calculation_interval) -> No
     # The retried attempt must take the slot over before it lapses, or the scheduler fills it in between.
     slot = timeouts.evaluation_slot_lease
     assert slot.lease - slot.refresh > timeouts.heartbeat_timeout
-    activities = timeouts.prepare_start_to_close + timeouts.activity_schedule_to_close + timeouts.notify_start_to_close
+    activities = (
+        timeouts.prepare_start_to_close
+        + timeouts.activity_schedule_to_close
+        + timeouts.notify_start_to_close
+        + ALERT_SIGNAL_SCHEDULE_TO_CLOSE
+    )
     assert timeouts.workflow_execution >= activities
 
 

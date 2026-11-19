@@ -19,9 +19,22 @@ import * as zod from 'zod'
  * (e.g., Vercel marketplace installation). Users can disconnect integrations
  * via the DELETE endpoint.
  */
-export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for organization-level integrations.')
+export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod.object({
+    production: zod
+        .number()
+        .optional()
+        .describe('ID of the PostHog project that receives the Vercel production environment.'),
+    preview: zod
+        .number()
+        .optional()
+        .describe('ID of the PostHog project for the Vercel preview environment. Defaults to the production project.'),
+    development: zod
+        .number()
+        .optional()
+        .describe(
+            'ID of the PostHog project for the Vercel development environment. Defaults to the production project.'
+        ),
+})
 
 export const roleExternalReferencesCreateBodyProviderMax = 32
 
@@ -75,6 +88,7 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
                 'customerio-webhook',
                 'databricks',
                 'email',
+                'email_sandbox',
                 'firebase',
                 'github',
                 'gitlab',
@@ -94,6 +108,7 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
                 'linear',
                 'linkedin-ads',
                 'meta-ads',
+                'motherduck',
                 'pardot',
                 'pinterest-ads',
                 'postgresql',
@@ -114,10 +129,10 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
                 'youtube-analytics',
             ])
             .describe(
-                '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
+                '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `email_sandbox` - Email Sandbox\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `motherduck` - Motherduck\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
             )
             .describe(
-                "The provider of the integration, for example 'slack' or 'github'.\n\n\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics"
+                "The provider of the integration, for example 'slack' or 'github'.\n\n\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `email_sandbox` - Email Sandbox\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `motherduck` - Motherduck\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics"
             ),
         config: zod.unknown().optional(),
     })
@@ -139,12 +154,15 @@ export const IntegrationsEmailPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Standard Integration serializer.')
 
 /**
- * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
  * @summary Import push device tokens
  */
 export const integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax = 200
 
 export const integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax = 4096
+
+export const integrationsPushTokensCreateBodyDryRunDefault = false
+export const integrationsPushTokensCreateBodyCreateMissingPersonsDefault = false
 
 export const IntegrationsPushTokensCreateBody = /* @__PURE__ */ zod.object({
     subscriptions: zod
@@ -153,14 +171,34 @@ export const IntegrationsPushTokensCreateBody = /* @__PURE__ */ zod.object({
                 distinct_id: zod
                     .string()
                     .max(integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax)
-                    .describe("The person's distinct ID in this project."),
+                    .describe("The person's distinct ID in this project: the ID your app passes to `identify`."),
                 device_token: zod
                     .string()
                     .max(integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax)
-                    .describe('The APNs device token or FCM registration token of one device.'),
+                    .describe(
+                        'The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.'
+                    ),
             })
         )
         .describe('Up to 1000 devices to register on this push channel. List a person once per device.'),
+    dry_run: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyDryRunDefault)
+        .describe(
+            'Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing.'
+        ),
+    import_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.'
+        ),
+    create_missing_persons: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyCreateMissingPersonsDefault)
+        .describe(
+            "Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push."
+        ),
 })
 
 /**
@@ -256,6 +294,7 @@ export const IntegrationsRequestAccessCreateBody = /* @__PURE__ */ zod.object({
             'customerio-webhook',
             'databricks',
             'email',
+            'email_sandbox',
             'firebase',
             'github',
             'gitlab',
@@ -275,6 +314,7 @@ export const IntegrationsRequestAccessCreateBody = /* @__PURE__ */ zod.object({
             'linear',
             'linkedin-ads',
             'meta-ads',
+            'motherduck',
             'pardot',
             'pinterest-ads',
             'postgresql',
@@ -295,10 +335,10 @@ export const IntegrationsRequestAccessCreateBody = /* @__PURE__ */ zod.object({
             'youtube-analytics',
         ])
         .describe(
-            '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
+            '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `email_sandbox` - Email Sandbox\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `motherduck` - Motherduck\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
         )
         .describe(
-            "The kind of integration the member is requesting be connected (e.g. 'slack', 'github').\n\n\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics"
+            "The kind of integration the member is requesting be connected (e.g. 'slack', 'github').\n\n\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `email_sandbox` - Email Sandbox\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `motherduck` - Motherduck\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics"
         ),
     reason: zod
         .string()

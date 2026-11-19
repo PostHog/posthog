@@ -10,8 +10,8 @@ import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { resolveHighlightFeedEmptyReason } from '../highlightFeedEmptyState'
 import { highlightPicksLogic } from '../highlightPicksLogic'
-import { HighlightPicksBlockedState } from './HighlightPicksBlockedState'
 import { HighlightPicksShadowPreview } from './HighlightPicksShadowPreview'
+import { QuillHighlightPicksBlockedState } from './QuillHighlightPicksBlockedState'
 import { QuillHighlightPicksNoRecordingsState } from './QuillHighlightPicksNoRecordingsState'
 import { QuillHighlightPicksQuietState } from './QuillHighlightPicksQuietState'
 import { QuillHighlightPicksReplayOffState } from './QuillHighlightPicksReplayOffState'
@@ -65,7 +65,7 @@ export function QuillHighlightPicksEmptyState({ size }: { size: 'small' | 'large
         )
     }
     if (reason === 'all-disabled' || reason === 'all-capped' || reason === 'quota-exhausted') {
-        return <HighlightPicksBlockedState reason={reason} size={size} />
+        return <QuillHighlightPicksBlockedState reason={reason} size={size} />
     }
 
     return (

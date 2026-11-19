@@ -216,6 +216,133 @@ class TestWindowedLeaveRequests:
         assert rows == [{"id": 2}]
 
 
+class TestFanOutEndpoints:
+    @staticmethod
+    def _collect(
+        manager: _FakeResumableManager,
+        monkeypatch: Any,
+        pages: Mapping[str, tuple[list[dict], int | None]],
+        endpoint: str,
+        requested: list[str] | None = None,
+    ) -> list[dict]:
+        def fake_fetch(session: Any, url: str, logger: Any) -> tuple[list[dict], int | None]:
+            parsed = urlparse(url)
+            key = parsed.path.removeprefix("/api") + ("?" + parsed.query if parsed.query else "")
+            if requested is not None:
+                requested.append(key)
+            return pages[key]
+
+        monkeypatch.setattr(sage_hr, "_fetch_page", fake_fetch)
+        monkeypatch.setattr(sage_hr, "make_tracked_session", lambda **kwargs: MagicMock())
+
+        rows: list[dict] = []
+        for batch in get_rows(
+            subdomain="acme",
+            api_key="sage-key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(batch)
+        return rows
+
+    def test_walks_parent_and_child_pages_and_tags_rows_with_parent(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        pages = {
+            "/recruitment/positions?page=1": ([{"id": 10}, {"id": 11}], 2),
+            "/recruitment/positions?page=2": ([{"id": 12}], None),
+            "/recruitment/positions/10/applicants?page=1": ([{"id": 1}], 2),
+            "/recruitment/positions/10/applicants?page=2": ([{"id": 2}], None),
+            "/recruitment/positions/11/applicants?page=1": ([], None),
+            "/recruitment/positions/12/applicants?page=1": ([{"id": 1}], None),
+        }
+        rows = self._collect(manager, monkeypatch, pages, "recruitment_applicants")
+        assert rows == [
+            {"id": 1, "position_id": 10},
+            {"id": 2, "position_id": 10},
+            {"id": 1, "position_id": 12},
+        ]
+        assert [(s.parent_page, s.parent_index, s.parent_id, s.next_page) for s in manager.saved] == [
+            (1, 0, 10, 2),
+            (1, 1, 11, 1),
+            (2, 0, None, 1),
+        ]
+
+    def test_unpaginated_child_is_fetched_once_per_parent_without_page_param(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        requested: list[str] = []
+        pages: dict[str, tuple[list[dict], int | None]] = {
+            "/employees?page=1": ([{"id": 5}, {"id": 6}], None),
+            "/employees/5/leave-management/balances": ([{"policy_id": 1, "used": 2, "available": 3}], None),
+            "/employees/6/leave-management/balances": ([{"policy_id": 1, "used": 0, "available": None}], None),
+        }
+        rows = self._collect(manager, monkeypatch, pages, "leave_balances", requested)
+        assert rows == [
+            {"policy_id": 1, "used": 2, "available": 3, "employee_id": 5},
+            {"policy_id": 1, "used": 0, "available": None, "employee_id": 6},
+        ]
+        assert requested == list(pages)
+
+    @pytest.mark.parametrize(
+        "parent_index, parent_id, first_child_key",
+        [
+            pytest.param(1, 21, "/recruitment/positions/21/applicants?page=3", id="saved_parent_at_saved_index"),
+            pytest.param(2, 21, "/recruitment/positions/21/applicants?page=3", id="saved_parent_moved"),
+            pytest.param(1, 99, "/recruitment/positions/21/applicants?page=1", id="saved_parent_gone"),
+        ],
+    )
+    def test_resumes_from_saved_parent_and_child_page(
+        self, parent_index: int, parent_id: int, first_child_key: str, monkeypatch: Any
+    ) -> None:
+        manager = _FakeResumableManager(
+            SageHRResumeConfig(next_page=3, parent_page=2, parent_index=parent_index, parent_id=parent_id)
+        )
+        # Earlier parent pages, earlier parents on the page and earlier child pages must never be fetched.
+        pages: dict[str, tuple[list[dict], int | None]] = {
+            "/recruitment/positions?page=2": ([{"id": 20}, {"id": 21}, {"id": 22}], None),
+            first_child_key: ([{"id": 7}], None),
+            "/recruitment/positions/22/applicants?page=1": ([{"id": 8}], None),
+        }
+        rows = self._collect(manager, monkeypatch, pages, "recruitment_applicants")
+        assert rows == [{"id": 7, "position_id": 21}, {"id": 8, "position_id": 22}]
+
+    def test_derived_compensation_ids_are_stable_and_distinct(self, monkeypatch: Any) -> None:
+        salary: dict[str, Any] = {
+            "start_date": "2024-01-01",
+            "end_date": None,
+            "amount": 1000,
+            "currency": "EUR",
+            "category": "Salary",
+        }
+        bonus = {**salary, "amount": 200, "category": "Bonus"}
+        pages: dict[str, tuple[list[dict], int | None]] = {
+            "/employees?page=1": ([{"id": 5}, {"id": 6}], None),
+            "/employees/5/compensations?page=1": ([salary, bonus, dict(bonus)], None),
+            "/employees/6/compensations?page=1": ([salary], None),
+        }
+        first = self._collect(_FakeResumableManager(), monkeypatch, pages, "compensations")
+        second = self._collect(_FakeResumableManager(), monkeypatch, pages, "compensations")
+
+        assert [row["employee_id"] for row in first] == [5, 5, 5, 6]
+        assert len({row["id"] for row in first}) == 4
+        assert [row["id"] for row in first] == [row["id"] for row in second]
+
+    def test_resumed_compensation_ids_match_an_uninterrupted_walk(self, monkeypatch: Any) -> None:
+        salary: dict[str, Any] = {"start_date": "2024-01-01", "amount": 1000, "category": "Salary"}
+        pages: dict[str, tuple[list[dict], int | None]] = {
+            "/employees?page=1": ([{"id": 5}], None),
+            "/employees/5/compensations?page=1": ([salary], 2),
+            "/employees/5/compensations?page=2": ([dict(salary)], None),
+        }
+        uninterrupted = _FakeResumableManager()
+        full_rows = self._collect(uninterrupted, monkeypatch, pages, "compensations")
+
+        resumed_rows = self._collect(_FakeResumableManager(uninterrupted.saved[0]), monkeypatch, pages, "compensations")
+
+        assert len({row["id"] for row in full_rows}) == 2
+        assert [row["id"] for row in resumed_rows] == [full_rows[1]["id"]]
+
+
 class TestCheckAccess:
     def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
         session = MagicMock()
@@ -296,10 +423,6 @@ class TestSageHRSourceResponse:
             resumable_source_manager=MagicMock(),
         )
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == SAGE_HR_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert response.partition_mode is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in SAGE_HR_ENDPOINTS.values())
-        assert set(SAGE_HR_ENDPOINTS) == set(ENDPOINTS)

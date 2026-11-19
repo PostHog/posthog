@@ -287,11 +287,7 @@ async fn process_request_inner(
                     let _phase = PhaseGuard::enter(Phase::Evaluate);
                     flags::evaluate_for_request(
                         &context.state,
-                        team.id,
-                        // Interpret naive datetime filter values in the team timezone so flag
-                        // evaluation matches HogQL/ClickHouse cohort membership.
-                        team.parsed_timezone(),
-                        team.property_matching_version.uses_explicit_matching(),
+                        &team,
                         distinct_id.clone(),
                         device_id.clone(),
                         filtered_flags.clone(),
@@ -299,6 +295,7 @@ async fn process_request_inner(
                         property_overrides.group_properties,
                         property_overrides.groups,
                         property_overrides.hash_key,
+                        property_overrides.known_absent,
                         context.request_id,
                         context.request_entered_at,
                         request.is_flags_disabled(),

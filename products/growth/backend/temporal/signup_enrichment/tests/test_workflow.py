@@ -134,6 +134,7 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
     recheck = _events(run.pha_client, "signup_enrichment_recheck")
     assert len(recheck) == 1
     assert recheck[0].kwargs["properties"] == {
+        "$update_person_last_seen_at": False,
         "upgraded": True,
         "fields_filled": 3,
         "organization_id": "org-1",

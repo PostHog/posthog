@@ -34,6 +34,11 @@
             "minimum": 1,
             "type": "number"
         },
+        "only_without_expiry": {
+            "default": false,
+            "description": "Return only the standing notes, which have no `expires_at`. Pair it with `date_from` to re-read the standing notes of a recent window that the newest-first cap would hide.",
+            "type": "boolean"
+        },
         "skill_name": {
             "description": "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.",
             "minLength": 1,

@@ -8,6 +8,7 @@ import { WorkflowLogicProps, sanitizeWorkflow, workflowLogic } from '../../workf
 import { OutputMappingSuggestion } from '../hogFlowEditorLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
+import { reportEmailTest } from '../steps/email/emailTestReport'
 import type { HogflowTestResult } from '../steps/types'
 import { createExampleEvent } from '../testEventFactory'
 import type { HogFlowAction } from '../types'
@@ -466,6 +467,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         mock_async_functions: false,
                         current_action_id: selectedNode.data.id,
                     })
+                    reportEmailTest(workflow, selectedNode.data.id, result)
 
                     if (result.execResult != null) {
                         actions.setTestResultData(result.execResult)

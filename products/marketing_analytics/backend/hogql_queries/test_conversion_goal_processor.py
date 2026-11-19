@@ -4,6 +4,7 @@ import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
 from unittest import skipIf
+from unittest.mock import patch
 
 from django.conf import settings
 
@@ -28,7 +29,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.event.util import bulk_create_events
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.marketing_analytics.backend.hogql_queries import (
+    conversion_goal_processor as conversion_goal_processor_module,
+)
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
@@ -43,7 +47,7 @@ def _create_action(**kwargs):
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name", name)
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name, "properties": properties}])
+    action = create_action(team=team, name=name, steps_json=[{"event": event_name, "properties": properties}])
     return action
 
 
@@ -221,7 +225,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="actions_basic",
             conversion_goal_name="Actions Basic",
             math=BaseMathType.TOTAL,
@@ -1687,7 +1691,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="integration_actions",
             conversion_goal_name="Integration Actions",
             math=BaseMathType.TOTAL,
@@ -2124,6 +2128,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+        with patch.object(conversion_goal_processor_module, "MAX_TOUCHPOINTS_PER_PERSON", 1):
+            capped_query = processor.generate_cte_query(additional_conditions)
+        capped_result = execute_hogql_query(query=capped_query, team=self.team).results[0]
+        assert (capped_result[1], capped_result[3]) == ("spring_sale", "google")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):
@@ -4947,13 +4956,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with multiple events
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="User Conversion", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
         )
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="multi_events_total",
             conversion_goal_name="Multi Events Total",
             math=BaseMathType.TOTAL,
@@ -5050,7 +5059,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with multiple events
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="User Conversion Steps",
             steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
@@ -5059,7 +5068,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Test with TOTAL math
         goal_total = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="multi_users_total",
             conversion_goal_name="Multi Users Total",
             math=BaseMathType.TOTAL,
@@ -5089,7 +5098,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Test with DAU math
         goal_dau = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="multi_users_dau",
             conversion_goal_name="Multi Users DAU",
             math=BaseMathType.DAU,
@@ -5174,7 +5183,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with multiple events and property filters
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Filtered User Conversion",
             steps_json=[
@@ -5188,7 +5197,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="filtered_multi_events",
             conversion_goal_name="Filtered Multi Events",
             math=BaseMathType.TOTAL,
@@ -5247,13 +5256,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create action with 2 events
-        action_both_events = Action.objects.create(
+        action_both_events = create_action(
             team=self.team, name="Two Event Action", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
         )
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action_both_events.pk,
+            id=action_both_events.id,
             conversion_goal_id="semantics_test",
             conversion_goal_name="Semantics Test",
             math=BaseMathType.TOTAL,
@@ -5311,11 +5320,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             _create_event(distinct_id="attribution_test_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
-        action = Action.objects.create(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
+        action = create_action(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="attribution_test",
             conversion_goal_name="Attribution Test",
             math=BaseMathType.TOTAL,
@@ -5376,7 +5385,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events_in_batches()
 
         # Create multi-event action
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="User Onboarding", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
         )
 
@@ -5394,7 +5403,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         actions_goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="actions_test",
             conversion_goal_name="Actions Test",
             math=BaseMathType.TOTAL,
@@ -5478,7 +5487,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="signup_test",
             conversion_goal_name="Signup Test",
             math=BaseMathType.TOTAL,
@@ -6199,7 +6208,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             _create_event(distinct_id="mt_action_user", event="sign_up", team=self.team)
             flush_persons_and_events_in_batches()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Signup Flow",
             steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
@@ -6207,7 +6216,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id="mt_actions_linear",
             conversion_goal_name="Multi Touch Actions Linear",
             math=BaseMathType.TOTAL,

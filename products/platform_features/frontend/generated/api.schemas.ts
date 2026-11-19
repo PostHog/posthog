@@ -7,11 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface InternalFeedbackResponseApi {
-    /** True when the feedback reached Slack. */
-    success: boolean
-}
-
 /**
  * * `1` - member
  * * `8` - administrator
@@ -198,6 +193,19 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning: string | null
 }
 
 export interface PaginatedOrganizationListApi {
@@ -314,6 +322,19 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution?: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning?: string | null
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -570,6 +591,8 @@ export interface OrganizationPersonalAPIKeyAccessScopeApi {
 }
 
 export interface OrganizationPersonalAPIKeyApi {
+    /** Unique ID of the key. */
+    readonly id: string
     /** The organization member who owns this key. */
     readonly owner: OrganizationPersonalAPIKeyOwnerApi
     /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -578,6 +601,8 @@ export interface OrganizationPersonalAPIKeyApi {
     readonly scopes: readonly string[]
     /** Where the key's scopes apply within this organization. */
     readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /** Whether the key also works in at least one other organization its owner belongs to. */
+    readonly reaches_other_organizations: boolean
     /**
      * When the key was last used to authenticate, if ever.
      * @nullable
@@ -594,6 +619,46 @@ export interface PaginatedOrganizationPersonalAPIKeyListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationPersonalAPIKeyApi[]
+}
+
+/**
+ * * `rolled` - Rolled
+ * * `deleted` - Deleted
+ */
+export type KeyActionOutcomeEnumApi = (typeof KeyActionOutcomeEnumApi)[keyof typeof KeyActionOutcomeEnumApi]
+
+export const KeyActionOutcomeEnumApi = {
+    Rolled: 'rolled',
+    Deleted: 'deleted',
+} as const
+
+export interface OrganizationPersonalAPIKeyActionResultApi {
+    /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists and cannot be used in any organization.
+     *
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted */
+    outcome: KeyActionOutcomeEnumApi
+}
+
+export interface OrganizationPersonalAPIKeyBulkActionResultApi {
+    /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+    rolled: number
+    /** Number of keys that no longer exist. */
+    deleted: number
+    /** Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'. */
+    skipped: number
+    /** Number of keys that an error left unchanged. Run the action again to change them. */
+    failed: number
+    /** When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given. */
+    started_at: string
+}
+
+export interface OrganizationPersonalAPIKeyRollAllRequestApi {
+    /**
+     * Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned.
+     * @nullable
+     */
+    skip_rolled_since?: string | null
 }
 
 /**
@@ -754,7 +819,7 @@ export interface DiagnosticRemediationApi {
 }
 
 export interface DiagnosticCheckResultApi {
-    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+    /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
     id: string
     /** Human-readable check name. */
     name: string
@@ -907,6 +972,7 @@ export interface WelcomeResponseApi {
  * * `project_secret_key` - project_secret_key
  * * `team_secret_token` - team_secret_token
  * * `id_jag` - id_jag
+ * * `oidc_workload` - oidc_workload
  * * `internal_jwt` - internal_jwt
  * * `service_jwt` - service_jwt
  * * `internal_api_secret` - internal_api_secret
@@ -933,6 +999,7 @@ export const ActivityLogCredentialTypeEnumApi = {
     ProjectSecretKey: 'project_secret_key',
     TeamSecretToken: 'team_secret_token',
     IdJag: 'id_jag',
+    OidcWorkload: 'oidc_workload',
     InternalJwt: 'internal_jwt',
     ServiceJwt: 'service_jwt',
     InternalApiSecret: 'internal_api_secret',
@@ -982,6 +1049,7 @@ export interface ActivityLogApi {
      * * `project_secret_key` - project_secret_key
      * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
      * * `service_jwt` - service_jwt
      * * `internal_api_secret` - internal_api_secret
@@ -1419,26 +1487,6 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
-export type InternalFeedbackCreateBody = {
-    /**
-     * What the person wants to tell the developers.
-     * @maxLength 4000
-     */
-    comment: string
-    /**
-     * URL of the page the feedback is about.
-     * @maxLength 2000
-     */
-    page_url: string
-    /**
-     * CSS selector of the element the person selected. Empty for feedback about the whole page.
-     * @maxLength 1000
-     */
-    element_identifier?: string
-    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
-    screenshot?: Blob
-}
-
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -1585,6 +1633,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -1601,6 +1650,7 @@ export type ActivityLogListParams = {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -1633,6 +1683,7 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalSourceConfig` - SignalSourceConfig
      * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
@@ -1645,10 +1696,13 @@ export type ActivityLogListParams = {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
      * * `ReviewInstallationClaim` - ReviewInstallationClaim
+     * * `RecommendationResolution` - RecommendationResolution
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1704,6 +1758,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1720,6 +1775,7 @@ export const ActivityLogListScope = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1752,6 +1808,7 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
@@ -1764,10 +1821,13 @@ export const ActivityLogListScope = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
     ReviewInstallationClaim: 'ReviewInstallationClaim',
+    RecommendationResolution: 'RecommendationResolution',
 } as const
 
 /**
@@ -1810,6 +1870,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
  * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
@@ -1826,6 +1887,7 @@ export const ActivityLogListScope = {
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
  * * `OAuthApplication` - OAuthApplication
  * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+ * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
  * * `User` - User
  * * `Action` - Action
  * * `AccountView` - AccountView
@@ -1858,6 +1920,7 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalSourceConfig` - SignalSourceConfig
  * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
@@ -1870,10 +1933,13 @@ export const ActivityLogListScope = {
  * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `SandboxEnvironment` - SandboxEnvironment
+ * * `SandboxCustomImage` - SandboxCustomImage
  * * `StamphogRepoConfig` - StamphogRepoConfig
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
  * * `ReviewInstallationClaim` - ReviewInstallationClaim
+ * * `RecommendationResolution` - RecommendationResolution
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1917,6 +1983,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1933,6 +2000,7 @@ export const ActivityLogListScopesItem = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1965,6 +2033,7 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
@@ -1977,10 +2046,13 @@ export const ActivityLogListScopesItem = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
     ReviewInstallationClaim: 'ReviewInstallationClaim',
+    RecommendationResolution: 'RecommendationResolution',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -2001,7 +2073,7 @@ export type AdvancedActivityLogsListParams = {
      */
     detail_filters?: string
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string
     /**
@@ -2064,7 +2136,7 @@ export type AdvancedActivityLogsListParams = {
      */
     search_text?: string
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string
     /**

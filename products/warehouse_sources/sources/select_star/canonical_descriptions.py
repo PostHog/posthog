@@ -1,6 +1,7 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://docs.selectstar.com/select-star-api/overview"
+_EXAMPLES_URL = "https://docs.selectstar.com/select-star-api/api-examples"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Tables": {
@@ -90,6 +91,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_successful_run": "When the dashboard last ran successfully.",
             "query_count": "How many queries the dashboard has issued.",
             "view_count": "How many times the dashboard has been viewed.",
+        },
+    },
+    "Lineage": {
+        "description": "Direct downstream table-level lineage for each table: the table itself plus every "
+        "table, view, or dashboard that reads from it, one level deep.",
+        "docs_url": _EXAMPLES_URL,
+        "columns": {
+            "table_guid": "GUID of the table whose lineage this row belongs to.",
+            "key": "Identifier of the lineage object within this table's lineage graph.",
+            "guid": "Select Star's unique identifier for the lineage object.",
+            "object_type": "The kind of lineage object, e.g. table or dashboard.",
+            "name": "The lineage object's name.",
+            "full_name": "Full path for the lineage object, e.g. DATABASE.SCHEMA.TABLE.",
+            "data_type": "The object's type in its data source, e.g. table, view, or workbook.",
+            "data_source_type": "The data source the object comes from, e.g. snowflake or tableau.",
+            "source_table_guids": "GUIDs of the objects this object reads from.",
+            "target_table_guids": "GUIDs of the objects that read from this object.",
+            "popularity": "Usage statistics for the object over a recent timeframe.",
+            "tag_guids": "GUIDs of the tags on the object.",
+        },
+    },
+    "DashboardFrequentUsers": {
+        "description": "The users who run each BI dashboard most often, with their query counts.",
+        "docs_url": _EXAMPLES_URL,
+        "columns": {
+            "dashboard_guid": "GUID of the dashboard.",
+            "guid": "GUID of the data source user.",
+            "name": "The user's name in the data source.",
+            "display_name": "The username the data source uses for the user.",
+            "user": "The matching Select Star user, if one exists.",
+            "query_count": "How many times the user ran the dashboard.",
+            "last_queried": "The date the user last ran the dashboard.",
+            "data_source": "The BI data source the user belongs to.",
+        },
+    },
+    "TaggedItems": {
+        "description": "The assets that carry each tag, both user-defined and suggested by Select Star.",
+        "docs_url": _EXAMPLES_URL,
+        "columns": {
+            "tag_guid": "GUID of the tag.",
+            "tag": "The tag applied to the asset.",
+            "kind": "Whether a user applied the tag (user-defined) or Select Star suggested it.",
+            "suggested_source_kind": "Where a suggested tag came from.",
+            "suggestion_source": "The object a suggested tag was derived from, if any.",
+            "item": "The tagged asset, with its object type and metadata.",
+            "item_guid": "GUID of the tagged asset.",
+            "item_object_type": "The kind of tagged asset, e.g. table or column.",
         },
     },
 }

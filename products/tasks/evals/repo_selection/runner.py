@@ -29,6 +29,7 @@ from products.posthog_ai.eval_harness.runner import (
 from products.tasks.backend.facade import api as tasks_api
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, TurnPollTimeout
 from products.tasks.backend.facade.contracts import TaskRunDTO
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionUnavailableError,
@@ -119,7 +120,7 @@ async def _select(
     scenario: RepoSelectionScenario,
     context: CustomPromptSandboxContext,
     *,
-    origin_product: tasks_api.TaskOriginProduct,
+    profile: TaskProfile,
     priority: Priority,
     deadline: float | None,
     artifacts: RepoSelectionArtifacts,
@@ -131,13 +132,14 @@ async def _select(
                 team_id=context.team_id,
                 user_id=context.user_id,
                 context=scenario.context_block,
-                origin_product=origin_product,
+                profile=profile,
                 priority=priority,
                 sandbox_environment_id=context.sandbox_environment_id,
                 model=context.model,
                 runtime_adapter=context.runtime_adapter,
                 reasoning_effort=context.reasoning_effort,
                 service_tier=context.service_tier,
+                source_repository=scenario.source_repository,
             ),
             timeout=deadline,
         )
@@ -194,7 +196,7 @@ async def run_selector(
     scenario: RepoSelectionScenario,
     context: CustomPromptSandboxContext,
     *,
-    origin_product: tasks_api.TaskOriginProduct,
+    profile: TaskProfile,
     priority: Priority,
     provider: SandboxProviderStrategy,
     on_cleanup: Callable[[], Awaitable[None]] | None,
@@ -217,7 +219,7 @@ async def run_selector(
         _select(
             scenario,
             context,
-            origin_product=origin_product,
+            profile=profile,
             priority=priority,
             deadline=deadline,
             artifacts=artifacts,
@@ -262,7 +264,10 @@ async def run_selector(
 
 
 def selector_case_runner(
-    scenarios: dict[str, RepoSelectionScenario], *, origin_product: tasks_api.TaskOriginProduct, priority: Priority
+    scenarios: dict[str, RepoSelectionScenario],
+    *,
+    profile: TaskProfile,
+    priority: Priority,
 ) -> SandboxedCaseRunner:
     async def run(
         case: SandboxedEvalCase,
@@ -276,7 +281,7 @@ def selector_case_runner(
         return await run_selector(
             scenarios[case.name],
             context,
-            origin_product=origin_product,
+            profile=profile,
             priority=priority,
             provider=provider,
             on_cleanup=on_cleanup,

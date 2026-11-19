@@ -7,7 +7,9 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::grpc::{
+    tracked_tcp_incoming_until, until_incoming_ends, GrpcLoadShedLayer, GrpcMetricsLayer,
+};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
@@ -17,7 +19,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_common::{spawn_pool_monitor, MonitoredPool};
+use personhog_common::{query_tag, spawn_pool_monitor, MonitoredPool};
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -264,7 +266,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // first real query.
             let mut server_warmed = 0u32;
             for conn in conns.iter_mut().take(server_warmup_count) {
-                match sqlx::query("SELECT 1").execute(&mut **conn).await {
+                match sqlx::query(&query_tag!("warm_pool", "SELECT 1"))
+                    .execute(&mut **conn)
+                    .await
+                {
                     Ok(_) => server_warmed += 1,
                     Err(e) => {
                         tracing::warn!(pool = label, error = %e, "Failed to warm server-side connection");
@@ -364,7 +369,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let incoming = tracked_tcp_incoming(listener);
+        let incoming = tracked_tcp_incoming_until(listener, grpc_handle.shutdown_token());
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
@@ -388,7 +393,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

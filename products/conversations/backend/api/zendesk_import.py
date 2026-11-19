@@ -18,6 +18,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, ZendeskImportJob
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -211,6 +213,21 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
             return Response({"detail": WORKFLOW_START_FAILED_MESSAGE}, status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        try:
+            report_user_action(
+                request.user,
+                "support import started",
+                {
+                    "source": "zendesk",
+                    "import_job_id": str(job.id),
+                    "has_default_email_channel": default_email_channel_id is not None,
+                },
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"import_job_id": str(job.id)})
 
         return Response(ZendeskImportJobSerializer(job).data, status=drf_status.HTTP_201_CREATED)
 

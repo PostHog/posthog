@@ -11,7 +11,9 @@ export async function getChangesInLastCommit(): Promise<File[]> {
   core.startGroup(`Change detection in last commit`)
   let output = ''
   try {
-    output = (await getExecOutput('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout
+    output = (
+      await getExecOutput('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'], {silent: true})
+    ).stdout
   } finally {
     fixStdOutNullTermination()
     core.endGroup()
@@ -29,8 +31,11 @@ export async function getChanges(base: string, head: string): Promise<File[]> {
   let output = ''
   try {
     // Two dots '..' change detection - directly compares two versions
-    output = (await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
-      .stdout
+    output = (
+      await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`], {
+        silent: true
+      })
+    ).stdout
   } finally {
     fixStdOutNullTermination()
     core.endGroup()
@@ -44,7 +49,8 @@ export async function getChangesOnHead(): Promise<File[]> {
   core.startGroup(`Change detection on HEAD`)
   let output = ''
   try {
-    output = (await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout
+    output = (await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'], {silent: true}))
+      .stdout
   } finally {
     fixStdOutNullTermination()
     core.endGroup()
@@ -125,7 +131,8 @@ export async function getChangesSinceMergeBase(base: string, head: string, initi
   core.startGroup(`Change detection ${diffArg}`)
   let output = ''
   try {
-    output = (await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout
+    output = (await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', diffArg], {silent: true}))
+      .stdout
   } finally {
     fixStdOutNullTermination()
     core.endGroup()
@@ -138,7 +145,7 @@ export async function listAllFilesAsAdded(): Promise<File[]> {
   core.startGroup('Listing all files tracked by git')
   let output = ''
   try {
-    output = (await getExecOutput('git', ['ls-files', '-z'])).stdout
+    output = (await getExecOutput('git', ['ls-files', '-z'], {silent: true})).stdout
   } finally {
     fixStdOutNullTermination()
     core.endGroup()

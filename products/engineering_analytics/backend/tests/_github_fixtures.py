@@ -1,4 +1,4 @@
-"""GitHub and Trunk source warehouse fixtures shared across this product's test files."""
+"""Warehouse source fixtures shared across this product's test files."""
 
 import os
 import json
@@ -16,6 +16,7 @@ import pandas as pd
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
@@ -29,20 +30,22 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+
+def enroll_team(team: Team) -> None:
+    DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS)
+
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github_fixtures"
 
-# Non-default prefix on purpose: every fixture below lands tables named
-# `myprefixgithub_*`, so the resolver and builders are proven against a name the old
-# hardcoded `github_*` constants would never have matched.
+# A non-default prefix, so a hardcoded `github_*` table name fails the tests.
 GITHUB_SOURCE_PREFIX = "myprefix"
 
 
 @contextmanager
 def seeding_object_storage(test: PostHogTestCase) -> Iterator[None]:
-    # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
-    # warehouse-backed assertion behind a green job, so there it raises.
+    # A skip in CI would hide every warehouse-backed assertion behind a green job, so CI raises.
     try:
         yield
     except PermissionError as err:
@@ -177,7 +180,6 @@ def link_schema(
 def create_warehouse_table_row(
     team: Team, *, name: str, source: ExternalDataSource | None = None
 ) -> DataWarehouseTable:
-    # ORM-only table (no object storage); for resolver/mapping tests that mock the query.
     return DataWarehouseTable.objects.create(
         team=team,
         name=name,
@@ -191,12 +193,7 @@ def create_warehouse_table_row(
 def connect_github_source_without_data(
     team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = "", include_issue_events: bool = False
 ) -> GitHubTables:
-    """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
-
-    The resolver finds these without touching object storage; pair with a mocked query
-    when only resolution (not real warehouse data) matters. ``include_issue_events``
-    links the optional issue-events schema too, activating the transition reads.
-    """
+    """Create a GitHub source whose schemas point at ORM-only tables with no object storage behind them."""
     source = create_github_source(team, prefix=prefix, repository=repository)
     pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
     run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
@@ -216,22 +213,19 @@ def connect_github_source_without_data(
 
 
 def repo_id(full_name: str) -> int:
-    """A stable synthetic GitHub repo id for a fixture repo — distinct per ``owner/name``."""
     return zlib.crc32(full_name.encode())
 
 
 def pr_association_entry(number: int, *, base_repo: str = "PostHog/posthog") -> dict[str, Any]:
-    """One entry of a run's ``pull_requests`` association, shaped like the real webhook payload.
+    """Build one entry of a run's ``pull_requests`` association.
 
-    ``base.repo.id`` is what the curated builder matches against the run's own ``repository.id`` to
-    ignore the fork network's PRs. Pass ``base_repo`` to forge an entry based in a *different* repo —
-    that's what a default-branch push really lands, and the builder must skip it.
+    The runs builder keeps an entry only when ``base.repo.id`` equals the run's ``repository.id``,
+    so a different ``base_repo`` models a fork network PR.
     """
     return {"number": number, "base": {"repo": {"id": repo_id(base_repo)}}}
 
 
 def pr_association(*numbers: int, base_repo: str = "PostHog/posthog") -> str:
-    """A run's ``pull_requests`` association over one base repo, serialized as the column lands it."""
     return json.dumps([pr_association_entry(number, base_repo=base_repo) for number in numbers])
 
 
@@ -240,7 +234,6 @@ def _user(login: str) -> str:
 
 
 def _base(full_name: str, ref: str = "", default_branch: str = "") -> str:
-    # Mirrors the real payload: base.repo is a full repository object, so it carries default_branch.
     repo = f'{{"full_name": "{full_name}", "default_branch": "{default_branch}"}}'
     return f'{{"ref": "{ref}", "repo": {repo}}}'
 
@@ -333,8 +326,7 @@ def _run_row(
         "run_started_at": run_started_at,
         "updated_at": updated_at,
         "run_attempt": run_attempt,
-        # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
-        # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
+        # The source lands NULL, not "[]", for a run with no association.
         "pull_requests": pr_association(pr_number, base_repo=full_name) if pr_number is not None else None,
         "repository": json.dumps({"full_name": full_name, "id": repo_id(full_name)}),
         "head_commit": json.dumps({"message": commit_message}) if commit_message is not None else None,
@@ -379,8 +371,7 @@ def _status_row(status_id: int, deployment_id: int, state: str, environment: str
 
 
 def connect_github_jobs(test: PostHogTestCase, *, prefix: str, jobs: list[tuple[int, int, int, str]]) -> None:
-    """Seed ``workflow_jobs`` rows on the team's existing GitHub source, as ``(id, run_id, attempt,
-    conclusion)``. Reads that corroborate a span-derived signal against GitHub need this table."""
+    """Seed ``workflow_jobs`` rows, each ``(id, run_id, attempt, conclusion)``, on the team's GitHub source."""
     source = ExternalDataSource.objects.get(team=test.team, prefix=prefix)
     now = datetime.now(UTC)
     table_name = create_github_warehouse_table(
@@ -416,8 +407,6 @@ def create_github_warehouse_table(
     source: ExternalDataSource | None = None,
     prefix: str = GITHUB_SOURCE_PREFIX,
 ) -> str:
-    # Returns the real table name (prefixed), which the builder is then told to read,
-    # proving build_query honors the resolved name instead of a hardcoded one.
     df = pd.DataFrame(rows, columns=list(columns.keys()))
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
     df.to_csv(tmp.name, index=False)

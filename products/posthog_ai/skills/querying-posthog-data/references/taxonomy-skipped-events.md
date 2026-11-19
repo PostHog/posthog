@@ -19,3 +19,5 @@ Event | Reason
 `$groupidentify` | Group identification event
 
 These events are filtered at the SQL level using a `NOT IN` clause, so they don't consume pagination slots.
+
+To answer a question about flag calls, query `$feature_flag_called` with SQL as [Flags & Experiments](./models-flags-experiments.md) describes.
