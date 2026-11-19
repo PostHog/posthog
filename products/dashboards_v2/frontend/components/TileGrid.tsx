@@ -1,7 +1,7 @@
 import 'react-grid-layout/css/styles.css'
 
 import clsx from 'clsx'
-import { useActions, useSelector } from 'kea'
+import { useActions, useSelector, useValues } from 'kea'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
@@ -13,11 +13,10 @@ import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layou
 import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
 import { type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
 import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../layout/placeTiles'
-import { widgetSize } from '../layout/widgetSizes'
+import { minRows } from '../layout/widgetSizes'
 import { TileFrame } from './TileFrame'
 
 const GHOST_ID = '__drop-preview'
-const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
 const DRAG_CANCEL = '.DashboardV2__section-body, .DashboardV2__footer, button, a, input, textarea, [role="menuitem"]'
@@ -31,12 +30,12 @@ interface TileGridProps {
     onLiveRows?: (rows: number | null) => void
 }
 
-function toLayout(tiles: Tile[]): Layout {
+function toLayout(tiles: Tile[], gapPx: number): Layout {
     return toPlacedItems(tiles).map((item, index) => {
         const tile = tiles[index]
         return {
             ...item,
-            minH: isSection(tile) ? item.h : widgetSize(tile.widget).minH,
+            minH: isSection(tile) ? item.h : minRows(tile.widget, gapPx),
             maxH: isSection(tile) ? item.h : undefined,
             resizeHandles: isSection(tile) ? ['w', 'e'] : ['w', 'e', 's', 'sw', 'se'],
         }
@@ -45,6 +44,8 @@ function toLayout(tiles: Tile[]): Layout {
 
 export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: TileGridProps): JSX.Element {
     const { applyDashboardEdit, setDropTarget } = useActions(dashboardV2Logic)
+    const { gapPx } = useValues(dashboardV2Logic)
+    const margin = useMemo<[number, number]>(() => [gapPx, gapPx], [gapPx])
     const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll()
     const rootRef = useRef<HTMLDivElement>(null)
     const gesture = useRef<Gesture | null>(null)
@@ -74,14 +75,14 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
         if (!incoming || !carried) {
             return sized
         }
-        return dropIntoGrid(sized, cols, { ...carried, id: GHOST_ID }, incoming.x ?? 0, incoming.y ?? 0)
-    }, [tiles, cols, incoming, liveSectionRows])
+        return dropIntoGrid(sized, cols, gapPx, { ...carried, id: GHOST_ID }, incoming.x ?? 0, incoming.y ?? 0)
+    }, [tiles, cols, gapPx, incoming, liveSectionRows])
     const layout = useMemo(
         () =>
-            toLayout(shownTiles).map((item) =>
+            toLayout(shownTiles, gapPx).map((item) =>
                 liveSectionRows[item.i] ? { ...item, minH: 1, maxH: undefined } : item
             ),
-        [shownTiles, liveSectionRows]
+        [shownTiles, gapPx, liveSectionRows]
     )
 
     const reportRows = useCallback(
@@ -104,8 +105,8 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
     // The grid library draws the landing outline from the place the tile had one pointer move ago, so the outline
     // and the drop can differ by a cell when the pointer stops. This moves the outline to the place just worked
     // out, after the library has drawn its own and before the browser paints.
-    const size = useRef({ width, cols })
-    size.current = { width, cols }
+    const size = useRef({ width, cols, gapPx })
+    size.current = { width, cols, gapPx }
     const showLanding = useCallback((place: PlacedItem | undefined): void => {
         requestAnimationFrame(() => {
             const outline = rootRef.current?.querySelector<HTMLElement>(
@@ -114,10 +115,11 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
             if (!outline || !place) {
                 return
             }
-            const columnPx = columnWidthPx(size.current.width, size.current.cols)
-            outline.style.transform = `translate(${place.x * (columnPx + GRID.gapPx)}px, ${place.y * (GRID.rowPx + GRID.gapPx)}px)`
-            outline.style.width = `${spanPx(place.w, columnPx)}px`
-            outline.style.height = `${spanPx(place.h, GRID.rowPx)}px`
+            const { width: gridWidth, cols: gridCols, gapPx: gap } = size.current
+            const columnPx = columnWidthPx(gridWidth, gridCols, gap)
+            outline.style.transform = `translate(${place.x * (columnPx + gap)}px, ${place.y * (GRID.rowPx + gap)}px)`
+            outline.style.width = `${spanPx(place.w, columnPx, gap)}px`
+            outline.style.height = `${spanPx(place.h, GRID.rowPx, gap)}px`
         })
     }, [])
 
@@ -212,14 +214,14 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                     <div key={tile.id} data-dv2-tile={tile.id} className="DashboardV2__tile">
                         <TileFrame
                             tile={tile}
-                            columnPx={columnWidthPx(width, cols)}
+                            columnPx={columnWidthPx(width, cols, gapPx)}
                             editable={editable}
                             onSectionRows={setSectionRows}
                         />
                     </div>
                 )
             ),
-        [shownTiles, width, cols, editable, setSectionRows]
+        [shownTiles, width, cols, gapPx, editable, setSectionRows]
     )
 
     return (
@@ -227,6 +229,7 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
             ref={rootRef}
             data-dv2-grid={gridId}
             data-dv2-cols={cols}
+            data-dv2-gap={gapPx}
             className={clsx('DashboardV2__grid', editable && 'DashboardV2__grid--editable')}
             // The width is worked out in pixels from the grid around this one, so no class can carry it.
             // oxlint-disable-next-line react/forbid-dom-props
@@ -235,7 +238,7 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
             <GridLayout
                 width={width}
                 layout={layout}
-                gridConfig={{ cols, rowHeight: GRID.rowPx, margin: MARGIN, containerPadding: NO_PADDING }}
+                gridConfig={{ cols, rowHeight: GRID.rowPx, margin, containerPadding: NO_PADDING }}
                 dragConfig={{ enabled: editable, handle: '.DashboardV2__handle', cancel: DRAG_CANCEL }}
                 resizeConfig={{ enabled: editable }}
                 compactor={compactor}

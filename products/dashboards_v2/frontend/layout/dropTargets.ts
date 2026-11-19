@@ -76,10 +76,11 @@ export function gridUnderPointer(event: Event, dragged: HTMLElement, recorded: D
     // The cell is read from the page as it is now, so the landing spot is under the tile as it is drawn.
     const rect = zone.element.getBoundingClientRect()
     const corner = dragged.getBoundingClientRect()
-    const columnPitch = columnWidthPx(rect.width, Number(zone.element.dataset.dv2Cols)) + GRID.gapPx
+    const gapPx = Number(zone.element.dataset.dv2Gap)
+    const columnPitch = columnWidthPx(rect.width, Number(zone.element.dataset.dv2Cols), gapPx) + gapPx
     return {
         grid: zone.id,
         x: Math.max(0, Math.round((corner.left - rect.left) / columnPitch)),
-        y: Math.max(0, Math.round((corner.top - rect.top) / (GRID.rowPx + GRID.gapPx))),
+        y: Math.max(0, Math.round((corner.top - rect.top) / (GRID.rowPx + gapPx))),
     }
 }

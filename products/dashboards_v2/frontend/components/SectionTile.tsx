@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { IconDrag, IconTrash } from '@posthog/icons'
@@ -27,6 +27,7 @@ export function SectionTile({
     onSectionRows: (id: string, rows: number | null) => void
 }): JSX.Element {
     const { applyDashboardEdit, setSectionFolded } = useActions(dashboardV2Logic)
+    const { gapPx } = useValues(dashboardV2Logic)
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, collapsed, () => setDraft(widget.title))
@@ -84,7 +85,7 @@ export function SectionTile({
                         gridId={id}
                         tiles={widget.tiles}
                         cols={columns}
-                        width={spanPx(columns, columnPx)}
+                        width={spanPx(columns, columnPx, gapPx)}
                         editable={editable}
                         onLiveRows={onLiveRows}
                     />
