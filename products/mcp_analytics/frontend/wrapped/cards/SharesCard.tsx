@@ -59,13 +59,15 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                         )}
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
-                        <span
-                            className={cn(
-                                'row-span-2 flex size-7 items-center justify-center self-center rounded-full',
-                                row.isOther ? 'bg-white/20 text-base font-bold' : 'bg-white text-black'
+                        <span className="row-span-2 flex size-7 items-center justify-center self-center rounded-full bg-white text-black">
+                            {row.isOther ? (
+                                <BrandMark
+                                    name={cardKey === 'apps' ? 'Other harnesses' : 'Unbranded model'}
+                                    className="size-4"
+                                />
+                            ) : (
+                                <Logo cardKey={cardKey} name={row.name} className="size-4" />
                             )}
-                        >
-                            {row.isOther ? '+' : <Logo cardKey={cardKey} name={row.name} className="size-4" />}
                         </span>
                         <span className="truncate">{row.isOther ? otherLabel : row.name}</span>
                         <span>{formatPercent(row.share)}</span>
