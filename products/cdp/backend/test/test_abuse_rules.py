@@ -555,6 +555,29 @@ class TestAbuseRules(SimpleTestCase):
             ("fetch_called_as_an_expression", content(hog="(fetch)(inputs.url)"), True),
             ("fetch_kept_in_a_dict", content(hog="let senders := {'a': fetch}\nsenders.a(inputs.url)"), True),
             ("fetch_in_a_lambda", content(hog="let send := (url) -> fetch(url)\nsend(inputs.url)"), True),
+            (
+                "property_rewrite_with_local_functions_and_lambdas",
+                content(
+                    hog="fun isInternal(ip) {\n  return has(inputs.internal_ips, ip)\n}\n"
+                    "let clean := (value) -> trim(value)\n"
+                    "event.properties.internal := isInternal(clean(event.properties.$ip))\n"
+                    "event.properties.tags := arrayMap(tag -> lower(tag), event.properties.tags ?? [])\n"
+                    "event.properties.internal_tags := arrayFilter(isInternal, event.properties.tags)\n"
+                    "return event",
+                    function_type="transformation",
+                    inputs={},
+                ),
+                False,
+            ),
+            ("closure_from_an_input_called_by_name", content(hog="let send := inputs.sender\nsend(inputs.url)"), True),
+            ("closure_called_as_a_parameter", content(hog="fun go(f) {\n  return f(1)\n}\ngo(inputs.sender)"), True),
+            ("closure_called_as_a_member", content(hog="inputs.sender(inputs.url)"), True),
+            ("closure_from_an_input_as_a_callback", content(hog="arrayMap(inputs.sender, [inputs.url])"), True),
+            (
+                "local_function_replaced_by_a_closure",
+                content(hog="fun send(url) {\n  return url\n}\nsend := inputs.sender\nsend(inputs.url)"),
+                True,
+            ),
             ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
             ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
             ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),
