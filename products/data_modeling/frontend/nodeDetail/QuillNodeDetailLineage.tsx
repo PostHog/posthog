@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45, IconExternal, IconGitBranch, IconSearch } from '@posthog/icons'
+import { IconExpand45, IconExternal, IconGitBranch } from '@posthog/icons'
 import {
     Button,
     Dialog,
@@ -14,14 +14,9 @@ import {
     EmptyTitle,
     IconStack,
     IconStackItem,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    Text,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { QuillCheckCallout } from 'products/data_quality/frontend/QuillCheckCallout'
@@ -30,7 +25,7 @@ import { LineageGraph } from '../lineage/LineageGraph'
 import { LINEAGE_FIT_VIEW_OPTIONS, nodeLineageUrl } from './NodeDetailLineage'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { DATA_WAREHOUSE_ICON_COLOR } from './quillNodeDetailBadges'
-import { QuillNodeDetailLineageTypeFilter } from './QuillNodeDetailLineageTypeFilter'
+import { QuillNodeDetailLineageToolbar } from './QuillNodeDetailLineageToolbar'
 
 export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
@@ -41,19 +36,10 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
         lineageHiddenNodeBridging,
         lineageModalOpen,
         lineageNodePositions,
-        lineageSearchTerm,
-        lineageIsFiltered,
-        lineageVisibleNodeIds,
         node,
     } = useValues(nodeDetailSceneLogic({ id }))
-    const {
-        openLineageModal,
-        closeLineageModal,
-        loadLineageGraph,
-        lineageNodeDragStopped,
-        resetLineageNodePositions,
-        setLineageSearchTerm,
-    } = useActions(nodeDetailSceneLogic({ id }))
+    const { openLineageModal, closeLineageModal, loadLineageGraph, lineageNodeDragStopped, resetLineageNodePositions } =
+        useActions(nodeDetailSceneLogic({ id }))
     const fullLineageUrl = urls.dataCatalog('lineage')
     const edges = lineageHiddenNodeBridging?.edges ?? []
 
@@ -92,30 +78,7 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-                <InputGroup size="sm" className="min-w-40 max-w-72 flex-1">
-                    <InputGroupAddon>
-                        <IconSearch />
-                    </InputGroupAddon>
-                    <InputGroupInput
-                        type="search"
-                        placeholder="Search models"
-                        aria-label="Search models"
-                        value={lineageSearchTerm}
-                        onChange={(event) => setLineageSearchTerm(event.target.value)}
-                        data-attr="node-detail-lineage-search"
-                    />
-                </InputGroup>
-                <QuillNodeDetailLineageTypeFilter id={id} />
-                {lineageIsFiltered && (
-                    <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                        <span>Showing&nbsp;</span>
-                        <span translate="no">{pluralize(lineageVisibleNodeIds.size, 'model')}</span>
-                        <span>&nbsp;of&nbsp;</span>
-                        <span translate="no">{lineageGraph?.nodes.length}</span>
-                    </Text>
-                )}
-            </div>
+            <QuillNodeDetailLineageToolbar id={id} />
             <div className="h-[calc(100vh-20rem)] min-h-100 w-full overflow-hidden rounded-lg border border-border">
                 <LineageGraph
                     nodes={nodes}
