@@ -500,8 +500,6 @@ mod tests {
                         uuid: person_uuid(s.team_id, &s.distinct_id),
                         team_id: s.team_id,
                         properties: None,
-                        properties_last_updated_at: None,
-                        properties_last_operation: None,
                         created_at: s.created_at,
                         version: Some(0),
                         is_identified: s.is_identified,
