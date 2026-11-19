@@ -21,6 +21,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
+import posthoganalytics
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -2293,8 +2294,7 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    @patch("posthoganalytics.capture")
-    def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+    def test_can_delete_user_with_no_organization_memberships(self):
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -2307,15 +2307,31 @@ class TestUserAPI(APIBaseTest):
 
         assert not OrganizationMembership.objects.filter(user=user).exists()
 
-        response = self.client.delete(f"/api/users/@me/")
+        sent_events: list[dict[str, Any]] = []
+
+        def record(message: dict[str, Any]) -> dict[str, Any]:
+            sent_events.append(message)
+            return message
+
+        with patch.multiple(
+            posthoganalytics,
+            default_client=None,
+            disabled=False,
+            send=False,
+            enable_local_evaluation=False,
+            enable_exception_autocapture=False,
+            before_send=record,
+        ):
+            response = self.client.delete(f"/api/users/@me/")
+            posthoganalytics.shutdown()
+
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
 
-        mock_capture.assert_called_once_with(
-            distinct_id=user.distinct_id,
-            event="user account deleted",
-            properties=mock.ANY,
-        )
+        [deleted_event] = [event for event in sent_events if event["event"] == "user account deleted"]
+        assert deleted_event["distinct_id"] == user.distinct_id
+        assert deleted_event["properties"]["$unset"] == ["email"]
+        assert "noactiveorgmemberships@posthog.com" not in str(deleted_event)
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")

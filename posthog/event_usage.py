@@ -761,11 +761,15 @@ def report_organization_deletion_completed(user_id: int, organization_id: str) -
 def report_user_deleted_account(user: User):
     if not user.distinct_id:
         return
-    posthoganalytics.capture(
-        distinct_id=user.distinct_id,
-        event="user account deleted",
-        properties=user.get_analytics_metadata(),
-    )
+    properties = {key: value for key, value in user.get_analytics_metadata().items() if key != "email"}
+    # The SDK's Django middleware tags every event in an authenticated request with the user's email.
+    # A fresh context drops that tag, so the deletion event does not carry the email it removes.
+    with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id,
+            event="user account deleted",
+            properties={**properties, "$unset": ["email"]},
+        )
     posthoganalytics.flush()
 
 
