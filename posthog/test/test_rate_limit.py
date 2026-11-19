@@ -1202,7 +1202,7 @@ class TestReserveUnits(BaseTest):
             read = cache.get
 
             def team_history_unreadable(key: str, *args: Any, **kwargs: Any) -> Any:
-                if key == throttles[1].key:
+                if key.startswith(f"throttle_{_PSAKTeamThrottleForTest.scope}_"):
                     raise RedisError("down")
                 return read(key, *args, **kwargs)
 
@@ -1233,10 +1233,13 @@ class TestReserveUnits(BaseTest):
             redis_cache = caches["default"]
             assert isinstance(redis_cache, RedisCache)
             key = _PSAKThrottleForTest().get_cache_key(self._request(), self.view)
-            clients = [redis_cache.client.get_client(write=True), redis_cache.client.get_client(write=False)]
-            for client in clients:
-                redis_cache.set(key, [now], 60, client=client)
+            primary_client, reader_client = clients = [
+                redis_cache.client.get_client(write=True),
+                redis_cache.client.get_client(write=False),
+            ]
             try:
+                self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 1), [True])
+                redis_cache.set(key, redis_cache.get(key, client=primary_client), 60, client=reader_client)
                 retry_after = self._send([_PSAKThrottleForTest], 2)
             finally:
                 for client in clients:
