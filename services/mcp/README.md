@@ -405,9 +405,8 @@ Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by defau
 
 - `exec` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
 - `exec-write` answers only on a split connection, so a wrapper whose approval gate doesn't know it can't reach it.
-- The split sticks for the MCP session, so a later request that drops the option still refuses writes on `exec`. A client that sends no session or conversation handle has nothing to pin it to.
+- The split sticks for the MCP session, so a later request that drops the option still refuses writes on `exec`. A client that sends no session or conversation handle has nothing to pin it to, so it doesn't split.
 - A connection that sends `consumer`, such as the AI plugin, PostHog Code or a Tasks sandbox, never splits, because those wrappers gate writes on the `exec` name.
-- A `readonly=true` connection lists only `exec`, marked `readOnlyHint: true`, because none of its tools change data.
 - Only the parameter or header turns the split on, in every mode, and `false` can't turn it off within a session. A client keeps the tool list it fetched, so a server-side default or a mode that later changed would leave a cached read-only `exec` running writes. Tools mode still lists every tool by name, and refuses writes on a cached `exec`.
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.

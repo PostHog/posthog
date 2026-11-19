@@ -131,7 +131,7 @@ export class InstructionsBuilder {
 
     buildExecToolEntries(state: ExecToolState & Pick<ResolvedState, 'splitWrites'>): McpTool[] {
         if (!state.splitWrites) {
-            return [this.buildExecToolEntry(state, { readOnly: state.requestContext.readOnly === true })]
+            return [this.buildExecToolEntry(state)]
         }
         const readEntry = this.buildExecToolEntry(state, { readOnly: true })
         return [

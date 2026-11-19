@@ -1015,9 +1015,15 @@ describe('RequestStateResolver MCP client contexts', () => {
             {}
         )
 
-        const result = await makeResolver().resolve(props)
+        const result = await makeResolver().resolve({ ...props, mcpSessionId: 'mcp-session-1' })
 
         expect(result.splitWrites).toBe(expected)
+    })
+
+    it('does not split writes for a client with no session to pin the split to', async () => {
+        const result = await makeResolver().resolve(makeProps({ mcpSessionId: undefined, splitWrites: true }))
+
+        expect(result.splitWrites).toBe(false)
     })
 
     it.each([

@@ -359,11 +359,8 @@ describe('ToolExecutor', () => {
                     ['exec-write', false],
                 ],
             ],
-            ['a read-only connection', { readOnly: true }, [['exec', true]]],
-        ])('advertises the exec dispatchers and their read-only hints on %s', async (_label, flags, expected) => {
-            const { readOnly, ...overrides } = flags as { readOnly?: boolean; splitWrites?: boolean }
+        ])('advertises the exec dispatchers and their read-only hints on %s', async (_label, overrides, expected) => {
             const state = makeToolExecutorState([], { useSingleExec: true, ...overrides })
-            state.requestContext.readOnly = readOnly
 
             const result = await executor.handleToolsList(state)
 
