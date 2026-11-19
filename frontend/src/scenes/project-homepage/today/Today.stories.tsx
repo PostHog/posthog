@@ -1122,7 +1122,7 @@ export const HomeWithKeptNumbers: Story = {
 }
 
 const LONG_NUMBER_NAMES = [
-    'Weekly file uploads on paid plans',
+    'Weekly file uploads on paid plans across every region',
     'Sign-ups',
     'Successful card payments this week',
     'Active users',
