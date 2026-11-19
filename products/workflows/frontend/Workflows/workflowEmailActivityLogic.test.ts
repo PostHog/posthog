@@ -33,7 +33,7 @@ describe('workflowEmailActivityLogic', () => {
     it.each([
         { name: 'a send with engagement events', status: 200, email: SEND, emailFailed: false, loadsActivity: true },
         {
-            name: 'a send with no engagement events',
+            name: 'a send its run logs do not show',
             status: 404,
             email: null,
             emailFailed: false,

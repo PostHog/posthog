@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { IconLetter } from '@posthog/icons'
 import { LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { HogFlow } from './hogflows/types'
 import { getMessageAssetContentUrl } from './messageAssetsApi'
 import { WorkflowEmailActivity } from './WorkflowEmailActivity'
@@ -27,9 +29,23 @@ export function EmailViewerModal({
     title = 'Email',
     description,
 }: EmailViewerModalProps): JSX.Element {
+    const activityEnabled = useFeatureFlag('WORKFLOWS_EMAIL_ACTIVITY')
     const [tab, setTab] = useState<'email' | 'activity'>('email')
     // Kept mounted once opened, so switching back doesn't reload the activity.
     const [activityOpened, setActivityOpened] = useState(false)
+    const emailContent = (
+        <div className="h-[60vh]">
+            {/* The ids clear while the modal closes, and the content URL refuses empty ones. */}
+            {invocationId && actionId && (
+                <iframe
+                    title="Rendered email"
+                    sandbox=""
+                    src={getMessageAssetContentUrl(workflowId, invocationId, actionId)}
+                    className="w-full h-full bg-white rounded border"
+                />
+            )}
+        </div>
+    )
     return (
         <LemonModal
             isOpen={isOpen}
@@ -42,48 +58,40 @@ export function EmailViewerModal({
             title={title}
             description={description}
         >
-            <LemonTabs
-                activeKey={tab}
-                onChange={(key) => {
-                    setTab(key)
-                    if (key === 'activity') {
-                        setActivityOpened(true)
-                    }
-                }}
-                data-attr="workflow-email-viewer-tabs"
-                tabs={[
-                    {
-                        key: 'email',
-                        label: 'Email',
-                        content: (
-                            <div className="h-[60vh]">
-                                {/* The ids clear while the modal closes, and the content URL refuses empty ones. */}
-                                {invocationId && actionId && (
-                                    <iframe
-                                        title="Rendered email"
-                                        sandbox=""
-                                        src={getMessageAssetContentUrl(workflowId, invocationId, actionId)}
-                                        className="w-full h-full bg-white rounded border"
-                                    />
-                                )}
-                            </div>
-                        ),
-                    },
-                    {
-                        key: 'activity',
-                        label: 'Activity',
-                        tooltip: "The person's events in your product in the week before and after this email",
-                        keepMounted: activityOpened,
-                        content: (
-                            <div className="h-[60vh] overflow-y-auto">
-                                {invocationId && actionId && (
-                                    <WorkflowEmailActivity invocationId={invocationId} actionId={actionId} />
-                                )}
-                            </div>
-                        ),
-                    },
-                ]}
-            />
+            {activityEnabled ? (
+                <LemonTabs
+                    activeKey={tab}
+                    onChange={(key) => {
+                        setTab(key)
+                        if (key === 'activity') {
+                            setActivityOpened(true)
+                        }
+                    }}
+                    data-attr="workflow-email-viewer-tabs"
+                    tabs={[
+                        {
+                            key: 'email',
+                            label: 'Email',
+                            content: emailContent,
+                        },
+                        {
+                            key: 'activity',
+                            label: 'Activity',
+                            tooltip: "The person's events in your product in the week before and after this email",
+                            keepMounted: activityOpened,
+                            content: (
+                                <div className="h-[60vh] overflow-y-auto">
+                                    {invocationId && actionId && (
+                                        <WorkflowEmailActivity invocationId={invocationId} actionId={actionId} />
+                                    )}
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            ) : (
+                emailContent
+            )}
         </LemonModal>
     )
 }

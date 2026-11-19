@@ -67,7 +67,8 @@ export function WorkflowEmailActivity(props: WorkflowEmailActivityLogicProps): J
     if (email === undefined || emailLoading) {
         return <ActivitySkeleton />
     }
-    if (email === null) {
+    // The run's logs show the send, but only an engagement event says who the person is.
+    if (email === null || !email.distinct_id) {
         return <NoEngagementEvents enabled={!!currentTeam?.workflows_config?.capture_workflows_engagement_events} />
     }
     if (activityFailed && !activityLoading) {

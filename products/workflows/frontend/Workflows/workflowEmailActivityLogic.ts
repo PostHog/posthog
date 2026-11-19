@@ -98,7 +98,7 @@ export const workflowEmailActivityLogic = kea<workflowEmailActivityLogicType>([
         ],
     }),
     loaders(({ props, values }) => ({
-        // undefined until the first load answers, null when the project has no engagement events for this send.
+        // undefined until the first load answers, null when the project has no such send.
         email: [
             undefined as WorkflowEmailDetailApi | null | undefined,
             {
