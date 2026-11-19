@@ -60,7 +60,7 @@ const meta: Meta<typeof AIObservabilityDatasetScene> = {
     parameters: {
         mockDate: '2024-01-02T12:00:00Z',
         pageUrl: urls.aiObservabilityDataset(dataset.id),
-        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS, FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
+        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
     },
     decorators: [
         mswDecorator({
@@ -96,21 +96,6 @@ export const NewDataset: Story = {
             }
         })
     },
-}
-export const DatasetsOnlyNarrow: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false,
-        },
-    },
-    decorators: [
-        (Story) => (
-            <div className="w-[520px]">
-                <Story />
-            </div>
-        ),
-    ],
 }
 export const ReadOnly: Story = {
     decorators: [
