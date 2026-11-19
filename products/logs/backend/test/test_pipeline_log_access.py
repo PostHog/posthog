@@ -105,3 +105,35 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert max(bucket["count"] for bucket in response.json()["buckets"]) == expected
+
+    @parameterized.expand(
+        [
+            ("restricted_pipeline", "restricted", [_PIPELINE], 403),
+            ("restricted_all_services", "restricted", [], 403),
+            ("restricted_app", "restricted", [_APP], 201),
+            ("granted_pipeline", "granted", [_PIPELINE], 201),
+            ("admin_pipeline", "admin", [_PIPELINE], 201),
+        ]
+    )
+    def test_alert_on_pipeline_logs_follows_property_access(
+        self, _name: str, access: PropertyAccess, services: list[str], expected: int
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/",
+                {
+                    "name": "Pipeline alert",
+                    "filters": {"serviceNames": services, "severityLevels": ["error"]},
+                    "threshold_count": 0,
+                    "threshold_operator": "above",
+                    "window_minutes": 5,
+                },
+                format="json",
+            )
+
+            listed = self.client.get(f"/api/projects/{self.team.pk}/logs/alerts/").json()["results"]
+
+        assert response.status_code == expected, response.json()
+        assert [alert["name"] for alert in listed] == (["Pipeline alert"] if expected == 201 else [])

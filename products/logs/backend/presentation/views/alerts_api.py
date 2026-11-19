@@ -14,13 +14,14 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.hogql.database.schema.logs import PIPELINE_LOG_SERVICE_NAMES
 from posthog.hogql.errors import QueryError
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
@@ -37,6 +38,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade import api as access_control_api
 from products.alerts.backend.facade.destinations import (
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
@@ -956,6 +958,21 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def _require_pipeline_log_access(self, filters: dict) -> None:
+        # Scheduled checks read pipeline logs without a user, so a restricted member must not point an alert at them.
+        services = set(filters.get("serviceNames") or [])
+        if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+            return
+        request = self.context.get("request")
+        user = request.user if request is not None and isinstance(request.user, User) else None
+        if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=self.context["get_team"]().id, user=user
+        ):
+            raise PermissionDenied(
+                "Your property access permissions do not allow alerts on pipeline logs. "
+                "Pick the services this alert watches, without PostHog pipeline services."
+            )
+
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
 
@@ -967,6 +984,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
+        if effective_enabled:
+            self._require_pipeline_log_access(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:

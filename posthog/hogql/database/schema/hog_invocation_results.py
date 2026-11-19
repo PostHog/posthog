@@ -65,7 +65,7 @@ class HogInvocationResultsTable(Table):
     fields: dict[str, FieldOrTable] = HOG_INVOCATION_RESULTS_FIELDS
 
     def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
-        # Scheduled jobs run without a user and keep reading pipeline logs under the team's default rules.
+        # Scheduled jobs run without a user and keep reading pipeline logs.
         if context is not None and context.user is not None and context.restricted_properties:
             return [
                 parse_expr("function_kind NOT IN ('hog_function', 'hog_function_rerun', 'hog_flow', 'hog_flow_rerun')")

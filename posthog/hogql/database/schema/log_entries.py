@@ -50,7 +50,7 @@ class LogEntriesTable(Table):
     inherit_profile_spill: bool = True
 
     def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
-        # Scheduled jobs run without a user and keep reading pipeline logs under the team's default rules.
+        # Scheduled jobs run without a user and keep reading pipeline logs.
         if context is not None and context.user is not None and context.restricted_properties:
             return [parse_expr("log_source NOT IN ('hog_function', 'plugin', 'hog_flow')")]
         return []
