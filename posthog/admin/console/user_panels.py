@@ -26,6 +26,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_deleted_account
 from posthog.helpers.impersonation import get_impersonated_user, is_impersonated
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -442,6 +443,7 @@ def delete_user(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
     deleted_user_id = obj.pk
     name = f"{obj.first_name} {obj.last_name}".strip() or obj.email
     email = obj.email
+    distinct_id, analytics_metadata = obj.distinct_id, obj.get_analytics_metadata()
     with transaction.atomic():
         # An account in no organization has nowhere to scope an ActivityLog row, so the admin log takes the reason.
         LogEntry.objects.log_actions(
@@ -471,6 +473,8 @@ def delete_user(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
                 for organization_id in organization_ids
             ]
         )
+        # The event clears the person's email, so a delete that rolls back must not send it.
+        transaction.on_commit(lambda: report_user_deleted_account(distinct_id, analytics_metadata))
     messages.success(request, f"Deleted the user {email}.")
     return HttpResponseRedirect(reverse("admin_console_home"))
 

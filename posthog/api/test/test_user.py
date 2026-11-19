@@ -2,8 +2,6 @@ import re
 import time
 import uuid
 import datetime
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal, cast
 from urllib.parse import quote, unquote, urlparse
@@ -23,7 +21,6 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
-import posthoganalytics
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -50,6 +47,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 from posthog.test.authentication_checks import covers_authentication
+from posthog.test.sent_analytics import record_sent_analytics
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2320,21 +2318,6 @@ class TestUserAPI(APIBaseTest):
             properties=mock.ANY,
         )
 
-    @contextmanager
-    def _record_sent_analytics(self) -> Iterator[list[dict[str, Any]]]:
-        sent_events: list[dict[str, Any]] = []
-        with patch.multiple(
-            posthoganalytics,
-            default_client=None,
-            disabled=False,
-            send=False,
-            enable_local_evaluation=False,
-            enable_exception_autocapture=False,
-            before_send=sent_events.append,
-        ):
-            yield sent_events
-            posthoganalytics.shutdown()
-
     def _account_without_memberships(self, email: str) -> User:
         user = self._create_user(email, password="test")
         OrganizationMembership.objects.filter(user=user).delete()
@@ -2344,7 +2327,7 @@ class TestUserAPI(APIBaseTest):
     def test_deleting_account_unsets_person_email(self):
         user = self._account_without_memberships("deleting-account@posthog.com")
 
-        with self._record_sent_analytics() as sent_events:
+        with record_sent_analytics() as sent_events:
             response = self.client.delete("/api/users/@me/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
@@ -2357,7 +2340,7 @@ class TestUserAPI(APIBaseTest):
         user = self._account_without_memberships("failed-deletion@posthog.com")
 
         with (
-            self._record_sent_analytics() as sent_events,
+            record_sent_analytics() as sent_events,
             patch.object(User, "delete", side_effect=DatabaseError("deadlock detected")),
         ):
             response = self.client.delete("/api/users/@me/")

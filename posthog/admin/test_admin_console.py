@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
 from types import FunctionType
+from typing import Any
 from urllib.parse import urlencode
 
 import time_machine
@@ -20,6 +21,7 @@ from django.contrib.auth.models import Group
 from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
+from django.db import DatabaseError
 from django.db.models import PROTECT, Model
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
@@ -95,6 +97,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.sent_analytics import record_sent_analytics
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -1876,6 +1879,38 @@ class TestAdminConsoleUserDeletion(BaseTest):
                 "reason": "Duplicate account after an email change",
                 "email": "delete-me@example.com",
             }
+
+    def _deleted_account_events(self, sent_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [event for event in sent_events if event["event"] == "user account deleted"]
+
+    def test_the_confirmed_delete_unsets_the_person_email(self) -> None:
+        preview = self._preview()
+
+        with record_sent_analytics() as sent_events, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 302
+        [deleted_event] = self._deleted_account_events(sent_events)
+        assert deleted_event["distinct_id"] == self.target.distinct_id
+        assert deleted_event["properties"]["$unset"] == ["email"]
+        assert "delete-me@example.com" not in str(deleted_event)
+
+    def test_a_delete_that_rolls_back_keeps_the_person_email(self) -> None:
+        preview = self._preview()
+        self.client.raise_request_exception = False
+
+        with (
+            record_sent_analytics() as sent_events,
+            self.captureOnCommitCallbacks(execute=True),
+            patch(
+                "posthog.admin.console.user_panels.bulk_log_activity", side_effect=DatabaseError("deadlock detected")
+            ),
+        ):
+            response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 500
+        assert User.objects.filter(pk=self.target.pk).exists()
+        assert self._deleted_account_events(sent_events) == []
 
     def test_the_reason_reaches_the_admin_log_when_the_user_has_no_organization(self) -> None:
         # An ActivityLog row needs an organization or team to be scoped to, so the admin log is the only record.
