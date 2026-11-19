@@ -38,18 +38,34 @@ impl FollowerHandler {
         }
     }
 
-    async fn build(&self, partition: u32, config: ChangelogConfig) -> Result<()> {
+    /// The config to build a partition under: the live one, or the one its handoff
+    /// captured when that is newer. A partition built under an older one answers no reads.
+    fn config_for(&self, partition: u32) -> ChangelogConfig {
+        let live = self.changelog.current();
+        match self.captured.get(&partition) {
+            Some(captured) if captured.epoch >= live.epoch => captured.clone(),
+            _ => live,
+        }
+    }
+
+    async fn build(&self, partition: u32) -> Result<()> {
+        let mut config = self.config_for(partition);
         // A shrink leaves assignments for partitions the changelog no longer has. There
         // is nothing to follow, and no request is routed to them.
-        if partition >= config.partitions {
-            self.follower.release(partition);
-        } else {
+        if partition < config.partitions {
             let _slot = self
                 .builds
                 .acquire()
                 .await
                 .map_err(|_| Error::invalid_state("build semaphore closed".to_string()))?;
-            self.follower.follow(partition, &config).await?;
+            // The config can change while a build waits for its slot.
+            config = self.config_for(partition);
+            if partition < config.partitions {
+                self.follower.follow(partition, &config).await?;
+            }
+        }
+        if partition >= config.partitions {
+            self.follower.release(partition);
         }
         self.built.insert(partition, config);
         Ok(())
@@ -68,14 +84,7 @@ impl HandoffHandler for FollowerHandler {
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
-        // A handoff captured before a config change is built under the live config: a
-        // partition built under an older one answers no reads.
-        let live = self.changelog.current();
-        let config = match self.captured.get(&partition) {
-            Some(captured) if captured.epoch >= live.epoch => captured.clone(),
-            _ => live,
-        };
-        self.build(partition, config).await
+        self.build(partition).await
     }
 
     /// Rebuild a partition whose reader stopped, or that was built under an older config:
@@ -90,7 +99,7 @@ impl HandoffHandler for FollowerHandler {
         if built_under_live && (gone || self.follower.is_following(partition)) {
             return Ok(false);
         }
-        self.build(partition, live).await?;
+        self.build(partition).await?;
         Ok(true)
     }
 

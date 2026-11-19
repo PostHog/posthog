@@ -465,7 +465,7 @@ fn record_warm_span(span: &'static str, start: Instant) {
 /// residue and becomes the partition's serving truth.
 struct WarmCleanup<'a> {
     cache: &'a PartitionedCache,
-    dirty_index: &'a DirtyIndex,
+    dirty_index: Option<&'a DirtyIndex>,
     partition: u32,
     armed: bool,
 }
@@ -474,7 +474,9 @@ impl Drop for WarmCleanup<'_> {
     fn drop(&mut self) {
         if self.armed {
             self.cache.abort_warm_partition(self.partition);
-            self.dirty_index.clear_partition(self.partition);
+            if let Some(dirty_index) = self.dirty_index {
+                dirty_index.clear_partition(self.partition);
+            }
         }
     }
 }
@@ -503,7 +505,7 @@ async fn warm_source(
     cfg: &WarmingConfig,
     pools: &WarmClientPools,
     cache: &PartitionedCache,
-    dirty_index: &DirtyIndex,
+    dirty_index: Option<&DirtyIndex>,
     partition: u32,
     source: &WarmSource,
     committed_offset: Option<i64>,
@@ -601,16 +603,18 @@ async fn warm_source(
             };
             // PG may not hold a replayed record yet: mark before insert, so a
             // miss after an eviction recovers from the changelog, not PG.
-            dirty_index.mark(
-                key.clone(),
-                DirtyMark {
-                    version: cached.version,
-                    offset,
-                    partition,
-                    stream: stream.clone(),
-                    is_deleted: cached.is_deleted,
-                },
-            );
+            if let Some(dirty_index) = dirty_index {
+                dirty_index.mark(
+                    key.clone(),
+                    DirtyMark {
+                        version: cached.version,
+                        offset,
+                        partition,
+                        stream: stream.clone(),
+                        is_deleted: cached.is_deleted,
+                    },
+                );
+            }
             cache.warm_put(partition, key, cached);
         },
         |_| {},
@@ -871,12 +875,13 @@ pub async fn follow_source(
 }
 
 /// Each replay runs to a known end: for a leader every source is sealed or fenced, and a
-/// follower's live source is replayed to the end it had when the replay began.
+/// follower's live source is replayed to the end it had when the replay began. A leader
+/// passes the index its changelog recovery reads; a follower, which has none, passes `None`.
 pub async fn warm_from_sources(
     cfg: &WarmingConfig,
     pools: &WarmClientPools,
     cache: &PartitionedCache,
-    dirty_index: &DirtyIndex,
+    dirty_index: Option<&DirtyIndex>,
     partition: u32,
     sources: &[WarmSource],
     track_puts: bool,
@@ -1214,7 +1219,7 @@ mod tests {
         {
             let _cleanup = WarmCleanup {
                 cache: &cache,
-                dirty_index: &dirty_index,
+                dirty_index: Some(&dirty_index),
                 partition: 0,
                 armed: true,
             };
@@ -1263,7 +1268,7 @@ mod tests {
         {
             let mut cleanup = WarmCleanup {
                 cache: &cache,
-                dirty_index: &dirty_index,
+                dirty_index: Some(&dirty_index),
                 partition: 0,
                 armed: true,
             };

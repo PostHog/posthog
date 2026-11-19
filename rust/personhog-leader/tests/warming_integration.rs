@@ -109,9 +109,17 @@ async fn warm_live(
     partition: u32,
 ) -> personhog_coordination::error::Result<()> {
     let sources = [WarmSource::live(CHANGELOG_TOPIC, None, partition)];
-    warm_from_sources(cfg, pools, cache, dirty_index, partition, &sources, false)
-        .await
-        .map(|_| ())
+    warm_from_sources(
+        cfg,
+        pools,
+        cache,
+        Some(dirty_index),
+        partition,
+        &sources,
+        false,
+    )
+    .await
+    .map(|_| ())
 }
 
 fn version_of(cache: &PartitionedCache, partition: u32, person_id: i64) -> Option<i64> {
@@ -179,7 +187,7 @@ async fn warmed_over_applied_history(
     let dirty_index = DirtyIndex::new(1_000_000);
     let (cfg, pools) = warming_config_for("filler", &cluster);
     let sources = [WarmSource::live(CHANGELOG_TOPIC, None, 0)];
-    let live = warm_from_sources(&cfg, &pools, cache, &dirty_index, 0, &sources, true)
+    let live = warm_from_sources(&cfg, &pools, cache, Some(&dirty_index), 0, &sources, true)
         .await
         .expect("warming should succeed");
     assert!(dirty_index.is_empty());
@@ -483,6 +491,50 @@ async fn a_handler_builds_no_more_partitions_at_once_than_its_limit() {
     second.abort();
 
     assert!(first_ended_before_the_second_began);
+}
+
+#[tokio::test]
+async fn a_build_that_waited_for_its_slot_is_built_under_the_config_live_by_then() {
+    let (cluster, _producer) = create_mock_kafka().await;
+    // Never confirmed current, so a build holds its slot until its deadline and then fails.
+    let never_current = FollowConfig {
+        staleness_threshold: Duration::ZERO,
+        ..FOLLOW
+    };
+    let f = following_stalling_after("queued", &cluster, never_current, Duration::from_secs(2));
+    let changelog = LiveChangelog::new(f.config.clone());
+    let handler = Arc::new(FollowerHandler::new(
+        Arc::clone(&f.follower),
+        changelog.clone(),
+        1,
+    ));
+    let build = |partition| {
+        let handler = Arc::clone(&handler);
+        tokio::spawn(async move { handler.verify_serving(partition).await })
+    };
+
+    let first = build(0);
+    eventually("the first build to hold the slot", || {
+        f.follower.is_following(0)
+    })
+    .await;
+    let queued = build(1);
+    // Runs the queued build up to its wait for the slot, on this single-threaded runtime.
+    tokio::task::yield_now().await;
+    // Partition 1 is gone by the time its build gets the slot.
+    changelog.adopt(&ChangelogConfig {
+        partitions: 1,
+        epoch: f.config.epoch + 1,
+        ..f.config.clone()
+    });
+    drop(first.await);
+
+    // Under the config it was queued with, this build would follow partition 1 and fail.
+    queued
+        .await
+        .expect("the queued build ran")
+        .expect("nothing to build");
+    assert!(!f.cache.has_partition(1));
 }
 
 #[tokio::test]
@@ -2007,7 +2059,7 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
         },
         WarmSource::live(&new_topic.topic, None, 1),
     ];
-    warm_from_sources(&cfg, &pools, &cache, &dirty_index, 1, &sources, false)
+    warm_from_sources(&cfg, &pools, &cache, Some(&dirty_index), 1, &sources, false)
         .await
         .expect("warm from the old tail");
 
@@ -2124,7 +2176,7 @@ async fn an_applied_old_record_never_shadows_a_newer_applied_live_one() {
         },
         WarmSource::live(&new_topic.topic, None, 0),
     ];
-    warm_from_sources(&cfg, &pools, &cache, &dirty_index, 0, &sources, false)
+    warm_from_sources(&cfg, &pools, &cache, Some(&dirty_index), 0, &sources, false)
         .await
         .expect("warm across generations");
 

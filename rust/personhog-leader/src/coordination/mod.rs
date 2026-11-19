@@ -391,7 +391,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             &self.warming,
             &self.pools,
             &self.cache,
-            &self.dirty_index,
+            Some(&self.dirty_index),
             partition,
             &sources,
             self.fill.is_some(),
