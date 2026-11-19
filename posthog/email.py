@@ -6,7 +6,7 @@ import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
-from email.utils import parseaddr
+from email.utils import getaddresses
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
+from django.core.mail.message import sanitize_address
 from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
 from django.utils import timezone
@@ -595,8 +596,13 @@ def _send_via_smtp(
         if txt_body:
             workflows_content["text"] = txt_body
         if effective_reply_to:
-            # The send API takes bare addresses, so a display name such as `Support <help@example.com>` is dropped.
-            workflows_content["reply_to"] = [parseaddr(effective_reply_to)[1]]
+            # The send API takes bare ASCII addresses, so display names are dropped and a list is split, as Django's SMTP
+            # path would encode them.
+            workflows_content["reply_to"] = [
+                sanitize_address(address, settings.DEFAULT_CHARSET)
+                for _, address in getaddresses([effective_reply_to])
+                if address
+            ]
 
         for dest in to:
             workflows_unrecorded = False

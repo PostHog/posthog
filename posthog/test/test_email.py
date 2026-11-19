@@ -623,14 +623,15 @@ class TestEmail(BaseTest):
                 campaign_key="smtp_routing",
                 subject="Subject",
                 template_name="async_migration_error",
-                reply_to="Support <a@b.com>",
+                reply_to="Support <a@b.com>, c@bücher.de",
             )
             message.add_recipient("test@posthog.com")
             if outcome == "retries":
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
             else:
-                undeliverable = message.send(send_async=False, retry=False)
+                # The default synchronous send runs the Celery task eagerly, so this also checks its result.
+                undeliverable = message.send(send_async=False)
                 self.assertEqual(undeliverable, ["test@posthog.com"] if outcome == "dropped" else [])
 
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
@@ -640,7 +641,7 @@ class TestEmail(BaseTest):
             self.assertEqual(payload["template_key"], "async_migration_error")
             self.assertEqual(payload["subject"], "Subject")
             self.assertIn("<html", payload["html"])
-            self.assertEqual(payload["reply_to"], ["a@b.com"])
+            self.assertEqual(payload["reply_to"], ["a@b.com", "c@xn--bcher-kva.de"])
         record = MessagingRecord.objects.get(campaign_key="smtp_routing")
         self.assertEqual(record.sent_at is not None, outcome == "sent")
 
