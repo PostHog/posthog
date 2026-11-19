@@ -156,10 +156,18 @@ describe('weekly MCP tool health report', () => {
                 { tool: 'execute-sql', owner: 'unowned' },
                 { tool: 'survey-create', owner: 'team-surveys' },
             ]
-            const teams = ownedTeams(items, (item) => ({ owner: item.owner }))
+            const teams = ownedTeams(items, (item) => ({ owner: item.owner, slack: `#${item.owner}` }))
             assert.deepEqual(
                 teams.map((team) => [team.owner, team.items.map((item) => item.tool)]),
                 [['team-surveys', ['survey-get', 'survey-create']]]
+            )
+        })
+
+        it('files nothing for a team that silenced this report in owners.yaml', () => {
+            const items = [{ tool: 'survey-get', owner: 'team-surveys', slack: null }]
+            assert.deepEqual(
+                ownedTeams(items, (item) => item),
+                []
             )
         })
 

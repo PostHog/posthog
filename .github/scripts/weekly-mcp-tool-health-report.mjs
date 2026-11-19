@@ -277,11 +277,13 @@ function teamPostsWithheld(enabled = TEAM_CHANNEL_POSTS) {
     return enabled ? null : 'shadow: would post to'
 }
 
+// A null channel on an owned tool means the team set `mcp_tool_health: false` in owners.yaml, which
+// opts it out of this report everywhere, its inbox included.
 function ownedTeams(items, ownerFor) {
     const byOwner = new Map()
     for (const item of items) {
-        const { owner } = ownerFor(item)
-        if (owner === 'unowned') {
+        const { owner, slack } = ownerFor(item)
+        if (owner === 'unowned' || !slack) {
             continue
         }
         if (!byOwner.has(owner)) {
