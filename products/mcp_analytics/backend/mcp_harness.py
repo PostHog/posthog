@@ -127,7 +127,7 @@ def harness_label_or_token_sql(
     """Same bucketing as `harness_label_sql`, but names unrecognized clients verbatim.
 
     An unrecognized token is not noise — it is the client's own self-reported name
-    ("posthog-attribution-service", "openclaw-bundle-mcp"), which is strictly more
+    (for example, "example-unrecognized-mcp"), which is strictly more
     useful in a ranked list of callers than "Other". `display_col` holds
     `HARNESS_DISPLAY_NAME_SQL` so that name keeps its own capitalization; matching still
     happens on the lower-cased `token_col`. The name is event-supplied and unbounded, so
