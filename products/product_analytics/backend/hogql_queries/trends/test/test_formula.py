@@ -9,6 +9,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -741,6 +742,96 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[2]["data"], [0, 0, 0, 0, 0, 0, 1, 0])
         self.assertEqual(response[3]["breakdown_value"], "$$_posthog_breakdown_null_$$")
         self.assertEqual(response[3]["data"], [0, 0, 0, 0, 0, 0, 1, 0])
+
+    @parameterized.expand(
+        [
+            ("line", "ActionsLineGraph", None, False),
+            ("line_fewer_array_ops", "ActionsLineGraph", "trends-breakdown-fewer-array-ops", False),
+            ("line_rank_before_arrays", "ActionsLineGraph", "trends-breakdown-rank-before-arrays", False),
+            ("line_multiple_breakdowns", "ActionsLineGraph", None, True),
+            ("cumulative", TRENDS_CUMULATIVE, None, False),
+            ("pie", TRENDS_PIE, None, False),
+        ]
+    )
+    def test_breakdown_limit_keeps_the_same_values_in_every_series(
+        self, _name: str, display: str, flag: Optional[str], multiple: bool
+    ):
+        with time_machine.travel("2020-01-03T13:05:01Z", tick=False):
+            _create_event(
+                team=self.team, event="session end", distinct_id="blabla", properties={"location": "Belo Horizonte"}
+            )
+        # Alone, "session end" keeps "Belo Horizonte" as its top value and puts "London" in "Other"
+        breakdown_filter = (
+            {"breakdowns": [{"property": "location"}], "breakdown_limit": 1}
+            if multiple
+            else {"breakdown": "location", "breakdown_limit": 1}
+        )
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
+            side_effect=lambda feature_flag, *args, **kwargs: feature_flag == flag,
+        ):
+            response = self._run(
+                {
+                    "series": [
+                        {"kind": "EventsNode", "event": "session start"},
+                        {"kind": "EventsNode", "event": "session end"},
+                    ],
+                    "breakdownFilter": breakdown_filter,
+                    "trendsFilter": {"formula": "A + B", "display": display},
+                }
+            )
+
+        london, other = (
+            (["London"], ["$$_posthog_breakdown_other_$$"]) if multiple else ("London", "$$_posthog_breakdown_other_$$")
+        )
+        if display == TRENDS_PIE:
+            self.assertCountEqual(
+                [(series["breakdown_value"], series["aggregated_value"]) for series in response],
+                [(london, 4), (other, 5)],
+            )
+        elif display == TRENDS_CUMULATIVE:
+            self.assertCountEqual(
+                [(series["breakdown_value"], series["data"]) for series in response],
+                [(london, [0, 0, 0, 0, 0, 1, 4, 4]), (other, [0, 0, 0, 0, 0, 2, 5, 5])],
+            )
+        else:
+            self.assertCountEqual(
+                [(series["breakdown_value"], series["data"]) for series in response],
+                [(london, [0, 0, 0, 0, 0, 1, 3, 0]), (other, [0, 0, 0, 0, 0, 2, 3, 0])],
+            )
+
+    def test_breakdown_limit_ranks_the_values_of_each_compared_period(self):
+        with time_machine.travel("2019-12-25T13:01:01Z", tick=False):
+            for event, location in [
+                ("session start", "Paris"),
+                ("session start", "Paris"),
+                ("session start", "Berlin"),
+                ("session end", "Berlin"),
+                ("session end", "Berlin"),
+            ]:
+                _create_event(team=self.team, event=event, distinct_id="blabla", properties={"location": location})
+
+        response = self._run(
+            {
+                "series": [
+                    {"kind": "EventsNode", "event": "session start"},
+                    {"kind": "EventsNode", "event": "session end"},
+                ],
+                "breakdownFilter": {"breakdown": "location", "breakdown_limit": 1},
+                "trendsFilter": {"formula": "A + B"},
+                "compareFilter": {"compare": True},
+            }
+        )
+
+        self.assertCountEqual(
+            [(series["compare_label"], series["breakdown_value"], series["count"]) for series in response],
+            [
+                ("current", "London", 4),
+                ("current", "$$_posthog_breakdown_other_$$", 4),
+                ("previous", "Berlin", 3),
+                ("previous", "$$_posthog_breakdown_other_$$", 2),
+            ],
+        )
 
     def test_global_properties(self):
         self.assertEqual(
