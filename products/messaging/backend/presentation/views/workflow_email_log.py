@@ -2,6 +2,7 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import serializers, viewsets
@@ -31,9 +32,11 @@ from products.messaging.backend.presentation.views.transactional_email_log impor
 from products.workflows.backend.facade.api import get_workflow_view_access
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
+FEATURE_FLAG = "workflows-email-activity"
 ENGAGEMENT_NOTE = (
-    "Sends are read from the `$workflows_email_*` events, which are only recorded while the project's "
-    "engagement events setting is on."
+    "Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks "
+    "come from the `$workflows_email_*` events, which are only recorded while the project's engagement events "
+    "setting is on."
 )
 INVOCATION_PARAMETER = OpenApiParameter(
     name="id",
@@ -63,16 +66,21 @@ class WorkflowEmailSendSerializer(serializers.Serializer):
     invocation_id = serializers.CharField(help_text="The workflow run that sent the email.")
     action_id = serializers.CharField(help_text="The email step that sent it. A run can send one email per step.")
     workflow_id = serializers.CharField(help_text="The workflow or broadcast that sent the email.")
-    distinct_id = serializers.CharField(help_text="The distinct ID of the person the email went to.")
+    distinct_id = serializers.CharField(
+        allow_blank=True,
+        help_text="The distinct ID of the person the email went to. Empty when no engagement event names it.",
+    )
     recipient = serializers.CharField(help_text="The address the email was sent to.")
     subject = serializers.CharField(
-        allow_blank=True, help_text="The subject the email went out with. Empty for a sensitive template."
+        allow_blank=True,
+        help_text="The subject the email went out with. Empty for a sensitive template or when no engagement event "
+        "names it.",
     )
-    sent_at = serializers.DateTimeField(help_text="When the email went to the provider, or when sending it failed.")
+    sent_at = serializers.DateTimeField(help_text="When the email went to the provider.")
     status = serializers.ChoiceField(
         choices=EmailDeliveryStatus.choices,
         help_text="The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the "
-        "recipient's mail server, `bounced` came back later, and `failed` was not sent.",
+        "recipient's mail server, and `bounced` came back later.",
     )
     opened = serializers.BooleanField(help_text="Whether the recipient opened the email in the week after the send.")
     clicked = serializers.BooleanField(
@@ -84,7 +92,8 @@ class WorkflowEmailListSerializer(serializers.Serializer):
     results = WorkflowEmailSendSerializer(many=True, help_text="Sends, newest first.")
     has_more = serializers.BooleanField(help_text="Whether another page follows.")
     engagement_events_enabled = serializers.BooleanField(
-        help_text="Whether the project records engagement events now. Sends made while it was off are not listed."
+        help_text="Whether the project records engagement events now. Sends made while it was off show no "
+        "subject, delivery, opens or clicks."
     )
 
 
@@ -111,6 +120,21 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if self.action == "activity":
             return ["hog_flow:read", "person:read", "query:read"]
         return None
+
+    def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        user = request.user
+        if not isinstance(user, User) or not posthoganalytics.feature_enabled(
+            FEATURE_FLAG,
+            user.distinct_id or str(user.uuid),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
 
     def _workflow_access(self) -> WorkflowViewAccess:
         return get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)

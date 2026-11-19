@@ -1,7 +1,8 @@
-"""Emails that workflow and broadcast steps sent, read from the `$workflows_email_*` events.
+"""Emails that workflow and broadcast steps sent.
 
-Only transactional sends reach the email_status tables, so the other sends are found through the engagement events
-the CDP email worker captures. Those exist only while the team records engagement events.
+A send comes from the run's "Email sent" log line, which only the CDP email worker writes. Anyone with the project
+token can capture a `$workflows_email_*` event, so those events only add a subject, the recipient's person, and
+delivery and engagement to a send the logs already show. They exist only while the team records engagement events.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -28,17 +29,13 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.services.transactional_email_activity import ACTIVITY_WINDOW_DAYS, get_email_activity
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
-SEND_EVENTS = {
-    "$workflows_email_sent": EmailLogEventKind.SENT,
-    "$workflows_email_failed": EmailLogEventKind.FAILED,
-}
 FOLLOW_UP_EVENTS = {
     "$workflows_email_delivered": EmailLogEventKind.DELIVERED,
     "$workflows_email_bounced": EmailLogEventKind.BOUNCED,
     "$workflows_email_opened": EmailLogEventKind.OPENED,
     "$workflows_email_link_clicked": EmailLogEventKind.CLICKED,
 }
-EVENT_KINDS = {**SEND_EVENTS, **FOLLOW_UP_EVENTS}
+SENT_EVENT = "$workflows_email_sent"
 # Opens and clicks after this aren't shown, the same week the recipient's activity covers.
 FOLLOW_UP_WINDOW = timedelta(days=ACTIVITY_WINDOW_DAYS)
 # How far back a lookup reaches when the run id carries no usable start time.
@@ -48,6 +45,10 @@ DEFAULT_LIST_DAYS = 7
 _CLOCK_SKEW = timedelta(minutes=5)
 # Most runs send soon after they start, so a send is looked for there before the rest of the run.
 _FIRST_SEARCH = timedelta(days=7)
+# The email worker logs `[Action:<step>] Email sent to <address> from <sender>` for each send.
+_SENT_LINE = "[Action:%] Email sent to % from %"
+_SENT_ACTION = r"^\[Action:([^\]]+)\] Email sent to "
+_SENT_TO = r"^\[Action:[^\]]+\] Email sent to (.+?) from "
 
 
 @frozen
@@ -62,6 +63,22 @@ class _Window:
     end: datetime
 
 
+@frozen
+class _LoggedSend:
+    invocation_id: str
+    action_id: str
+    workflow_id: str
+    recipient: str
+    sent_at: datetime
+
+
+@frozen
+class _SendEvents:
+    distinct_id: str
+    subject: str
+    follow_ups: dict[EmailLogEventKind, datetime]
+
+
 def engagement_events_enabled(team: Team) -> bool:
     return team.workflows_config.capture_workflows_engagement_events
 
@@ -74,18 +91,64 @@ def _query(team: Team, user: User | None, query: str, placeholders: dict[str, as
     return response.results or []
 
 
-def _follow_ups(
+def _logged_sends(
+    team: Team,
+    user: User | None,
+    where: str,
+    placeholders: dict[str, ast.Expr],
+    order: str,
+    limit: int,
+    offset: int,
+    query_type: str,
+) -> list[_LoggedSend]:
+    # A retried step can log its send twice, so each run and step is one send, at its first log line.
+    rows = _query(
+        team,
+        user,
+        f"""
+        SELECT instance_id, extract(message, {{action_pattern}}) AS action_id, any(log_source_id),
+            argMin(extract(message, {{to_pattern}}), timestamp), min(timestamp) AS sent_at
+        FROM log_entries
+        WHERE log_source = 'hog_flow' AND message LIKE {{sent_line}} AND {where}
+        GROUP BY instance_id, action_id
+        ORDER BY sent_at {order}
+        LIMIT {{limit}} OFFSET {{offset}}
+        """,
+        {
+            **placeholders,
+            "action_pattern": ast.Constant(value=_SENT_ACTION),
+            "to_pattern": ast.Constant(value=_SENT_TO),
+            "sent_line": ast.Constant(value=_SENT_LINE),
+            "limit": ast.Constant(value=limit),
+            "offset": ast.Constant(value=offset),
+        },
+        query_type,
+    )
+    return [
+        _LoggedSend(
+            invocation_id=str(inv),
+            action_id=str(action_id),
+            workflow_id=str(workflow_id),
+            recipient=str(recipient),
+            sent_at=sent_at.astimezone(UTC),
+        )
+        for inv, action_id, workflow_id, recipient, sent_at in rows
+    ]
+
+
+def _send_events(
     team: Team, user: User | None, invocation_ids: list[str], start: datetime, end: datetime
-) -> dict[_SendKey, dict[EmailLogEventKind, datetime]]:
-    """When each kind of follow-up first happened, per send."""
+) -> dict[_SendKey, _SendEvents]:
+    """The person, subject and first follow-up of each kind that the events add to each logged send."""
     if not invocation_ids:
         return {}
-    # Broadcast engagement names the batch job as its workflow, so follow-ups are matched by run, not workflow.
+    # Broadcast engagement names the batch job as its workflow, so events are matched by run, not workflow.
     rows = _query(
         team,
         user,
         """
-        SELECT properties.$workflow_invocation_id, properties.$workflow_action_id, event, min(timestamp)
+        SELECT properties.$workflow_invocation_id, properties.$workflow_action_id, event, min(timestamp),
+            argMin(distinct_id, timestamp), argMin(properties.$email_subject, timestamp)
         FROM events
         WHERE event IN {events}
           AND timestamp >= {start} AND timestamp < {end}
@@ -95,27 +158,31 @@ def _follow_ups(
         """,
         {
             "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
-            "events": ast.Constant(value=list(FOLLOW_UP_EVENTS)),
+            "events": ast.Constant(value=[SENT_EVENT, *FOLLOW_UP_EVENTS]),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "invocation_ids": ast.Constant(value=invocation_ids),
         },
-        "workflow_email_follow_ups",
+        "workflow_email_events",
     )
-    first_seen: dict[_SendKey, dict[EmailLogEventKind, datetime]] = {}
-    for inv, act, event, first_at in rows:
+    found: dict[_SendKey, _SendEvents] = {}
+    for inv, act, event, first_at, distinct_id, subject in rows:
         key = _SendKey(invocation_id=str(inv), action_id=str(act or ""))
-        first_seen.setdefault(key, {})[FOLLOW_UP_EVENTS[event]] = first_at
-    return first_seen
+        current = found.get(key, _SendEvents(distinct_id="", subject="", follow_ups={}))
+        if event == SENT_EVENT:
+            found[key] = _SendEvents(
+                distinct_id=distinct_id or "", subject=subject or "", follow_ups=current.follow_ups
+            )
+        else:
+            found[key] = _SendEvents(
+                distinct_id=current.distinct_id,
+                subject=current.subject,
+                follow_ups={**current.follow_ups, FOLLOW_UP_EVENTS[event]: first_at},
+            )
+    return found
 
 
-def _within_window(first_seen: dict[EmailLogEventKind, datetime], sent_at: datetime) -> set[EmailLogEventKind]:
-    return {kind for kind, at in first_seen.items() if at < sent_at + FOLLOW_UP_WINDOW}
-
-
-def _status(send_kind: EmailLogEventKind, follow_ups: set[EmailLogEventKind]) -> EmailDeliveryStatus:
-    if send_kind == EmailLogEventKind.FAILED:
-        return EmailDeliveryStatus.FAILED
+def _status(follow_ups: set[EmailLogEventKind]) -> EmailDeliveryStatus:
     if EmailLogEventKind.BOUNCED in follow_ups:
         return EmailDeliveryStatus.BOUNCED
     if EmailLogEventKind.DELIVERED in follow_ups:
@@ -123,23 +190,19 @@ def _status(send_kind: EmailLogEventKind, follow_ups: set[EmailLogEventKind]) ->
     return EmailDeliveryStatus.SENT
 
 
-_SEND_COLUMNS = """
-    properties.$workflow_invocation_id, properties.$workflow_action_id, properties.$workflow_id, distinct_id,
-    properties.$email_to, properties.$email_subject, timestamp, event
-"""
-
-
-def _send(row: tuple, follow_ups: set[EmailLogEventKind]) -> WorkflowEmailSend:
-    invocation_id, action_id, workflow_id, distinct_id, recipient, subject, timestamp, event = row
+def _send(logged: _LoggedSend, events: _SendEvents | None) -> WorkflowEmailSend:
+    follow_ups = (
+        {kind for kind, at in events.follow_ups.items() if at < logged.sent_at + FOLLOW_UP_WINDOW} if events else set()
+    )
     return WorkflowEmailSend(
-        invocation_id=str(invocation_id),
-        action_id=str(action_id or ""),
-        workflow_id=str(workflow_id or ""),
-        distinct_id=distinct_id or "",
-        recipient=recipient or "",
-        subject=subject or "",
-        sent_at=timestamp.astimezone(UTC),
-        status=_status(SEND_EVENTS[event], follow_ups),
+        invocation_id=logged.invocation_id,
+        action_id=logged.action_id,
+        workflow_id=logged.workflow_id,
+        distinct_id=events.distinct_id if events else "",
+        recipient=logged.recipient,
+        subject=events.subject if events else "",
+        sent_at=logged.sent_at,
+        status=_status(follow_ups),
         opened=EmailLogEventKind.OPENED in follow_ups or EmailLogEventKind.CLICKED in follow_ups,
         clicked=EmailLogEventKind.CLICKED in follow_ups,
     )
@@ -162,51 +225,38 @@ def list_workflow_emails(
     now = datetime.now(UTC)
     start = date_from or now - timedelta(days=DEFAULT_LIST_DAYS)
     end = min(date_to, now + _CLOCK_SKEW) if date_to else now + _CLOCK_SKEW
-    rows = _query(
+    logged = _logged_sends(
         team,
         user,
-        f"""
-        SELECT {_SEND_COLUMNS}
-        FROM events
-        WHERE event IN {{events}}
-          AND timestamp >= {{start}} AND timestamp < {{end}}
-          AND properties.$workflow_id = {{workflow_id}}
-        ORDER BY timestamp DESC
-        LIMIT {{limit}} OFFSET {{offset}}
-        """,
+        "log_source_id = {workflow_id} AND timestamp >= {start} AND timestamp < {end}",
         {
-            "events": ast.Constant(value=list(SEND_EVENTS)),
+            "workflow_id": ast.Constant(value=workflow_id),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
-            "workflow_id": ast.Constant(value=workflow_id),
-            "limit": ast.Constant(value=limit + 1),
-            "offset": ast.Constant(value=offset),
         },
+        "DESC",
+        limit + 1,
+        offset,
         "workflow_email_list",
     )
-    shown = rows[:limit]
-    follow_ups = (
-        _follow_ups(
+    shown = logged[:limit]
+    events = (
+        _send_events(
             team,
             user,
-            sorted({str(row[0]) for row in shown}),
-            min(row[6] for row in shown),
-            min(max(row[6] for row in shown) + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW),
+            sorted({send.invocation_id for send in shown}),
+            min(send.sent_at for send in shown) - _CLOCK_SKEW,
+            min(max(send.sent_at for send in shown) + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW),
         )
         if shown
         else {}
     )
     return WorkflowEmailPage(
         sends=[
-            _send(
-                row,
-                _within_window(
-                    follow_ups.get(_SendKey(invocation_id=str(row[0]), action_id=str(row[1] or "")), {}), row[6]
-                ),
-            )
-            for row in shown
+            _send(send, events.get(_SendKey(invocation_id=send.invocation_id, action_id=send.action_id)))
+            for send in shown
         ],
-        has_more=len(rows) > limit,
+        has_more=len(logged) > limit,
         engagement_events_enabled=engagement_events_enabled(team),
     )
 
@@ -222,29 +272,24 @@ def _run_window(invocation_id: UUID, now: datetime) -> _Window:
 
 
 def _find_send(
-    team: Team, user: User | None, placeholders: dict[str, ast.Expr], start: datetime, end: datetime
-) -> list:
-    return _query(
+    team: Team, user: User | None, invocation_id: UUID, action_id: str, start: datetime, end: datetime
+) -> _LoggedSend | None:
+    sends = _logged_sends(
         team,
         user,
-        f"""
-        SELECT {_SEND_COLUMNS}
-        FROM events
-        WHERE event IN {{events}}
-          AND timestamp >= {{start}} AND timestamp < {{end}}
-          AND properties.$workflow_invocation_id = {{invocation_id}}
-          AND properties.$workflow_action_id = {{action_id}}
-        ORDER BY timestamp ASC
-        LIMIT 1
-        """,
+        "instance_id = {invocation_id} AND startsWith(message, {prefix}) AND timestamp >= {start} AND timestamp < {end}",
         {
-            **placeholders,
-            "events": ast.Constant(value=list(SEND_EVENTS)),
+            "invocation_id": ast.Constant(value=str(invocation_id)),
+            "prefix": ast.Constant(value=f"[Action:{action_id}] "),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
         },
+        "ASC",
+        1,
+        0,
         "workflow_email_send",
     )
+    return sends[0] if sends else None
 
 
 def get_workflow_email(
@@ -258,23 +303,16 @@ def get_workflow_email(
     """One send with its timeline, or None when the project has no such send or the reader can't see its workflow."""
     now = datetime.now(UTC)
     window = _run_window(invocation_id, now)
-    placeholders: dict[str, ast.Expr] = {
-        "invocation_id": ast.Constant(value=str(invocation_id)),
-        "action_id": ast.Constant(value=action_id),
-    }
-    sends = _find_send(team, user, placeholders, window.start, min(window.start + _FIRST_SEARCH, window.end))
-    if not sends and window.start + _FIRST_SEARCH < window.end:
-        sends = _find_send(team, user, placeholders, window.start + _FIRST_SEARCH, window.end)
-    if not sends:
+    send = _find_send(team, user, invocation_id, action_id, window.start, min(window.start + _FIRST_SEARCH, window.end))
+    if send is None and window.start + _FIRST_SEARCH < window.end:
+        send = _find_send(team, user, invocation_id, action_id, window.start + _FIRST_SEARCH, window.end)
+    if send is None:
         return None
-    row = sends[0]
-    if access is not None and not access.allows(str(row[2] or "")):
+    if access is not None and not access.allows(send.workflow_id):
         return None
-    sent_at = row[6]
-    follow_ups_end = min(sent_at + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW)
-    first_seen = _follow_ups(team, user, [str(invocation_id)], sent_at, follow_ups_end).get(
-        _SendKey(invocation_id=str(invocation_id), action_id=action_id), {}
-    )
+    follow_ups_end = min(send.sent_at + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW)
+    key = _SendKey(invocation_id=send.invocation_id, action_id=action_id)
+    events = _send_events(team, user, [send.invocation_id], send.sent_at - _CLOCK_SKEW, follow_ups_end).get(key)
     follow_ups = _query(
         team,
         user,
@@ -289,15 +327,16 @@ def get_workflow_email(
         LIMIT 100
         """,
         {
-            **placeholders,
+            "invocation_id": ast.Constant(value=send.invocation_id),
+            "action_id": ast.Constant(value=action_id),
             "events": ast.Constant(value=list(FOLLOW_UP_EVENTS)),
-            "start": ast.Constant(value=sent_at),
+            "start": ast.Constant(value=send.sent_at),
             "end": ast.Constant(value=follow_ups_end),
         },
         "workflow_email_timeline",
     )
     timeline = [
-        TransactionalEmailLogEvent(kind=SEND_EVENTS[row[7]], at=sent_at.astimezone(UTC), reason=None),
+        TransactionalEmailLogEvent(kind=EmailLogEventKind.SENT, at=send.sent_at, reason=None),
         *(
             TransactionalEmailLogEvent(
                 kind=FOLLOW_UP_EVENTS[event],
@@ -307,7 +346,7 @@ def get_workflow_email(
             for event, timestamp, bounce_type in follow_ups
         ),
     ]
-    return WorkflowEmailDetail(send=_send(row, set(first_seen)), timeline=timeline)
+    return WorkflowEmailDetail(send=_send(send, events), timeline=timeline)
 
 
 def get_workflow_email_activity(

@@ -2,10 +2,13 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.test.persons import create_person
@@ -24,6 +27,7 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         self.workflow_id = str(create_workflow_for_test(team_id=self.team.id, name="Onboarding").id)
         self.team.workflows_config.capture_workflows_engagement_events = True
         self.team.workflows_config.save()
+        self.flag_enabled = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
     def _email_event(
         self,
@@ -52,6 +56,33 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def _sent_log(
+        self,
+        run_id: str,
+        step: str,
+        at: datetime,
+        *,
+        distinct_id: str = "jane",
+        workflow_id: str | None = None,
+        team: Team | None = None,
+    ) -> None:
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": (team or self.team).id,
+                "log_source": "hog_flow",
+                "log_source_id": workflow_id or self.workflow_id,
+                "instance_id": run_id,
+                "timestamp": at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "level": "info",
+                "message": f"[Action:{step}] Email sent to {distinct_id}@example.com from Hedgebox <hi@example.com>",
+            },
+        )
+
+    def _sent(self, run_id: str, step: str, at: datetime, **kwargs) -> None:
+        self._sent_log(run_id, step, at, **kwargs)
+        self._email_event("sent", run_id, step, at, **kwargs)
+
     def _run_id(self, started: datetime) -> str:
         return str(UUIDT(unix_time_ms=int(started.timestamp() * 1000)))
 
@@ -63,15 +94,16 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         run_id = self._run_id(run_started)
         welcome_at = run_started + timedelta(minutes=1)
         nudge_at = run_started + timedelta(days=1)
-        self._email_event("sent", run_id, "welcome", welcome_at)
+        self._sent(run_id, "welcome", welcome_at)
+        self._sent_log(run_id, "welcome", welcome_at + timedelta(seconds=30))
         self._email_event("delivered", run_id, "welcome", welcome_at + timedelta(seconds=5))
         self._email_event("link_clicked", run_id, "welcome", welcome_at + timedelta(hours=1))
-        self._email_event("sent", run_id, "nudge", nudge_at)
+        self._sent(run_id, "nudge", nudge_at)
         self._email_event("bounced", run_id, "nudge", nudge_at + timedelta(seconds=5))
         other_workflow = str(create_workflow_for_test(team_id=self.team.id, name="Other").id)
-        self._email_event("sent", self._run_id(run_started), "welcome", welcome_at, workflow_id=other_workflow)
+        self._sent(self._run_id(run_started), "welcome", welcome_at, workflow_id=other_workflow)
         older_run = self._run_id(NOW - timedelta(days=20))
-        self._email_event("sent", older_run, "welcome", NOW - timedelta(days=20))
+        self._sent(older_run, "welcome", NOW - timedelta(days=20))
         self._email_event("link_clicked", older_run, "welcome", NOW - timedelta(days=10))
         flush_persons_and_events()
 
@@ -92,7 +124,7 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         sent_at = NOW - timedelta(days=1)
         for i in range(40):
             run_id = self._run_id(sent_at)
-            self._email_event("sent", run_id, "welcome", sent_at, distinct_id=f"person-{i}")
+            self._sent(run_id, "welcome", sent_at, distinct_id=f"person-{i}")
             for event in ("delivered", "opened", "link_clicked"):
                 self._email_event(event, run_id, "welcome", sent_at + timedelta(minutes=1), distinct_id=f"person-{i}")
         flush_persons_and_events()
@@ -102,24 +134,52 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert len(body["results"]) == 40
         assert all((s["status"], s["opened"], s["clicked"]) == ("delivered", True, True) for s in body["results"])
 
-    def test_says_when_engagement_events_are_off(self):
+    def test_lists_sends_without_engagement_when_engagement_events_are_off(self):
         self.team.workflows_config.capture_workflows_engagement_events = False
         self.team.workflows_config.save()
+        self._sent_log(self._run_id(NOW - timedelta(hours=2)), "welcome", NOW - timedelta(hours=1))
 
         body = self.client.get(self._url(), {"workflow_id": self.workflow_id}).json()
 
-        assert (body["results"], body["engagement_events_enabled"]) == ([], False)
+        assert [(s["recipient"], s["subject"], s["distinct_id"], s["status"]) for s in body["results"]] == [
+            ("jane@example.com", "", "", "sent")
+        ]
+        assert body["engagement_events_enabled"] is False
+
+    def test_is_not_found_while_the_feature_flag_is_off(self):
+        run_id = self._run_id(NOW - timedelta(hours=2))
+        self._sent(run_id, "welcome", NOW - timedelta(hours=1))
+        flush_persons_and_events()
+        self.flag_enabled.return_value = False
+
+        listed = self.client.get(self._url(), {"workflow_id": self.workflow_id})
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+
+        assert {listed.status_code, detail.status_code, activity.status_code} == {status.HTTP_404_NOT_FOUND}
+        assert self.flag_enabled.call_args.args[0] == "workflows-email-activity"
+
+    def test_a_send_event_without_the_run_s_log_line_is_not_a_send(self):
+        run_id = self._run_id(NOW - timedelta(hours=2))
+        self._email_event("sent", run_id, "welcome", NOW - timedelta(hours=1))
+        self._email_event("opened", run_id, "welcome", NOW - timedelta(minutes=30))
+        flush_persons_and_events()
+
+        listed = self.client.get(self._url(), {"workflow_id": self.workflow_id}).json()
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+
+        assert (listed["results"], detail.status_code) == ([], status.HTTP_404_NOT_FOUND)
 
     def test_shows_a_send_with_its_timeline_and_what_the_recipient_did(self):
         create_person(team=self.team, distinct_ids=["jane", "jane-anonymous"])
         run_id = self._run_id(NOW - timedelta(days=200))
         sent_at = NOW - timedelta(days=3)
-        self._email_event("sent", run_id, "welcome", sent_at)
+        self._sent(run_id, "welcome", sent_at)
         self._email_event("delivered", run_id, "welcome", sent_at + timedelta(seconds=5))
         for second in range(100):
             self._email_event("opened", run_id, "welcome", sent_at + timedelta(minutes=3, seconds=second))
         self._email_event("link_clicked", run_id, "welcome", sent_at + timedelta(minutes=5))
-        self._email_event("sent", run_id, "nudge", sent_at + timedelta(minutes=10))
+        self._sent(run_id, "nudge", sent_at + timedelta(minutes=10))
         for event, distinct_id, offset in [
             ("$pageview", "jane-anonymous", -timedelta(hours=1)),
             ("$pageview", "jane", timedelta(minutes=4)),
@@ -165,9 +225,7 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_hides_what_the_user_cannot_see(self, _name, denied, expected_statuses):
         run_id = self._run_id(NOW - timedelta(hours=1))
         other_team = Team.objects.create(organization=self.organization)
-        self._email_event(
-            "sent", run_id, "welcome", NOW - timedelta(minutes=30), team=other_team if denied == "other_team" else None
-        )
+        self._sent(run_id, "welcome", NOW - timedelta(minutes=30), team=other_team if denied == "other_team" else None)
         flush_persons_and_events()
         if denied != "other_team":
             self.organization.available_product_features = [
