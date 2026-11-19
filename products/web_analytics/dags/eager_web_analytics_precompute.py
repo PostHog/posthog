@@ -701,7 +701,8 @@ def web_analytics_eager_backfill_job():
     # code-deploy behavior change.
     # Hourly. The lazy cache's 4h today-TTL absorbs missed cycles, so
     # there's no need to align with shorter cadences. Minute 53 puts its start
-    # outside the cache warmer's ten-minute release window after minute 3.
+    # outside the cache warmer's release window, which opens at minute 3
+    # (see WARMING_RELEASE_WINDOW_SECONDS).
     cron_schedule="53 * * * *",
     job=web_analytics_eager_baseline_warming_job,
     execution_timezone="UTC",
