@@ -15,7 +15,7 @@ import { PROFILE } from './fixtures'
 import { STOP_TIMEOUT_S, STOP_WAIT_MS } from './host'
 import { lease } from './lease'
 import { Controller, main } from './main'
-import { PRODUCTION_READER_MONITORING_INTERVAL_SECONDS, loadRunInputs } from './profile'
+import { loadRunInputs } from './profile'
 import { POLL_MS } from './stack'
 
 const T = new Date('2026-03-02T10:00:00.000Z')
@@ -161,14 +161,22 @@ describe('cloud controller', () => {
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-    it.each([
-        ['60m', '$47.86', /teardown tail.*\$5\.25/],
-        ['120m', '$53.12', /teardown tail.*\$10\.50/],
+    it.each<[string, string, Record<string, number>, string, RegExp, RegExp]>([
+        ['60m', 'the default interval', {}, '$47.86', /teardown tail.*\$5\.25/, /Monitoring logs, 0\.22 GB: \$0\.11/],
+        ['120m', 'the default interval', {}, '$53.12', /teardown tail.*\$10\.50/, /Monitoring logs, 0\.22 GB: \$0\.11/],
+        [
+            '60m',
+            'every second',
+            { readerMonitoringIntervalSeconds: 1 },
+            '$47.99',
+            /teardown tail.*\$5\.27/,
+            /Monitoring logs, 0\.43 GB: \$0\.22/,
+        ],
     ])(
-        'prints the itemized worst-case estimate for the fixed six-hour TTL, with a %s teardown allowance',
-        async (allowance, total, tail) => {
+        'prints the itemized worst-case estimate for the fixed six-hour TTL, with a %s teardown allowance and the reader monitored at %s',
+        async (allowance, _interval, monitoring, total, tail, logs) => {
             const { controller } = prepare({
-                profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: allowance } }),
+                profile: (p) => ({ ...p, ...monitoring, admission: { ...p.admission, teardownAllowance: allowance } }),
             })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
@@ -176,15 +184,12 @@ describe('cloud controller', () => {
             expect(out.join('\n')).toContain(`Admitted estimate: ${total} of the $200 cap`)
             expect(out.join('\n')).toMatch(/reader at 32 ACU.*\$19\.20/)
             expect(out.join('\n')).toMatch(tail)
+            expect(out.join('\n')).toMatch(logs)
         }
     )
 
     it.each<[string, Setup, string]>([
-        [
-            'the production setting when the profile names none',
-            {},
-            String(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),
-        ],
+        ['the production setting when the profile names none', {}, '60'],
         ['the interval the profile names', { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }) }, '5'],
     ])('monitors the reader at %s and the writer every second', async (_, setup, readerInterval) => {
         const { controller } = prepare(setup)
@@ -1161,7 +1166,7 @@ describe('cloud controller', () => {
             writer_class: 'db.r8g.2xlarge',
             reader_acu_min: 1,
             reader_acu_max: 32,
-            reader_monitoring_interval_seconds: PRODUCTION_READER_MONITORING_INTERVAL_SECONDS,
+            reader_monitoring_interval_seconds: 60,
             host_class: 'm7i.8xlarge',
             engine_version: '16.4',
             pooler_replicas: 2,
