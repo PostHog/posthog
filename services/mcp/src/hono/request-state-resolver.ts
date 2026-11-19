@@ -342,8 +342,9 @@ export class RequestStateResolver {
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
-        // Never from a flag: a client keeps its cached read-only `exec`, which would run writes once the flag turned off.
-        const splitWrites = useSingleExec && !readOnly && props.splitWrites === true
+        // Only from the client's own request, never from a flag or the resolved mode: a client keeps its cached
+        // read-only `exec`, which would run writes on any later request that resolved differently.
+        const splitWrites = !readOnly && props.splitWrites === true
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []

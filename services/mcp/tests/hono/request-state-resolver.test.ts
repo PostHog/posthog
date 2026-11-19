@@ -999,7 +999,7 @@ describe('RequestStateResolver MCP client contexts', () => {
             false,
         ],
         ['nothing asks for it', '', {}, false],
-        ['tools mode, which names every tool already', '?split_writes=true&mode=tools', {}, false],
+        ['tools mode, where a cached exec must still refuse writes', '?split_writes=true&mode=tools', {}, true],
         ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
     ])('splits writes from exec when %s: %s', async (_label, query, headers, expected) => {
         const props = parseRequestProperties(
