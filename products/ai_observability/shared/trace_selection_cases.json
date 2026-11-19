@@ -438,13 +438,25 @@
         "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
     },
     {
-        "name": "session scope ignores traces whose events carry no session id",
+        "name": "a trace in a session counts all its events, so it sits at its earliest event even without a session id",
         "events": [
-            { "event": "$ai_generation", "trace_id": "unscoped-a", "minutes": 1 },
-            { "event": "$ai_span", "trace_id": "unscoped-b", "minutes": 2, "properties": { "$ai_session_id": "" } }
+            { "event": "$ai_span", "trace_id": "late-tagged", "minutes": 1 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "late-tagged",
+                "minutes": 5,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "tagged",
+                "minutes": 3,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            { "event": "$ai_generation", "trace_id": "untagged", "minutes": 0 }
         ],
-        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a" },
-        "expected_trace_ids": [],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
+        "expected_trace_ids": ["late-tagged", "tagged"],
         "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
     }
 ]

@@ -131,6 +131,31 @@ def _search_filter(team: Team, selection: TraceSelection, search: str) -> ast.Ex
     )
 
 
+def _session_scope(selection: TraceSelection) -> ast.Expr:
+    # A trace belongs to the session when any of its events carries the id, and then all its events count.
+    bounds = selection.window.read_bounds()
+    session_traces = parse_select(
+        """
+        SELECT properties.$ai_trace_id
+        FROM events
+        WHERE event IN {events}
+            AND timestamp >= {start} AND timestamp <= {end}
+            AND properties.$ai_session_id = {session_id}
+        """,
+        placeholders={
+            "events": _events_in(AI_TRACE_EVENTS),
+            "start": ast.Constant(value=bounds.start),
+            "end": ast.Constant(value=bounds.end),
+            "session_id": ast.Constant(value=selection.session_id),
+        },
+    )
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.GlobalIn,
+        left=ast.Field(chain=["properties", "$ai_trace_id"]),
+        right=session_traces,
+    )
+
+
 def _event_condition(team: Team, selection: TraceSelection) -> ast.Expr:
     bounds = selection.window.read_bounds()
     exprs: list[ast.Expr] = [
@@ -156,12 +181,7 @@ def _event_condition(team: Team, selection: TraceSelection) -> ast.Expr:
     exprs.extend(_person_scope(selection))
     exprs.extend(_group_scope(selection))
     if selection.session_id is not None:
-        exprs.append(
-            parse_expr(
-                "properties.$ai_session_id = {session_id}",
-                placeholders={"session_id": ast.Constant(value=selection.session_id)},
-            )
-        )
+        exprs.append(_session_scope(selection))
     search = (selection.search or "").strip()
     if search:
         exprs.append(_search_filter(team, selection, search))
@@ -215,11 +235,16 @@ def _in_page(selection: TraceSelection, bounds: TracePageBounds, trace_id: str |
     return _all(exprs)
 
 
-def _in_earlier_page(selection: TraceSelection, bounds: TracePageBounds) -> ast.Expr:
-    """Rows that sort before the page: at or before the `after` bound. A `before` read gets this from its extra row."""
-    if bounds.after is None:
+def _outside_page(selection: TraceSelection, bounds: TracePageBounds) -> ast.Expr:
+    """Rows on the far side of the bound the read starts from: before an `after` bound, after a `before` bound."""
+    if _reads_backwards(bounds):
+        assert bounds.before is not None
+        bound = _before_bound(selection, bounds.before)
+    elif bounds.after is not None:
+        bound = _after_bound(selection, bounds.after)
+    else:
         return ast.Constant(value=False)
-    return _all([*_quick_filter_fact(selection), ast.Not(expr=_after_bound(selection, bounds.after))])
+    return _all([*_quick_filter_fact(selection), ast.Not(expr=bound)])
 
 
 def _reads_backwards(bounds: TracePageBounds) -> bool:
@@ -255,7 +280,7 @@ def _selection_query(
             {total} AS total,
             {errors} AS errors,
             {feedback} AS feedback,
-            {has_earlier} AS has_earlier
+            {has_outside} AS has_outside
         FROM (
             SELECT
                 properties.$ai_trace_id AS trace_id,
@@ -277,7 +302,7 @@ def _selection_query(
             "total": parse_expr("count()") if counted else ast.Constant(value=0),
             "errors": parse_expr("countIf(has_error)") if counted else ast.Constant(value=0),
             "feedback": parse_expr("countIf(has_feedback)") if counted else ast.Constant(value=0),
-            "has_earlier": ast.Call(name="countIf", args=[_in_earlier_page(selection, bounds)]),
+            "has_outside": ast.Call(name="countIf", args=[_outside_page(selection, bounds)]),
             "feedback_events": _events_in(FEEDBACK_EVENT_NAMES),
             "event_condition": _event_condition(team, selection),
             "trace_events": _events_in(TRACE_EVENT_NAMES),
@@ -309,8 +334,9 @@ def _execute(
             ),
             settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),
         )
-    page, total, errors, feedback, earlier_rows = response.results[0]
-    has_more = len(page) > limit
+    page, total, errors, feedback, outside_rows = response.results[0]
+    beyond_page = len(page) > limit
+    backwards = _reads_backwards(bounds)
     positions = [
         TracePosition(trace_id=row_trace_id, first_timestamp=first_timestamp.astimezone(UTC))
         for _, row_trace_id, first_timestamp in page[:limit]
@@ -319,8 +345,8 @@ def _execute(
         positions.reverse()
     return SelectionPage(
         positions=tuple(positions),
-        has_more=has_more,
-        has_before=has_more if _reads_backwards(bounds) else earlier_rows > 0,
+        has_more=outside_rows > 0 if backwards else beyond_page,
+        has_before=beyond_page if backwards else outside_rows > 0,
         counts=SelectionCounts(total=total, errors=errors, feedback=feedback),
     )
 

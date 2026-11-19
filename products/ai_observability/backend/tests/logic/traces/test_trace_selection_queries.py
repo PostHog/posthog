@@ -455,6 +455,7 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
 
         assert [position.trace_id for position in page.positions] == ["t1", "t2"]
         assert page.has_before is False
+        assert page.has_more is True
 
     @parameterized.expand([("oldest_first",), ("newest_first",)])
     def test_before_bound_reports_earlier_rows_and_keeps_selection_order(self, order: str) -> None:
@@ -487,8 +488,9 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             self.team, self.user, selection, bounds=TracePageBounds(after=None, before=second.positions[0]), limit=2
         )
 
-        assert first.has_before is False
-        assert second.has_before is True
+        assert (first.has_before, first.has_more) == (False, True)
+        assert (second.has_before, second.has_more) == (True, True)
+        assert (back.has_before, back.has_more) == (False, True)
         assert back.positions == first.positions
 
     def test_load_trace_position_finds_trace_in_session(self) -> None:
