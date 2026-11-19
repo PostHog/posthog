@@ -42,6 +42,7 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "error_text": None,
         "tools_called": (),
         "is_support": False,
+        "trace_latency_s": None,
     }
     return TraceEventRow(**{**fields, **overrides})
 

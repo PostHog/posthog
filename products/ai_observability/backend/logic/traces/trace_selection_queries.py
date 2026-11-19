@@ -18,6 +18,7 @@ from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY
 from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.models import Team, User
 
+from .trace_expressions import EVENTS_COLUMNS, grouped, trace_errored
 from .trace_queries import FEEDBACK_EVENT_NAMES, TRACE_EVENT_NAMES
 from .trace_selection import (
     InvalidTraceSelectionError,
@@ -199,7 +200,7 @@ def _selection_query(
                 properties.$ai_trace_id AS trace_id,
                 min(timestamp) AS first_timestamp,
                 max(timestamp) AS last_timestamp,
-                countIf(properties.$ai_is_error = 'true') > 0 AS has_error,
+                {errored} AS has_error,
                 countIf(event IN {feedback_events}) > 0 AS has_feedback
             FROM events
             WHERE {event_condition}
@@ -213,6 +214,7 @@ def _selection_query(
         placeholders={
             "take": ast.Constant(value=limit + 1),
             "in_page": _in_page(selection, after),
+            "errored": trace_errored(EVENTS_COLUMNS, grouped),
             "feedback_events": _events_in(FEEDBACK_EVENT_NAMES),
             "event_condition": _event_condition(team, selection),
             "trace_events": _events_in(TRACE_EVENT_NAMES),

@@ -65,6 +65,7 @@
                  git_repo AS git_repo,
                  tools_called AS tools_called,
                  is_support AS is_support,
+                 round(if(equals(countIf(ifNull(greater(ifNull(latency, 0), 0), 0)) OVER (PARTITION BY trace_id), 0), NULL, if(ifNull(greater(maxIf(latency, and(equals(event, '$ai_trace'), ifNull(greater(ifNull(latency, 0), 0), 0))) OVER (PARTITION BY trace_id), 0), 0), maxIf(latency, and(equals(event, '$ai_trace'), ifNull(greater(ifNull(latency, 0), 0), 0))) OVER (PARTITION BY trace_id), if(equals(countIf(and(ifNull(greater(ifNull(latency, 0), 0), 0), notEquals(event, '$ai_generation'))) OVER (PARTITION BY trace_id), 0), sumIf(latency, equals(event, '$ai_generation')) OVER (PARTITION BY trace_id), sumIf(latency, in(ifNull(parent_id, ''), tuple('', trace_id))) OVER (PARTITION BY trace_id)))), 2) AS trace_latency_s,
                  trace_id AS trace_id
   FROM
     (SELECT ai_events.uuid AS uuid,

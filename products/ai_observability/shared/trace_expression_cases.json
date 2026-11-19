@@ -1,0 +1,129 @@
+[
+    {
+        "name": "root_with_latency_wins",
+        "events": [
+            { "event": "$ai_trace", "latency": 4.0, "parent_id": null },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "trace-a" }
+        ],
+        "latency": 4.0,
+        "errored": false,
+        "identified": [true, true, true]
+    },
+    {
+        "name": "root_without_latency_falls_through",
+        "events": [
+            { "event": "$ai_trace", "latency": null, "parent_id": null },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "trace-a" }
+        ],
+        "latency": 3.0,
+        "errored": false,
+        "identified": [true, true, true]
+    },
+    {
+        "name": "generations_only_sum",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.5, "parent_id": "span-1" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "span-2" }
+        ],
+        "latency": 3.5,
+        "errored": false,
+        "identified": [true, true]
+    },
+    {
+        "name": "spans_use_top_level_sum",
+        "events": [
+            { "event": "$ai_span", "latency": 5.0, "parent_id": "" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "span-1" }
+        ],
+        "latency": 5.0,
+        "errored": false,
+        "identified": [true, true]
+    },
+    {
+        "name": "parent_equal_to_trace_id_is_top_level",
+        "events": [
+            { "event": "$ai_span", "latency": 5.0, "parent_id": "trace-a" },
+            { "event": "$ai_span", "latency": 1.0, "parent_id": "span-1" }
+        ],
+        "latency": 5.0,
+        "errored": false,
+        "identified": [true, true]
+    },
+    {
+        "name": "empty_parent_and_null_parent_are_alike",
+        "events": [
+            { "event": "$ai_span", "latency": 2.0, "parent_id": "" },
+            { "event": "$ai_span", "latency": 3.0, "parent_id": null },
+            { "event": "$ai_span", "latency": 7.0, "parent_id": "span-1" }
+        ],
+        "latency": 5.0,
+        "errored": false,
+        "identified": [true, true, true]
+    },
+    {
+        "name": "no_positive_latency_is_null",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null },
+            { "event": "$ai_span", "latency": 0, "parent_id": null }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true]
+    },
+    {
+        "name": "rounds_to_two_decimals",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.234, "parent_id": null },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": null }
+        ],
+        "latency": 3.23,
+        "errored": false,
+        "identified": [true, true]
+    },
+    {
+        "name": "error_flag_true_errors",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "is_error": true },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null }
+        ],
+        "latency": 2.0,
+        "errored": true,
+        "identified": [true, true]
+    },
+    {
+        "name": "error_text_without_flag_does_not_error",
+        "events": [{ "event": "$ai_generation", "latency": 1.0, "parent_id": null, "error": "rate limited" }],
+        "latency": 1.0,
+        "errored": false,
+        "identified": [true]
+    },
+    {
+        "name": "trace_id_as_distinct_id_is_not_identified",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "user-1" }
+        ],
+        "latency": 2.0,
+        "errored": false,
+        "identified": [false, true]
+    },
+    {
+        "name": "otel_is_not_identified",
+        "events": [
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "ingestion_source": "otel" },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": null, "ingestion_source": "sdk" }
+        ],
+        "latency": 2.0,
+        "errored": false,
+        "identified": [false, true]
+    },
+    {
+        "name": "real_user_is_identified",
+        "events": [{ "event": "$ai_generation", "latency": 1.0, "parent_id": null, "distinct_id": "user-2" }],
+        "latency": 1.0,
+        "errored": false,
+        "identified": [true]
+    }
+]
