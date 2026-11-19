@@ -65057,6 +65057,7 @@ export namespace Schemas {
      * * `customerio` - Customer.io
      * * `resend` - Resend
      * * `postmark` - Postmark
+     * * `sendgrid` - SendGrid
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
@@ -65065,6 +65066,7 @@ export namespace Schemas {
       Customerio: 'customerio',
       Resend: 'resend',
       Postmark: 'postmark',
+      Sendgrid: 'sendgrid',
     } as const;
 
     export interface ImportStepOption {
@@ -65081,7 +65083,8 @@ export namespace Schemas {
        *
        * * `customerio` - Customer.io
        * * `resend` - Resend
-       * * `postmark` - Postmark */
+       * * `postmark` - Postmark
+       * * `sendgrid` - SendGrid */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -104561,7 +104564,8 @@ export namespace Schemas {
        *
        * * `customerio` - Customer.io
        * * `resend` - Resend
-       * * `postmark` - Postmark */
+       * * `postmark` - Postmark
+       * * `sendgrid` - SendGrid */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -121088,7 +121092,8 @@ export namespace Schemas {
        *
        * * `customerio` - Customer.io
        * * `resend` - Resend
-       * * `postmark` - Postmark */
+       * * `postmark` - Postmark
+       * * `sendgrid` - SendGrid */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -121097,7 +121102,7 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.
          * @maxLength 512
          */
       api_key?: string;
