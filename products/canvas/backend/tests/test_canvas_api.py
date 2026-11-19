@@ -1071,21 +1071,6 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert [row["name"] for row in listed.json()["results"]] == ["Team board"]
 
-        AccessControl.objects.create(team=self.team, resource="canvas", access_level="editor")
-        for canvas_id in (private.id, self.canvas_id):
-            AccessControl.objects.create(
-                team=self.team,
-                resource="canvas",
-                resource_id=str(canvas_id),
-                organization_member=self.member_membership,
-                access_level="viewer",
-            )
-        preview = self.client.get(f"{settings}/access_control_resolution_preview")
-        assert preview.status_code == status.HTTP_200_OK, preview.json()
-        assert {change["object_id"] for change in preview.json()["changes"] if change["scope"] == "object"} == {
-            str(self.canvas_id)
-        }
-
 
 class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
     def test_source_of_unpublished_canvas_is_synthetic_and_blank(self):

@@ -311,7 +311,7 @@ class ResolvedAccess:
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
     # Display name of the member or role whose row decided. Enforcement never sets or reads
-    # it; the resolution preview fills it so explanations can name the deciding subject.
+    # it; the members table fills it so explanations can name the deciding subject.
     subject_name: Optional[str] = None
 
 
