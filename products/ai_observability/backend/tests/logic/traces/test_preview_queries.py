@@ -239,6 +239,30 @@ class TestPreviewQueries(ClickhouseTestMixin, BaseTest):
 
         assert {row.uuid for row in rows} == {_event_id(0), _event_id(1), _event_id(5)}
 
+    def test_a_full_page_picks_each_traces_first_and_latest_generation(self) -> None:
+        trace_ids = [f"trace-{n}" for n in range(50)]
+        self._seed(
+            *(
+                event
+                for trace_id in trace_ids
+                for event in (
+                    (trace_id, "$ai_trace", {"$ai_input_state": {"step": "planned"}}),
+                    (trace_id, "$ai_generation", {"$ai_input": f"question of {trace_id}", "$ai_output": "first"}),
+                    (trace_id, "$ai_generation", {"$ai_input": "follow-up", "$ai_output": f"answer of {trace_id}"}),
+                )
+            )
+        )
+
+        loaded = load_preview_sources(self.team, self.user, trace_ids)
+
+        assert {
+            trace_id: (
+                sources.first_generation.input.value if sources.first_generation else None,
+                sources.latest_generation.output.value if sources.latest_generation else None,
+            )
+            for trace_id, sources in loaded.items()
+        } == {trace_id: (f"question of {trace_id}", f"answer of {trace_id}") for trace_id in trace_ids}
+
     def test_the_heavy_read_names_only_the_picked_events(self) -> None:
         self._seed(*(("trace-1", "$ai_generation", {"$ai_input": f"step {n}"}) for n in range(5)))
 
