@@ -91,6 +91,7 @@ jobs:
                   # This workflow opts in for the whole repository. It runs on every pull
                   # request, so one wiring covers every shape the comparison needs to see.
                   PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
@@ -99,6 +100,13 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: Python code quality checks
+                  reuse-proof-checks: |
+                      Python code quality (depot-ubuntu-24.04)
+                      lib/api.ts codegen ratchet
+                      Warehouse sources checks and tests
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       # Consumed as a file list (complexity_files) by the changed-file
                       # complexity check — the PR files API, not a hand-rolled git diff.
@@ -165,6 +173,8 @@ jobs:
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
+                        - 'frontend/src/queries/schema/latest-versions.json'
+                        - 'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv'
                         - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
@@ -715,6 +725,25 @@ jobs:
             - name: Check vendor imports (import-linter)
               run: lint-imports
 
+            # hoglint takes over from the two steps above, and runs in shadow until then. A
+            # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
+            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
+            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
+            - name: Check boundaries (hoglint, shadow)
+              env:
+                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+              run: |
+                  output="$RUNNER_TEMP/hoglint.txt"
+                  errors="$RUNNER_TEMP/hoglint-stderr.txt"
+                  status=0
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                  else
+                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                  fi
+
             # The Django matrix runs every repo invariant, but it does not start for a vendor-only
             # diff. So this job runs the ones that walk the vendor tree. The full run takes all
             # of them. A vendors run takes the ones that check code a vendor writes, and scopes
@@ -747,6 +776,7 @@ jobs:
                       test_feature_flag_raw_reads.py
                       test_local_kafka_consumers.py
                       test_rbac_shadow_resolver_callers.py
+                      test_warehouse_source_generated_config_inputs.py
                   )
                   pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"
 
@@ -768,9 +798,9 @@ jobs:
                   fi
                   pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
 
-            # The committed credential kind and auth type maps hold one line per vendor. A vendors
-            # run skips Backend CI, so these suites run in both modes, or a vendor change that
-            # makes the maps stale would merge. They need no database.
+            # These suites check that every vendor declares a valid, unique credential kind and an
+            # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
+            # the committed maps are current is `hogli build:projections --check` in code-quality.
             - name: Run credential map tests
               # The catalog's vendor filter would deselect credential cases in a shared session.
               if: steps.select.outputs.mode == 'vendors'

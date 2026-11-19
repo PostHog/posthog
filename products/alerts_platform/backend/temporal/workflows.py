@@ -93,7 +93,6 @@ SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
 NOOP_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 THREAD_BUSY = "AlertsPlatformThreadBusy"
-REFUSED_EVERYWHERE = "AlertsPlatformRefusedEverywhere"
 # One attempt can wait up to 3s for a lagging announcement (`read_announcement`) and then spend up to
 # 8s on a webhook's connect and read timeouts (`wire.py`). Below that sum, Temporal times the attempt
 # out while the send still runs, and the retry finds the thread claimed.
@@ -190,6 +189,22 @@ async def alerts_platform_emit_transitions_activity(request: AlertDeliveryReques
     enabled the event was never on, so the run gets the result it always got."""
 
 
+async def _log_refused_everywhere(request: AlertDeliveryRequest, error: RefusedEverywhere) -> None:
+    """Ends the send without raising, because only the destination's owner can fix the refusal.
+
+    A retry is refused the same way. Each send already counts as `misconfigured` and the alert's
+    creator was told, so a failed activity would only fail the workflow and page the platform for
+    a problem it cannot fix.
+    """
+    await LOGGER.ainfo(
+        "alerts_platform_delivery_refused_everywhere",
+        source=request.source.value,
+        configuration_id=request.configuration_id,
+        evaluation_key=request.evaluation_key,
+        error=str(error),
+    )
+
+
 @activity.defn
 async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest) -> None:
     """Sends what one evaluation decided, for an alert the platform owns.
@@ -214,9 +229,8 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         # non-reportable because a held thread is expected contention. The workflow waits it out.
         raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
     except RefusedEverywhere as error:
-        # A retry is refused the same way, and the creator was told. Non-reportable because the
-        # fix is the destination owner's, which the deliveries metric counts as `misconfigured`.
-        raise NonReportableApplicationError(str(error), type=REFUSED_EVERYWHERE, non_retryable=True) from error
+        await _log_refused_everywhere(request, error)
+        return
     if not outcome.live:
         await LOGGER.ainfo(
             "alerts_platform_delivery_preview",
@@ -253,7 +267,8 @@ async def alerts_platform_deliver_routes_activity(request: AlertDeliveryRequest)
         )
         raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
     except RefusedEverywhere as error:
-        raise NonReportableApplicationError(str(error), type=REFUSED_EVERYWHERE, non_retryable=True) from error
+        await _log_refused_everywhere(request, error)
+        return
     if sent:
         await LOGGER.ainfo(
             "alerts_platform_routed_delivered",
@@ -351,7 +366,7 @@ async def alerts_platform_deliver_handoff_activity(request: AlertDeliveryRequest
     except ThreadBusy as error:
         raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
     except RefusedEverywhere as error:
-        raise NonReportableApplicationError(str(error), type=REFUSED_EVERYWHERE, non_retryable=True) from error
+        await _log_refused_everywhere(request, error)
 
 
 # A workflow of its own rather than a branch in the delivery workflow's activities: a worker that

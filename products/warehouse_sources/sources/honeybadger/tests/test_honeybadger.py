@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -162,10 +163,19 @@ class TestHoneybadger:
             assert validate_credentials("token") is False
         assert {request.path for request in network.requests_log} == {"/v2/projects"}
 
-    def test_projects_paginates_and_checkpoints(self) -> None:
-        next_url = f"{HONEYBADGER_BASE_URL}/projects?limit=25&page=2"
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path", "expected_limit"),
+        [
+            ("projects", "/v2/projects", "25"),
+            ("accounts", "/v2/accounts", None),
+        ],
+    )
+    def test_top_level_list_paginates_and_checkpoints(
+        self, endpoint: str, expected_path: str, expected_limit: str | None
+    ) -> None:
+        next_url = f"{HONEYBADGER_BASE_URL}{expected_path.removeprefix('/v2')}?page=2"
         result = self._driver().run(
-            "projects",
+            endpoint,
             [
                 ScriptedResponse(json={"results": [{"id": 1}, {"id": 2}], "links": {"next": next_url}}),
                 ScriptedResponse(json={"results": [{"id": 3}], "links": {}}),
@@ -174,8 +184,8 @@ class TestHoneybadger:
 
         assert result.raised is None
         assert result.items == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
-        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-        assert result.params("limit") == ["25", "25"]
+        assert result.paths == [expected_path, expected_path]
+        assert result.params("limit")[0] == expected_limit
         assert result.params("page") == [None, "2"]
         assert result.saved_states == [HoneybadgerResumeConfig(next_url=next_url)]
 
@@ -314,6 +324,153 @@ class TestHoneybadger:
                 {"project_id": 1, "bucket_start": datetime(2017, 11, 19, tzinfo=UTC), "count": 0},
             ]
         ]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "pairs", "expected_rows"),
+        [
+            (
+                "notices_per_day",
+                [["2023-11-13T00:00:00.000000+00:00", 7], ["2023-11-14T00:00:00Z", 0]],
+                [
+                    {"project_id": 1, "day": datetime(2023, 11, 13, tzinfo=UTC), "count": 7},
+                    {"project_id": 1, "day": datetime(2023, 11, 14, tzinfo=UTC), "count": 0},
+                ],
+            ),
+            (
+                "notices_by_class",
+                [["RuntimeError", 12], ["SocketError", 3]],
+                [
+                    {"project_id": 1, "klass": "RuntimeError", "count": 12},
+                    {"project_id": 1, "klass": "SocketError", "count": 3},
+                ],
+            ),
+        ],
+    )
+    def test_reports_send_explicit_window_and_map_pairs_to_rows(
+        self, endpoint: str, pairs: list[Any], expected_rows: list[dict]
+    ) -> None:
+        with time_machine.travel(datetime(2023, 12, 1, 12, 30, 15, 123456, tzinfo=UTC), tick=False):
+            result = self._driver().run(
+                endpoint,
+                [
+                    ScriptedResponse(json={"results": [{"id": 1}], "links": {}}),
+                    ScriptedResponse(json=pairs),
+                ],
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/projects", f"/v2/projects/1/reports/{endpoint}"]
+        assert result.params("start") == [None, "2023-11-01T12:30:15+00:00"]
+        assert result.params("limit") == ["25", None]
+        assert result.items == [expected_rows]
+
+    @pytest.mark.parametrize(
+        ("watermark", "expected_start"),
+        [
+            (WATERMARK, "2023-11-14T22:13:20+00:00"),
+            (date(2023, 11, 14), "2023-11-14T00:00:00+00:00"),
+            ("2023-11-14T00:00:00Z", "2023-11-14T00:00:00+00:00"),
+        ],
+    )
+    def test_notices_per_day_incremental_starts_at_watermark(self, watermark: Any, expected_start: str) -> None:
+        with time_machine.travel(datetime(2023, 12, 1, tzinfo=UTC), tick=False):
+            result = self._driver().run(
+                "notices_per_day",
+                [
+                    ScriptedResponse(json={"results": [{"id": 1}], "links": {}}),
+                    ScriptedResponse(json=[]),
+                ],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+                incremental_field="day",
+            )
+
+        assert result.raised is None
+        assert result.params("start") == [None, expected_start]
+        assert result.items == []
+
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_path", "parent_key", "parent_name_column", "parent_ids", "child_path"),
+        [
+            ("team_members", "/v2/teams", "team_id", "team_name", [1, 2], "/v2/teams/{}/team_members"),
+            ("account_users", "/v2/accounts", "account_id", "account_name", ["abc", "xyz"], "/v2/accounts/{}/users"),
+        ],
+    )
+    def test_root_fan_out_walks_each_parent_and_stages_state_before_yield(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_key: str,
+        parent_name_column: str,
+        parent_ids: list[Any],
+        child_path: str,
+    ) -> None:
+        first, second = parent_ids
+        next_url = f"{HONEYBADGER_BASE_URL}{child_path.removeprefix('/v2').format(first)}?page=2"
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(
+                    json={"results": [{"id": first, "name": "First"}, {"id": second, "name": "Second"}], "links": {}}
+                ),
+                ScriptedResponse(json={"results": [{"id": 10}], "links": {"next": next_url}}),
+                ScriptedResponse(json={"results": [{"id": 11}], "links": {}}),
+                # A parent with no members still ends the walk cleanly.
+                ScriptedResponse(json={"results": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            parent_path,
+            child_path.format(first),
+            child_path.format(first),
+            child_path.format(second),
+        ]
+        assert result.params("limit") == [None, None, None, None]
+        assert result.items == [
+            [{"id": 10, parent_key: first, parent_name_column: "First"}],
+            [{"id": 11, parent_key: first, parent_name_column: "First"}],
+        ]
+        assert result.saved_states == [
+            HoneybadgerResumeConfig(next_url=next_url, **{parent_key: first}),
+            HoneybadgerResumeConfig(**{parent_key: second}),
+        ]
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_paths", "expected_pages"),
+        [
+            (
+                HoneybadgerResumeConfig(next_url=f"{HONEYBADGER_BASE_URL}/teams/2/team_members?page=3", team_id=2),
+                ["/v2/teams", "/v2/teams/2/team_members", "/v2/teams/3/team_members"],
+                [None, "3", None],
+            ),
+            (
+                HoneybadgerResumeConfig(team_id=3),
+                ["/v2/teams", "/v2/teams/3/team_members"],
+                [None, None],
+            ),
+            (
+                # The bookmarked team was deleted: start over, and don't use its saved page URL.
+                HoneybadgerResumeConfig(next_url=f"{HONEYBADGER_BASE_URL}/teams/9/team_members?page=3", team_id=9),
+                ["/v2/teams", "/v2/teams/1/team_members", "/v2/teams/2/team_members", "/v2/teams/3/team_members"],
+                [None, None, None, None],
+            ),
+        ],
+    )
+    def test_team_members_resumes_from_team_bookmark(
+        self, resume_state: HoneybadgerResumeConfig, expected_paths: list[str], expected_pages: list[str | None]
+    ) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v2/teams":
+                return ScriptedResponse(json={"results": [{"id": 1}, {"id": 2}, {"id": 3}], "links": {}})
+            return ScriptedResponse(json={"results": [{"id": 100}], "links": {}})
+
+        result = self._driver().run("team_members", answer, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("page") == expected_pages
 
     def test_mid_fault_checkpoint_saved_after_yield(self) -> None:
         next_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&page=2"

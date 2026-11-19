@@ -37,6 +37,7 @@ import {
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     InboxReportSectionKey,
     InboxScope,
     SignalReport,
@@ -298,6 +299,9 @@ export interface reportListLogicActions {
         scope: InboxScope
     } // inboxFiltersLogic
     clearFilters: () => {
+        value: true
+    } // inboxFiltersLogic
+    needsYouScopeAvailabilityChanged: () => {
         value: true
     } // inboxFiltersLogic
     resetUnavailableSort: () => {
@@ -580,7 +584,7 @@ export const reportListLogic = kea<reportListLogicType>([
         values: [
             inboxFiltersLogic,
             [
-                'scope',
+                'activeScope as scope',
                 'isScopedToMe',
                 'hasUserChosenScope',
                 'searchQuery',
@@ -608,6 +612,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'toggleScout',
                 'setSourceFilter',
                 'sourceFilterAvailabilityChanged',
+                'needsYouScopeAvailabilityChanged',
                 'togglePriority',
                 'setPriorityFilter',
                 'setScope',
@@ -922,6 +927,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     scope: teammateUuid ? 'teammate' : undefined,
                     teammate_uuid: teammateUuid,
                     assignee,
+                    needs_you: scope === INBOX_SCOPE_NEEDS_YOU ? 'true' : undefined,
                     created_window: activeCreatedWindow ?? undefined,
                     // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
                     include_source_metadata: 'false',
@@ -1175,6 +1181,7 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleScout: () => actions.refresh(),
         setSourceFilter: () => actions.refresh(),
         sourceFilterAvailabilityChanged: () => actions.refresh(),
+        needsYouScopeAvailabilityChanged: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
@@ -1268,11 +1275,16 @@ export const reportListLogic = kea<reportListLogicType>([
             }
         },
         // The Claimed by you list holds only the user's claims: a release drops the row in place, and a
-        // new claim reloads the list so the row joins it. Every other list updates the claim tag.
+        // new claim reloads the list so the row joins it. In Needs you a released report can still wait on
+        // the user's input, so a release reloads too. Every other list updates the claim tag.
         [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee }) => {
             const isLoaded = values.reports.some((r) => r.id === reportId)
+            const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
+            if (values.scope === INBOX_SCOPE_NEEDS_YOU && isMine !== isLoaded) {
+                actions.refresh()
+                return
+            }
             if (values.scopeAssignee) {
-                const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
                 if (!isMine && isLoaded) {
                     actions.removeReport(reportId)
                     return

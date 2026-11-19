@@ -84,6 +84,7 @@ from posthog.hogql_queries.query_failure_handling import budget_for_limit_contex
 from posthog.hogql_queries.query_runner import (
     SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
     AnalyticsQueryRunner,
+    CacheKeyIgnoredField,
     ExecutionMode,
     QueryRunner,
     QueryRunnerWithHogQLContext,
@@ -904,6 +905,46 @@ class TestQueryRunner(BaseTest):
         tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
 
         assert tagged.get_cache_key() == untagged.get_cache_key()
+
+    @parameterized.expand(
+        [
+            ("always_ignored", CacheKeyIgnoredField(name="other_attr"), ["a"], ["b"], True),
+            (
+                "ignored_value_matches_unset",
+                CacheKeyIgnoredField(name="other_attr", when_value_in=(["a"],)),
+                ["a"],
+                None,
+                True,
+            ),
+            (
+                "other_value_keeps_its_own_key",
+                CacheKeyIgnoredField(name="other_attr", when_value_in=(["a"],)),
+                ["b"],
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_cache_key_ignored_fields(
+        self,
+        _name: str,
+        ignored_field: CacheKeyIgnoredField,
+        first_value: list[str] | None,
+        second_value: list[str] | None,
+        shares_key: bool,
+    ) -> None:
+        class IgnoringQueryRunner(self.setup_test_query_runner_class()):  # type: ignore[misc]
+            cache_key_ignored_fields = (ignored_field,)
+
+        team = Team.objects.create(organization=self.organization)
+
+        def cache_key(value: list[str] | None) -> str:
+            query: dict[str, Any] = {"some_attr": "bla"}
+            if value is not None:
+                query["other_attr"] = value
+            return IgnoringQueryRunner(query=query, team=team).get_cache_key()
+
+        assert (cache_key(first_value) == cache_key(second_value)) is shares_key
 
     @override_settings(
         PERSON_ON_EVENTS_OVERRIDE=False,

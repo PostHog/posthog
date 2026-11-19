@@ -207,8 +207,8 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
 
 
 def queue_review_slack_thread(review: CIMDProvisioningReview, *, previous_status: str | None) -> None:
-    if not slack_thread_configured():
-        return
+    # Queued without checking the bot settings: reviews settle on a Temporal worker that does not carry them,
+    # and the task checks them on the Celery worker that talks to Slack.
     args = (str(review.pk), str(review.status), previous_status, review.reason)
     transaction.on_commit(lambda: sync_review_slack_thread.delay(*args))
 

@@ -225,7 +225,7 @@ class EmailSendingHistoryTool(ConsoleTool):
     key = "email-sending-history"
     title = "Email sending history"
     owner = WORKFLOWS
-    group = "Data"
+    group = "Product data"
     description = "Every tier, pin and suspension change for one team, newest first."
 
     def page(self, request: HttpRequest) -> Page:

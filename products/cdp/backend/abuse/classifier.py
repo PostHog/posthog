@@ -50,14 +50,21 @@ QUESTIONS: dict[str, DecisionQuestion] = {
     ),
     "malformed_payload": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function build malformed, oversized, or probing payloads that are meant "
-        "to break, crash, or test the limits of the systems that process them later?",
+        instructions=f"{_FRAMING} Does the function build payloads that are meant to break, crash, or test the "
+        "limits of the systems that process them later? Examples are malformed JSON, huge or deeply nested "
+        "structures, invalid encodings, and boundary or fuzzing values. Answer yes only when the structure, size, "
+        "encoding or values of the payload are chosen for that. Message text that only describes security events, "
+        "attacks, probing or abuse is ordinary content, not a probing payload.",
     ),
     "runtime_escape": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function probe or try to escape the sandbox it runs in, for example by "
-        "reaching prototypes, constructors, globals, eval, import or require, or the internals of the Liquid "
-        "template engine in its inputs?",
+        instructions=f"{_FRAMING} Do the code or the inputs reach a prototype or a constructor, the global object, "
+        "eval, import, require or process, or the internals of the Liquid template engine? Examples are "
+        "`event.constructor.constructor('return 1')()`, `'abc'.constructor`, `person.constructor`, `print(process)`, "
+        "`{% include 'constructor' %}` and `{{ forloop.constructor }}`. Answer yes only when one of these is "
+        "actually reached. A name inside a string counts only when the string is used to reach it, as the include "
+        "tag does. Printing, arithmetic, other string literals, odd or alarming-sounding strings and simple test "
+        "code are not escape attempts, even when they serve no purpose.",
     ),
     "normal_integration": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
@@ -102,10 +109,13 @@ class HogFunctionContent:
 class Thresholds:
     alert: float = 0.5
     block: float = 0.9
+    control: float = 0.7
 
     def __post_init__(self) -> None:
         if not 0 <= self.alert <= self.block <= 1:
             raise ValueError("thresholds are probabilities from 0 to 1, with alert at or below block")
+        if not 0 <= self.control <= 1:
+            raise ValueError("the control threshold is a probability from 0 to 1")
 
 
 @frozen
@@ -293,13 +303,20 @@ def classify(
     return AbuseVerdict(
         scores=scores,
         risk_score=risk_score,
-        would_alert=risk_score >= thresholds.alert,
+        would_alert=_would_alert(scores, risk_score, thresholds),
         would_block=risk_score >= thresholds.block,
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,
         input_tokens=result.input_tokens,
     )
+
+
+def _would_alert(scores: Mapping[str, float], risk_score: float, thresholds: Thresholds) -> bool:
+    if risk_score < thresholds.alert:
+        return False
+    looks_like_a_normal_integration = scores[CONTROL_QUESTION] >= thresholds.control
+    return not looks_like_a_normal_integration or risk_score >= thresholds.block
 
 
 def _scores(answers: Mapping[str, object]) -> dict[str, float]:

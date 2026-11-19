@@ -3,7 +3,10 @@ import { useMemo } from 'react'
 import type { Series } from '../../core/types'
 import type { ValueLabelFormatter, ValueLabelsProps } from '../../overlays/ValueLabels'
 
-export interface ValueLabelsConfig extends Pick<ValueLabelsProps, 'position' | 'background' | 'fontSize' | 'rotation'> {
+export interface ValueLabelsConfig extends Pick<
+    ValueLabelsProps,
+    'position' | 'background' | 'color' | 'backgroundColor' | 'fontSize' | 'rotation'
+> {
     seriesKeys?: string[]
     /** Per-segment label text — see `ValueLabelFormatter` for the context and empty-string contract. */
     formatter?: ValueLabelFormatter

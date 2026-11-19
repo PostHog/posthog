@@ -572,6 +572,59 @@ It switches the copies off and keeps their rows, state and history. Checks alrea
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
+## Evaluation fleet capacity
+
+Every source in `SOURCE_BINDINGS` evaluates on `alerts-platform-evaluation-task-queue`, so all sources draw on one set of worker activity slots.
+The fleet's slots are its pod count times `MAX_CONCURRENT_ACTIVITIES`.
+The deployment's values set both for each region. Neither is a Temporal limit, so both can grow.
+
+### What holds a slot
+
+| Pool                  | Setting                                              | Default       | Holds an evaluation worker slot                                                   |
+| --------------------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------- |
+| Insight checks        | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS`        | the query cap | For the whole check, including while it waits for a query slot                    |
+| Insight queries       | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS`   | 10            | None of its own: a query runs inside a check's slot                               |
+| Insight chart renders | `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS` | 3             | While the export workflow draws the chart, up to the export's render timeout      |
+| Logs batches          | `ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES`          | 5             | While the batch runs. The wait for a pool slot is a workflow timer and holds none |
+| Metrics batches       | `ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES`       | 5             | While the batch runs                                                              |
+| Traces batches        | `ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES`        | 5             | While the batch runs                                                              |
+
+Billing and warehouse checks have no pool of their own. Their keys per tick bound them.
+
+The pools that hold slots must fit inside the fleet's slots together, with room left for activities outside any pool, such as planning and recording.
+A pool larger than its share does not fail loudly.
+Its work waits for a worker while holding its pool slot, so the pool turns away other checks it had room for.
+That shows as `alerts_platform_checks_deferred_total{source}` and as scheduler lag for the source.
+When a source's pool grows, or a new source adds one, add it to this sum for every region first.
+
+### Ways to grow
+
+1. Add pods. Slots grow with the pod count, and the cost is each pod's CPU and memory request. This is the first choice.
+2. Raise `MAX_CONCURRENT_ACTIVITIES`. Activity threads in one process share the GIL, and query parsing is CPU-heavy, so more slots per pod give each check less CPU. A region lowered this value for that reason, so raise it only while watching activity and workflow task latency.
+3. Give a source its own queue and fleet when its checks hold a slot for minutes, as [the dispatcher section](#tick-loop-and-source-dispatchers) describes.
+4. Stop holding a slot while waiting. Wait on a workflow timer, as the logs pool wait does, or run the slow work as its own workflow, so no activity blocks on it.
+
+Chart renders are the open case for the fourth option.
+A render activity holds a slot here while the export runs on another queue.
+Sending the firing first and editing the chart into the Slack message afterwards would need no slot here. The late chart already does that when the render pool is full.
+
+### Limits outside the fleet
+
+More slots do not raise these limits:
+
+- **ClickHouse.** Each source queries as its own user, so the user's concurrent query limit bounds the source's query pool, whatever the slot count. Size the insight query cap from refused queries, as the rollout steps above describe.
+- **The export fleet.** A chart render runs as an export workflow on `analytics-platform-task-queue`. That fleet also runs other exports and autoscales on its own slot use, up to a maximum pod count. A larger render pool moves load there, so check its slot use at peak before raising the render pool.
+- **The render browser.** The export draws the chart in Browserless, an external browser service with its own limit on concurrent sessions.
+- **Snuffle.** Metrics checks send PromQL to Snuffle, so its capacity bounds the metrics pool.
+
+### Sizing a new source
+
+1. Write down what one check holds a slot for, and for how long.
+2. Give the source a pool whose cap protects the system it queries.
+3. Add the cap to the sum of slot-holding pools, and check that every region still fits. Add pods before raising a cap past the free slots.
+4. Give the source its own queue if its checks hold a slot for minutes.
+5. Watch `alerts_platform_checks_deferred_total` and scheduler lag for the source while its share grows.
+
 ## Held deliveries
 
 A source can hold an evaluation's delivery instead of starting it, for example while an agent investigates a firing.

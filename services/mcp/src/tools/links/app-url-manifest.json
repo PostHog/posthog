@@ -229,11 +229,6 @@
         "params": [],
         "scope": "project"
     },
-    "analyticsProductHome": {
-        "template": "/analytics/product-analytics",
-        "params": [],
-        "scope": "project"
-    },
     "analyticsSpaces": {
         "template": "/analytics/collections",
         "params": [],
@@ -347,6 +342,16 @@
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibraries": {
+        "template": "/business-knowledge/libraries",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibrary": {
+        "template": "/business-knowledge/libraries/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "businessKnowledgePlayground": {
@@ -1714,28 +1719,8 @@
         "params": [],
         "scope": "project"
     },
-    "stamphog": {
-        "template": "/stamphog",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogArea": {
-        "template": "/stamphog/area",
-        "params": [],
-        "scope": "project"
-    },
     "stamphogCallback": {
         "template": "/stamphog/install/callback",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogDigests": {
-        "template": "/stamphog/digests",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogRuns": {
-        "template": "/stamphog/runs",
         "params": [],
         "scope": "project"
     },

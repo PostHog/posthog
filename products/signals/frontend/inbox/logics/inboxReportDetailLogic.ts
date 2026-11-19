@@ -45,10 +45,12 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
+    signalsReportsActionabilityUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
     signalsReportsPriorityUpdate,
+    signalsReportsRepositoryUpdate,
     signalsReportsStateCreate,
     signalsReportsReviewersUpdate,
 } from 'products/signals/frontend/generated/api'
@@ -92,7 +94,12 @@ import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, 
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { implementationClaimDisabledReason } from '../utils/reportActions'
 import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
-import { ReportDecisionAttributions, reportDecisionAttributions } from '../utils/reportDecisions'
+import {
+    ReportActionabilityChange,
+    ReportDecisionAttributions,
+    reportActionabilityRequest,
+    reportDecisionAttributions,
+} from '../utils/reportDecisions'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -337,6 +344,7 @@ export interface inboxReportDetailLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     selectedTabOptions: string | null // sidePanelStateLogic
     actionabilityExplanation: string | null
+    actionabilitySaving: boolean
     addReviewerOptions: AvailableReviewerOption[]
     approvingCheckIds: string[]
     availableReviewers: AvailableReviewerOption[] | null
@@ -413,6 +421,7 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    repositorySaving: boolean
     savedFeedback: SignalReportFeedbackStateApi | null
     savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
@@ -708,6 +717,9 @@ export interface inboxReportDetailLogicActions {
     selectPullRequest: (url: string) => {
         url: string
     }
+    setActionabilitySaving: (saving: boolean) => {
+        saving: boolean
+    }
     setClaimSaving: (saving: boolean) => {
         saving: boolean
     }
@@ -750,6 +762,9 @@ export interface inboxReportDetailLogicActions {
     setReportStateSaving: (saving: boolean) => {
         saving: boolean
     }
+    setRepositorySaving: (saving: boolean) => {
+        saving: boolean
+    }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
@@ -770,8 +785,14 @@ export interface inboxReportDetailLogicActions {
         commentId: string
         content: string
     }
+    updateActionability: (change: ReportActionabilityChange) => {
+        change: ReportActionabilityChange
+    }
     updatePriority: (priority: ReportPriorityApi) => {
         priority: ReportPriorityApi
+    }
+    updateRepository: (repository: string) => {
+        repository: string
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -830,7 +851,10 @@ export interface inboxReportDetailLogicMeta {
         trailingCharts: (reportCharts: ReportChartApi[], chartPlacements: ChartPlacements) => ReportChartApi[]
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
-        decisionAttributions: (reportArtefacts: SignalReportArtefact[] | null) => ReportDecisionAttributions | null
+        decisionAttributions: (
+            report: SignalReport | null,
+            reportArtefacts: SignalReportArtefact[] | null
+        ) => ReportDecisionAttributions | null
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
@@ -929,6 +953,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setReport: (report: SignalReport | null) => ({ report }),
         updatePriority: (priority: ReportPriorityApi) => ({ priority }),
         setPrioritySaving: (saving: boolean) => ({ saving }),
+        updateRepository: (repository: string) => ({ repository }),
+        setRepositorySaving: (saving: boolean) => ({ saving }),
+        updateActionability: (change: ReportActionabilityChange) => ({ change }),
+        setActionabilitySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
         setReportClaimed: (claimed: boolean, takeover: boolean = false, shownAssignee?: SignalReport['assignee']) => ({
@@ -1253,6 +1281,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
+        repositorySaving: [false, { setRepositorySaving: (_, { saving }) => saving }],
+        actionabilitySaving: [false, { setActionabilitySaving: (_, { saving }) => saving }],
         reportStateSaving: [false, { setReportStateSaving: (_, { saving }) => saving }],
         claimSaving: [false, { setClaimSaving: (_, { saving }) => saving }],
         report: [
@@ -1617,9 +1647,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 latestJudgmentExplanation(reportArtefacts, 'actionability_judgment'),
         ],
         decisionAttributions: [
-            (s) => [s.reportArtefacts],
-            (reportArtefacts: SignalReportArtefact[] | null): ReportDecisionAttributions | null =>
-                reportArtefacts === null ? null : reportDecisionAttributions(reportArtefacts),
+            (s) => [s.report, s.reportArtefacts],
+            (
+                report: SignalReport | null,
+                reportArtefacts: SignalReportArtefact[] | null
+            ): ReportDecisionAttributions | null => reportDecisionAttributions(report?.decisions, reportArtefacts),
         ],
         // The reviewer list to render: optimistic override (if any) wins over the artefact-derived list,
         // then the current user is pinned to the top. Mirrors desktop `displayReviewers`.
@@ -1829,6 +1861,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const report: SignalReport = {
                 ...(values.report ?? currentReport),
                 priority,
+                decisions: updated.decisions,
                 updated_at: updated.updated_at,
             }
             actions.setReport(report)
@@ -1838,6 +1871,113 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }
             actions.loadReportArtefacts()
             actions.setPrioritySaving(false)
+        },
+        updateRepository: async ({ repository }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.repositorySaving || currentReport.repo_slug === repository) {
+                return
+            }
+            const previousAttribution = values.decisionAttributions?.repository ?? null
+            actions.setRepositorySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await withInboxWriteTimeout('repository', (options) =>
+                    signalsReportsRepositoryUpdate(String(teamId), props.reportId, { repository }, options)
+                )
+            } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setRepositorySaving(false)
+                    lemonToast.error("Couldn't save the repository. Try again.")
+                }
+                return
+            }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision: 'repository',
+                previousValue: currentReport.repo_slug ?? null,
+                newValue: repository,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                repo_slug: updated.repo_slug ?? repository,
+                research_context: updated.research_context,
+                decisions: updated.decisions,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setRepositorySaving(false)
+        },
+        updateActionability: async ({ change }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.actionabilitySaving) {
+                return
+            }
+            const request = reportActionabilityRequest(currentReport, change)
+            if (!request) {
+                return
+            }
+            const { decision, previousValue, newValue, body } = request
+            const previousAttribution = values.decisionAttributions?.[decision] ?? null
+            actions.setActionabilitySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await withInboxWriteTimeout('actionability', (options) =>
+                    signalsReportsActionabilityUpdate(String(teamId), props.reportId, body, options)
+                )
+            } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setActionabilitySaving(false)
+                    lemonToast.error(
+                        decision === 'actionability'
+                            ? "Couldn't save the actionability. Try again."
+                            : "Couldn't save whether this is already addressed. Try again."
+                    )
+                }
+                return
+            }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision,
+                previousValue,
+                newValue,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            // A new actionability can move the report between Ready and Needs input, so the status comes from the response.
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                actionability: updated.actionability as SignalReport['actionability'],
+                already_addressed: updated.already_addressed,
+                status: updated.status as SignalReport['status'],
+                decisions: updated.decisions,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setActionabilitySaving(false)
         },
         setReportClaimed: async ({ claimed, takeover, shownAssignee }) => {
             const teamId = teamLogic.values.currentTeamId

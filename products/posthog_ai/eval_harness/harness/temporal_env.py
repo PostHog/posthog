@@ -136,7 +136,7 @@ class TemporalWorkerThread:
             namespace=settings.TEMPORAL_NAMESPACE,
             task_queue=settings.TASKS_TASK_QUEUE,
             workflows=TASKS_WORKFLOWS + NOTEBOOK_WORKFLOWS,
-            activities=TASKS_ACTIVITIES + NOTEBOOK_ACTIVITIES,  # type: ignore[arg-type]
+            activities=TASKS_ACTIVITIES + NOTEBOOK_ACTIVITIES,
             max_concurrent_workflow_tasks=self._max_concurrent_workflow_tasks,
             max_concurrent_activities=self._max_concurrent_activities,
             enable_combined_metrics_server=False,

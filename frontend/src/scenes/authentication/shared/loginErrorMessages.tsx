@@ -26,6 +26,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
             for details.
         </>
     ),
+    sso_verification_email_failed:
+        "We couldn't send a verification email. Try again later, or contact your administrator if this keeps happening.",
     jit_not_enabled:
         'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
     saml_sso_enforced:

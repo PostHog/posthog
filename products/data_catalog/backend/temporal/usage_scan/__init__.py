@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from .activities import (
     collect_metric_runs,
     collect_table_sources,
@@ -12,7 +14,7 @@ from .activities import (
 from .workflows import DataCatalogUsageScanWorkflow, DataCatalogUsageScheduleWorkflow
 
 WORKFLOWS = [DataCatalogUsageScanWorkflow, DataCatalogUsageScheduleWorkflow]
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     list_teams_due,
     create_snapshot,
     collect_metric_runs,

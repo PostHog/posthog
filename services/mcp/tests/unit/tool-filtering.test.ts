@@ -1130,6 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
+            'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
@@ -1165,6 +1166,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-bulk-suppressions-mcp',
             'workflows-resend-import',
             'signals-source-filters',
+            'error-tracking-issue-tags',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1207,7 +1209,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
                 'logs-agent-tools',
-                'releases-area',
+                'release-objects',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
