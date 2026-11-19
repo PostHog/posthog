@@ -296,14 +296,18 @@ def compare_series(spliced: Sequence[MetricsQuerySeries], full: Sequence[Metrics
 
 def compare_grid(spliced: MetricsHistogramQueryResponse, full: MetricsHistogramQueryResponse) -> ShadowDiff:
     def by_cell(response: MetricsHistogramQueryResponse) -> dict[Any, float | None]:
-        bounds = tuple(response.bounds)
         return {
-            (bounds, row, time): float(count)
+            (row, time): float(count)
             for row, counts in enumerate(response.counts)
             for time, count in zip(response.times, counts)
         }
 
-    return _diff_values(by_cell(spliced), by_cell(full))
+    spliced_cells, full_cells = by_cell(spliced), by_cell(full)
+    # Bounds are compared once, because a bounds tuple in every cell key is rehashed on every lookup.
+    if spliced.bounds != full.bounds:
+        cells = len(spliced_cells) + len(full_cells)
+        return ShadowDiff(mismatch_points=cells, max_rel_diff=1.0 if cells else 0.0)
+    return _diff_values(spliced_cells, full_cells)
 
 
 class TailRefresh(Generic[R]):
