@@ -4,7 +4,11 @@ import { describe, it } from 'node:test'
 import {
     definitionPathFor,
     fetchFailingTools,
+    fileTeamSignals,
     HANDWRITTEN_TOOL_PATH,
+    MAX_SIGNAL_REVIEWERS,
+    ownedTeams,
+    signalReport,
     teamPostsWithheld,
     teamReport,
     toolDefinitionIndex,
@@ -140,4 +144,73 @@ describe('weekly MCP tool health report', () => {
             assert.deepEqual(posts, expected)
         })
     }
+
+    describe('signals to owning teams', () => {
+        const NOW = new Date('2026-10-26T13:50:00Z')
+        const TOOL = { tool: 'survey-get', calls: 120, errors: 30, users: 7, topError: 'GET /api/#/ -> 500' }
+        const SURVEYS = { owner: 'team-surveys', items: [TOOL] }
+
+        it('groups failing tools by owning team and leaves unowned tools out', () => {
+            const items = [
+                { tool: 'survey-get', owner: 'team-surveys' },
+                { tool: 'execute-sql', owner: 'unowned' },
+                { tool: 'survey-create', owner: 'team-surveys' },
+            ]
+            const teams = ownedTeams(items, (item) => ({ owner: item.owner }))
+            assert.deepEqual(
+                teams.map((team) => [team.owner, team.items.map((item) => item.tool)]),
+                [['team-surveys', ['survey-get', 'survey-create']]]
+            )
+        })
+
+        it('keys the report on the week and team so a later re-run returns the first report', () => {
+            const thursday = new Date('2026-10-29T09:00:00Z')
+            assert.equal(signalReport(thursday, SURVEYS, []).idempotency_key, 'mcp-tool-health:2026-10-26:team-surveys')
+        })
+
+        it('backs the report with one piece of evidence per failing tool', () => {
+            assert.deepEqual(
+                signalReport(NOW, SURVEYS, []).evidence.map((entry) => entry.source_id),
+                ['survey-get']
+            )
+        })
+
+        it('routes the report to the owning team members, capped at the reviewer limit', () => {
+            const logins = Array.from({ length: MAX_SIGNAL_REVIEWERS + 2 }, (_, i) => `member${i}`)
+            assert.equal(signalReport(NOW, SURVEYS, logins).suggested_reviewers.length, MAX_SIGNAL_REVIEWERS)
+        })
+
+        it('tags the report with the owning team', () => {
+            assert.deepEqual(signalReport(NOW, SURVEYS, []).tags, ['mcp-tool-health', 'team-surveys'])
+        })
+
+        it('files a team report without reviewers when its members cannot be read', async () => {
+            const filed = []
+            await fileTeamSignals([SURVEYS], {
+                now: NOW,
+                membersOf: async () => {
+                    throw new Error('403')
+                },
+                file: async (body) => {
+                    filed.push(body)
+                    return { report_id: 'r1' }
+                },
+            })
+            assert.equal(filed[0].suggested_reviewers, undefined)
+        })
+
+        it('keeps filing the next team after one team fails', async () => {
+            const reports = await fileTeamSignals([SURVEYS, { owner: 'team-cdp', items: [TOOL] }], {
+                now: NOW,
+                membersOf: async () => [],
+                file: async (body) => {
+                    if (body.tags.includes('team-surveys')) {
+                        throw new Error('500')
+                    }
+                    return { report_id: 'r2' }
+                },
+            })
+            assert.deepEqual(reports, [{ owner: 'team-cdp', reportId: 'r2' }])
+        })
+    })
 })
