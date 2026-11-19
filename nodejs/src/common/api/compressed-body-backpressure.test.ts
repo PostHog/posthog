@@ -34,12 +34,20 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
 
     const threadpoolSize = Number(process.env.UV_THREADPOOL_SIZE ?? 4)
 
-    const holdThreadpool = (threads = threadpoolSize) => {
+    const holdThreadpool = (threads = threadpoolSize): (() => Promise<void>) => {
+        if (threads === 0) {
+            return async () => {}
+        }
         const directory = mkdtempSync(path.join(tmpdir(), 'held-threadpool-'))
         const fifo = path.join(directory, 'fifo')
         execFileSync('mkfifo', [fifo])
         const heldOpens = Array.from({ length: threads }, () => open(fifo, 'r'))
+        let released = false
         return async () => {
+            if (released) {
+                return
+            }
+            released = true
             const writer = openSync(fifo, 'w')
             await Promise.all(heldOpens.map(async (heldOpen) => (await heldOpen).close()))
             closeSync(writer)
@@ -150,7 +158,8 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
     })
 
     it('drops a compressed body whose client disconnects while it is decoding', async () => {
-        const releaseThreadpool = holdThreadpool()
+        const releaseOtherThreads = holdThreadpool(threadpoolSize - 1)
+        const releaseLastThread = holdThreadpool(1)
         try {
             const req = openUpload()
             req.on('error', () => {})
@@ -158,13 +167,17 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
             await roundTrip()
             req.destroy()
             await roundTrip()
+            await releaseLastThread()
+            const later = openUpload()
+            const laterResponse = responseOf(later)
+            later.end(gzipSync(JSON.stringify({ data: 'later' })))
+            expect((await laterResponse).status).toEqual(200)
         } finally {
-            await releaseThreadpool()
-        }
-        for (let index = 0; index < 5; index++) {
-            await roundTrip()
+            await releaseLastThread()
+            await releaseOtherThreads()
         }
 
+        expect(routedBodies).toContainEqual({ data: 'later' })
         expect(routedBodies).not.toContainEqual({ data: 'x' })
     })
 })

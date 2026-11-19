@@ -10,6 +10,7 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { v5 as uuidv5 } from 'uuid'
+import { gzipSync } from 'zlib'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -792,6 +793,7 @@ describe('EmailTrackingService', () => {
                 sesMessage,
                 bounceType = 'Permanent',
                 recipient = 'user@example.com',
+                compressed = false,
             }: {
                 functionId: string
                 parentRunId?: string
@@ -813,6 +815,7 @@ describe('EmailTrackingService', () => {
                 sesMessage?: string
                 bounceType?: 'Permanent' | 'Transient'
                 recipient?: string
+                compressed?: boolean
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -867,27 +870,39 @@ describe('EmailTrackingService', () => {
                         timestamp: '2024-01-01T00:00:00.000Z',
                     },
                 }
-                return await postEnvelope({
-                    Type: 'Notification',
-                    MessageId: snsMessageId,
-                    TopicArn: topicArn,
-                    Message: sesMessage ?? JSON.stringify(sesRecord),
-                })
+                return await postEnvelope(
+                    {
+                        Type: 'Notification',
+                        MessageId: snsMessageId,
+                        TopicArn: topicArn,
+                        Message: sesMessage ?? JSON.stringify(sesRecord),
+                    },
+                    compressed
+                )
             }
 
-            const postEnvelope = async (envelope: Record<string, string>): Promise<supertest.Response> => {
-                return await supertest(app)
+            const postEnvelope = async (
+                envelope: Record<string, string>,
+                compressed = false
+            ): Promise<supertest.Response> => {
+                const text = JSON.stringify({
+                    Timestamp: '2024-01-01T00:00:00.000Z',
+                    SignatureVersion: '1',
+                    Signature: 'stubbed',
+                    SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+                    ...envelope,
+                })
+                if (!compressed) {
+                    return await supertest(app)
+                        .post('/public/m/ses_webhook')
+                        .set('Content-Type', 'text/plain')
+                        .send(text)
+                }
+                const req = supertest(app)
                     .post('/public/m/ses_webhook')
-                    .set('Content-Type', 'text/plain')
-                    .send(
-                        JSON.stringify({
-                            Timestamp: '2024-01-01T00:00:00.000Z',
-                            SignatureVersion: '1',
-                            Signature: 'stubbed',
-                            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
-                            ...envelope,
-                        })
-                    )
+                    .set({ 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip' })
+                req.write(gzipSync(text))
+                return await req
             }
 
             const recordBounce = async (bounce: Parameters<typeof postBounce>[0]): Promise<void> => {
@@ -1223,10 +1238,13 @@ describe('EmailTrackingService', () => {
                 expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
             })
 
-            it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
+            it.each([
+                ['plain', false],
+                ['gzip-compressed', true],
+            ])('answers 200 and queues a %s envelope by its MessageId without recording it', async (_, compressed) => {
                 const snsMessageId = new UUIDT().toString()
 
-                const res = await postBounce({ functionId: hogFunction.id, snsMessageId })
+                const res = await postBounce({ functionId: hogFunction.id, snsMessageId, compressed })
 
                 expect(res.status).toBe(200)
                 const queued = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_SES_WEBHOOKS)

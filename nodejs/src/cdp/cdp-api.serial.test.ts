@@ -1095,16 +1095,13 @@ describe('CDP API', () => {
             expect(res.body).toEqual({ status: 'error', error: 'Malformed compressed body' })
         })
 
-        it.each(['', JSON.stringify({ Type: 'Notification', MessageId: 'invented-message-id', Message: '{}' })])(
-            'answers a compressed body on the SES webhook like the same body sent plain: %p',
-            async (text) => {
-                const plain = await postText('/public/m/ses_webhook', Buffer.from(text))
-                const compressed = await postText('/public/m/ses_webhook', gzipSync(text), 'gzip')
+        it('answers an empty compressed body on the SES webhook like an empty plain body', async () => {
+            const plain = await postText('/public/m/ses_webhook', Buffer.from(''))
+            const compressed = await postText('/public/m/ses_webhook', gzipSync(''), 'gzip')
 
-                expect(compressed.status).toEqual(plain.status)
-                expect(compressed.body).toEqual(plain.body)
-            }
-        )
+            expect(compressed.status).toEqual(plain.status)
+            expect(compressed.body).toEqual(plain.body)
+        })
     })
 
     describe('hogflow invocation groups', () => {
