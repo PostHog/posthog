@@ -214,12 +214,15 @@ attestations:
       # - migrations: the database moved on.
       # - auth, crypto_secrets, deps_toolchain, infra_cicd: a revert can bring back a vulnerability
       #   or a vulnerable version that the reverted PR fixed, or turn off team-security's workflows.
+      # - billing: it is the only category over the Stripe provisioning signature check, the billing
+      #   access token and grants, and the billing permission classes, so a revert of a fix there
+      #   would bring the vulnerability back.
       # - ci_workflows, agent_steering, workflows_delivery: owner-only, and owners are exempt, so a
       #   lift would only let another team undo the owner's change.
       # - devex_guardrails: reverting a guard turns the guard off.
       check: 'Revert proof'
       app_id: 5697920
-      lifts: [billing, public_api]
+      lifts: [public_api]
       # A revert can touch any file. The trigger runs only for a title that starts with "Revert",
       # so no other PR waits for this check.
       title: '^Revert'
