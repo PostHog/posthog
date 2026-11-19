@@ -382,6 +382,20 @@ class TestEmailSendingTierDecision(SimpleTestCase):
             ("bounces on a sample too small to demote", True, 7, 100, False, 0, 0, "tier_not_used_enough", 100),
             ("tenant never synced by AWS", True, 7, 5, False, 0, 0, "tier_not_used_enough", 0, ""),
             ("tenant with no reputation record yet", True, 7, 0, False, 0, 3, "trusted_account", 0, "ENABLED", ""),
+            (
+                "recent bounces hidden in a clean month",
+                True,
+                7,
+                930,
+                False,
+                0,
+                0,
+                "tier_not_used_enough",
+                10,
+                "ENABLED",
+                None,
+                10,
+            ),
         ]
     )
     def test_trusted_account_floor(
@@ -397,11 +411,15 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         hard_bounced: int = 0,
         tenant_status: str = "ENABLED",
         tenant_impact: str | None = None,
+        recent_sent: int | None = None,
     ) -> None:
         now = timezone.now()
         daily_sends = clean_days(1, sent) if sent else {}
         decision = decide_tier(
             history=history(sent=sent, hard_bounced=hard_bounced, daily_sends=daily_sends),
+            recent_history=history(sent=recent_sent, hard_bounced=hard_bounced, daily_sends=clean_days(1, recent_sent))
+            if recent_sent is not None
+            else None,
             current_tier=current_tier,
             tier_updated_at=now - timedelta(days=30),
             suspended=False,

@@ -279,7 +279,10 @@ def decide_tier(
     # suspended or paused climbs on its own sending only.
     trusted_floor = (
         trusted_floor_tier(account_trust)
-        if last_rate_demotion_at is None and history.observed_rates_are_clean and tenant.is_verified_clean
+        if last_rate_demotion_at is None
+        and history.observed_rates_are_clean
+        and recent.observed_rates_are_clean
+        and tenant.is_verified_clean
         else MIN_EMAIL_SENDING_TIER
     )
 
