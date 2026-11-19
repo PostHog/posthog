@@ -142,6 +142,7 @@ export function emailContent(action: HogFlowAction): EmailContent | undefined {
         to: /person\.properties\.email/.test(toEmail) ? 'Their email address' : toEmail || 'Not set',
         html: asText(email.html),
         text: asText(email.text),
-        liquid: asRecord(asRecord(asRecord(action.config).inputs).email).templating !== 'hog',
+        // The worker treats an input without a templating engine as Hog.
+        liquid: asRecord(asRecord(asRecord(action.config).inputs).email).templating === 'liquid',
     }
 }

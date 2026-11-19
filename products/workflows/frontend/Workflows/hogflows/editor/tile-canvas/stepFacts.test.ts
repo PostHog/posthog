@@ -296,16 +296,23 @@ describe('stepFacts', () => {
     const FOUNDER = { id: 'p', properties: { role: 'founder' } }
 
     it.each([
-        ['falls back to the step name without a person', LOGIC_SUBJECT, undefined, undefined, 'Pitch by role'],
-        ['renders the branch for the preview person', LOGIC_SUBJECT, FOUNDER, undefined, 'Ask the team'],
+        ['falls back to the step name without a person', LOGIC_SUBJECT, undefined, 'liquid', 'Pitch by role'],
+        ['renders the branch for the preview person', LOGIC_SUBJECT, FOUNDER, 'liquid', 'Ask the team'],
         [
             'falls back to the step name when the logic renders nothing',
             "{% if person.properties.role == 'engineer' %}Ship it{% endif %}",
             FOUNDER,
-            undefined,
+            'liquid',
             'Pitch by role',
         ],
         ['leaves a hog template as plain words', 'Hi {person.properties.first_name}', FOUNDER, 'hog', 'Hi first name'],
+        [
+            'treats a template with no engine as hog',
+            'Hi {person.properties.first_name}',
+            FOUNDER,
+            undefined,
+            'Hi first name',
+        ],
     ])('reads an email subject: %s', (_, subject, person, templating, headline) => {
         const action = step(
             'pitch',
