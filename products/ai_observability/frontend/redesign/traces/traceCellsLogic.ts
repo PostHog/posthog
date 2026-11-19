@@ -16,43 +16,14 @@ import type {
     TraceSentimentApi,
     TraceSentimentItemApi,
 } from '../../generated/api.schemas'
-import { noEntries, readOrFailure } from '../shared/readOrFailure'
+import { withFailed, withLoaded, withRequested } from '../shared/cellLoads'
+import type { CellLoads, TraceCellLoad } from '../shared/cellLoads'
+import { createCellReader } from '../shared/cellReader'
+import { noEntries } from '../shared/readOrFailure'
 import { tracesListLogic } from './tracesListLogic'
 import { tracesListTracking } from './tracesListTracking'
-import type { TraceCellLoad } from './types'
 
 export type TraceCellRead = 'previews' | 'people' | 'sentiment'
-
-type CellLoads<T> = ReadonlyMap<string, TraceCellLoad<T>>
-
-// A value on screen stays there while it is read again, as the rows do on a reload.
-function withRequested<T>(loads: CellLoads<T>, traceIds: string[]): CellLoads<T> {
-    const next = new Map(loads)
-    for (const traceId of traceIds) {
-        if (next.get(traceId)?.status !== 'ready') {
-            next.set(traceId, { status: 'loading' })
-        }
-    }
-    return next
-}
-
-function withFailed<T>(loads: CellLoads<T>, traceIds: string[]): CellLoads<T> {
-    const next = new Map(loads)
-    for (const traceId of traceIds) {
-        if (next.get(traceId)?.status === 'loading') {
-            next.set(traceId, { status: 'error' })
-        }
-    }
-    return next
-}
-
-function withLoaded<T>(loads: CellLoads<T>, values: [traceId: string, value: T][]): CellLoads<T> {
-    const next = new Map(loads)
-    for (const [traceId, value] of values) {
-        next.set(traceId, { status: 'ready', value })
-    }
-    return next
-}
 
 function pageRequest(rows: TraceListItemApi[]): TracePageWithBoundsRequestApi {
     const createdAts = rows.map((row) => row.createdAt).sort((a, b) => Date.parse(a) - Date.parse(b))
@@ -183,37 +154,12 @@ export const traceCellsLogic = kea<traceCellsLogicType>([
                 return status !== 'loading' && (refresh || status !== 'ready')
             })
 
-        // A refresh reads rows that are already on screen, so two reads of one row can overlap. Only the latest read
-        // of a row may fill it, or an older answer that lands last would overwrite a newer one.
-        const latestReads: Map<string, number> = (cache.latestCellReads ??= new Map())
-        const readKey = (read: TraceCellRead, traceId: string): string => `${read}:${traceId}`
-
-        const readCells = async <Item extends { traceId: string }>(
-            read: TraceCellRead,
-            rows: TraceListItemApi[],
-            request: (rows: TraceListItemApi[]) => Promise<{ items: Item[] }>,
-            loaded: (items: Item[]) => void
-        ): Promise<void> => {
-            if (rows.length === 0) {
-                return
-            }
-            const traceIds = rows.map((row) => row.id)
-            const readId = (cache.lastCellReadId = (cache.lastCellReadId ?? 0) + 1)
-            for (const traceId of traceIds) {
-                latestReads.set(readKey(read, traceId), readId)
-            }
-            const isLatest = (traceId: string): boolean => latestReads.get(readKey(read, traceId)) === readId
-            actions.cellsRequested(read, traceIds)
-            const result = await readOrFailure(request(rows))
-            if (cache.disposables.isDisposed) {
-                return
-            }
-            if ('failure' in result) {
-                actions.cellsFailed(read, traceIds)
-            } else {
-                loaded(result.value.items.filter((item) => isLatest(item.traceId)))
-            }
-        }
+        const readCells = createCellReader<TraceListItemApi, TraceCellRead>({
+            cache,
+            idOf: (row) => row.id,
+            requested: actions.cellsRequested,
+            failed: actions.cellsFailed,
+        })
 
         const readShownPage = async (refresh: boolean): Promise<void> => {
             const projectId = String(ApiConfig.getCurrentProjectId())

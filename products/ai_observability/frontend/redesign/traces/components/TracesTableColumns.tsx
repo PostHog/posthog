@@ -6,10 +6,10 @@ import type {
     TracePreviewApi,
     TraceSentimentApi,
 } from '../../../generated/api.schemas'
+import type { TraceCellLoad, TraceCellStatus } from '../../shared/cellLoads'
 import { PartialTotal } from '../../shared/components/PartialTotal'
 import { formatCostUsd, formatLatencyMs, formatTokenCounts } from '../../trace/components/formatStats'
 import { ShortTimestamp } from '../../trace/components/ShortTimestamp'
-import type { TraceCellLoad, TraceCellStatus } from '../types'
 import { TraceCellValue } from './TraceCellValue'
 import { TraceErrorsCell } from './TraceErrorsCell'
 import { TraceNameCell } from './TraceNameCell'

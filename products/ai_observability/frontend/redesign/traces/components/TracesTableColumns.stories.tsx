@@ -3,8 +3,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
 import type { TraceListItemApi, TracePersonApi, TraceSentimentApi } from '../../../generated/api.schemas'
+import type { TraceCellLoad } from '../../shared/cellLoads'
 import { makeTraceListItem, makeTracePreview, makeUnreadTraceCells, ready } from '../testFixtures'
-import type { TraceCellLoad } from '../types'
 import { TracesTableCells, tracesTableColumns } from './TracesTableColumns'
 
 const ITEMS: TraceListItemApi[] = [

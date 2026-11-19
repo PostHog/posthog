@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 
 import type { TracePersonApi } from '../../../generated/api.schemas'
-import type { TraceCellStatus } from '../types'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 import { TracePersonCell } from './TracePersonCell'
 
 const PERSON: TracePersonApi = { distinctId: 'ana@example.com', label: 'Ana Example' }

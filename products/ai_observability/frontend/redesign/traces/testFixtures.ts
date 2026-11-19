@@ -7,9 +7,9 @@ import type {
     TracePreviewApi,
     TraceSentimentItemApi,
 } from '../../generated/api.schemas'
+import type { TraceCellLoad } from '../shared/cellLoads'
 import type { TracesTableCells } from './components/TracesTableColumns'
 import type { TraceCellRead } from './traceCellsLogic'
-import type { TraceCellLoad } from './types'
 
 export const TRACE_CELL_URLS: Record<TraceCellRead, string> = {
     previews: '/api/projects/:team_id/ai_observability/traces/previews/',

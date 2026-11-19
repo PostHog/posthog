@@ -1,7 +1,7 @@
 import { cleanup, render } from '@testing-library/react'
 
 import type { TraceSentimentApi } from '../../../generated/api.schemas'
-import type { TraceCellStatus } from '../types'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 import { TraceSentimentCell } from './TraceSentimentCell'
 
 describe('TraceSentimentCell', () => {

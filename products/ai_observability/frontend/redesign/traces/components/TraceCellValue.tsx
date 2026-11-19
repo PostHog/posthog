@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { IconWarning } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import type { TraceCellStatus } from '../types'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 
 const LOAD_FAILED = "Couldn't load this. Reload the list to try again."
 
