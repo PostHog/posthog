@@ -24,7 +24,6 @@ function previewTrigger(trigger: HogFlow['trigger']): PreviewTrigger | null {
     const filters = asRecord(trigger.filters)
     const [event] = Array.isArray(filters.events) ? filters.events : []
     const [action] = Array.isArray(filters.actions) ? filters.actions : []
-    // A trigger with only property filters matches any event that passes them.
     const entity = asRecord(event ?? action)
     const properties = [
         ...(Array.isArray(filters.properties) ? filters.properties : []),
