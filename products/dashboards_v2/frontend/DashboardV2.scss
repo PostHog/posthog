@@ -58,7 +58,7 @@
     // One grid row tall with one tile gap below (GRID.rowPx and the dashboard's tile spacing), which keeps the
     // section's rows on the rows of the grid around it.
     height: 32px;
-    margin-bottom: var(--dv2-gap, 16px);
+    margin-bottom: var(--dv2-gap, 12px);
     border-bottom: 1px solid var(--color-border-primary);
 }
 
