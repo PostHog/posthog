@@ -1,18 +1,18 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactNode, useState } from 'react'
+import React, { ReactNode, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 import {
     Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
     Field,
+    FieldDescription,
     FieldError,
     FieldLabel,
     InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
     Popover,
     PopoverContent,
     PopoverTrigger,
@@ -21,7 +21,6 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
-    Text,
     cn,
 } from '@posthog/quill'
 
@@ -30,45 +29,81 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { COPY_HEADER_FIELDS, OptionalHeaderField, PREHEADER_FIELD, isHeaderFieldShown } from './emailHeaderFields'
+import { isHeaderFieldShown } from './emailHeaderFields'
 import {
     EmailSender,
+    addressFromLocalPart,
+    addressLocalPart,
     fromRowError,
     fromWithSenders,
+    isSingleTemplateExpression,
     selectedSenderIds,
     selectedSenders,
     senderAddressError,
     senderFrom,
+    sharedSenderDomain,
 } from './emailSenderFields'
-import { EmailSenderForm } from './EmailSenderForm'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
-import { MAX_WORKFLOW_EMAIL_SENDERS } from './types'
+import { EmailTemplate, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 function senderLabel(sender: EmailSender): string {
     const { name, email } = sender.config ?? {}
     return name && email ? `${name} <${email}>` : (email ?? sender.display_name ?? `Sender ${sender.id}`)
 }
 
+/** Liquid parser errors read as "Liquid template error: <what>, line:1, col:29". One-line fields have no lines. */
+export function readableFieldError(error: string | null | undefined): string | null | undefined {
+    const match = error?.match(/^Liquid template error: (.*?)(?:, line:\d+, col:(\d+))?$/)
+    if (!match) {
+        return error
+    }
+    const [, problem, column] = match
+    return `Liquid syntax problem${column ? ` at character ${column}` : ''}: ${problem}`
+}
+
 function HeaderField({
     label,
     error,
+    description,
+    actions,
     className,
     children,
 }: {
     label: string
     error?: string | null
+    description?: ReactNode
+    /** Small links on the label's row, for the optional extras that belong to this field. */
+    actions?: ReactNode
     className?: string
     children: ReactNode
 }): JSX.Element {
     return (
         <Field data-invalid={error ? true : undefined} className={cn('min-w-0', className)}>
-            <FieldLabel>{label}</FieldLabel>
+            <div className="flex min-h-5 items-center justify-between gap-2">
+                <FieldLabel>{label}</FieldLabel>
+                {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
+            </div>
             {children}
-            {error ? <FieldError>{error}</FieldError> : null}
+            {error ? (
+                <FieldError>{readableFieldError(error)}</FieldError>
+            ) : description ? (
+                <FieldDescription>{description}</FieldDescription>
+            ) : null}
         </Field>
     )
 }
+
+const LabelAction = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeof Button>>(function LabelAction(
+    { children, ...props },
+    ref
+) {
+    return (
+        <Button ref={ref} variant="link-muted" size="inline" className="text-xs" {...props}>
+            {children}
+        </Button>
+    )
+})
 
 /** A Liquid-aware text field that looks like the other inputs: same border, height and font. */
 function LiquidInput({
@@ -76,13 +111,11 @@ function LiquidInput({
     onChange,
     placeholder,
     invalid,
-    trailing,
 }: {
     value: string
     onChange: (value?: string) => void
     placeholder?: string
     invalid?: boolean
-    trailing?: ReactNode
 }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
     return (
@@ -96,29 +129,151 @@ function LiquidInput({
                     plain
                 />
             </div>
-            {trailing}
         </InputGroup>
+    )
+}
+
+type OptionalFieldKey = 'replyTo' | 'cc' | 'bcc' | 'preheader'
+
+const OPTIONAL_FIELDS: Record<OptionalFieldKey, { label: string; placeholder: string; description?: string }> = {
+    replyTo: { label: 'Reply-to', placeholder: 'Where replies go, e.g. support@example.com' },
+    cc: { label: 'Cc', placeholder: 'Addresses, separated by commas' },
+    bcc: { label: 'Bcc', placeholder: 'Addresses, separated by commas' },
+    preheader: {
+        label: 'Preview text',
+        placeholder: 'A short summary shown after the subject',
+        description: 'Most inboxes show this next to the subject line.',
+    },
+}
+
+function useOptionalFields(): {
+    supports: (key: OptionalFieldKey) => boolean
+    isShown: (key: OptionalFieldKey) => boolean
+    reveal: (key: OptionalFieldKey) => void
+} {
+    const { logicProps, visibleFields } = useValues(emailTemplaterLogic)
+    const { revealAdvancedField } = useActions(emailTemplaterLogic)
+    const supported = EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type]
+    return {
+        supports: (key) => supported.some((field) => field.key === key),
+        isShown: (key) => isHeaderFieldShown(visibleFields, key),
+        reveal: (key) => {
+            revealAdvancedField(key)
+            posthog.capture('email header field added', { field: key, editor_type: logicProps.type })
+        },
+    }
+}
+
+/** A link on a field's label row that adds an optional field, shown only while that field is hidden. */
+function AddFieldAction({ field }: { field: OptionalFieldKey }): JSX.Element | null {
+    const { supports, isShown, reveal } = useOptionalFields()
+    if (!supports(field) || isShown(field)) {
+        return null
+    }
+    return (
+        // pinned: data-attr values feed autocapture dashboards
+        <LabelAction onClick={() => reveal(field)} data-attr={`email-header-add-${field}`}>
+            <IconPlus />
+            {OPTIONAL_FIELDS[field].label}
+        </LabelAction>
+    )
+}
+
+/** Display name and address on top of the chosen sender. */
+function CustomSenderForm({ senders, onDone }: { senders: EmailSender[]; onDone: () => void }): JSX.Element {
+    const { emailTemplate } = useValues(emailTemplaterLogic)
+    const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
+    const from = senderFrom(emailTemplate)
+    const selected = selectedSenders(from, senders)
+    const domain = sharedSenderDomain(selected)
+    const localPart = addressLocalPart(from.email, domain)
+    const wholeAddressTemplate = !!domain && isSingleTemplateExpression(localPart)
+    const single = selected.length === 1 ? selected[0] : undefined
+    const mixedDomains = selected.length > 1 && !domain
+    const addressError = senderAddressError(from.email, selected)
+    const setFrom = (next: Partial<typeof from>): void => setEmailTemplateValue('from', { ...from, ...next })
+
+    return (
+        <div className="flex flex-col gap-3">
+            <HeaderField
+                label="Display name"
+                description={
+                    single?.config?.name
+                        ? `Leave empty to use ${single.config.name}.`
+                        : "Leave empty to use the sender's name."
+                }
+            >
+                <LiquidInput
+                    value={from.name ?? ''}
+                    onChange={(name) => setFrom({ name: name || undefined })}
+                    placeholder={single?.config?.name || "The sender's name"}
+                />
+            </HeaderField>
+            <HeaderField
+                label="Address"
+                error={addressError}
+                description={
+                    mixedDomains
+                        ? 'Your senders are on different domains, so each one sends from its own address.'
+                        : wholeAddressTemplate
+                          ? `This value is used as the full address. To use it as the part before the @, add @${domain} after it.`
+                          : single?.config?.email
+                            ? `Leave empty to send from ${single.config.email}.`
+                            : "Leave empty to send from each sender's own address."
+                }
+            >
+                <InputGroup size="sm">
+                    <InputGroupInput
+                        value={localPart}
+                        disabled={mixedDomains && !from.email}
+                        aria-invalid={addressError ? true : undefined}
+                        placeholder={single?.config?.email?.split('@')[0] ?? 'Sender address'}
+                        onChange={(event) => setFrom({ email: addressFromLocalPart(event.target.value, domain) })}
+                        data-attr="workflow-email-sender-address"
+                    />
+                    {domain && !localPart.includes('@') && !wholeAddressTemplate ? (
+                        <InputGroupAddon align="inline-end">
+                            <InputGroupText>@{domain}</InputGroupText>
+                        </InputGroupAddon>
+                    ) : null}
+                </InputGroup>
+            </HeaderField>
+            <div className="flex justify-end gap-2">
+                {from.name || from.email ? (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFrom({ name: undefined, email: undefined })}
+                        data-attr="workflow-email-custom-sender-clear"
+                    >
+                        Use sender's own
+                    </Button>
+                ) : null}
+                <Button variant="primary" size="sm" onClick={onDone}>
+                    Done
+                </Button>
+            </div>
+        </div>
     )
 }
 
 function SenderField(): JSX.Element {
     const { emailTemplate, logicProps } = useValues(emailTemplaterLogic)
-    const { setEmailTemplateValue, clearCustomSender } = useActions(emailTemplaterLogic)
+    const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const rotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const [customOpen, setCustomOpen] = useState(false)
 
     const senders = (integrations ?? []).filter((integration) => integration.kind === 'email') as EmailSender[]
     const from = senderFrom(emailTemplate)
-    const replyTo = emailTemplate.replyTo
     const selected = selectedSenders(from, senders)
     const error = fromRowError(logicProps.fieldErrors?.from || senderAddressError(from.email, selected), selected)
     const rotation = logicProps.type === 'native_email' && rotationEnabled
-    const custom = [from.name, from.email && `<${from.email}>`].filter(Boolean).join(' ')
+    const custom = from.name && from.email ? `${from.name} <${from.email}>` : from.name || from.email || ''
 
     if (!integrationsLoading && senders.length === 0) {
         return (
-            <HeaderField label="From">
+            <HeaderField label="From" description="Connect a sending domain to send emails.">
                 <Button
                     variant="outline"
                     render={<LinkPrimitive to={urls.workflows('channels')} target="_blank" />}
@@ -135,135 +290,139 @@ function SenderField(): JSX.Element {
         const next = ids.map(Number).slice(0, MAX_WORKFLOW_EMAIL_SENDERS)
         setEmailTemplateValue('from', fromWithSenders(from, next, senders))
     }
+    const placeholder = rotation ? 'Choose senders' : 'Choose a sender'
 
     return (
-        <HeaderField label="From" error={error}>
-            <div className="flex min-w-0 gap-1">
-                <Select
-                    multiple={rotation}
-                    items={senders.map((sender) => ({ value: String(sender.id), label: senderLabel(sender) }))}
-                    value={rotation ? selectedIds : (selectedIds[0] ?? null)}
-                    onValueChange={(value: string | string[] | null) =>
-                        changeSenders(Array.isArray(value) ? value : value ? [value] : [])
-                    }
+        <HeaderField
+            label="From"
+            error={error}
+            description={custom ? `Sends as ${custom}` : undefined}
+            actions={
+                <>
+                    <AddFieldAction field="replyTo" />
+                    {selected.length || custom ? (
+                        <Popover open={customOpen} onOpenChange={setCustomOpen}>
+                            <PopoverTrigger render={<LabelAction />} data-attr="email-from-custom-sender">
+                                {custom ? 'Edit name and address' : 'Change name or address'}
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-96 p-3">
+                                <CustomSenderForm senders={senders} onDone={() => setCustomOpen(false)} />
+                            </PopoverContent>
+                        </Popover>
+                    ) : null}
+                </>
+            }
+        >
+            <Select
+                multiple={rotation}
+                items={senders.map((sender) => ({ value: String(sender.id), label: senderLabel(sender) }))}
+                value={rotation ? selectedIds : (selectedIds[0] ?? null)}
+                onValueChange={(value: string | string[] | null) =>
+                    changeSenders(Array.isArray(value) ? value : value ? [value] : [])
+                }
+            >
+                <SelectTrigger
+                    className="w-full min-w-0"
+                    aria-invalid={error ? true : undefined}
+                    data-attr="workflow-email-sender-select"
                 >
-                    <SelectTrigger
-                        className="min-w-0 flex-1"
-                        aria-invalid={error ? true : undefined}
-                        data-attr="workflow-email-sender-select"
-                    >
-                        <SelectValue placeholder={rotation ? 'Choose senders' : 'Choose a sender'}>
-                            {(value: string | string[] | null) => {
-                                const ids = Array.isArray(value) ? value : value ? [value] : []
-                                const labels = senders
-                                    .filter((sender) => ids.includes(String(sender.id)))
-                                    .map(senderLabel)
-                                return labels.length ? (
-                                    labels.join(', ')
-                                ) : (
-                                    <span className="text-muted-foreground">
-                                        {rotation ? 'Choose senders' : 'Choose a sender'}
-                                    </span>
-                                )
-                            }}
-                        </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                        {senders.map((sender) => (
-                            <SelectItem key={sender.id} value={String(sender.id)}>
-                                {senderLabel(sender)}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <Popover open={customOpen} onOpenChange={setCustomOpen}>
-                    <PopoverTrigger
-                        render={<Button variant="outline" />}
-                        data-attr="email-from-custom-sender"
-                        aria-label="Custom sender"
-                    >
-                        {custom || replyTo ? 'Edit sender' : 'Custom sender'}
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-96">
-                        <EmailSenderForm
-                            from={from}
-                            replyTo={replyTo}
-                            senders={senders}
-                            variables={logicProps.variables}
-                            dataAttrPrefix="workflow-email"
-                            onChangeFrom={(next) => setEmailTemplateValue('from', next)}
-                            onChangeReplyTo={(next) => setEmailTemplateValue('replyTo', next)}
-                            onClear={clearCustomSender}
-                            onDone={() => setCustomOpen(false)}
-                            singleLine
-                        />
-                    </PopoverContent>
-                </Popover>
-            </div>
-            {custom || replyTo ? (
-                <Text size="xs" variant="muted" className="m-0 truncate">
-                    {[custom && `Sends as ${custom}`, replyTo && `Replies go to ${replyTo}`]
-                        .filter(Boolean)
-                        .join(' · ')}
-                </Text>
-            ) : null}
+                    <SelectValue placeholder={placeholder}>
+                        {(value: string | string[] | null) => {
+                            const ids = Array.isArray(value) ? value : value ? [value] : []
+                            const labels = senders.filter((sender) => ids.includes(String(sender.id))).map(senderLabel)
+                            return labels.length ? (
+                                <span className="truncate">{labels.join(', ')}</span>
+                            ) : (
+                                <span className="text-muted-foreground">{placeholder}</span>
+                            )
+                        }}
+                    </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                    {senders.map((sender) => (
+                        <SelectItem key={sender.id} value={String(sender.id)}>
+                            {senderLabel(sender)}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
         </HeaderField>
     )
 }
 
-function OptionalField({ field }: { field: OptionalHeaderField }): JSX.Element {
+function OptionalField({ field }: { field: OptionalFieldKey }): JSX.Element {
     const { emailTemplate, logicProps } = useValues(emailTemplaterLogic)
     const { setEmailTemplateValue, hideAdvancedField } = useActions(emailTemplaterLogic)
-    const error = field.key === 'preheader' ? logicProps.fieldErrors?.preheader : undefined
+    const { label, placeholder, description } = OPTIONAL_FIELDS[field]
+    const error = field === 'preheader' ? logicProps.fieldErrors?.preheader : undefined
     return (
-        <HeaderField label={field.label} error={error}>
+        <HeaderField
+            label={label}
+            error={error}
+            description={description}
+            actions={
+                <LabelAction
+                    aria-label={`Remove ${label}`}
+                    onClick={() => {
+                        setEmailTemplateValue(field, '')
+                        hideAdvancedField(field)
+                    }}
+                >
+                    <IconX />
+                    Remove
+                </LabelAction>
+            }
+        >
             <LiquidInput
-                value={(emailTemplate as Record<string, any>)[field.key] ?? ''}
-                onChange={(value) => setEmailTemplateValue(field.key, value ?? '')}
+                value={((emailTemplate as EmailTemplate)[field] as string | undefined) ?? ''}
+                onChange={(value) => setEmailTemplateValue(field, value ?? '')}
+                placeholder={placeholder}
                 invalid={!!error}
-                trailing={
-                    <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Remove ${field.label}`}
-                        onClick={() => {
-                            setEmailTemplateValue(field.key, '')
-                            hideAdvancedField(field.key)
-                        }}
-                    >
-                        <IconX />
-                    </Button>
-                }
             />
         </HeaderField>
     )
 }
 
-/** The sender, recipient and subject, in the redesigned look. Optional fields come from one menu. */
+/** The sender, recipients and subject, in the redesigned look. Optional fields are added from links next to the field they belong to. */
 export function QuillEmailHeaderFields(): JSX.Element {
-    const { emailTemplate, logicProps, visibleFields } = useValues(emailTemplaterLogic)
-    const { setEmailTemplateValue, revealAdvancedField } = useActions(emailTemplaterLogic)
-    const supported = EMAIL_TYPE_SUPPORTED_FIELDS[logicProps.type]
-    const optional = [...COPY_HEADER_FIELDS, PREHEADER_FIELD].filter(({ key }) =>
-        supported.some((field) => field.key === key)
-    )
-    const shown = optional.filter(({ key }) => isHeaderFieldShown(visibleFields, key))
-    const hidden = optional.filter(({ key }) => !isHeaderFieldShown(visibleFields, key))
+    const { emailTemplate, logicProps } = useValues(emailTemplaterLogic)
+    const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
+    const { supports, isShown } = useOptionalFields()
     const errors = logicProps.fieldErrors
+    const shown = (key: OptionalFieldKey): boolean => supports(key) && isShown(key)
+    // A workflow email's `to` is { email, name }, and only the address is edited here.
+    const to = emailTemplate.to as unknown as { email?: string; name?: string } | undefined
 
     return (
-        <div data-quill className="flex flex-col gap-3 border-b p-3" data-attr="email-header-fields">
-            <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
-                <SenderField />
-                <HeaderField label="To" error={errors?.to}>
-                    <LiquidInput
-                        value={emailTemplate.to?.email ?? ''}
-                        onChange={(email) => setEmailTemplateValue('to', { ...emailTemplate.to, email: email ?? '' })}
-                        invalid={!!errors?.to}
-                    />
-                </HeaderField>
+        <div data-quill className="flex flex-col gap-4 border-b p-4" data-attr="email-header-fields">
+            <div className="grid grid-cols-1 items-start gap-4 @lg:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-4">
+                    <SenderField />
+                    {shown('replyTo') ? <OptionalField field="replyTo" /> : null}
+                </div>
+                <div className="flex min-w-0 flex-col gap-4">
+                    <HeaderField
+                        label="To"
+                        error={errors?.to}
+                        actions={
+                            <>
+                                <AddFieldAction field="cc" />
+                                <AddFieldAction field="bcc" />
+                            </>
+                        }
+                    >
+                        <LiquidInput
+                            value={to?.email ?? ''}
+                            onChange={(email) => setEmailTemplateValue('to', { ...to, email: email ?? '' })}
+                            placeholder="Who receives this email"
+                            invalid={!!errors?.to}
+                        />
+                    </HeaderField>
+                    {shown('cc') ? <OptionalField field="cc" /> : null}
+                    {shown('bcc') ? <OptionalField field="bcc" /> : null}
+                </div>
             </div>
-            <HeaderField label="Subject" error={errors?.subject}>
+            <HeaderField label="Subject" error={errors?.subject} actions={<AddFieldAction field="preheader" />}>
                 <LiquidInput
                     value={emailTemplate.subject ?? ''}
                     onChange={(subject) => setEmailTemplateValue('subject', subject ?? '')}
@@ -271,40 +430,7 @@ export function QuillEmailHeaderFields(): JSX.Element {
                     invalid={!!errors?.subject}
                 />
             </HeaderField>
-            {shown.map((field) => (
-                <OptionalField key={field.key} field={field} />
-            ))}
-            {hidden.length ? (
-                <div>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger
-                            render={<Button variant="ghost" size="sm" />}
-                            data-attr="email-header-add-field"
-                        >
-                            <IconPlus />
-                            Add field
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                            {hidden.map((field) => (
-                                <DropdownMenuItem
-                                    key={field.key}
-                                    onClick={() => {
-                                        revealAdvancedField(field.key)
-                                        posthog.capture('email header field added', {
-                                            field: field.key,
-                                            editor_type: logicProps.type,
-                                        })
-                                    }}
-                                    // pinned: data-attr values feed autocapture dashboards
-                                    data-attr={`email-header-add-${field.key}`}
-                                >
-                                    {field.label}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-            ) : null}
+            {shown('preheader') ? <OptionalField field="preheader" /> : null}
         </div>
     )
 }
