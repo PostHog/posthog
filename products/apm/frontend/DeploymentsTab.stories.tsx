@@ -9,7 +9,7 @@ import type { DeploymentsResponseApi, ServicesHealthResponseApi } from './genera
 
 const WINDOW = { date_from: '2026-06-02T08:00:00Z', date_to: '2026-06-02T09:00:00Z' }
 
-const health = { request_rate: 12, error_rate: 0.01, p95_ms: 120, span_count: 43200, error_count: 432 }
+const health = { request_rate: 12, error_rate: 0.01, p95_ms: 120, span_count: 43200, error_count: 432, apdex: 0.97 }
 
 const servicesHealth: ServicesHealthResponseApi = {
     results: [

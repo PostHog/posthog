@@ -37,6 +37,13 @@ class HealthRowSerializer(serializers.Serializer):
     p95_ms = serializers.FloatField(allow_null=True, help_text="95th percentile request duration in milliseconds.")
     span_count = serializers.IntegerField(help_text="Requests counted in the window.")
     error_count = serializers.IntegerField(help_text="Requests with an error status in the window.")
+    apdex = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones "
+            "(up to 2 s), over all requests. Errors count as frustrated."
+        ),
+    )
 
 
 class ServiceHealthSerializer(serializers.Serializer):
