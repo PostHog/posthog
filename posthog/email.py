@@ -30,6 +30,7 @@ from lxml import html as lxml_html
 from prometheus_client import Counter
 
 from posthog.celery_queues import CeleryQueue
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
@@ -479,12 +480,16 @@ def _send_code_via_workflows(
 
     Returns the Workflows response, or None when SMTP should send the email.
     """
-    if not is_http_email_service_available():
+    if not is_cloud() and not is_http_email_service_available():
         return None
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
     # After an attempt Workflows may have queued, a retry skips the flag and never falls back. Otherwise a flag
     # change or a different error on the retry would send the same email again over SMTP.
     pinned = _is_pinned_to_workflows(idempotency_key)
+    if not is_http_email_service_available():
+        if pinned:
+            raise WorkflowsEmailError("Workflows is no longer configured for a pinned email", code="not_configured")
+        return None
     if not pinned:
         if not _routes_through_workflows(dest, template_name):
             return None
@@ -645,6 +650,8 @@ def _send_via_smtp(
         capture = ScopedCapture(None)
     connection = None
     workflows_error: WorkflowsEmailError | None = None
+    # Set while Workflows accepted an email whose `sent_at` has not committed yet.
+    workflows_unrecorded = False
     try:
         effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
         workflows_content: dict[str, Any] = {"template_key": template_name, "subject": subject, "html": html_body}
@@ -654,6 +661,7 @@ def _send_via_smtp(
             workflows_content["reply_to"] = [effective_reply_to]
 
         for dest in to:
+            workflows_unrecorded = False
             # Per-recipient transaction so each delivery's `sent_at` commits before the next send.
             # A transient mid-batch failure re-raises into autoretry; the `if record.sent_at` guard
             # then skips the recipients already accepted on retry, instead of re-sending (and
@@ -690,12 +698,9 @@ def _send_via_smtp(
                     )
                     continue
                 if workflows_response is not None:
-                    try:
-                        record.sent_at = timezone.now()
-                        record.save()
-                    except (OperationalError, InterfaceError) as err:
-                        # The pin keeps the retry on Workflows, which replays the email it already queued.
-                        raise WorkflowsEmailError(type(err).__name__, code="mark_sent_failed") from err
+                    workflows_unrecorded = True
+                    record.sent_at = timezone.now()
+                    record.save()
                     _capture_email_event(
                         capture,
                         dest,
@@ -790,6 +795,9 @@ def _send_via_smtp(
             raise
         capture_exception(err)
     except Exception as err:
+        if workflows_unrecorded and isinstance(err, (OperationalError, InterfaceError)):
+            # Covers a failed commit too. The pin keeps the retry on Workflows, which replays the queued email.
+            raise WorkflowsEmailError(type(err).__name__, code="mark_sent_failed") from None
         capture_exception(err)  # already logs the traceback via logger.exception
         EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
     finally:

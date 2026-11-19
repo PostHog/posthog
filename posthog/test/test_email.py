@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
-from django.core.cache import cache, caches
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db import OperationalError
 from django.test import override_settings
@@ -100,7 +100,6 @@ class TestEmail(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
-        caches["email_workflows_pins"].clear()
         self.organization = Organization.objects.create()
         self.team = Team.objects.create(organization=self.organization, name="The Bakery")
         self.user = User.objects.create(email="test@posthog.com")
@@ -677,6 +676,55 @@ class TestEmail(BaseTest):
                 message.send(send_async=False, retry=False)
 
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
+
+    @patch("posthog.email.requests.post")
+    def test_a_pinned_retry_never_goes_over_smtp_after_the_workflows_key_is_removed(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(status_code=503, text="unavailable", json=MagicMock(return_value={}))
+        with (
+            patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(CLOUD_DEPLOYMENT="US", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(campaign_key="key_removed", subject="Subject", template_name="async_migration_error")
+            message.add_recipient("pinned@posthog.com")
+            with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test"):
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+            with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+
+        self.assertEqual(len(mail.outbox), 0)
+
+    @patch("posthog.email.requests.post")
+    def test_a_failed_commit_after_workflows_accepts_retries_through_workflows(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+        original_save = MessagingRecord.save
+
+        def save_failing_once_sent(record: MessagingRecord, *args: Any, **kwargs: Any) -> None:
+            if record.sent_at is not None:
+                raise OperationalError("connection lost during commit")
+            original_save(record, *args, **kwargs)
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(campaign_key="lost_commit", subject="Subject", template_name="async_migration_error")
+            message.add_recipient("commit@posthog.com")
+            with (
+                patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
+                patch.object(MessagingRecord, "save", autospec=True, side_effect=save_failing_once_sent),
+            ):
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+            # The flag is off by the retry, so only the pin keeps the email on Workflows.
+            with patch("posthog.email.posthoganalytics.feature_enabled", return_value=False):
+                message.send(send_async=False, retry=False)
+
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="lost_commit").sent_at)
 
     @patch("posthog.email.requests.post", side_effect=requests.exceptions.InvalidHeader("Bearer phs_secret_value"))
     def test_a_network_error_from_workflows_never_carries_the_api_key(self, _post: MagicMock) -> None:
