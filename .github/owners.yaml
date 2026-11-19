@@ -7,6 +7,8 @@ rules:
       owners: team-devex
     - match: ['/scripts/check_call_assertions.py', '/scripts/test_check_call_assertions.py']
       owners: team-devex
+    - match: ['/scripts/junit_node_ids.py', '/scripts/test_junit_node_ids.py']
+      owners: team-devex
     - match: ['/scripts/check-new-events-schema-targets.py', '/scripts/test_check_new_events_schema_targets.py']
       owners: team-devex
     - match: ['/scripts/hoglint_shadow.py', '/scripts/test_hoglint_shadow.py', '/scripts/fixtures/hoglint-shadow/']
