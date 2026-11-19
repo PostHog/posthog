@@ -762,6 +762,7 @@ describe('exec tool', () => {
             'call mock-tool --json {"name":"foo","tags":["a","b"]}',
             'call mock-tool {"name":"foo","tags":["a","b"]} --json',
             'call mock-tool --confirm {"name":"foo","tags":["a","b"]} --json',
+            'call mock-tool "{\\"name\\":\\"foo\\",\\"tags\\":[\\"a\\",\\"b\\"]}" --json',
         ])('passes inline JSON arguments to the inner tool for %s', async (command) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
@@ -778,7 +779,10 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('preserves quote-heavy and multi-line content in inline JSON', async () => {
+        it.each([
+            { case: 'inline JSON', encode: (payload: string) => payload },
+            { case: 'inline JSON wrapped in a JSON string', encode: (payload: string) => JSON.stringify(payload) },
+        ])('preserves quote-heavy and multi-line content in $case', async ({ encode }) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), content: z.string() }),
                 handler: async (_ctx, params) => params,
@@ -787,18 +791,24 @@ describe('exec tool', () => {
             const content = '# Title\n\nLine with "double quotes", \'single quotes\', and `backticks` — also unicode ☃.'
             const payload = JSON.stringify({ name: 'skill', content })
             const result = await exec.handler(mockContext, {
-                command: `call --json mock-tool ${payload}`,
+                command: `call --json mock-tool ${encode(payload)}`,
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
 
-        it('throws a descriptive error when the inline JSON body is malformed', async () => {
+        it.each([
+            { case: 'is malformed', body: '{not-json}', expected: /Invalid JSON input:/ },
+            { case: 'is a JSON string', body: '"funnels"', expected: /expected a JSON object, got a string/ },
+            {
+                case: 'wraps invalid JSON in a string',
+                body: '"{not-json}"',
+                expected: /expected a JSON object, got a string/,
+            },
+            { case: 'is a bare number', body: '42', expected: /expected a JSON object, got a number/ },
+            { case: 'is null', body: 'null', expected: /expected a JSON object, got null/ },
+        ])('throws a descriptive error when the inline JSON body $case', async ({ body, expected }) => {
             const exec = createExec()
-            await expect(
-                exec.handler(mockContext, {
-                    command: 'call mock-tool {not-json}',
-                })
-            ).rejects.toThrow(/Invalid JSON input:/)
+            await expect(exec.handler(mockContext, { command: `call mock-tool ${body}` })).rejects.toThrow(expected)
         })
 
         it.each([

@@ -16946,6 +16946,38 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `human` - Approved by a person
+     * * `automated_only` - Approved by bots only
+     * * `none` - No approval before merge
+     */
+    export type PullRequestApprovalEnum = typeof PullRequestApprovalEnum[keyof typeof PullRequestApprovalEnum];
+
+
+    export const PullRequestApprovalEnum = {
+      Human: 'human',
+      AutomatedOnly: 'automated_only',
+      None: 'none',
+    } as const;
+
+    export interface ApprovalRevertOutcome {
+      /** Who approved the pull request before it merged: 'human' when at least one person approved, 'automated_only' when every approval came from a bot account, 'none' when no approval was recorded. An approval bot may approve only the pull requests its risk policy allows, so the 'automated_only' share reflects that selection as well as the effect of the approval.
+       *
+       * * `human` - Approved by a person
+       * * `automated_only` - Approved by bots only
+       * * `none` - No approval before merge */
+      approval: PullRequestApprovalEnum;
+      /** Pull requests merged in the window, excluding pull requests that are themselves reverts. */
+      merged_pr_count: number;
+      /** How many of those pull requests a later merged revert names in its description. A recent merge can still be reverted, so this count can grow. */
+      reverted_pr_count: number;
+      /**
+         * reverted_pr_count divided by merged_pr_count. Null when nothing merged.
+         * @nullable
+         */
+      reverted_share: number | null;
+    }
+
     export interface ApproveSnapshotInput {
       /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
       identifier: string;
@@ -17685,6 +17717,38 @@ export namespace Schemas {
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
+    }
+
+    /**
+     * * `bot` - Bot account
+     * * `agent_context` - Agent context filled in
+     * * `no_agent_context` - No agent context
+     */
+    export type PullRequestAuthorshipEnum = typeof PullRequestAuthorshipEnum[keyof typeof PullRequestAuthorshipEnum];
+
+
+    export const PullRequestAuthorshipEnum = {
+      Bot: 'bot',
+      AgentContext: 'agent_context',
+      NoAgentContext: 'no_agent_context',
+    } as const;
+
+    export interface AuthorshipRevertOutcome {
+      /** How the pull request was authored: 'bot' for a bot account, 'agent_context' when a person opened it and the description's Agent context section names a tool and model, 'no_agent_context' otherwise. A pull request without the section can still be agent-assisted.
+       *
+       * * `bot` - Bot account
+       * * `agent_context` - Agent context filled in
+       * * `no_agent_context` - No agent context */
+      authorship: PullRequestAuthorshipEnum;
+      /** Pull requests merged in the window, excluding pull requests that are themselves reverts. */
+      merged_pr_count: number;
+      /** How many of those pull requests a later merged revert names in its description. A recent merge can still be reverted, so this count can grow. */
+      reverted_pr_count: number;
+      /**
+         * reverted_pr_count divided by merged_pr_count. Null when nothing merged.
+         * @nullable
+         */
+      reverted_share: number | null;
     }
 
     /**
@@ -111901,6 +111965,62 @@ export namespace Schemas {
       detail: string;
     }
 
+    export interface RevertedPullRequest {
+      /** Number of the pull request that was reverted. */
+      number: number;
+      /** Title of the reverted pull request. */
+      title: string;
+      /** When the reverted pull request merged. */
+      merged_at: string;
+      /** How the pull request was authored: 'bot' for a bot account, 'agent_context' when a person opened it and the description's Agent context section names a tool and model, 'no_agent_context' otherwise. A pull request without the section can still be agent-assisted.
+       *
+       * * `bot` - Bot account
+       * * `agent_context` - Agent context filled in
+       * * `no_agent_context` - No agent context */
+      authorship: PullRequestAuthorshipEnum;
+      /** Who approved the pull request before it merged: 'human' when at least one person approved, 'automated_only' when every approval came from a bot account, 'none' when no approval was recorded. An approval bot may approve only the pull requests its risk policy allows, so the 'automated_only' share reflects that selection as well as the effect of the approval. Null when the reviews table is not synced.
+       *
+       * * `human` - Approved by a person
+       * * `automated_only` - Approved by bots only
+       * * `none` - No approval before merge */
+      approval: PullRequestApprovalEnum | null;
+      /** Number of the earliest merged pull request that reverted it. */
+      reverting_pr_number: number;
+      /** When that reverting pull request merged. */
+      reverted_at: string;
+      /** Seconds from the merge to the merge of its revert. */
+      merge_to_revert_seconds: number;
+    }
+
+    export interface RevertOutcomes {
+      /** One entry per authorship value, including values with no merges. Empty when body_data_available is false. */
+      by_authorship: AuthorshipRevertOutcome[];
+      /** One entry per approval value, including values with no merges. Empty when body_data_available or review_data_available is false. */
+      by_approval: ApprovalRevertOutcome[];
+      /** The reverted pull requests, most recently reverted first, capped at limit. */
+      reverted_pull_requests: RevertedPullRequest[];
+      /** Pull requests merged in the window, excluding pull requests that are themselves reverts. */
+      merged_pr_count: number;
+      /**
+         * How many of those pull requests a later merged revert names in its description. A recent merge can still be reverted, so this count can grow. Null when body_data_available is false.
+         * @nullable
+         */
+      reverted_pr_count: number | null;
+      /**
+         * reverted_pr_count divided by merged_pr_count. Null when nothing merged. Null when body_data_available is false.
+         * @nullable
+         */
+      reverted_share: number | null;
+      /** False when the synced pull requests table has no description column. A revert is linked to the change it undid through the revert's description, so no revert can be linked. */
+      body_data_available: boolean;
+      /** False when the reviews table is not synced for the selected repository. */
+      review_data_available: boolean;
+      /** True when more pull requests were reverted than reverted_pull_requests holds. */
+      truncated: boolean;
+      /** Maximum number of entries in reverted_pull_requests. */
+      limit: number;
+    }
+
     export interface ReviewBlindSpotsConfig {
       /** Name of the `review-hog-blind-spots-*` skill this row represents (the sweep's identity). */
       skill_name: string;
@@ -125672,7 +125792,7 @@ export namespace Schemas {
 
     export interface TraceJsonSide {
       kind: 'json';
-      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+      /** The side's value for a side that is not a conversation, with JSON text in it parsed when no number loses precision in a browser. The value as captured when the side could not be normalized. */
       value: unknown;
     }
 
@@ -125702,9 +125822,9 @@ export namespace Schemas {
       kind: 'toolCall';
       /** The name of the called tool, or an empty string when the event has none. */
       name: string;
-      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+      /** The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed too. Otherwise the text as captured. */
       args: unknown;
-      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message answers the call. */
       result: unknown;
     }
 
@@ -140539,6 +140659,25 @@ export namespace Schemas {
      * Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the result matches the PR that was active when the trace was captured. A preference only, not a filter; omit to rank purely by open state then recency.
      */
     timestamp?: string;
+    };
+
+    export type EngineeringAnalyticsRevertOutcomesParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsRunFailureLogsParams = {
