@@ -12,8 +12,9 @@ from pydantic import ValidationError
 from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import CheckObservation
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
@@ -30,7 +31,7 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import check_definition_version
-from products.signals.backend.typed_report_links import incoming_links_by_report
+from products.signals.backend.report_monitoring_outcomes import AGGREGATION_REASONS, ALL_CHECKS_CANCELLED_REASON
 
 # How long a report that left Monitoring stays on the inbox Monitoring page.
 MONITORING_RECENT_WINDOW = timedelta(days=14)
@@ -60,6 +61,7 @@ class MonitoringOutcomeKind(TextChoices):
     RESOLVED = "resolved", "Resolved"
     RESOLVED_BY_ASSESSMENT = "resolved_by_assessment", "Resolved by assessment"
     RESOLVED_MANUALLY = "resolved_manually", "Resolved manually"
+    RESOLVED_UNVERIFIED = "resolved_unverified", "Resolved without verification"
     CLOSED = "closed", "Closed"
 
 
@@ -374,10 +376,10 @@ def summarize_monitoring(
 def monitoring_outcomes(reports: Sequence[SignalReport], *, team_id: int) -> dict[str, ReportMonitoringOutcome]:
     """How Monitoring ended for each report on a list page that left it, in at most three queries.
 
-    The kind comes from the period's attempt: a passed aggregation resolved the report automatically,
-    through a report-level assessment when one was requested. A resolved report whose attempt did not
-    pass was resolved by a person. A closed report links the follow-up report its research produced,
-    once grouping has created one.
+    The kind comes from the period's attempt, read from the reason aggregation or the assessment
+    recorded. A resolved report whose attempt did not pass was resolved by a person. The follow-up is
+    the report grouping placed this attempt's research signal in, so an earlier period's follow-up
+    never attaches to a later one.
     """
     ended = {
         report.id: report
@@ -393,13 +395,15 @@ def monitoring_outcomes(reports: Sequence[SignalReport], *, team_id: int) -> dic
         for attempt in SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id__in=ended.keys())
         if attempt.monitoring_started_at == ended[attempt.report_id].monitoring_started_at
     }
-    # Links come back oldest first, so the last one is the newest follow-up.
-    follow_up_ids = {
-        target_id: edges[-1].source_id
-        for target_id, edges in incoming_links_by_report(
-            team_id=team_id, report_ids=[str(report_id) for report_id in ended], kinds=(ReportLinkKind.FOLLOW_UP_OF,)
-        ).items()
-    }
+    follow_up_ids: dict[str, str] = dict(
+        SignalEmissionRecord.objects.filter(
+            team_id=team_id,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            source_id__in=[str(attempt.id) for attempt in attempts.values()],
+            report_id__isnull=False,
+        ).values_list("source_id", "report_id")
+    )
     follow_ups = {
         str(report.id): MonitoringFollowUp(report_id=report.id, title=report.title, status=report.status)
         for report in SignalReport.objects.filter(team_id=team_id, id__in=follow_up_ids.values())
@@ -411,23 +415,31 @@ def monitoring_outcomes(reports: Sequence[SignalReport], *, team_id: int) -> dic
         if report.monitoring_ended_at is None:
             continue
         attempt = attempts.get(report_id)
-        if report.status == SignalReport.Status.CLOSED:
-            kind = MonitoringOutcomeKind.CLOSED
-        elif attempt is not None and attempt.aggregation_state == MonitoringAggregation.PASSED:
-            kind = (
-                MonitoringOutcomeKind.RESOLVED_BY_ASSESSMENT
-                if attempt.assessment_requested_at is not None
-                else MonitoringOutcomeKind.RESOLVED
-            )
-        else:
-            kind = MonitoringOutcomeKind.RESOLVED_MANUALLY
-        follow_up_id = follow_up_ids.get(str(report_id))
+        follow_up_id = follow_up_ids.get(str(attempt.id)) if attempt is not None else None
         outcomes[str(report_id)] = ReportMonitoringOutcome(
-            kind=kind,
+            kind=_outcome_kind(report, attempt),
             ended_at=report.monitoring_ended_at,
-            follow_up=follow_ups.get(follow_up_id) if follow_up_id else None,
+            # Grouping can put the research signal back into the closed report itself.
+            follow_up=follow_ups.get(follow_up_id) if follow_up_id and follow_up_id != str(report_id) else None,
         )
     return outcomes
+
+
+def _outcome_kind(report: SignalReport, attempt: SignalReportMonitoringAttempt | None) -> MonitoringOutcomeKind:
+    if report.status == SignalReport.Status.CLOSED:
+        return MonitoringOutcomeKind.CLOSED
+    if attempt is None or attempt.aggregation_state != MonitoringAggregation.PASSED:
+        return MonitoringOutcomeKind.RESOLVED_MANUALLY
+    if attempt.aggregation_reason == ALL_CHECKS_CANCELLED_REASON:
+        return MonitoringOutcomeKind.RESOLVED_UNVERIFIED
+    # A finished assessment replaces the aggregation reason with its own reasoning. Without that, the
+    # requested assessment never decided: the remaining checks passed once the inconclusive ones were cancelled.
+    if (
+        attempt.assessment_requested_at is not None
+        and attempt.aggregation_reason != AGGREGATION_REASONS[MonitoringAggregation.PASSED]
+    ):
+        return MonitoringOutcomeKind.RESOLVED_BY_ASSESSMENT
+    return MonitoringOutcomeKind.RESOLVED
 
 
 def _lead_check(member: _OpenCheck, report: SignalReport) -> MonitoringLeadCheck:

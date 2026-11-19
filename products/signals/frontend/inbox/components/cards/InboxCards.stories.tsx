@@ -323,6 +323,15 @@ const monitoringReports: SignalReport[] = [
         ],
         monitoring_summary: {
             state: 'not_on_track',
+            checks: [
+                {
+                    check_id: 'duplicate-invoices-check',
+                    title: 'Duplicate invoice emails stay at or below 30 in a week',
+                    kind: 'metric_threshold',
+                    state: 'not_on_track',
+                    ends_at: '2026-06-15T09:00:00Z',
+                },
+            ],
             started_at: '2026-06-08T09:00:00Z',
             ends_at: '2026-06-15T09:00:00Z',
             lead_check: {
@@ -393,6 +402,15 @@ const monitoringReports: SignalReport[] = [
         ],
         monitoring_summary: {
             state: 'on_track',
+            checks: [
+                {
+                    check_id: 'checkout-failure-check',
+                    title: 'Checkout failure rate stays at or below 2%',
+                    kind: 'metric_threshold',
+                    state: 'on_track',
+                    ends_at: '2026-06-11T10:00:00Z',
+                },
+            ],
             started_at: '2026-06-10T10:00:00Z',
             ends_at: '2026-06-11T10:00:00Z',
             lead_check: {
@@ -429,6 +447,15 @@ const monitoringReports: SignalReport[] = [
         monitoring_started_at: '2026-06-10T20:00:00Z',
         monitoring_summary: {
             state: 'awaiting_reading',
+            checks: [
+                {
+                    check_id: 'search-retype-check',
+                    title: 'At most 40 people retype a cleared search in three days',
+                    kind: 'metric_threshold',
+                    state: 'awaiting_reading',
+                    ends_at: '2026-06-13T20:00:00Z',
+                },
+            ],
             started_at: '2026-06-10T20:00:00Z',
             ends_at: '2026-06-13T20:00:00Z',
             lead_check: {
@@ -462,6 +489,15 @@ const monitoringReports: SignalReport[] = [
         monitoring_started_at: '2026-06-09T15:00:00Z',
         monitoring_summary: {
             state: 'final_check_only',
+            checks: [
+                {
+                    check_id: 'exports-agent-check',
+                    title: 'An agent confirms no export is delivered twice',
+                    kind: 'agent',
+                    state: 'final_check_only',
+                    ends_at: '2026-06-16T15:00:00Z',
+                },
+            ],
             started_at: '2026-06-09T15:00:00Z',
             ends_at: '2026-06-16T15:00:00Z',
             lead_check: null,
@@ -478,6 +514,15 @@ const monitoringReports: SignalReport[] = [
         monitoring_started_at: '2026-06-03T12:00:00Z',
         monitoring_summary: {
             state: 'window_ended',
+            checks: [
+                {
+                    check_id: 'alerts-agent-check',
+                    title: 'An agent confirms each breach sends one notification',
+                    kind: 'agent',
+                    state: 'final_check_only',
+                    ends_at: '2026-06-10T12:00:00Z',
+                },
+            ],
             started_at: '2026-06-03T12:00:00Z',
             ends_at: '2026-06-10T12:00:00Z',
             lead_check: null,

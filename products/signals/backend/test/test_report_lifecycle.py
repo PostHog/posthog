@@ -54,12 +54,19 @@ class TestReportMonitoringLifecycle(SimpleTestCase):
             report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=retry_at)
             assert report.monitoring_started_at == retry_at
 
-    @parameterized.expand([(SignalReport.Status.RESOLVED,), (SignalReport.Status.CLOSED,)])
-    def test_leaving_monitoring_records_when_it_ended_until_reopened(self, outcome: str) -> None:
+    @parameterized.expand(
+        [
+            (SignalReport.Status.RESOLVED, False),
+            (SignalReport.Status.CLOSED, False),
+            (SignalReport.Status.RESOLVED, True),
+        ]
+    )
+    def test_leaving_monitoring_records_when_it_ended_until_reopened(self, outcome: str, archived: bool) -> None:
         report = SignalReport(team_id=7, status=SignalReport.Status.READY)
         report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now() - timedelta(days=3))
         report.transition_to(SignalReport.Status.SUPPRESSED)
-        report.transition_to(report.restore_target_status())
+        if not archived:
+            report.transition_to(report.restore_target_status())
         self.assertIsNone(report.monitoring_ended_at)
 
         ended_at = timezone.now() + timedelta(hours=1)

@@ -3121,6 +3121,7 @@ export interface ReportMonitoringSummaryApi {
  * * `resolved` - Resolved
  * * `resolved_by_assessment` - Resolved by assessment
  * * `resolved_manually` - Resolved manually
+ * * `resolved_unverified` - Resolved without verification
  * * `closed` - Closed
  */
 export type MonitoringOutcomeKindEnumApi =
@@ -3130,6 +3131,7 @@ export const MonitoringOutcomeKindEnumApi = {
     Resolved: 'resolved',
     ResolvedByAssessment: 'resolved_by_assessment',
     ResolvedManually: 'resolved_manually',
+    ResolvedUnverified: 'resolved_unverified',
     Closed: 'closed',
 } as const
 
@@ -3158,16 +3160,17 @@ export interface MonitoringFollowUpApi {
 }
 
 export interface ReportMonitoringOutcomeApi {
-    /** How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: the checks were inconclusive and a report-level assessment established the fix worked. `resolved_manually`: a person resolved it; `dismissal_reason` says why. `closed`: the fix was not shown to work, and follow-up research was requested.
+    /** How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: the checks were inconclusive and a report-level assessment established the fix worked. `resolved_manually`: a person resolved it; `dismissal_reason` says why. `resolved_unverified`: every check was cancelled, so nothing verified the fix. `closed`: the fix was not shown to work, and follow-up research was requested.
      *
      * * `resolved` - Resolved
      * * `resolved_by_assessment` - Resolved by assessment
      * * `resolved_manually` - Resolved manually
+     * * `resolved_unverified` - Resolved without verification
      * * `closed` - Closed */
     kind: MonitoringOutcomeKindEnumApi
     /** When Monitoring ended. */
     ended_at: string
-    /** The newest report linked as a follow-up of this one. Null until grouping creates one. */
+    /** The report researching why this Monitoring period did not establish the fix. Null until grouping places its research signal. */
     follow_up: MonitoringFollowUpApi | null
 }
 

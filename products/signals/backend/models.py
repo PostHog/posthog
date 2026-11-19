@@ -598,6 +598,11 @@ class SignalReport(UUIDModel):
                 condition=models.Q(status="in_progress"),
                 name="signals_report_in_progress",
             ),
+            models.Index(
+                fields=["team", "monitoring_ended_at"],
+                condition=models.Q(monitoring_ended_at__isnull=False, status__in=["resolved", "closed"]),
+                name="signals_report_monitoring_end",
+            ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
                 fields=["created_by", "created_at"],
@@ -803,6 +808,9 @@ class SignalReport(UUIDModel):
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
             case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
+                if self.status_before_suppression == S.MONITORING and new_status in (S.RESOLVED, S.CLOSED):
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 

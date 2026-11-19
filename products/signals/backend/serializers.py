@@ -1928,14 +1928,14 @@ class ReportMonitoringOutcomeSerializer(serializers.Serializer):
         help_text=(
             "How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: the checks were "
             "inconclusive and a report-level assessment established the fix worked. `resolved_manually`: a person "
-            "resolved it; `dismissal_reason` says why. `closed`: the fix was not shown to work, and follow-up "
-            "research was requested."
+            "resolved it; `dismissal_reason` says why. `resolved_unverified`: every check was cancelled, so nothing "
+            "verified the fix. `closed`: the fix was not shown to work, and follow-up research was requested."
         ),
     )
     ended_at = serializers.DateTimeField(help_text="When Monitoring ended.")
     follow_up = MonitoringFollowUpSerializer(
         allow_null=True,
-        help_text="The newest report linked as a follow-up of this one. Null until grouping creates one.",
+        help_text="The report researching why this Monitoring period did not establish the fix. Null until grouping places its research signal.",
     )
 
 
