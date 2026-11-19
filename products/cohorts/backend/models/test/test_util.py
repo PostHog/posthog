@@ -692,8 +692,11 @@ class TestCohortUtils(BaseTest):
         Cohort.objects.filter(pk=cohort.pk).update(population_marker=t_marker)
 
         with patch("products.cohorts.backend.models.util.CH_PAGE_SIZE", 3):
-            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=3, replace_marker=t_marker)
+            result = _copy_static_cohort_rows_to_pg(
+                cohort, team_id=self.team.id, written_since=None, replace_marker=t_marker
+            )
 
+        self.assertEqual(result, (3, True))
         self.assertEqual(
             set(list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)),
             {persons[3].id, persons[4].id, persons[5].id},
@@ -1964,6 +1967,34 @@ class TestAddDuringReplace(BaseTest):
 
         self.assertEqual((counted, any_resolved), (1, True))
         self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [member.id])
+
+    def test_delete_failed_replace_attempt_rows_keeps_other_cohorts_rows_at_same_marker(self) -> None:
+        cohort = _create_cohort(team=self.team, name="failed replace cohort", groups=[], is_static=True)
+        other_cohort = _create_cohort(team=self.team, name="other cohort same marker", groups=[], is_static=True)
+        p1 = create_person(team=self.team, distinct_ids=["p1-same-marker"], uuid=uuid4())
+        p2 = create_person(team=self.team, distinct_ids=["p2-same-marker"], uuid=uuid4())
+        flush_persons_and_events()
+        marker = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                (uuid4(), p1.uuid, cohort.pk, self.team.pk, marker, REPLACE_ROW_OFFSET),
+                (uuid4(), p2.uuid, other_cohort.pk, self.team.pk, marker, REPLACE_ROW_OFFSET),
+            ],
+        )
+
+        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, marker=marker)
+
+        cohort_rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        other_rows = sync_execute(
+            f"SELECT person_id, _offset FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": other_cohort.pk},
+        )
+        self.assertEqual(cohort_rows, [])
+        self.assertEqual([(str(pid), offset) for pid, offset in other_rows], [(str(p2.uuid), REPLACE_ROW_OFFSET)])
 
 
 class TestGetNestedCohortIds(BaseTest):

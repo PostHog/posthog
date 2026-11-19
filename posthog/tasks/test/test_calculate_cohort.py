@@ -1512,6 +1512,27 @@ class TestCohortCalculationTasks(APIBaseTest):
                 lambda: PopulationMarkerClockSkew("rows stamped 30s ahead of this host's clock"),
             ),
             (
+                "query_too_few_live_replicas",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: InternalCHQueryError("too few live replicas", code=285),
+            ),
+            (
+                "query_quorum_locked",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: InternalCHQueryError("quorum for previous write", code=286),
+            ),
+            (
+                "query_replica_not_in_quorum",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: InternalCHQueryError("replica is not in quorum", code=289),
+            ),
+            (
                 "query_insert_status_unknown",
                 insert_cohort_from_query,
                 QUERY_CH_INSERT_PATH,
@@ -3335,6 +3356,43 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(mock_insert_cohort_from_query.delay.called, expect_reset)
         # A redispatch serves the same request, so it keeps the mode and the request time.
         self.assertEqual((cohort.pending_population_mode, cohort.population_claimed_at), (mode, claimed_at))
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    def test_reset_stuck_static_cohorts_checks_newest_history_row(
+        self, mock_insert_cohort_from_query: MagicMock
+    ) -> None:
+        now = timezone.now()
+        claimed_at = now - relativedelta(hours=6)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static with old and new open history",
+            is_calculating=True,
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+            last_calculation=now - relativedelta(days=2),
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=claimed_at,
+        )
+        CohortCalculationHistory.objects.create(
+            team=self.team,
+            cohort=cohort,
+            filters={},
+            started_at=now - relativedelta(hours=5),
+            finished_at=None,
+        )
+        CohortCalculationHistory.objects.create(
+            team=self.team,
+            cohort=cohort,
+            filters={},
+            started_at=now - relativedelta(minutes=10),
+            finished_at=None,
+        )
+
+        reset_stuck_cohorts()
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        mock_insert_cohort_from_query.delay.assert_not_called()
 
     @parameterized.expand([("released", False, True), ("claimed_again", True, False)])
     def test_ending_a_pending_population_leaves_a_cohort_claimed_again(

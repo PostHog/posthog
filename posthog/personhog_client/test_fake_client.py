@@ -268,6 +268,12 @@ class TestFakePersonHogClientCohorts:
         assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
         assert "Maximum 10000 person IDs per request" in (excinfo.value.details() or "")
 
+    def test_get_persons_rejects_more_ids_than_the_service_accepts(self):
+        with pytest.raises(grpc.RpcError) as excinfo:
+            self.client.get_persons(person_pb2.GetPersonsRequest(team_id=1, person_ids=list(range(1, 252))))
+        assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        assert "Maximum 250 person IDs per request" in (excinfo.value.details() or "")
+
 
 class TestCallTracking:
     def test_assert_called(self):
