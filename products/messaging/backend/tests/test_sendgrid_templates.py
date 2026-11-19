@@ -113,6 +113,12 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("in_an_attribute", '<a href="{{#if allow}}https://example.com">{{token}}</a>{{/if}}', "attribute"),
             ("in_a_tag", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}', "attribute"),
             ("in_a_link", '<a href="https://example.com">{{#if allow}}{{token}}{{/if}}</a>', "link"),
+            (
+                "entity_spelled_block",
+                '<a href="{{&#35;if allow}}https://example.com">{{token}}</a>{{&#47;if}}',
+                "attribute",
+            ),
+            ("spaced_tilde_block", '<a href="https://example.com">{{ ~#if allow}}{{token}}{{/if}}</a>', "link"),
             ("in_a_style_block", "<style>{{#if dark}}p{color:#fff}{{/if}}</style><p>{{token}}</p>", "style"),
             ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}', "inside another tag"),
             ("unsubscribe_tag_in_a_comparison", '{{#equals a "<%subject%>"}}x{{/equals}}', "inside another tag"),

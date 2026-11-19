@@ -624,7 +624,8 @@ def _unusual_position(source: str, is_html: bool) -> str | None:
         return None
 
     def hold(match: re.Match[str]) -> str:
-        body = match.group(0).lstrip("{").lstrip("~").lstrip()
+        # Read the tag the way the parser does, so a `~` or an entity can't hide that it opens a block.
+        body = html_lib.unescape(match.group(0).lstrip("{").rstrip("}").strip()).lstrip("~").strip()
         return "\x02b\x02" if body.startswith(("#", "^", "/", "else")) else "\x02o\x02"
 
     held = _HANDLEBARS_TAG.sub(hold, source)
