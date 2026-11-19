@@ -93,6 +93,9 @@ pub struct FollowerSettings {
 impl FollowerSettings {
     /// The timing settings only work in these relations to each other.
     pub fn validate(&self) -> Result<(), String> {
+        if self.end_check_interval_ms == 0 {
+            return Err("FOLLOWER_END_CHECK_INTERVAL_MS must be above zero".to_string());
+        }
         if self.end_check_interval_ms >= self.staleness_threshold_ms {
             return Err(format!(
                 "FOLLOWER_END_CHECK_INTERVAL_MS ({}) must be below \
@@ -302,6 +305,7 @@ mod tests {
 
     #[rstest]
     #[case::defaults(&[], true)]
+    #[case::no_end_check_interval(&[("FOLLOWER_END_CHECK_INTERVAL_MS", "0")], false)]
     #[case::end_checks_no_faster_than_the_threshold(
         &[("FOLLOWER_END_CHECK_INTERVAL_MS", "5000")],
         false

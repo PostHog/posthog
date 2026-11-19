@@ -47,38 +47,7 @@ impl PersonHogReplicaService {
         team_id: i64,
         person_id: i64,
     ) -> Option<CachedPerson> {
-        if !metadata.contains_key(PARTITION_HEADER) {
-            return None;
-        }
-        let Some(routed) = header(metadata, PARTITION_HEADER) else {
-            return unanswered("unreadable_headers");
-        };
-        let Some(reads) = &self.follower else {
-            return unanswered("not_following");
-        };
-        let Some(reads) = reads.attached() else {
-            return unanswered("not_attached");
-        };
-        let (partitions, epoch) = reads.changelog.layout();
-        let partition = partition_for_person(team_id, person_id, partitions);
-        if metadata.contains_key(CHANGELOG_EPOCH_HEADER) {
-            match header(metadata, CHANGELOG_EPOCH_HEADER) {
-                Some(routed) if routed <= epoch => {}
-                Some(_) => return unanswered("config_behind"),
-                None => return unanswered("unreadable_headers"),
-            }
-        }
-        if routed != u64::from(partition) {
-            return unanswered("other_partition");
-        }
-        let key = PersonCacheKey { team_id, person_id };
-        match reads.follower.read(partition, &key, epoch) {
-            Ok(person) => {
-                count("followed");
-                Some(person)
-            }
-            Err(why) => unanswered(why.label()),
-        }
+        counted(self.follower_read(metadata, team_id, person_id))
     }
 
     /// The person named by the routing headers, for a read that asks by UUID. A follower
@@ -92,16 +61,51 @@ impl PersonHogReplicaService {
         if !metadata.contains_key(PARTITION_HEADER) {
             return None;
         }
-        let Some(person_id) =
-            header(metadata, PERSON_ID_HEADER).and_then(|id| i64::try_from(id).ok())
-        else {
-            return unanswered("unreadable_headers");
+        let person_id = header(metadata, PERSON_ID_HEADER).and_then(|id| i64::try_from(id).ok());
+        let read = match person_id {
+            Some(person_id) => self.follower_read(metadata, team_id, person_id),
+            None => Err(Some("unreadable_headers")),
         };
-        let person = self.followed_person(metadata, team_id, person_id)?;
-        if person.uuid != uuid {
-            return unanswered("other_person");
+        counted(read.and_then(|person| {
+            if person.uuid == uuid {
+                Ok(person)
+            } else {
+                Err(Some("other_person"))
+            }
+        }))
+    }
+
+    /// The follower's answer, or why it has none. `Err(None)` is a request the router did
+    /// not send to a follower.
+    fn follower_read(
+        &self,
+        metadata: &MetadataMap,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<CachedPerson, Option<&'static str>> {
+        if !metadata.contains_key(PARTITION_HEADER) {
+            return Err(None);
         }
-        Some(person)
+        let routed = header(metadata, PARTITION_HEADER).ok_or(Some("unreadable_headers"))?;
+        let reads = self.follower.as_ref().ok_or(Some("not_following"))?;
+        let reads = reads.attached().ok_or(Some("not_attached"))?;
+        let (partitions, epoch) = reads.changelog.layout();
+        let partition = partition_for_person(team_id, person_id, partitions);
+        if metadata.contains_key(CHANGELOG_EPOCH_HEADER) {
+            match header(metadata, CHANGELOG_EPOCH_HEADER) {
+                Some(routed) if routed <= epoch => {}
+                Some(_) => return Err(Some("config_behind")),
+                None => return Err(Some("unreadable_headers")),
+            }
+        }
+        if routed != u64::from(partition) {
+            return Err(Some("other_partition"));
+        }
+        let key = PersonCacheKey { team_id, person_id };
+        reads
+            .follower
+            .read(partition, &key, epoch)
+            .map_err(|why| Some(why.label()))
     }
 }
 
@@ -123,17 +127,19 @@ where
     }
 }
 
-fn unanswered(why: &'static str) -> Option<CachedPerson> {
-    count(why);
-    None
-}
-
-fn count(answer: &'static str) {
+/// Count a routed read once, by how it was answered.
+fn counted(read: Result<CachedPerson, Option<&'static str>>) -> Option<CachedPerson> {
+    let answer = match &read {
+        Ok(_) => "followed",
+        Err(Some(why)) => why,
+        Err(None) => return None,
+    };
     common_metrics::inc(
         "personhog_follower_reads_total",
         &[("answer".to_string(), answer.to_string())],
         1,
     );
+    read.ok()
 }
 
 fn header(metadata: &MetadataMap, name: &'static str) -> Option<u64> {
