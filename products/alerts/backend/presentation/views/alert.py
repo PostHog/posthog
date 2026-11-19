@@ -2869,8 +2869,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = cast(User, request.user)
         try:
             with transaction.atomic():
-                # Counted under the platform copy's lock, so two adds at once cannot both pass the cap. Counted as
-                # the alert's `destination_count` is, so a destination reset to send from its row still counts.
+                # Counted under the alert's lock, so two adds at once cannot both pass the cap: its insight row when it
+                # has one, else its platform copy. Counted as the alert's `destination_count` is, so a destination reset
+                # to send from its row still counts.
+                list(
+                    AlertConfiguration.objects.select_for_update(no_key=True)
+                    .filter(team_id=alert.team_id, id=alert.id)
+                    .values_list("id", flat=True)
+                )
                 lock_source_configuration(team_id=alert.team_id, public_id=alert.id)
                 _show_destination_counts([alert])
                 if alert.destination_count >= MAX_DESTINATIONS_PER_ALERT:  # type: ignore[attr-defined]
