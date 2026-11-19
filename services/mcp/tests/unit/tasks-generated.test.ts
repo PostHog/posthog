@@ -42,15 +42,18 @@ describe('Generated task tools', () => {
     })
 
     async function readLogPage(body: string, input: Record<string, unknown>): Promise<{ result: unknown; url: URL }> {
-        const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(body, { status: 200 }))
-        vi.stubGlobal('fetch', fetchMock)
+        const urls: string[] = []
+        vi.stubGlobal('fetch', async (url: string) => {
+            urls.push(url)
+            return new Response(body, { status: 200 })
+        })
         const context = {
             api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
             stateManager: { getProjectId: async () => '42' },
         } as unknown as Context
         const tool = GENERATED_TOOL_MAP['tasks-runs-session-logs-retrieve']!()
         const result = await tool.handler(context, tool.schema.parse({ task_id: 'task-id', id: 'run-id', ...input }))
-        return { result, url: new URL(fetchMock.mock.calls[0]![0]) }
+        return { result, url: new URL(urls[0]!) }
     }
 
     it('reads run log entries from a legacy offset', async () => {
