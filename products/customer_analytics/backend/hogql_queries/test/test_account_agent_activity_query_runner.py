@@ -35,7 +35,7 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for uuid, email in ((ANA, "ana@example.com"), (BO, "bo@example.com"), (STAFF, "someone@posthog.com")):
             create_person(team=self.team, uuid=uuid, distinct_ids=[uuid], properties={"email": email})
 
-    def _call(self, person: str, timestamp: str, group_key: str = "acme", **properties: Any) -> None:
+    def _call(self, person: str, timestamp: str, properties: dict[str, Any], group_key: str = "acme") -> None:
         _create_event(
             team=self.team,
             event="$mcp_tool_call",
@@ -55,8 +55,8 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._call(
             ANA,
             "2026-10-27T10:00:00Z",
-            **sql,
-            **{
+            {
+                **sql,
                 "$mcp_conversation_id": "c1",
                 "$mcp_client_name": "Example IDE",
                 "$mcp_intent": "Find accounts that stopped using dashboards",
@@ -65,8 +65,8 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._call(
             ANA,
             "2026-10-27T10:05:00Z",
-            **sql,
-            **{
+            {
+                **sql,
                 "$mcp_conversation_id": "c1",
                 "$mcp_client_name": "Example IDE",
                 "$mcp_intent": "Find accounts that stopped using dashboards",
@@ -76,12 +76,12 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._call(
             ANA,
             "2026-10-20T09:00:00Z",
-            **{"$mcp_tool_name": "insight-get", "$mcp_conversation_id": "c2", "$mcp_client_name": "Example IDE"},
+            {"$mcp_tool_name": "insight-get", "$mcp_conversation_id": "c2", "$mcp_client_name": "Example IDE"},
         )
         self._call(
             BO,
             "2026-10-26T11:00:00Z",
-            **{
+            {
                 "$mcp_tool_name": "create-feature-flag",
                 "$mcp_conversation_id": "c3",
                 "$mcp_client_name": "Example Agent",
@@ -96,9 +96,9 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
             timestamp="2026-10-26T12:00:00Z",
             properties={"$group_0": "acme"},
         )
-        self._call(BO, "2026-10-26T11:00:00Z", group_key="other", **{"$mcp_tool_name": "survey-delete"})
-        self._call(STAFF, "2026-10-26T11:00:00Z", **{"$mcp_tool_name": "survey-delete"})
-        self._call(ANA, "2026-08-01T11:00:00Z", **{"$mcp_tool_name": "survey-delete"})
+        self._call(BO, "2026-10-26T11:00:00Z", {"$mcp_tool_name": "survey-delete"}, group_key="other")
+        self._call(STAFF, "2026-10-26T11:00:00Z", {"$mcp_tool_name": "survey-delete"})
+        self._call(ANA, "2026-08-01T11:00:00Z", {"$mcp_tool_name": "survey-delete"})
 
         results = self._run()
 
@@ -122,9 +122,9 @@ class TestAccountAgentActivityQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [(b.agentCalls, b.uiPageviews) for b in results.buckets][-2:] == [(1, 0), (3, 1)]
 
     def test_counts_every_tool_and_whole_characters_past_the_limits(self) -> None:
-        self._call(ANA, "2026-10-27T10:00:00Z", **{"$mcp_tool_name": "insight-get"})
-        self._call(ANA, "2026-10-27T10:01:00Z", **{"$mcp_tool_name": "insight-get"})
-        self._call(ANA, "2026-10-27T10:02:00Z", **{"$mcp_tool_name": "create-feature-flag", "$mcp_intent": "é" * 600})
+        self._call(ANA, "2026-10-27T10:00:00Z", {"$mcp_tool_name": "insight-get"})
+        self._call(ANA, "2026-10-27T10:01:00Z", {"$mcp_tool_name": "insight-get"})
+        self._call(ANA, "2026-10-27T10:02:00Z", {"$mcp_tool_name": "create-feature-flag", "$mcp_intent": "é" * 600})
 
         with patch(
             "products.customer_analytics.backend.hogql_queries.account_agent_activity_query_runner.TOOL_LIMIT", 1
