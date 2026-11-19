@@ -7,7 +7,6 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
-from structlog.testing import capture_logs
 
 from posthog.schema import MetricsQuery, MetricsQueryClause
 
@@ -19,6 +18,7 @@ from products.metrics.backend.facade.contracts import (
     MetricGroupBy,
     MetricQueryClause,
     MetricQueryRequest,
+    MetricQueryShadowCheck,
     MetricSeries,
 )
 from products.metrics.backend.facade.enums import (
@@ -70,6 +70,9 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         truncate_metrics_tables()
+        gate = patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=True)
+        gate.start()
+        self.addCleanup(gate.stop)
         with batched_seeding():
             self._seed()
 
@@ -185,19 +188,14 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.provenance.precomputed_until is not None and result.provenance.precomputed_until < NOW
         self._assert_same_series(result.series, run_metric_query(team=self.team, request=request))
 
-    def test_a_sampled_tile_also_runs_raw_and_logs_how_far_apart_they_are(self):
+    def test_a_sampled_tile_also_runs_raw_and_measures_how_far_apart_they_are(self):
         clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)
         self._precompute(clause)
 
-        with (
-            patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
-            capture_logs() as logs,
-        ):
-            run_precomputed_metric_query(team=self.team, request=self._request(clause, "hour"))
+        with patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0):
+            result = run_precomputed_metric_query(team=self.team, request=self._request(clause, "hour"))
 
-        (check,) = [log for log in logs if log["event"] == "metrics_precompute_shadow_check"]
-        assert check["max_relative_difference"] == 0.0
-        assert check["mode"] == "mixed"
+        assert result.shadow == MetricQueryShadowCheck(max_relative_difference=0.0, mismatched_points=0)
 
     def test_stored_data_over_the_points_budget_runs_raw(self):
         clause = _counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE)
@@ -290,9 +288,12 @@ class TestMetricsQueryRunnerPrecompute(ClickhouseTestMixin, APIBaseTest):
             ),
             team=self.team,
         )
-        with patch(
-            "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag != "dashboard-v2" or flag_on,
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+            patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=flag_on),
         ):
             return runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
 

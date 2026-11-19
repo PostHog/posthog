@@ -32,9 +32,11 @@ from products.metrics.backend.precompute.definitions import labels_of
 from products.metrics.backend.precompute.gate import precompute_enabled
 from products.metrics.backend.precompute.store import (
     HOUR,
+    MAX_ENTRIES_PER_CHUNK,
     MAX_FINGERPRINTS_PER_ENTRY,
     Entry,
     EntryKey,
+    HourValue,
     TooManySeriesError,
     UnstorableLabelError,
     bucket_width,
@@ -45,6 +47,7 @@ from products.metrics.backend.precompute.store import (
     value_changed,
     write_entries,
 )
+from products.metrics.backend.promql import promql_range_results
 
 logger = structlog.get_logger(__name__)
 
@@ -84,9 +87,42 @@ def whole_hour_offset(team: Team, *moments: dt.datetime) -> bool:
     )
 
 
+_PROMQL_FUNCTIONS = {
+    PrecomputedMetricKind.SUM_OVER_TIME: "sum_over_time",
+    PrecomputedMetricKind.BUCKET_INCREASE: "increase",
+}
+
+
+def _query_promql_buckets(
+    team: Team, precomputed_metric: MetricPrecomputedMetric, start: dt.datetime, end: dt.datetime
+) -> dict[EntryKey, Entry]:
+    """The buckets of `[start, end)` from Snuffle. Its point at `t` reads `(t - R, t]`, which is the bucket at `t - R`."""
+    width = bucket_width(precomputed_metric)
+    labels = [label.key for label in labels_of(precomputed_metric)]
+    function = _PROMQL_FUNCTIONS[PrecomputedMetricKind(precomputed_metric.kind)]
+    selector = f"{function}({precomputed_metric.metric_name}[{int(width.total_seconds())}s])"
+    expr = f"sum by ({', '.join(labels)}) ({selector})" if labels else f"sum({selector})"
+    results = promql_range_results(team, expr, start + width, end, width, record_query=False)
+    if len(results) > MAX_ENTRIES_PER_CHUNK:
+        raise TooManySeriesError("one bucket has too many label sets; keep fewer labels")
+    entries: dict[EntryKey, Entry] = {}
+    for result in results:
+        metric = result.get("metric") or {}
+        points: dict[dt.datetime, HourValue] = {}
+        for timestamp, raw in result.get("values") or []:
+            value = _finite_or_none(float(raw))
+            if value is not None:
+                points[dt.datetime.fromtimestamp(float(timestamp), tz=dt.UTC) - width] = value
+        entry = Entry(labels=tuple(str(metric.get(label, "")) for label in labels), points=points)
+        merge_entries(entries, {entry.key: entry})
+    return entries
+
+
 def _query_hours(
     team: Team, precomputed_metric: MetricPrecomputedMetric, start: dt.datetime, end: dt.datetime
 ) -> dict[EntryKey, Entry]:
+    if precomputed_metric.kind in _PROMQL_FUNCTIONS:
+        return _query_promql_buckets(team, precomputed_metric, start, end)
     labels = labels_of(precomputed_metric)
     kind = PrecomputedMetricKind(precomputed_metric.kind)
     histogram = kind == PrecomputedMetricKind.HISTOGRAM

@@ -244,9 +244,20 @@ class MetricQueryProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricQueryShadowCheck:
+    """A precomputed answer compared with the same query run raw. `max_relative_difference` is over the points
+    both answers have, and `mismatched_points` counts the points only one has. Both are None when the raw run
+    failed."""
+
+    max_relative_difference: float | None
+    mismatched_points: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class MetricQueryResult:
     series: list[MetricSeries]
     provenance: MetricQueryProvenance
+    shadow: MetricQueryShadowCheck | None = None
 
 
 @dataclass(frozen=True, slots=True)

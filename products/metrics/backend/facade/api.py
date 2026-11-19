@@ -67,6 +67,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryProvenance,
     MetricQueryRequest,
     MetricQueryResult,
+    MetricQueryShadowCheck,
     MetricSeries,
     MetricsOverview,
     PanelQueryCheckRequest,
@@ -78,6 +79,7 @@ from products.metrics.backend.facade.enums import (
     DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
 )
@@ -109,6 +111,7 @@ from products.metrics.backend.precompute.fill import (
     fill_precomputed_metrics as _fill_precomputed_metrics,
     teams_with_precomputed_metrics as _teams_with_precomputed_metrics,
 )
+from products.metrics.backend.precompute.gate import precompute_enabled
 from products.metrics.backend.precompute.planner import (
     ClausePlan,
     PrecomputedClauseRunner,
@@ -116,9 +119,16 @@ from products.metrics.backend.precompute.planner import (
     provenance_mode,
     read_plan_entries,
 )
+from products.metrics.backend.precompute.promql_plan import (
+    evaluate_stored,
+    merge_results,
+    plan_promql,
+    raw_tail,
+    read_promql_entries,
+)
 from products.metrics.backend.precompute.store import TooManyStoredPointsError
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
-from products.metrics.backend.promql import run_promql_instant, run_promql_range
+from products.metrics.backend.promql import run_promql_instant, run_promql_range, series_from_results
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_counts import (
     list_metric_query_counts as _list_metric_query_counts,
@@ -132,7 +142,8 @@ from products.metrics.backend.variables import from_dashboard, with_values
 logger = structlog.get_logger(__name__)
 
 # The share of precomputed tile queries that also run raw, to measure how far the two answers are apart.
-PRECOMPUTE_SHADOW_CHECK_RATE = 0.01
+PRECOMPUTE_SHADOW_CHECK_RATE = 0.1
+_PRECOMPUTE_OFF = "precomputing is off for this project"
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -463,6 +474,11 @@ def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> 
     """`run_metric_query` for a dashboard-v2 tile: each clause that a precomputed metric covers reads its stored
     buckets and runs raw only for the newest ones. The first long-range tile that needs a precomputed metric
     creates it and runs raw meanwhile. The result says where its buckets came from."""
+    if not precompute_enabled(team):
+        return MetricQueryResult(
+            series=_run_metric_query(team, request, {}),
+            provenance=MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=(_PRECOMPUTE_OFF,)),
+        )
     plans: list[ClausePlan] = []
     reasons: list[str] = []
     runners: dict[str, PrecomputedClauseRunner] = {}
@@ -485,20 +501,63 @@ def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> 
         precomputed_until=min((plan.cut for plan in plans), default=None),
         reasons=tuple(reasons),
     )
+    shadow = None
     if plans and random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
-        _log_shadow_check(team, request, series, provenance)
-    return MetricQueryResult(series=series, provenance=provenance)
+        shadow = _shadow_check(
+            team, provenance, series, lambda: _run_metric_query(team, request, {}, record_query=False)
+        )
+    return MetricQueryResult(series=series, provenance=provenance, shadow=shadow)
 
 
-def _log_shadow_check(
-    team: Team, request: MetricQueryRequest, series: list[MetricSeries], provenance: MetricQueryProvenance
-) -> None:
-    """Run the query raw as well and log how far the precomputed answer is from it."""
+def run_precomputed_promql_query(
+    *, team: Team, promql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> MetricQueryResult:
+    """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored steps and runs raw only for the
+    newest ones. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
+
+    def raw(record_query: bool = True) -> list[MetricSeries]:
+        return run_promql_range(team, promql, date_from, date_to, interval, record_query=record_query)
+
+    def raw_result(reason: str) -> MetricQueryResult:
+        return MetricQueryResult(
+            series=raw(), provenance=MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=(reason,))
+        )
+
+    if not precompute_enabled(team):
+        return raw_result(_PRECOMPUTE_OFF)
+    plan = plan_promql(team, promql, date_from, date_to, interval)
+    if isinstance(plan, str):
+        return raw_result(plan)
     try:
-        raw = _run_metric_query(team, request, {}, record_query=False)
+        entries = read_promql_entries(plan)
+    except TooManyStoredPointsError:
+        return raw_result("too much stored data to load")
+    tail = raw_tail(team, plan)
+    series = series_from_results(team, promql, merge_results(evaluate_stored(plan, entries), tail))
+    provenance = MetricQueryProvenance(
+        mode=MetricQueryProvenanceMode.MIXED
+        if plan.cut + plan.step <= date_to
+        else MetricQueryProvenanceMode.PRECOMPUTED,
+        precomputed_until=plan.cut,
+    )
+    shadow = None
+    if random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
+        shadow = _shadow_check(team, provenance, series, lambda: raw(record_query=False))
+    return MetricQueryResult(series=series, provenance=provenance, shadow=shadow)
+
+
+def _shadow_check(
+    team: Team,
+    provenance: MetricQueryProvenance,
+    series: list[MetricSeries],
+    run_raw: Callable[[], list[MetricSeries]],
+) -> MetricQueryShadowCheck:
+    """Run the query raw as well and measure how far the precomputed answer is from it."""
+    try:
+        raw = run_raw()
     except Exception:
         logger.exception("metrics_precompute_shadow_check_failed", team_id=team.pk)
-        return
+        return MetricQueryShadowCheck(max_relative_difference=None, mismatched_points=None)
 
     def points(result: list[MetricSeries]) -> dict[tuple, float | None]:
         return {(s.clause, tuple(sorted(s.labels.items())), p.time): p.value for s in result for p in s.points}
@@ -509,13 +568,22 @@ def _log_shadow_check(
         for key, raw_value in raw_points.items()
         if raw_value is not None and (value := precomputed_points.get(key)) is not None
     ]
+    check = MetricQueryShadowCheck(
+        max_relative_difference=max(differences, default=0.0),
+        mismatched_points=sum(
+            1
+            for key in precomputed_points.keys() | raw_points.keys()
+            if (precomputed_points.get(key) is None) != (raw_points.get(key) is None)
+        ),
+    )
     logger.info(
         "metrics_precompute_shadow_check",
         team_id=team.pk,
         mode=provenance.mode.value,
-        max_relative_difference=max(differences, default=0.0),
-        mismatched_points=len(precomputed_points.keys() ^ raw_points.keys()),
+        max_relative_difference=check.max_relative_difference,
+        mismatched_points=check.mismatched_points,
     )
+    return check
 
 
 def _run_metric_query(

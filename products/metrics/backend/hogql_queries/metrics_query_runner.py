@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import datetime
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from posthog.schema import (
     CachedMetricsQueryResponse,
@@ -41,7 +41,12 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query, run_precomputed_metric_query
+from products.metrics.backend.facade.api import (
+    derived_metric_resources,
+    run_metric_query,
+    run_precomputed_metric_query,
+    run_precomputed_promql_query,
+)
 from products.metrics.backend.facade.contracts import (
     DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX,
     METRICS_FEATURE_FLAG,
@@ -50,6 +55,8 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryProvenance as MetricQueryProvenanceContract,
     MetricQueryRequest,
+    MetricQueryResult,
+    MetricQueryShadowCheck,
     MetricSeries,
 )
 from products.metrics.backend.facade.enums import (
@@ -67,6 +74,7 @@ from products.metrics.backend.hogql_queries.tail_refresh import (
     merge_series,
 )
 from products.metrics.backend.metric_query_runner import _resolve_interval
+from products.metrics.backend.precompute.gate import precompute_enabled
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_interval import resolve_query_interval
@@ -100,6 +108,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     _loaded_variables: dict[str, Variable] | None = None
     _tile_dashboard_id: int | None = None
     _provenance: MetricQueryProvenanceContract | None = None
+    _shadow: MetricQueryShadowCheck | None = None
 
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
@@ -227,10 +236,8 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         variables = from_query(self.query.variables)
         if language == MetricsQueryLanguage.BUILDER:
             request = self._builder_request()
-            if self._tile_dashboard_id is not None and self._dashboard_v2_enabled:
-                result = run_precomputed_metric_query(team=self.team, request=request)
-                self._provenance = result.provenance
-                return result.series
+            if self._tile_dashboard_id is not None and self._precompute_enabled:
+                return self._keep_precompute(run_precomputed_metric_query(team=self.team, request=request))
             return run_metric_query(team=self.team, request=request)
         date_from, date_to = self._date_from, self._date_range.date_to()
         interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
@@ -242,6 +249,12 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                 raise ValueError(unresolved_message(promql.unresolved))
             # A variable set to All writes `label=~".*"`, which matches every series.
             text = drop_match_all_matchers(promql.text) if promql.text != self.query.promql else promql.text
+            if self._tile_dashboard_id is not None and self._precompute_enabled:
+                return self._keep_precompute(
+                    run_precomputed_promql_query(
+                        team=self.team, promql=text, date_from=date_from, date_to=date_to, interval=interval
+                    )
+                )
             return run_promql_range(self.team, text, date_from, date_to, interval)
         if not (self.query.sql or "").strip():
             raise ValueError("Write a SQL query first.")
@@ -346,6 +359,24 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     @cached_property
     def _reads_derived_metrics(self) -> bool:
         return bool(derived_metric_resources(clause.metricName for clause in self.query.clauses))
+
+    @cached_property
+    def _precompute_enabled(self) -> bool:
+        return precompute_enabled(self.team)
+
+    def _keep_precompute(self, result: MetricQueryResult) -> list[MetricSeries]:
+        self._provenance, self._shadow = result.provenance, result.shadow
+        return result.series
+
+    def _query_executed_event_properties(self) -> dict[str, Any]:
+        if self._provenance is None:
+            return {}
+        return {
+            "precompute_provenance": self._provenance.mode.value,
+            "precompute_shadow_checked": self._shadow is not None,
+            "precompute_shadow_max_rel_diff": self._shadow.max_relative_difference if self._shadow else None,
+            "precompute_shadow_mismatched_points": self._shadow.mismatched_points if self._shadow else None,
+        }
 
     @cached_property
     def _dashboard_v2_enabled(self) -> bool:

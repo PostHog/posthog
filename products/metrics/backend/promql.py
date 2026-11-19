@@ -119,11 +119,13 @@ def snuffle_payload(
     timeout: float | None = None,
     ch_user: ClickHouseUser | None = None,
     max_bytes: int | None = None,
+    record_query: bool = True,
 ) -> dict[str, Any]:
     """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show.
 
-    With `max_bytes`, a larger body fails the query before it is decoded."""
-    if path in _QUERY_PATHS and data and data.get("query"):
+    With `max_bytes`, a larger body fails the query before it is decoded. `record_query=False` keeps a query that
+    no user wrote, such as a precompute fill, out of the team's query counts."""
+    if record_query and path in _QUERY_PATHS and data and data.get("query"):
         record_promql_query(team, data["query"])
     try:
         response = snuffle_request(
@@ -163,21 +165,45 @@ def snuffle_payload(
 
 
 def run_promql_range(
-    team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+    team: Team,
+    expr: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    *,
+    record_query: bool = True,
 ) -> list[MetricSeries]:
     resolved = _resolve_interval(date_from, date_to, interval)
     step = _interval_step(resolved)
     start = _align_to_interval(date_from, resolved, tzinfo=team.timezone_info)
+    results = promql_range_results(
+        team, fill_range_variables(expr, date_from, date_to), start, date_to, step, record_query=record_query
+    )
+    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
+    return series_from_results(team, expr, results)
+
+
+def promql_range_results(
+    team: Team,
+    expr: str,
+    start: dt.datetime,
+    end: dt.datetime,
+    step: dt.timedelta,
+    *,
+    record_query: bool = True,
+) -> list[dict[str, Any]]:
+    """The raw `matrix` results of a Snuffle range query: one `{metric, values}` per series."""
     payload = snuffle_payload(
         team,
         "POST",
         "/api/v1/query_range",
         data={
-            "query": fill_range_variables(expr, date_from, date_to),
+            "query": expr,
             "start": str(start.timestamp()),
-            "end": str(date_to.timestamp()),
+            "end": str(end.timestamp()),
             "step": str(int(step.total_seconds())),
         },
+        record_query=record_query,
     )
 
     data = payload.get("data") or {}
@@ -188,9 +214,7 @@ def run_promql_range(
         results = [{"metric": {}, "values": [results]}] if results else []
     elif result_type != "matrix":
         raise PromQLQueryError(f"A PromQL range query cannot return a {result_type} result.")
-
-    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
-    return _series_from_results(team, expr, results)
+    return results
 
 
 def run_promql_instant(team: Team, expr: str, time: dt.datetime) -> list[MetricSeries]:
@@ -211,10 +235,10 @@ def run_promql_instant(team: Team, expr: str, time: dt.datetime) -> list[MetricS
         )
     else:
         raise PromQLQueryError(f"A PromQL instant query cannot return a {result_type} result.")
-    return _series_from_results(team, expr, results)
+    return series_from_results(team, expr, results)
 
 
-def _series_from_results(team: Team, expr: str, results: list[dict[str, Any]]) -> list[MetricSeries]:
+def series_from_results(team: Team, expr: str, results: list[dict[str, Any]]) -> list[MetricSeries]:
     tzinfo = team.timezone_info
     quantile_clauses = _quantile_clauses(expr)
     marks_clauses = bool(quantile_clauses) or bool(_SETS_CLAUSE_LABEL.search(expr))
