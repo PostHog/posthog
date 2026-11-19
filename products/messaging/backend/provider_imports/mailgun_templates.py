@@ -149,7 +149,10 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     if tags := list(dict.fromkeys(tag for part in parts for tag in part.unsupported_tags)):
         shown = ", ".join(tags[:_MAX_NOTED_TAGS])
         more = f" and {len(tags) - _MAX_NOTED_TAGS} more" if len(tags) > _MAX_NOTED_TAGS else ""
-        notes.append(f"PostHog can't convert {shown}{more}, so it appears as plain text. Rewrite it in Liquid.")
+        notes.append(
+            f"PostHog can't convert {shown}{more}, so it's left out of the email body and shows as text in the "
+            "subject. Rewrite it in Liquid."
+        )
     if any(part.unclosed_blocks for part in parts):
         notes.append("A block in this template was never closed. PostHog closed it at the end, so check the layout.")
     if any(part.too_large for part in parts):
@@ -157,8 +160,8 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     if any(part.go_value_in_tag for part in parts):
         notes.append(
             "Go templates escape a value by where it lands, such as a link's address or a script, and PostHog can't. "
-            "Values inside HTML tags, and every value after a script, style or HTML comment starts, stay as plain "
-            "text, so rewrite them in Liquid."
+            "Values inside HTML tags, and every value after a script, style or HTML comment starts, are left out, so "
+            "rewrite them in Liquid."
         )
     if engine == "go":
         notes.append(
@@ -407,7 +410,9 @@ class _Converter:
             return "", True
         triple, body = match.triple, match.body
         if triple is None and body is None:
-            return self._unsupported(token), False
+            # A lone `{{` or `{%` is text to Handlebars and Go, so it stays, with only the opening written as Liquid.
+            self.unsupported.append(token)
+            return _literal(token), False
         self.has_tags = True
         if self.engine == "go":
             return self._read_go(token, body if body is not None else token), False
@@ -778,12 +783,8 @@ class _Converter:
 
     def _unsupported(self, token: str) -> str:
         self.unsupported.append(token)
-        if self.is_html and ("<" in token or ">" in token):
-            # The tag shows as text, so markup inside it, such as `<script>`, can't become a real element. Only its
-            # openings are Liquid, because the renderer decodes entities inside tags before parsing them.
-            text = token.replace("<", "&lt;").replace(">", "&gt;")
-            return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', text)
-        return _literal(token)
+        # Anything left in an HTML body could turn into markup, so the tag is left out and named in a note.
+        return "" if self.is_html else _literal(token)
 
 
 def _escaped(path: str) -> str:
@@ -851,7 +852,6 @@ def _string_literal(argument: str) -> str:
 
 
 def _literal(tag: str) -> str:
-    # A raw block ends at the first `endraw` and needs a close of its own, so these print their openings another way.
-    if "endraw" in tag or tag in ("{{", "{%"):
-        return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', tag)
-    return f"{{% raw %}}{tag}{{% endraw %}}"
+    # Only the openings are Liquid. The renderer decodes entities inside every tag, raw blocks included, before parsing,
+    # so text kept outside tags is the only text that stays exactly as written.
+    return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', tag)

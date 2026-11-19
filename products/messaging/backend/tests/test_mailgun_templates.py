@@ -28,29 +28,29 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("helper_with_arguments", "{{lookup a b}}", "{% raw %}{{lookup a b}}{% endraw %}"),
-            ("partial", "{{> footer}}", '{{ "{{" }}&gt; footer}}'),
+            ("helper_with_arguments", "{{lookup a b}}", ""),
+            ("partial", "{{> footer}}", ""),
             (
                 "subexpression_keeps_body",
                 "{{#if (eq a b)}}x{{/if}}",
-                "{% raw %}{{#if (eq a b)}}{% endraw %}x{% raw %}{{/if}}{% endraw %}",
+                "x",
             ),
             (
                 "entity_in_an_equal_literal_stays_text",
                 '{{#equal a "&quot; or person.properties.vip or &quot;"}}x{{/equal}}',
-                '{% raw %}{{#equal a "&quot; or person.properties.vip or &quot;"}}{% endraw %}x'
-                "{% raw %}{{/equal}}{% endraw %}",
+                "x",
             ),
             (
                 "liquid_delimiter_in_a_path",
                 "{{#if [a%}b]}}yes{{/if}}",
-                "{% raw %}{{#if [a%}b]}}{% endraw %}yes{% raw %}{{/if}}{% endraw %}",
+                "yes",
             ),
-            ("brace_before_a_raw_tag", "{\\{{x}}", '{{ "{" }}{% raw %}{{x}}{% endraw %}'),
-            ("stray_closer", "x{{/if}}", "x{% raw %}{{/if}}{% endraw %}"),
-            ("stray_else", "x{{else}}", "x{% raw %}{{else}}{% endraw %}"),
+            ("brace_before_an_escaped_tag", "{\\{{x}}", '{{ "{" }}{{ "{{" }}x}}'),
+            ("entities_in_an_escaped_tag", "\\{{&lt;script&gt;}}", '{{ "{{" }}&lt;script&gt;}}'),
+            ("stray_closer", "x{{/if}}", "x"),
+            ("stray_else", "x{{else}}", "x"),
             ("unclosed_opening", "a {{ b", 'a {{ "{{" }} b'),
-            ("endraw_inside", "{{foo endraw bar}}", '{{ "{{" }}foo endraw bar}}'),
+            ("endraw_inside", "{{foo endraw bar}}", ""),
             (
                 "quoted_greater_than_keeps_the_tag_open",
                 '<a title="5 > 3" href={{url}}>',
@@ -156,18 +156,28 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("after_an_html_comment", '<!-- " --><a href="{{.U}}">x</a>', "{{.U}}"),
         ]
     )
-    def test_a_go_value_where_go_escapes_by_context_stays_text(self, _name: str, source: str, value: str) -> None:
+    def test_a_go_value_where_go_escapes_by_context_is_left_out(self, _name: str, source: str, value: str) -> None:
         converted = convert_version({"engine": "go", "template": source})
 
-        assert f"{{% raw %}}{value}{{% endraw %}}" in converted.html
+        assert value not in converted.html
         assert "variables." not in converted.html
         assert any("rewrite them in Liquid" in note for note in converted.notes)
 
-    def test_markup_inside_a_tag_that_cannot_convert_stays_text(self) -> None:
-        converted = convert_text('{{printf "<script>" .x}} {{.User}}', engine="go")
+    @parameterized.expand(
+        [
+            ("markup", '{{printf "<script>" .x}} {{.User}}'),
+            ("entity_encoded_markup", '{{printf "&lt;img src=x&gt;" .x}} {{.User}}'),
+        ]
+    )
+    def test_a_tag_that_cannot_convert_is_left_out_of_the_body(self, _name: str, source: str) -> None:
+        converted = convert_version({"engine": "go", "template": source})
 
-        assert "<script>" not in converted.text
-        assert converted.text.startswith('{{ "{{" }}printf "&lt;script&gt;" .x}}')
+        assert "printf" not in converted.html
+        assert "variables.User" in converted.html
+        assert any("left out of the email body" in note for note in converted.notes)
+
+    def test_a_tag_that_cannot_convert_stays_as_text_in_the_subject(self) -> None:
+        assert convert_text("{{lookup a b}}", is_html=False).text == '{{ "{{" }}lookup a b}}'
 
     def test_a_go_value_in_page_text_converts(self) -> None:
         converted = convert_text("<p>{{.Name}}</p>", engine="go")
@@ -197,7 +207,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         converted = convert_text(source)
 
         assert converted.too_large
-        assert converted.text == f"{{% raw %}}{source}{{% endraw %}}"
+        assert converted.text == source.replace("{{", '{{ "{{" }}')
 
 
 class _CountedSearch:

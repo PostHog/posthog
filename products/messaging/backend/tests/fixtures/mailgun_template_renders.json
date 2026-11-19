@@ -495,7 +495,7 @@
     "variables": {
       "x": "X"
     },
-    "liquid": "{% raw %}{{x}}{% endraw %} {{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ \"{{\" }}x}} {{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "{{x}} X"
   },
   {
