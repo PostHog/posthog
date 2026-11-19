@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import supertest from 'supertest'
 import type { Application, Request, Response } from 'ultimate-express'
 import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
@@ -84,20 +85,50 @@ describe('setupExpressApp JSON body limit', () => {
     it.each([
         ['gzip', gzipSync],
         ['deflate', deflateSync],
-    ] as const)('answers a %s JSON body that decodes but fails its check with 400', async (encoding, compress) => {
-        const body = compress(JSON.stringify({ data: 'x' }))
-        body[body.length - 1] ^= 0xff
+    ] as const)(
+        'answers a %s JSON body that fails its check after earlier chunks decoded with 400, without routing it',
+        async (encoding, compress) => {
+            const largeApp = setupExpressApp({})
+            const routedPadLengths: number[] = []
+            largeApp.post('/body', (req: Request, res: Response) => {
+                routedPadLengths.push(req.body.pad.length)
+                res.status(200).json({ ok: true })
+            })
+            const largeServer = largeApp.listen(0, () => {})
+            const pad = randomBytes(512 * 1024).toString('base64')
+            const trailingWhitespace = Buffer.from(
+                randomBytes(2 * 1024 * 1024).map((byte) => ' \t\n\r'.charCodeAt(byte & 3))
+            )
+            const valid = compress(Buffer.concat([Buffer.from(JSON.stringify({ pad })), trailingWhitespace]))
+            const checkFailed = Buffer.from(valid)
+            checkFailed[checkFailed.length - 1] ^= 0xff
+            const post = (body: Buffer) => {
+                const req = supertest(largeApp)
+                    .post('/body')
+                    .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+                req.write(body)
+                return req
+            }
 
-        const req = supertest(app)
-            .post('/body')
-            .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-        req.write(body)
-        const res = await req
-        const next = await supertest(app).post('/echo').send({ data: 'x' })
+            try {
+                const failed = await post(checkFailed)
+                const routedAfterFailure = [...routedPadLengths]
+                const passed = await post(valid)
 
-        expect({ checkFailed: [res.status, res.body], next: next.status }).toEqual({
-            checkFailed: [400, { status: 'error', error: 'Malformed compressed body' }],
-            next: 200,
-        })
-    })
+                expect({
+                    failed: [failed.status, failed.body],
+                    routedAfterFailure,
+                    passed: passed.status,
+                    routedPadLengths,
+                }).toEqual({
+                    failed: [400, { status: 'error', error: 'Malformed compressed body' }],
+                    routedAfterFailure: [],
+                    passed: 200,
+                    routedPadLengths: [pad.length],
+                })
+            } finally {
+                largeServer.close()
+            }
+        }
+    )
 })
