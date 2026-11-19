@@ -52,6 +52,8 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
   --with-agent <merged pull request url>
 ```
 
+`--scenario add-page|move-page|remove-page`, with `--with-agent`, asks the writer to add, move or remove one page in the section instead of updating one. The run fails unless the docs pull request changes a page that way and edits `src/navs/index.js`, plus `vercel.json` for a move or a removal.
+
 `--from-merge <merged pull request url>` sends that pull request through the merge check as a webhook delivery would, then waits for the verdict and, when it starts a writer, the docs pull request. The pull request must be in a public repository listed in `KNOWLEDGE_WRITER_SOURCE_REPOSITORIES` on the account the App is installed on, and the judge needs `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Before and after each run the command deletes the merge check workflow from local Temporal and releases the writer task's key, so the same pull request runs again. Each run writes its verdict, routed pages and changed files to `~/.cache/posthog/knowledge-writer-e2e/<owner>-<repo>-<number>/` and prints what changed since the previous run.
 
 The run takes 1 to 4 minutes. The 240-minute limit (`--agent-timeout-minutes`) only stops a stuck run. When the run ends without a pull request, the command names the task and run.
