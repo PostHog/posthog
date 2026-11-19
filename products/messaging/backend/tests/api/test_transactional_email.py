@@ -166,6 +166,9 @@ class TestTransactionalEmail(APIBaseTest):
         key: str | None = None,
     ) -> Any:
         headers = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
+        if route == "template_form":
+            body = {"to": self.body["to"], "scheduled_at": scheduled_at}
+            return client.post(self.url, body, format="multipart", **headers)
         if route == "send_email_list_value":
             body = {**self._flat(self.body), "scheduled_at": scheduled_at}
             return client.post(self.send_email_url, body, format="json", **headers)
@@ -1330,21 +1333,23 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_time", {}),
-            ("with_a_time_that_passed_before_cdp_api_read_it", {"scheduled_at": "2026-11-20T08:00:00.500Z"}),
+            ("without_a_time", {}, (False, None)),
+            ("a_time_that_passed_before_cdp_api_read_it", {"scheduled_at": "2026-11-20T08:00:00.500Z"}, (False, None)),
+            ("a_time_an_hour_ahead_when_asked", {"scheduled_at": "2026-11-20T09:00:00.500Z"}, (True, "<1d")),
         ]
     )
-    @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
-    def test_a_send_cdp_api_queued_now_reports_it_was_not_scheduled(self, mock_post, _flag, capture, _name, fields):
+    def test_the_send_event_reports_what_cdp_api_did_with_the_time_asked_for(
+        self, mock_post, _flag, capture, _name, fields, reported
+    ):
         analytics = FakeAnalytics()
         capture.side_effect = analytics.capture
 
-        with FakeCdpApi().serving(mock_post):
+        with time_machine.travel("2026-11-20T08:00:00Z", tick=False) as clock, FakeCdpApi().serving(mock_post):
             answer = mock_post.side_effect
 
             def answer_a_second_later(*args: Any, **kwargs: Any) -> Any:
-                with time_machine.travel("2026-11-20T08:00:01Z", tick=False):
-                    return answer(*args, **kwargs)
+                clock.shift(1)
+                return answer(*args, **kwargs)
 
             mock_post.side_effect = answer_a_second_later
             response = self._psak_client(["hog_flow:write"]).post(
@@ -1352,9 +1357,8 @@ class TestTransactionalEmail(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json().get("scheduled_at") is None
         [event] = analytics.properties_of("transactional email api send")
-        assert (event["scheduled"], event["scheduled_lead_bucket"]) == (False, None)
+        assert (event["scheduled"], event["scheduled_lead_bucket"]) == reported
 
     @parameterized.expand([("template_key", "code"), ("template_id", "send_email")])
     def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(
@@ -1421,6 +1425,12 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             ("template_id_a_list", "send_email_list_value", ["2026-11-21T09:00:00Z"], "invalid_format"),
             ("template_route_json_a_time_then_null", "template", ["2026-11-21T09:00:00Z", None], "repeated"),
+            (
+                "template_route_form_two_times",
+                "template_form",
+                ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
+                "repeated",
+            ),
             (
                 "template_key_form_a_later_time_then_one_that_passed",
                 "code_form",

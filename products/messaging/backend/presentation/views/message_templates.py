@@ -545,7 +545,10 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, Mapping) and "scheduled_at" in getattr(data, "repeated", {}):
+        if isinstance(data, Mapping) and (
+            "scheduled_at" in getattr(data, "repeated", {})
+            or (isinstance(data, MultiValueDict) and len(data.getlist("scheduled_at")) > 1)
+        ):
             raise serializers.ValidationError(
                 {"scheduled_at": ErrorDetail(ScheduledAtField.default_error_messages["repeated"], code="repeated")}
             )
@@ -634,10 +637,8 @@ class _JsonObject(dict):
         obj = dict(pairs)
         if len(obj) == len(pairs):
             return obj
-        values_by_key: dict[str, _Repeated] = {}
-        for key, value in pairs:
-            values_by_key.setdefault(key, _Repeated()).append(value)
-        return cls.with_repeats(obj, {key: values for key, values in values_by_key.items() if len(values) > 1})
+        times = _Repeated(value for key, value in pairs if key == "scheduled_at")
+        return cls.with_repeats(obj, {"scheduled_at": times} if len(times) > 1 else {})
 
     @classmethod
     def with_repeats(cls, data: Mapping[str, Any], repeated: dict[str, _Repeated]) -> Mapping[str, Any]:
@@ -1226,6 +1227,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         scheduled_at = request.validated_data.get("scheduled_at")
         outcome: dict[str, Any] = {"outcome": "error"}
         scheduled_by_cdp = replayed = False
+        asked_at = timezone.now()
         try:
             queued = send(idempotency_key)
             scheduled_by_cdp, replayed = queued.status == QueuedEmailStatus.SCHEDULED, queued.replayed
@@ -1251,7 +1253,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                schedule = _scheduled_send_properties(scheduled_at, scheduled_by_cdp, replayed)
+                schedule = _scheduled_send_properties(scheduled_at, asked_at, scheduled_by_cdp, replayed)
                 self._report_transactional_email_send(request, {**usage_properties, **schedule, **outcome})
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
@@ -1837,13 +1839,15 @@ def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
         )
 
 
-def _scheduled_send_properties(scheduled_at: datetime | None, scheduled: bool, replayed: bool) -> dict[str, Any]:
+def _scheduled_send_properties(
+    scheduled_at: datetime | None, asked_at: datetime, scheduled: bool, replayed: bool
+) -> dict[str, Any]:
     if scheduled_at is None or not scheduled:
         return {"scheduled": False, "scheduled_lead_bucket": None}
     # A replay schedules nothing new, and its lead from now says nothing about the lead the first send had.
     if replayed:
         return {"scheduled": True, "scheduled_lead_bucket": None}
-    lead = scheduled_at - timezone.now()
+    lead = scheduled_at - asked_at
     bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
     return {"scheduled": True, "scheduled_lead_bucket": bucket}
 
