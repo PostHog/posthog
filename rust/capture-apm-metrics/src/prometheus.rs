@@ -162,10 +162,14 @@ pub async fn export_prometheus_remote_write_http(
     let records_bytes = sum_kafka_metric_row_bytes(&rows);
     let gate = &service.series_label_gate;
     let labelled = gate.classify(&token, &rows);
-    if !gate.cache_full(&token) {
-        detector.observe(&token, &rows, labelled.new_series_rows(), &source);
-        detector.note_new_series(&token, &rows, labelled.new_series_rows(), &source);
-    }
+    // A full cache reports uncached series as new on every row, so they count as repeats.
+    let new_rows = if gate.cache_full(&token) {
+        &[]
+    } else {
+        labelled.new_series_rows()
+    };
+    detector.observe(&token, &rows, new_rows, &source);
+    detector.note_new_series(&token, &rows, new_rows, &source);
     gate.strip_repeats(&mut rows, &labelled);
     let row_count = rows.len();
 
