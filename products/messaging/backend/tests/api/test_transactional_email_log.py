@@ -608,41 +608,55 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "send_before_date_from",
+                "date_from",
                 timedelta(milliseconds=500),
                 timedelta(milliseconds=-400),
                 timedelta(milliseconds=-200),
-                0,
+                (0, 0),
             ),
             (
-                "same_millisecond",
+                "same_millisecond_as_date_from",
+                "date_from",
                 timedelta(microseconds=500_500),
                 timedelta(microseconds=300),
                 timedelta(microseconds=-100),
-                1,
+                (1, 0),
+            ),
+            (
+                "send_before_date_to",
+                "date_to",
+                timedelta(milliseconds=500),
+                timedelta(milliseconds=-400),
+                timedelta(milliseconds=-200),
+                (1, 1),
             ),
         ]
     )
-    def test_leaves_out_a_conversion_from_before_a_fractional_date_from(
-        self, _flag, _name, date_from_offset, send_offset, purchase_offset, recipients
+    def test_bounds_results_sends_by_fractional_dates(
+        self, _flag, _name, bound, bound_offset, send_offset, purchase_offset, expected
     ):
-        date_from = NOW - timedelta(hours=2) + date_from_offset
-        create_person(team=self.team, distinct_ids=["just-before"])
-        self._record_distinct_id(str(UUIDT()), "just-before", "just-before@example.com", date_from + send_offset)
+        bound_at = NOW - timedelta(hours=2) + bound_offset
+        create_person(team=self.team, distinct_ids=["near-the-bound"])
+        self._record_distinct_id(str(UUIDT()), "near-the-bound", "near-the-bound@example.com", bound_at + send_offset)
         _create_event(
             team=self.team,
             event="purchase",
-            distinct_id="just-before",
-            timestamp=date_from + purchase_offset,
+            distinct_id="near-the-bound",
+            timestamp=bound_at + purchase_offset,
         )
         flush_persons_and_events()
+        bounds = (
+            {"date_from": bound_at.isoformat()}
+            if bound == "date_from"
+            else {"date_from": (bound_at - timedelta(days=1)).isoformat(), "date_to": bound_at.isoformat()}
+        )
 
         response = self.client.get(
-            self._url("results/"),
-            {"workflow_id": str(self.workflow_id), "event": "purchase", "date_from": date_from.isoformat()},
+            self._url("results/"), {"workflow_id": str(self.workflow_id), "event": "purchase", **bounds}
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert (response.json()["recipients"], response.json()["converted"]) == (recipients, 0)
+        assert (response.json()["recipients"], response.json()["converted"]) == expected
 
     def test_counts_a_conversion_whose_window_ends_in_the_repeated_daylight_saving_hour(self, _flag):
         self.team.timezone = "Europe/London"
