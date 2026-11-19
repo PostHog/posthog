@@ -1780,8 +1780,9 @@ tools:
             `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not
             read. To make the write conditional, pass the entry's `updated_at` from that search as `if_updated_at`: the
             write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call
-            returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before you
-            retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an entry.
+            returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before
+            you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an
+            entry.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
