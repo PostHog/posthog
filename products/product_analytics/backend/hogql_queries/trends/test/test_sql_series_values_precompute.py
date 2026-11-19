@@ -416,8 +416,7 @@ class TestCompiledReadRefusal(APIBaseTest):
     @parameterized.expand([(_LATER_ALIAS,), (_with("issue_status = 'active' AND (event AS issue_status) != ''"),)])
     @time_machine.travel(_NOW, tick=False)
     def test_refuses_before_building(self, sql: str) -> None:
-        with patch(f"{_MODULE}.ensure_precomputed") as ensure:
-            result = closed_sql_series_values(self.team, HogQLQuery(query=sql), value_column="value", run_inserts=True)
+        result = closed_sql_series_values(self.team, HogQLQuery(query=sql), value_column="value", run_inserts=True)
 
         assert result == SeriesValuesUnavailable(reason="source")
-        ensure.assert_not_called()
+        assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
