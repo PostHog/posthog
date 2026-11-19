@@ -180,6 +180,30 @@ class TestSqlSeriesValuesRefusals(SimpleTestCase):
                 "value",
                 "UTC",
             ),
+            (
+                "source",
+                HogQLQuery(
+                    query=_DAILY_COUNT.replace(
+                        "event = 'signed_up'", "distinct_id IN (SELECT distinct_id FROM person_distinct_ids)"
+                    )
+                ),
+                "value",
+                "UTC",
+            ),
+            (
+                "source",
+                HogQLQuery(
+                    query=_DAILY_COUNT.replace("count() AS value", "count() + (SELECT count() FROM persons) AS value")
+                ),
+                "value",
+                "UTC",
+            ),
+            (
+                "source",
+                HogQLQuery(query=_DAILY_COUNT.replace("event = 'signed_up'", "person_id IN COHORT 5")),
+                "value",
+                "UTC",
+            ),
             ("group_by", HogQLQuery(query=_DAILY_COUNT.replace("GROUP BY day", "GROUP BY day, event")), "value", "UTC"),
             ("bucket", HogQLQuery(query=_DAILY_COUNT.replace("toStartOfDay", "toStartOfWeek")), "value", "UTC"),
             ("order_by", HogQLQuery(query=_DAILY_COUNT.replace("ORDER BY day", "ORDER BY value")), "value", "UTC"),

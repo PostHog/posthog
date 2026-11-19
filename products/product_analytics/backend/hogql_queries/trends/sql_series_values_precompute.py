@@ -17,6 +17,7 @@ from posthog.clickhouse.preaggregation.series_values_preaggregated_sql import (
     DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
@@ -72,11 +73,38 @@ class _SqlShape:
     other_conjuncts: tuple[ast.Expr, ...]
 
 
-class _JoinedFieldFinder(TraversingVisitor):
-    def __init__(self, qualifiers: set[str]) -> None:
+@frozen
+class _Bucket:
+    alias: ast.Alias
+    hourly: bool
+    utc: bool
+
+
+class _OtherSourceFinder(TraversingVisitor):
+    def __init__(self, root: ast.SelectQuery, qualifiers: set[str]) -> None:
         super().__init__()
+        self.root = root
         self.qualifiers = qualifiers
         self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node is not self.root:
+            self.found = True
+            return
+        super().visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = True
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+        super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name.lower() == "cohort":
+            self.found = True
+        super().visit_call(node)
 
     def visit_field(self, node: ast.Field) -> None:
         chain = node.chain[1:] if len(node.chain) > 1 and node.chain[0] in self.qualifiers else node.chain
@@ -118,7 +146,7 @@ def _source_refusal(select: ast.SelectQuery) -> str | None:
         return "source"
     if not isinstance(source.table, ast.Field) or source.table.chain != ["events"]:
         return "source"
-    finder = _JoinedFieldFinder(_qualifiers(select))
+    finder = _OtherSourceFinder(select, _qualifiers(select))
     finder.visit(select)
     return "source" if finder.found else None
 
@@ -143,7 +171,7 @@ def _is_timestamp(expr: ast.Expr, select: ast.SelectQuery) -> bool:
     return chain[-1] == _TIMESTAMP and (len(chain) == 1 or (len(chain) == 2 and chain[0] in _qualifiers(select)))
 
 
-def _bucket(select: ast.SelectQuery) -> tuple[ast.Alias, bool, bool] | str:
+def _bucket(select: ast.SelectQuery) -> _Bucket | str:
     if select.group_by_mode is not None or not select.group_by or len(select.group_by) != 1:
         return "group_by"
     [key] = select.group_by
@@ -159,14 +187,14 @@ def _bucket(select: ast.SelectQuery) -> tuple[ast.Alias, bool, bool] | str:
     if not isinstance(expr, ast.Call) or not expr.args or not _is_timestamp(expr.args[0], select):
         return "bucket"
     if expr.name == "toStartOfHour" and len(expr.args) == 1:
-        return bucket, True, False
+        return _Bucket(alias=bucket, hourly=True, utc=False)
     if expr.name == "toDate" and len(expr.args) == 1:
-        return bucket, False, False
+        return _Bucket(alias=bucket, hourly=False, utc=False)
     if expr.name == "toStartOfDay":
         if len(expr.args) == 1:
-            return bucket, False, False
+            return _Bucket(alias=bucket, hourly=False, utc=False)
         if len(expr.args) == 2 and isinstance(expr.args[1], ast.Constant) and expr.args[1].value == "UTC":
-            return bucket, False, True
+            return _Bucket(alias=bucket, hourly=False, utc=True)
     return "bucket"
 
 
@@ -248,9 +276,8 @@ def _shape(sql: str) -> _SqlShape | str:
     bucket = _bucket(node)
     if isinstance(bucket, str):
         return bucket
-    bucket_alias, hourly, utc_bucket = bucket
     if node.order_by and any(
-        not isinstance(order.expr, ast.Field) or order.expr.chain != [bucket_alias.alias] for order in node.order_by
+        not isinstance(order.expr, ast.Field) or order.expr.chain != [bucket.alias.alias] for order in node.order_by
     ):
         return "order_by"
     if node.limit_by is not None or node.offset is not None or node.limit_with_ties:
@@ -262,9 +289,9 @@ def _shape(sql: str) -> _SqlShape | str:
         return window
     return _SqlShape(
         select=clone_expr(node, clear_locations=True),
-        bucket_alias=bucket_alias.alias,
-        hourly=hourly,
-        utc_bucket=utc_bucket,
+        bucket_alias=bucket.alias.alias,
+        hourly=bucket.hourly,
+        utc_bucket=bucket.utc,
         window=window[0],
         other_conjuncts=tuple(clear_locations(conjunct) for conjunct in window[1]),
     )
@@ -381,6 +408,7 @@ WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s AND series_key = %(series_
                 "range_end": end,
             },
             settings=READ_SETTINGS,
+            workload=Workload.OFFLINE,
             team_id=team.pk,
         )
     return {
