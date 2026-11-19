@@ -1,4 +1,4 @@
-import { renderEmailPreview, renderEmailPreviewMarked, withUnresolvedChips } from './emailPreview'
+import { countUnresolved, renderEmailPreview, renderEmailPreviewMarked, withUnresolvedChips } from './emailPreview'
 
 describe('renderEmailPreview', () => {
     const person = {
@@ -74,5 +74,14 @@ describe('renderEmailPreview', () => {
 
         expect(doc.querySelector('p > span')?.textContent).toBe('first name')
         expect(doc.querySelector('a')?.getAttribute('href')).toBe('/plan name')
+    })
+
+    it('counts a missing value once however often the email uses it', () => {
+        const rendered = renderEmailPreviewMarked(
+            '{{ person.properties.plan }} {{ person.properties.plan }} {{ person.properties.seats }}',
+            { id: 'person-4', properties: {} }
+        )
+
+        expect(countUnresolved(rendered)).toBe(2)
     })
 })

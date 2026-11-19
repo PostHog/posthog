@@ -54,8 +54,9 @@ function unresolvedLabel(source: string): string {
     return (path.split('.').pop() ?? path).replace(/[_$]/g, ' ').trim()
 }
 
+/** How many different values the person is missing, however often the templates use each one. */
 export function countUnresolved(...rendered: string[]): number {
-    return rendered.reduce((count, text) => count + (text.match(CHIP_PATTERN)?.length ?? 0), 0)
+    return new Set(rendered.flatMap((text) => Array.from(text.matchAll(CHIP_PATTERN), (match) => match[1]))).size
 }
 
 /** Splits marked text into plain strings and chip labels, chips at odd indexes. */
