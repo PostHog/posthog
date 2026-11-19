@@ -35,9 +35,7 @@ import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tr
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
-// Attributes are read as a browser reads them, so a `>` inside a quoted value does not end the tag. A quote that never
-// closes fails the match, and the tag is cut at its first `>` as before. Each token has one reading, so a failing
-// match stays linear.
+// Each token has one reading, so a failing match stays linear.
 const OPENING_TAG =
     /^<a\b(?:[\s/]+(?![\s/])|[^\s/>][^\s/>=]*(?![^\s/>=])(?:\s*=\s*(?!\s)(?:"[^"]*"|'[^']*'|(?:[^\s>"'][^\s>]*)?(?![^\s>]))|(?!\s*=)))*>/i
 const OPENING_TAG_PLAIN_CUT = /^<a\b[^>]*>/i
