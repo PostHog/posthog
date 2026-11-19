@@ -43,7 +43,7 @@ SUGGESTIONS_MODULE = "products.ai_observability.backend.logic.eval_suggestions.s
 BACKFILLS_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
 
 CHECK_DRAFT = {
-    "name": "Turns that end on a failed call",
+    "name": "Tool or model calls that never succeed",
     "description": "Finds failed calls nobody retried",
     "evaluation_type": "hog",
     "evaluation_config": {"source": "return true"},
@@ -284,6 +284,19 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert [row["id"] for row in results] == ([str(fix.id)] if listed else [])
 
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_a_card_shows_its_observation_apart_from_the_evaluation_draft(self, _flag: MagicMock) -> None:
+        observation = {
+            "observation": "2 of 250 sampled traces flagged",
+            "observation_scope": "Sampled from the last 7 days",
+        }
+        self._suggestion(draft={**CHECK_DRAFT, **observation})
+
+        [row] = self.client.get(f"{self.url}/").json()["results"]
+
+        assert {key: row[key] for key in observation} == observation
+        assert row["draft"] == CHECK_DRAFT
+
     @parameterized.expand([("with_reason", {"reason": "too_noisy"}, "too_noisy"), ("without_reason", {}, None)])
     @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismiss_hides_the_suggestion(self, _name: str, body: dict, reason: str | None, _flag: MagicMock) -> None:
@@ -412,6 +425,20 @@ class TestEvalSuggestionsApi(APIBaseTest):
             target.save()
 
         assert self.client.get(f"{self.url}/{fix.id}/").json()["applies"] is applies
+
+    @parameterized.expand(
+        [
+            ("no_runs", EvalSuggestionKind.FIX_EVAL, "fix:e1:no_runs", "no_runs"),
+            ("one_outcome", EvalSuggestionKind.FIX_EVAL, "fix:e1:one_outcome", "one_outcome"),
+            ("other_kind", EvalSuggestionKind.NEW_HOG, "check:no_runs", None),
+        ]
+    )
+    def test_retrieve_names_the_problem_a_fix_found(
+        self, _name: str, kind: str, dedupe_key: str, problem: str | None
+    ) -> None:
+        suggestion = self._suggestion(kind, dedupe_key=dedupe_key)
+
+        assert self.client.get(f"{self.url}/{suggestion.id}/").json()["fix_problem"] == problem
 
     @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     def test_applied_fix_is_tracked_as_an_evaluation_update(self, report: MagicMock) -> None:

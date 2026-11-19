@@ -648,6 +648,7 @@ def create_skill(
     allowed_tools: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
+    version_description: str | None = None,
 ) -> LLMSkill:
     if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
@@ -686,6 +687,7 @@ def create_skill(
                 metadata=resolve_skill_metadata(metadata, None),
                 version=1,
                 is_latest=True,
+                version_description=version_description,
                 created_by=user,
             )
         except IntegrityError as err:

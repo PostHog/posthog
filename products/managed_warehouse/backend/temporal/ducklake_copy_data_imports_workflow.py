@@ -22,7 +22,6 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -30,6 +29,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder
 
 from products.managed_warehouse.backend.backfill_trino import (
+    data_imports_gigahog_flag,
     data_imports_register_in_hoglake,
     data_imports_through_trino,
 )
@@ -48,6 +48,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
+from products.managed_warehouse.backend.logic.ducklake_copy import data_imports_ducklake_copy_enabled
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -303,13 +304,30 @@ class DuckLakeCopyDataImportsVerificationResult:
     error: str | None = None
 
 
+def _registers_in_gigahog(organization_id: str) -> bool:
+    """Whether the organization's data imports go to Gigahog, as the registration workflow decides it.
+
+    Where Gigahog is deployed, a flag lookup without an answer is retried rather than read as off, because off would
+    run a duckgres copy that a Gigahog organization without duckgres fails on every sync.
+    """
+    flag = data_imports_gigahog_flag(organization_id)
+    if flag is None and settings.GIGAHOG_URL:
+        raise ApplicationError(
+            f"The Gigahog data imports flag gave no answer for organization {organization_id}", non_retryable=False
+        )
+    return flag is True
+
+
 def _registers_without_duckgres(organization_id: str) -> bool:
-    return data_imports_through_trino(organization_id) or data_imports_register_in_hoglake(organization_id)
+    return (
+        _registers_in_gigahog(organization_id)
+        or data_imports_through_trino(organization_id)
+        or data_imports_register_in_hoglake(organization_id)
+    )
 
 
 async def _organization_registers_without_duckgres(organization_id: object) -> bool:
-    # This workflow runs DuckDB statements on duckgres, which an organization whose data imports register through
-    # Trino or in a hoglake catalog does not have.
+    # This workflow runs DuckDB statements on duckgres, which a Gigahog, Trino or hoglake organization does not have.
     return await asyncio.to_thread(_registers_without_duckgres, str(organization_id))
 
 
@@ -332,28 +350,15 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
             return False
         return not await _organization_registers_without_duckgres(team.organization_id)
 
+    if not data_imports_ducklake_copy_enabled(
+        team_id=team.id, team_uuid=team.uuid, organization_id=team.organization_id
+    ):
+        return False
+
     try:
-        copy_enabled = feature_enabled_or_false(
-            "ducklake-data-imports-copy-workflow",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if not copy_enabled:
-            return False
         return not await _organization_registers_without_duckgres(team.organization_id)
+    except ApplicationError:
+        raise
     except Exception as error:
         await logger.awarning(
             "Failed to evaluate DuckLake data imports feature flag",

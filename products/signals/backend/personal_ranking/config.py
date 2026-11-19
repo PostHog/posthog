@@ -19,6 +19,11 @@ Each arm takes a contiguous range of buckets, in list order, from a hash of the 
 `model_arms_salt`. A person keeps one arm across projects and builds, and the people outside every arm keep the
 top-level `model`. Its parse fails closed too: one invalid arm, or arms that add up to more than 100 percent,
 turn every arm off. `config_for_user` gives the config of one person.
+
+The optional `service_tier` and `on_demand_service_tier` keys set the provider service tier of the model call.
+`service_tier` applies to the builds that nobody waits on (`tick` and `first_summary`), and an arm can replace it
+for its people. `on_demand_service_tier` applies to `on_demand` builds. A missing or invalid tier sends no tier.
+The tiers change the queue and the price of a call, not the list, so they are not part of the input hash.
 """
 
 import re
@@ -44,6 +49,9 @@ DEFAULT_MODEL = "gpt-6.1-terra"
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = get_args(ReasoningEffort)
 
+ServiceTier = Literal["default", "flex", "priority"]
+SERVICE_TIERS: tuple[ServiceTier, ...] = get_args(ServiceTier)
+
 PoolSource = Literal["for_you_recommended", "for_you_updated", "assigned"]
 POOL_SOURCES: tuple[PoolSource, ...] = get_args(PoolSource)
 MAX_POOLS = 10
@@ -56,7 +64,7 @@ DEFAULT_MODEL_ARM = "default"
 MAX_MODEL_ARMS = 5
 MAX_MODEL_ARMS_SALT_CHARS = 100
 DEFAULT_MODEL_ARMS_SALT = "personal-inbox-ranking-model-arms"
-_MODEL_ARM_KEYS = frozenset({"name", "percentage", "model", "reasoning_effort", "timeout_seconds"})
+_MODEL_ARM_KEYS = frozenset({"name", "percentage", "model", "reasoning_effort", "timeout_seconds", "service_tier"})
 
 
 @frozen
@@ -105,6 +113,11 @@ class PersonalRankingTickConfig:
     max_error_rate: float = 0.5
     # The tick starts no pair after this share of its schedule interval, so the last pairs end before the next tick.
     time_budget_share: float = 0.6
+    # A pair whose fingerprint (`precheck.py`) is the same as at its last full check skips the full gather for this
+    # many hours after that check. 0 turns the pre-check off.
+    precheck_hours: int = 0
+    # The share of pre-check hits that run the full check too, to count the hits that the full check disagrees with.
+    precheck_sample_share: float = 0.1
 
 
 @frozen
@@ -116,6 +129,8 @@ class ModelArm:
     model: str
     reasoning_effort: ReasoningEffort | None = None
     timeout_seconds: float | None = None
+    # Replaces the top-level `service_tier`. It does not change `on_demand_service_tier`.
+    service_tier: ServiceTier | None = None
 
 
 TICK_DISABLED = PersonalRankingTickConfig()
@@ -128,6 +143,7 @@ _TICK_MAXIMUMS: dict[str, int] = {
     "max_pairs_per_tick": 2000,
     "max_concurrency": 100,
     "max_tick_builds_per_day": 50000,
+    "precheck_hours": 48,
 }
 _MAX_OVERDUE_AFTER_MINUTES = 2 * _TICK_MAXIMUMS["target_interval_minutes"]
 # A larger share lets the pairs started at the end of a tick run into the next tick.
@@ -164,6 +180,9 @@ class PersonalRankingConfig:
     focus_max_chars: int = 500
     timeout_seconds: float = 90.0
     max_completion_tokens: int = 16000
+    # The tier of `tick` and `first_summary` builds, and of `on_demand` builds. None sends no tier.
+    service_tier: ServiceTier | None = None
+    on_demand_service_tier: ServiceTier | None = None
     # The `for_me` endpoint reuses a stored list this many minutes old or newer while its inputs are the same.
     freshness_minutes: int = 60
     # Builds one person may start from the endpoint: a short burst, an hourly refill and a daily cap.
@@ -244,6 +263,17 @@ def _reasoning_effort(value: Any) -> ReasoningEffort:
     return cast(ReasoningEffort, value) if value in REASONING_EFFORTS else DEFAULTS.reasoning_effort
 
 
+def _service_tier(value: Any, key: str) -> ServiceTier | None:
+    if value is None:
+        return None
+    if value not in SERVICE_TIERS:
+        logger.warning(
+            "personal_inbox_ranking_service_tier_invalid", key=key, reason=f"must be one of {', '.join(SERVICE_TIERS)}"
+        )
+        return None
+    return cast(ServiceTier, value)
+
+
 def _min_strength(value: Any) -> InboxStrength:
     if isinstance(value, str) and value.upper() in InboxStrength.__members__:
         return InboxStrength[value.upper()]
@@ -264,6 +294,13 @@ def _reason_limits(value: Any) -> ReasonLimits:
 
 def _fraction(value: Any, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value <= 1:
+        return default
+    return float(value)
+
+
+def _share(value: Any, default: float) -> float:
+    """A share from 0 to 1. Unlike `_fraction`, 0 is valid."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
         return default
     return float(value)
 
@@ -305,6 +342,7 @@ def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
         time_budget_share=_bounded_number(
             payload.get("time_budget_share"), TICK_DISABLED.time_budget_share, _MAX_TIME_BUDGET_SHARE
         ),
+        precheck_sample_share=_share(payload.get("precheck_sample_share"), TICK_DISABLED.precheck_sample_share),
         **ints,
     )
 
@@ -410,6 +448,9 @@ def _parse_model_arm(entry: Any) -> ModelArm:
         isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int | float) or not 0 < timeout_seconds
     ):
         raise _InvalidModelArms(f"{name}: timeout_seconds must be above 0")
+    service_tier = entry.get("service_tier")
+    if service_tier is not None and service_tier not in SERVICE_TIERS:
+        raise _InvalidModelArms(f"{name}: service_tier must be one of {', '.join(SERVICE_TIERS)}")
     return ModelArm(
         name=name,
         percentage=float(percentage),
@@ -418,6 +459,7 @@ def _parse_model_arm(entry: Any) -> ModelArm:
         timeout_seconds=float(min(timeout_seconds, _MAXIMUMS["timeout_seconds"]))
         if timeout_seconds is not None
         else None,
+        service_tier=cast(ServiceTier | None, service_tier),
     )
 
 
@@ -474,6 +516,7 @@ def config_for_user(config: PersonalRankingConfig, user_id: int) -> PersonalRank
         model=arm.model,
         reasoning_effort=arm.reasoning_effort or config.reasoning_effort,
         timeout_seconds=arm.timeout_seconds or config.timeout_seconds,
+        service_tier=arm.service_tier or config.service_tier,
         model_arm=arm.name,
     )
 
@@ -497,6 +540,8 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
         enabled=payload.get("enabled") is not False,
         model=_model(payload.get("model")),
         reasoning_effort=_reasoning_effort(payload.get("reasoning_effort")),
+        service_tier=_service_tier(payload.get("service_tier"), "service_tier"),
+        on_demand_service_tier=_service_tier(payload.get("on_demand_service_tier"), "on_demand_service_tier"),
         reason_limits=_reason_limits(payload.get("reason_max_chars")),
         inbox_activity_min_strength=_min_strength(payload.get("inbox_activity_min_strength")),
         pools=_pools(payload.get("pools")),
@@ -531,6 +576,8 @@ def effective_config(config: PersonalRankingConfig) -> dict[str, Any]:
         "max_candidates": config.max_candidates,
         "timeout_seconds": config.timeout_seconds,
         "max_completion_tokens": config.max_completion_tokens,
+        "service_tier": config.service_tier,
+        "on_demand_service_tier": config.on_demand_service_tier,
         "inbox_activity_lines": config.inbox_activity_lines,
         "model_arm": config.model_arm,
     }

@@ -32,6 +32,7 @@ from products.warehouse_sources.sources.sdk import (
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
     frozen,
     make_tracked_session,
@@ -754,6 +755,25 @@ def _flatten_analytics_entity_usage(name_field: str, day: date, item: dict[str, 
     return row
 
 
+def _flatten_analytics_chat_project(day: date, item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, project), with the project's creator surfaced as flat columns."""
+    created_by = item.get("created_by") or {}
+    row: dict[str, Any] = {"date": _format_rfc3339(day)}
+    row.update({key: value for key, value in item.items() if key != "created_by"})
+    # Always set, so a project whose creator is gone keeps the same columns as the others.
+    row["created_by_id"] = created_by.get("id")
+    row["created_by_email_address"] = created_by.get("email_address")
+    row["id"] = _row_id(row["date"], row.get("project_id"))
+    return row
+
+
+def _flatten_analytics_artifact_activity(day: date, item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, artifact type, shared flag), the grain of the ungrouped artifact cube."""
+    row: dict[str, Any] = {"date": _format_rfc3339(day), **item}
+    row["id"] = _row_id(row["date"], row.get("artifact_type"), row.get("is_shared"))
+    return row
+
+
 # Endpoints whose rows carry no day, mapped to the flattener that stamps the requested day onto each
 # row. `analytics_row_map` binds the day before handing the mapper to the resource.
 _ANALYTICS_DAY_ROW_MAPS: dict[str, Callable[[date, dict[str, Any]], dict[str, Any]]] = {
@@ -761,6 +781,8 @@ _ANALYTICS_DAY_ROW_MAPS: dict[str, Callable[[date, dict[str, Any]], dict[str, An
     "analytics_connector_usage": partial(_flatten_analytics_entity_usage, "connector_name"),
     "analytics_plugin_usage": partial(_flatten_analytics_entity_usage, "plugin_name"),
     "analytics_skill_usage": partial(_flatten_analytics_entity_usage, "skill_name"),
+    "analytics_chat_project_usage": _flatten_analytics_chat_project,
+    "analytics_artifact_activity": _flatten_analytics_artifact_activity,
 }
 
 
@@ -863,7 +885,9 @@ def _stamp_parent_id(fan_out: FanOutConfig, row: dict[str, Any]) -> dict[str, An
     return row
 
 
-def _list_paginator(config: AnthropicEndpointConfig) -> AnthropicCursorPaginator:
+def _list_paginator(config: AnthropicEndpointConfig) -> BasePaginator:
+    if config.pagination == PaginationType.SINGLE:
+        return SinglePagePaginator()
     if config.pagination == PaginationType.PAGE_TOKEN:
         return AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
     return AnthropicCursorPaginator(cursor_path="last_id", cursor_param="after_id")
@@ -1317,9 +1341,10 @@ def anthropic_source(
                 params, AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page"), initial_paginator_state
             )
         else:
-            resource = build_resource(
-                {"limit": ENTITY_PAGE_SIZE, **config.extra_params}, _list_paginator(config), initial_paginator_state
+            entity_params: dict[str, Any] = (
+                {} if config.pagination == PaginationType.SINGLE else {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
             )
+            resource = build_resource(entity_params, _list_paginator(config), initial_paginator_state)
 
     return SourceResponse(
         name=endpoint,

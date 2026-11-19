@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -28,12 +28,26 @@ export function ImportsSection(): JSX.Element {
         },
         intercomEnabled && {
             key: 'intercom',
-            label: 'Intercom',
+            label: (
+                <>
+                    Intercom
+                    <LemonTag type="highlight" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <IntercomImportSection />,
         },
         pylonEnabled && {
             key: 'pylon',
-            label: 'Pylon',
+            label: (
+                <>
+                    Pylon
+                    <LemonTag type="highlight" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <PylonImportSection />,
         },
     ]
