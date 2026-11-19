@@ -723,13 +723,20 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
     return converted
 
 
+def _max_query_size(team_id: int) -> int:
+    # Per-team settings come from JSON, so a number can arrive as text. Zero turns the ClickHouse limit off, and a value
+    # with a unit suffix is not parsed here, so both fall back to the default limit.
+    override = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
+    try:
+        team_limit = int(override)
+    except (TypeError, ValueError):
+        team_limit = 0
+    return team_limit if team_limit > 0 else clickhouse_execute.default_settings()["max_query_size"]
+
+
 def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
-    # Per-team settings come from JSON and may hold numbers as strings. A quarter leaves room for the rest of the query.
-    query_settings = {
-        **clickhouse_execute.default_settings(),
-        **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
-    }
-    budget = int(query_settings["max_query_size"]) // 4
+    # A quarter of the limit leaves room for the rest of the query.
+    budget = _max_query_size(team_id) // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:

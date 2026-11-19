@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -27,7 +28,7 @@ from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.messaging.backend.services.transactional_email_log import _bucket_starts, _max_query_size
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
@@ -914,3 +915,18 @@ class TestStatsBuckets(SimpleTestCase):
         starts = _bucket_starts(start, end, interval, ZoneInfo("Europe/Prague"))
 
         assert [(moment.month, moment.day, moment.hour) for moment in starts] == expected
+
+
+class TestMaxQuerySize(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_override", {}, MAX_QUERY_SIZE_BYTES),
+            ("number", {"max_query_size": 16384}, 16384),
+            ("number_as_text", {"max_query_size": "16384"}, 16384),
+            ("zero_turns_the_limit_off", {"max_query_size": "0"}, MAX_QUERY_SIZE_BYTES),
+            ("unit_suffix", {"max_query_size": "16Mi"}, MAX_QUERY_SIZE_BYTES),
+        ]
+    )
+    def test_max_query_size_follows_a_team_override_it_can_read(self, _name, team_settings, expected):
+        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {"7": team_settings}):
+            assert _max_query_size(7) == expected
