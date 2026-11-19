@@ -435,17 +435,28 @@ SETTINGS
 EVENT_COUNT_BY_INTERVAL = build_event_count_by_interval_query("events_recent")
 
 
+def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str, str]:
+    """The legacy `set`, `set_once`, `unset` and `group_set` fields, from the temporary properties as JSON text.
+
+    `set` and `set_once` use the expression the legacy queries apply to `properties`. ClickHouse's `JSONExtractString`
+    returns an object member as its JSON text, so the fields carry the same text as before.
+    """
+    return {
+        "set": f"nullIf(JSONExtractString({temporary_properties_text}, '$set'), '')",
+        "set_once": f"nullIf(JSONExtractString({temporary_properties_text}, '$set_once'), '')",
+        **dict.fromkeys(("unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
+    }
+
+
 # The native table exports `properties` and `person_properties` in their stored shape, built member by member the
 # way a HogQL read of the whole document builds them. Unlike the legacy tables:
 # - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
 # - temporary properties, such as `$set`, follow the other members of `properties`, as `events_json_recent` stores
-#   them. ClickHouse clears them from `events_json` 60 days after an event is inserted. The legacy `set`, `set_once`,
-#   `unset` and `group_set` fields are always empty.
+#   them. ClickHouse clears them from `events_json` 60 days after an event is inserted.
+# - the legacy `set` and `set_once` fields are read from the temporary properties, which hold `$set` and `$set_once`.
+#   `unset` and `group_set` are always empty.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
-_EMPTY_TEMPORARY_PROPERTY_FIELDS = dict.fromkeys(
-    ("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"
-)
 # `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
 # here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
@@ -455,7 +466,7 @@ _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
         declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
     ),
     "person_properties": person_document_sql("events.person_properties"),
-    **_EMPTY_TEMPORARY_PROPERTY_FIELDS,
+    **_build_temporary_property_fields("toJSONString(events.temporary_properties)"),
 }
 
 
@@ -512,6 +523,7 @@ _STORED_DOCUMENT_COLUMNS = {
     "properties": "_stored_properties",
     "person_properties": "_stored_person_properties",
 }
+_STORED_TEMPORARY_PROPERTIES_COLUMN = "_stored_temporary_properties"
 # Columns that are typed JSON in `events_json` but are text (or absent) in `events_json_recent`. Filters and custom
 # fields printed for the new events schema read them with JSON subcolumn syntax, which fails on text.
 _TYPED_COLUMN_REFERENCE = re.compile(r"\b(?:properties|person_properties|temporary_properties|elements_chain_\w+)\b")
@@ -579,6 +591,7 @@ def _build_typed_events_json_recent_source(table: str) -> str:
         ),
         {table}.properties AS {_STORED_DOCUMENT_COLUMNS["properties"]},
         {table}.person_properties AS {_STORED_DOCUMENT_COLUMNS["person_properties"]},
+        {table}.temporary_properties AS {_STORED_TEMPORARY_PROPERTIES_COLUMN},
         {elements_chain_columns}
     FROM {table}
     WHERE team_id = %(team_id)s::Int64
@@ -604,7 +617,11 @@ def native_recent_events_export_query(
     without reading it.
     """
     reads_typed_columns = _reads_typed_columns(fields, filters)
-    replacements = _EMPTY_TEMPORARY_PROPERTY_FIELDS | (_STORED_DOCUMENT_COLUMNS if reads_typed_columns else {})
+    replacements = (
+        _STORED_DOCUMENT_COLUMNS | _build_temporary_property_fields(f"events.{_STORED_TEMPORARY_PROPERTIES_COLUMN}")
+        if reads_typed_columns
+        else _build_temporary_property_fields("events.temporary_properties")
+    )
     source = (
         _build_typed_events_json_recent_source(EVENTS_JSON_RECENT_TABLE)
         if reads_typed_columns
