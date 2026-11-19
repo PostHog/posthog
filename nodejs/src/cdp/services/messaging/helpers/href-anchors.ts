@@ -62,6 +62,8 @@ const PARSE_OPTIONS = { sourceCodeLocationInfo: true, scriptingEnabled: false } 
 
 // A same-length stand-in for `<!--` inside a comment, where it is text. `<_` opens no tag.
 const COMMENT_OPENING = '<!--'
+// Outlook renders the content of `<!--[if mso]>` and its kin; every other comment shows nothing in any client.
+const CONDITIONAL_COMMENT = /^\s*\[if\b/i
 const COMMENT_OPENING_AS_TEXT = '<_--'
 
 type SourceAttribute = Omit<ScannedAttribute, 'name' | 'value'>
@@ -283,7 +285,17 @@ const scanComment = (
         return
     }
     const content = html.slice(contentStart, contentEnd).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
-    const fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
+    let fragment: DefaultTreeAdapterMap['documentFragment']
+    try {
+        fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
+    } catch (error) {
+        // No client shows a link in a plain comment, so one too deep to read is left as written rather than
+        // refusing an email that renders fine.
+        if (error instanceof EmailNestingTooDeepError && !CONDITIONAL_COMMENT.test(content)) {
+            return
+        }
+        throw error
+    }
     scanAnchors(html, fragment, contentStart, true, limit, anchors)
 }
 

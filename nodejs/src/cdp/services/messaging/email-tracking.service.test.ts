@@ -514,17 +514,28 @@ describe('EmailTrackingService', () => {
                 expect(out.replace(/<img src="[^"]*" style="display: none;" \/>/, '')).toBe(html)
             })
 
-            it('refuses a large email nested deeper than the floor of the limit, in a comment too', () => {
+            describe('a large email nested deeper than the floor of the limit', () => {
                 const link = '<a href="https://example.com/">a</a>'
                 // Enough tags that the budget gives the floor.
                 const tags = '<br>'.repeat(Math.ceil(NESTING_BUDGET / MIN_NESTING_LIMIT))
-                // html, body and the link take three levels.
-                const nested = (depth: number): string => `<body>${tags}${'<div>'.repeat(depth)}${link}</body>`
-                expect(sesTrack(nested(MIN_NESTING_LIMIT - 3))).toContain('phl:0')
-                expect(() => sesTrack(nested(MIN_NESTING_LIMIT - 2))).toThrow(EmailNestingTooDeepError)
-                expect(() => sesTrack(`<body>${tags}<!--${'<div>'.repeat(MIN_NESTING_LIMIT)}--></body>`)).toThrow(
-                    EmailNestingTooDeepError
-                )
+                const deep = '<div>'.repeat(MIN_NESTING_LIMIT)
+
+                it('is refused, in an Outlook comment too', () => {
+                    // html, body and the link take three levels.
+                    const nested = (depth: number): string => `<body>${tags}${'<div>'.repeat(depth)}${link}</body>`
+                    expect(sesTrack(nested(MIN_NESTING_LIMIT - 3))).toContain('phl:0')
+                    expect(() => sesTrack(nested(MIN_NESTING_LIMIT - 2))).toThrow(EmailNestingTooDeepError)
+                    expect(() => sesTrack(`<body>${tags}<!--[if mso]>${deep}<![endif]--></body>`)).toThrow(
+                        EmailNestingTooDeepError
+                    )
+                })
+
+                it('is sent when the nesting is in a plain comment, whose links stay as written', () => {
+                    const hidden = '<a href="https://example.com/hidden">h</a>'
+                    const out = sesTrack(`<body>${tags}<!--${deep}${hidden}-->${link}</body>`)
+                    expect(out).toContain(`${hidden}-->`)
+                    expect(out).toContain('<a href="https://example.com/" ses:tags="phl:0">a</a>')
+                })
             })
 
             it('sends a small email nested deeper than the floor of the limit', () => {
