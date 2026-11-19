@@ -47,12 +47,29 @@ describe('setupExpressApp JSON body limit', () => {
         expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
     })
 
+    it('answers an oversized chunked JSON body with one 413, and keeps serving', async () => {
+        const upload = supertest(app).post('/echo').set('Content-Type', 'application/json')
+        upload.write('{"data":"')
+        for (let i = 0; i < 32; i++) {
+            upload.write('x'.repeat(64 * 1024))
+        }
+        upload.write('"}')
+        const oversized = await upload
+        const next = await supertest(app).post('/echo').send({ data: 'x' })
+
+        expect({ oversized: oversized.status, next: next.status }).toEqual({ oversized: 413, next: 200 })
+    })
+
     it.each([
         ['an oversized body', false],
         ['an oversized body that fails its check', true],
     ] as const)('answers %s read from a buffered upload with one 413, and keeps serving', async (_case, failsCheck) => {
-        const readBodyAfterUpload = (_req: Request, _res: Response, next: NextFunction): void => {
-            setTimeout(next, 200)
+        let chunksRead = 0
+        const readBodyAfterUpload = (req: Request, _res: Response, next: NextFunction): void => {
+            setTimeout(() => {
+                req.on('data', () => chunksRead++)
+                next()
+            }, 200)
         }
         const bufferedApp = setupExpressApp({})
         bufferedApp.post(
@@ -78,7 +95,11 @@ describe('setupExpressApp JSON body limit', () => {
             upload.write(body)
             const oversized = await upload
             const next = await supertest(bufferedApp).post('/buffered').send({ data: 'x' })
-            expect({ oversized: oversized.status, next: next.status }).toEqual({ oversized: 413, next: 200 })
+            expect({ oversized: oversized.status, next: next.status, readFromBuffer: chunksRead > 1 }).toEqual({
+                oversized: 413,
+                next: 200,
+                readFromBuffer: true,
+            })
         } finally {
             bufferedServer.close()
         }
