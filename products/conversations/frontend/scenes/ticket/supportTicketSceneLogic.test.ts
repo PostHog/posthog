@@ -668,8 +668,12 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
 
     let serverTicket: Ticket
+    // The API answers with the assignee in a fuller shape than the request, as the real one does.
     const patchServerTicket = (_projectId: string, _id: string, data: Partial<Ticket>): Promise<Ticket> => {
-        serverTicket = { ...serverTicket, ...data }
+        const assignee = data.assignee
+            ? ({ ...data.assignee, user: null, role: null } as unknown as TicketAssignee)
+            : data.assignee
+        serverTicket = { ...serverTicket, ...data, ...('assignee' in data ? { assignee } : {}) }
         return Promise.resolve(serverTicket)
     }
 
@@ -758,6 +762,24 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
             expect(logic.values.ticketUpdating).toBe(false)
         }
     )
+
+    it('does not resend a just-saved assignee when another edit overlaps its save', async () => {
+        let releaseFirst: (() => void) | undefined
+        ticketUpdateMock.mockImplementationOnce(
+            (projectId: string, id: string, data: Partial<Ticket>) =>
+                new Promise((resolve) => {
+                    releaseFirst = () => resolve(patchServerTicket(projectId, id, data))
+                })
+        )
+
+        logic.actions.setAssignee({ type: 'role', id: 'role-1' })
+        logic.actions.setPriority('high')
+        releaseFirst?.()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
+        expect(ticketUpdateMock.mock.calls[1][2]).toEqual({ priority: 'high' })
+    })
 
     it('keeps a teammate assignee when this page saves a different field', async () => {
         const teammateAssignee: TicketAssignee = { type: 'role', id: 'role-1' }

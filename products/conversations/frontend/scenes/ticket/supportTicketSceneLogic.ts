@@ -537,6 +537,9 @@ export interface supportTicketSceneLogicActions {
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
     }
+    setSavedTicket: (ticket: Ticket) => {
+        ticket: Ticket
+    }
     setSnoozedUntil: (snoozedUntil: string | null) => {
         snoozedUntil: string | null
     }
@@ -545,9 +548,6 @@ export interface supportTicketSceneLogicActions {
     }
     setTags: (tags: string[]) => {
         tags: string[]
-    }
-    setSavedTicket: (ticket: Ticket) => {
-        ticket: Ticket
     }
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null

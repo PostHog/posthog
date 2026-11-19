@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 
-import type { TicketAssignee } from '../../components/Assignee'
+import { isSameAssigneeEntry, type TicketAssignee } from '../../components/Assignee/types'
 import type { Ticket, TicketPriority, TicketStatus } from '../../types'
 
 export interface TicketFieldEdits {
@@ -23,7 +23,7 @@ export function changedTicketFields(edits: TicketFieldEdits, ticket: Ticket): Pa
     if (edits.priority && edits.priority !== ticket.priority) {
         changes.priority = edits.priority
     }
-    if (JSON.stringify(edits.assignee ?? null) !== JSON.stringify(ticket.assignee ?? null)) {
+    if (!isSameAssigneeEntry(edits.assignee ?? 'unassigned', ticket.assignee ?? 'unassigned')) {
         changes.assignee = edits.assignee
     }
     if (JSON.stringify([...edits.tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())) {
