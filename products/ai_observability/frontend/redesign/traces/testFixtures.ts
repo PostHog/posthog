@@ -33,7 +33,6 @@ export function makeTraceListItem(overrides: Partial<TraceListItemApi> = {}): Tr
         },
         hasError: false,
         errorCount: 0,
-        distinctId: 'ana@example.com',
         defaultNodeId: 'gen-1',
         firstError: null,
         toolsCalled: [],
