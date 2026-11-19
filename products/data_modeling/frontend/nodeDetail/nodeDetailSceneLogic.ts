@@ -58,6 +58,12 @@ export interface NodeDetailQueryEditorState {
 
 export const nodeDetailQueryEditorTabId = (savedQueryId: string): string => `node-detail-query-${savedQueryId}`
 
+const LINEAGE_TYPE_FILTER_STORAGE_KEY = 'scenes.models.nodeDetailSceneLogic.lineageTypeFilter'
+
+function nameMatchesSearch(name: string, searchTerm: string): boolean {
+    return name.toLowerCase().includes(searchTerm.trim().toLowerCase())
+}
+
 function isNodeLookup(value: unknown): value is DataModelingNodesRetrieveLookup {
     return (
         typeof value === 'string' &&
@@ -119,9 +125,11 @@ export interface nodeDetailSceneLogicValues {
     lineageGraphError: boolean
     lineageGraphLoading: boolean
     lineageHiddenNodeBridging: HiddenNodeBridging | null
+    lineageIsFiltered: boolean
     lineageModalOpen: boolean
     lineageNodePositions: Record<string, XYPosition>
     lineageNodes: LineageGraphNode[]
+    lineageSearchTerm: string
     lineageTypeFilter: NodeTypeEnumApi[]
     lineageVisibleNodeIds: Set<string>
     modelListUrl: string
@@ -287,6 +295,9 @@ export interface nodeDetailSceneLogicActions {
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
+    setLineageSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => {
         typeFilter: NodeTypeEnumApi[]
     }
@@ -348,8 +359,10 @@ export interface nodeDetailSceneLogicMeta {
         canEditQuery: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         lineageVisibleNodeIds: (
             lineageGraph: LineageGraphData | null,
-            lineageTypeFilter: NodeTypeEnumApi[]
+            lineageTypeFilter: NodeTypeEnumApi[],
+            lineageSearchTerm: string
         ) => Set<string>
+        lineageIsFiltered: (lineageGraph: LineageGraphData | null, lineageVisibleNodeIds: Set<string>) => boolean
         lineageHiddenNodeBridging: (
             lineageGraph: LineageGraphData | null,
             lineageVisibleNodeIds: Set<string>
@@ -402,6 +415,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
         resetLineageNodePositions: true,
         setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => ({ typeFilter }),
+        setLineageSearchTerm: (searchTerm: string) => ({ searchTerm }),
         markSavedQueryDeleted: true,
     }),
     reducers({
@@ -505,8 +519,15 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         ],
         lineageTypeFilter: [
             LINEAGE_FILTER_TYPES,
+            { persist: true, storageKey: LINEAGE_TYPE_FILTER_STORAGE_KEY },
             {
                 setLineageTypeFilter: (_, { typeFilter }) => typeFilter,
+            },
+        ],
+        lineageSearchTerm: [
+            '',
+            {
+                setLineageSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -768,15 +789,27 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 ),
         ],
         lineageVisibleNodeIds: [
-            (s) => [s.lineageGraph, s.lineageTypeFilter],
-            (lineageGraph: LineageGraphData | null, lineageTypeFilter: DataModelingNodeType[]): Set<string> =>
+            (s) => [s.lineageGraph, s.lineageTypeFilter, s.lineageSearchTerm],
+            (
+                lineageGraph: LineageGraphData | null,
+                lineageTypeFilter: DataModelingNodeType[],
+                lineageSearchTerm: string
+            ): Set<string> =>
                 new Set(
                     (lineageGraph?.nodes ?? [])
                         .filter(
-                            (node) => node.id === lineageGraph?.currentNodeId || lineageTypeFilter.includes(node.type)
+                            (node) =>
+                                node.id === lineageGraph?.currentNodeId ||
+                                (lineageTypeFilter.includes(node.type) &&
+                                    nameMatchesSearch(node.name, lineageSearchTerm))
                         )
                         .map((node) => node.id)
                 ),
+        ],
+        lineageIsFiltered: [
+            (s) => [s.lineageGraph, s.lineageVisibleNodeIds],
+            (lineageGraph: LineageGraphData | null, lineageVisibleNodeIds: Set<string>): boolean =>
+                lineageVisibleNodeIds.size < (lineageGraph?.nodes.length ?? 0),
         ],
         lineageHiddenNodeBridging: [
             (s) => [s.lineageGraph, s.lineageVisibleNodeIds],
