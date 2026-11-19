@@ -6212,6 +6212,7 @@ export enum ActivityScope {
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     TICKET_MACRO = 'TicketMacro',
+    AGENT_OUT_OF_OFFICE = 'AgentOutOfOffice',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',

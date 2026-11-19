@@ -3,6 +3,7 @@ from typing import Any
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.conversations.backend.models.agent_out_of_office import AgentOutOfOffice
 from products.conversations.backend.models.ticket_macro import TicketMacro
 
 
@@ -39,4 +40,30 @@ def handle_ticket_macro_change(
         scope=scope,
         activity=activity,
         detail=Detail(changes=changes, name=macro.name),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=AgentOutOfOffice)
+def handle_agent_out_of_office_change(
+    sender: type[AgentOutOfOffice],
+    scope: str,
+    before_update: AgentOutOfOffice | None,
+    after_update: AgentOutOfOffice | None,
+    activity: str,
+    user: Any,
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
+    entry = after_update if after_update is not None else before_update
+    if entry is None:
+        return
+    log_activity(
+        organization_id=entry.team.organization_id,
+        team_id=entry.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=entry.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(name=entry.user.email),
     )

@@ -14318,6 +14318,15 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export interface AgentOutOfOffice {
+      /** UUID of the out-of-office entry. */
+      readonly id: string;
+      /** The agent who is out of office. */
+      readonly user: UserBasic;
+      /** When the agent set themselves out of office. */
+      readonly since: string;
+    }
+
     export interface AgentSource {
       /** Distinct people whose agents ran the query, without scouts. */
       people: number;
@@ -79489,6 +79498,15 @@ export namespace Schemas {
       count?: number;
     }
 
+    export interface PaginatedAgentOutOfOfficeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgentOutOfOffice[];
+    }
+
     export interface PaginatedAlertList {
       count: number;
       /** @nullable */
@@ -134941,6 +134959,7 @@ export namespace Schemas {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `TicketMacro` - TicketMacro
+     * * `AgentOutOfOffice` - AgentOutOfOffice
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -135067,6 +135086,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       TicketMacro: 'TicketMacro',
+      AgentOutOfOffice: 'AgentOutOfOffice',
       KnowledgeSource: 'KnowledgeSource',
       KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
@@ -135179,6 +135199,7 @@ export namespace Schemas {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `TicketMacro` - TicketMacro
+     * * `AgentOutOfOffice` - AgentOutOfOffice
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -135293,6 +135314,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       TicketMacro: 'TicketMacro',
+      AgentOutOfOffice: 'AgentOutOfOffice',
       KnowledgeSource: 'KnowledgeSource',
       KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
@@ -137990,6 +138012,17 @@ export namespace Schemas {
     };
 
     export type ConversationsMacrosListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ConversationsOutOfOfficeListParams = {
     /**
      * Number of results to return per page.
      */

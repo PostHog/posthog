@@ -1,3 +1,4 @@
+from .agent_out_of_office import AgentOutOfOffice
 from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .delivery import (
@@ -39,6 +40,7 @@ from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
 
 __all__ = [
+    "AgentOutOfOffice",
     "Channel",
     "ChannelDetail",
     "ConversationDelivery",

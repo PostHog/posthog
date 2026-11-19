@@ -33,7 +33,7 @@ from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import AgentOutOfOffice, Ticket
 from products.conversations.backend.models.constants import (
     WORKFLOW_AUTHOR_NAME,
     WORKFLOW_AUTHOR_TYPE,
@@ -367,6 +367,13 @@ class TicketActionGetQuerySerializer(serializers.Serializer):
     )
 
 
+def _out_of_office_since(team: Team, user_id: int) -> str | None:
+    since = (
+        AgentOutOfOffice.objects.for_team(team.id).filter(user_id=user_id).values_list("created_at", flat=True).first()
+    )
+    return since.isoformat() if since else None
+
+
 def handle_ticket_get(
     team: Team,
     ticket_id: str | uuid.UUID,
@@ -396,7 +403,12 @@ def handle_ticket_get(
         assignee = {
             "id": assignment.user_id if assignment.user_id else str(assignment.role_id) if assignment.role_id else None,
             "type": "role" if assignment.role_id else "user",
-            "user": {"email": assignment.user.email} if assignment.user_id and assignment.user else None,
+            "user": {
+                "email": assignment.user.email,
+                "out_of_office_since": _out_of_office_since(team, assignment.user_id),
+            }
+            if assignment.user_id and assignment.user
+            else None,
             "role": {"name": assignment.role.name} if assignment.role_id and assignment.role else None,
         }
 

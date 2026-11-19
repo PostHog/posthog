@@ -476,6 +476,26 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(assignee["type"], "user")
         self.assertEqual(assignee["id"], self.user.id)
         self.assertEqual(assignee["user"]["email"], self.user.email)
+        self.assertIsNone(assignee["user"]["out_of_office_since"])
+
+    def test_get_ticket_returns_when_the_assignee_went_out_of_office(self):
+        from products.conversations.backend.models import AgentOutOfOffice, TicketAssignment
+
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        entry = AgentOutOfOffice.objects.for_team(self.team.id).create(team=self.team, user=self.user)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["assignee"]["user"]["out_of_office_since"], entry.created_at.isoformat())
+
+    def test_get_ticket_ignores_out_of_office_in_another_team(self):
+        from products.conversations.backend.models import AgentOutOfOffice, TicketAssignment
+
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        AgentOutOfOffice.objects.for_team(other_team.id).create(team=other_team, user=self.user)
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["assignee"]["user"]["out_of_office_since"])
 
     def test_get_ticket_returns_role_assignee(self):
         from products.access_control.backend.models.role import Role

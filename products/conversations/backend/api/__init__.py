@@ -1,3 +1,4 @@
+from .agent_out_of_office import AgentOutOfOfficeViewSet
 from .ai_context import AIContextAccountPropertiesViewSet
 from .ai_reply_playbook import AIReplyPlaybookViewSet
 from .intercom_import import IntercomImportViewSet
@@ -10,6 +11,7 @@ from .widget import WidgetMessagesView, WidgetMessageView, WidgetTicketsView
 from .zendesk_import import ZendeskImportViewSet
 
 __all__ = [
+    "AgentOutOfOfficeViewSet",
     "AIContextAccountPropertiesViewSet",
     "AIReplyPlaybookViewSet",
     "IntercomImportViewSet",

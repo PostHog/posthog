@@ -296,6 +296,24 @@ export interface PatchedTicketMacroApi {
     readonly created_by?: UserBasicApi | null
 }
 
+export interface AgentOutOfOfficeApi {
+    /** UUID of the out-of-office entry. */
+    readonly id: string
+    /** The agent who is out of office. */
+    readonly user: UserBasicApi
+    /** When the agent set themselves out of office. */
+    readonly since: string
+}
+
+export interface PaginatedAgentOutOfOfficeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AgentOutOfOfficeApi[]
+}
+
 export interface PylonImportStartApi {
     /**
      * Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.
@@ -1339,6 +1357,17 @@ export interface ZendeskImportErrorApi {
 }
 
 export type ConversationsMacrosListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsOutOfOfficeListParams = {
     /**
      * Number of results to return per page.
      */

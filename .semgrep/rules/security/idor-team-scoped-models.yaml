@@ -528,6 +528,7 @@ rules:
                               |Ticket
                               |TicketView
                               |TicketMacro
+                              |AgentOutOfOffice
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |IntercomImportJob
@@ -1072,6 +1073,7 @@ rules:
                         |Ticket
                         |TicketView
                         |TicketMacro
+                        |AgentOutOfOffice
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |IntercomImportJob

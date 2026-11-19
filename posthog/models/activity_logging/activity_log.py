@@ -135,6 +135,7 @@ ActivityScope = Literal[
     "ProductTour",
     "Ticket",
     "TicketMacro",
+    "AgentOutOfOffice",
     "KnowledgeSource",
     "KnowledgeLibrary",
     "InstanceSetting",

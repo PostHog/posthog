@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.conversations.backend.api import (
+    AgentOutOfOfficeViewSet,
     AIContextAccountPropertiesViewSet,
     AIReplyPlaybookViewSet,
     IntercomImportViewSet,
@@ -49,6 +50,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/macros",
         TicketMacroViewSet,
         "project_conversations_macros",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/out_of_office",
+        AgentOutOfOfficeViewSet,
+        "project_conversations_out_of_office",
         ["team_id"],
     )
     routers.projects.register(

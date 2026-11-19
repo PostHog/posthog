@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AIContextAccountPropertyApi,
     AIReplyPlaybookApi,
+    AgentOutOfOfficeApi,
     AiFeedbackRequestApi,
     AiHumanOutcomeRequestApi,
     BulkUpdateStatusRequestApi,
@@ -20,12 +21,14 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationsMacrosListParams,
+    ConversationsOutOfOfficeListParams,
     ConversationsTicketsAttachmentsCreateBody,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     IntercomImportJobApi,
     IntercomImportStartApi,
+    PaginatedAgentOutOfOfficeListApi,
     PaginatedTicketListApi,
     PaginatedTicketMacroListApi,
     PaginatedTicketMessageListApi,
@@ -237,6 +240,64 @@ export const conversationsMacrosUsedCreate = async (
     return apiMutator<TicketMacroApi>(getConversationsMacrosUsedCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getConversationsOutOfOfficeListUrl = (projectId: string, params?: ConversationsOutOfOfficeListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/out_of_office/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/out_of_office/`
+}
+
+export const conversationsOutOfOfficeList = async (
+    projectId: string,
+    params?: ConversationsOutOfOfficeListParams,
+    options?: RequestInit
+): Promise<PaginatedAgentOutOfOfficeListApi> => {
+    return apiMutator<PaginatedAgentOutOfOfficeListApi>(getConversationsOutOfOfficeListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsOutOfOfficeMeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/out_of_office/me/`
+}
+
+/**
+ * Set yourself out of office. Calling it again while you are away keeps the original time.
+ */
+export const conversationsOutOfOfficeMeCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentOutOfOfficeApi> => {
+    return apiMutator<AgentOutOfOfficeApi>(getConversationsOutOfOfficeMeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getConversationsOutOfOfficeMeDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/out_of_office/me/`
+}
+
+/**
+ * Clear your own out-of-office status. Succeeds when you were not away.
+ */
+export const conversationsOutOfOfficeMeDestroy = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getConversationsOutOfOfficeMeDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

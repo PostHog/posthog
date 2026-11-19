@@ -1672,6 +1672,7 @@ export type ActivityLogListParams = {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `TicketMacro` - TicketMacro
+     * * `AgentOutOfOffice` - AgentOutOfOffice
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -1797,6 +1798,7 @@ export const ActivityLogListScope = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     TicketMacro: 'TicketMacro',
+    AgentOutOfOffice: 'AgentOutOfOffice',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1909,6 +1911,7 @@ export const ActivityLogListScope = {
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
  * * `TicketMacro` - TicketMacro
+ * * `AgentOutOfOffice` - AgentOutOfOffice
  * * `KnowledgeSource` - KnowledgeSource
  * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
@@ -2022,6 +2025,7 @@ export const ActivityLogListScopesItem = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     TicketMacro: 'TicketMacro',
+    AgentOutOfOffice: 'AgentOutOfOffice',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
