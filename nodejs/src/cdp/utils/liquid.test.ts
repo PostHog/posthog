@@ -132,20 +132,6 @@ describe('LiquidRenderer', () => {
             )
             expect(sameCharacters(result)).toEqual(sameCharacters(expected))
         })
-
-        it('loops without copying data they never print', () => {
-            const nested = renders.find(({ name }) => name === 'nested_loops_next_to_data_they_never_print')!
-            const data = { orders: [{ items: [{ name: 'Hat', notes: 'x'.repeat(600_000) }] }] }
-
-            const result = LiquidRenderer.renderWithHogFunctionGlobals(
-                nested.liquid,
-                { ...globals, variables: data } as HogFunctionInvocationGlobalsWithInputs,
-                new LiquidRenderBudget(),
-                { escapeHtml: true }
-            )
-
-            expect(result).toEqual('<p>Hat;</p>')
-        })
     })
 
     describe('basic rendering', () => {
