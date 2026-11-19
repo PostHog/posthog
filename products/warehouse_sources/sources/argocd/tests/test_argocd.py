@@ -15,6 +15,8 @@ from products.warehouse_sources.sources.argocd.argocd import (
     ArgocdHostNotAllowedError,
     ArgocdResponseTimeoutError,
     ArgocdResponseTooLargeError,
+    _chart_requests,
+    _ChartRequest,
     _has_ambiguous_authority,
     _history_rows,
     _items,
@@ -124,6 +126,10 @@ class TestListParams:
     def test_project_scoping_sends_both_param_spellings(self, endpoint):
         params = _list_params(endpoint, "team-a")
         assert params == {"project": "team-a", "projects": "team-a"}
+
+    def test_applicationsets_are_scoped_by_the_projects_param(self):
+        # The ApplicationSet list only knows `projects`, and filters on the template's project.
+        assert _list_params("applicationsets", "team-a") == {"projects": "team-a"}
 
     @pytest.mark.parametrize("endpoint", ["projects", "repositories", "clusters"])
     def test_project_scoping_not_applied_to_other_endpoints(self, endpoint):
@@ -286,6 +292,20 @@ class TestGetRows:
         assert [r["id"] for r in result.rows] == [1, 2]
         assert result.paths == ["/api/v1/applications"]
 
+    def test_applicationsets_lift_identity_and_template_project(self):
+        appset = {
+            "metadata": {"name": "per-cluster", "namespace": "argocd", "creationTimestamp": "2025-01-01T00:00:00Z"},
+            "spec": {"generators": [{"clusters": {}}], "template": {"spec": {"project": "team-a"}}},
+            "status": {"health": {"status": "Healthy"}, "resourcesCount": 3},
+        }
+        result = _driver(project="team-a").run("applicationsets", [ScriptedResponse(json={"items": [appset]})])
+
+        assert result.paths == ["/api/v1/applicationsets"]
+        assert result.params("projects") == ["team-a"]
+        row = result.rows[0]
+        assert (row["namespace"], row["name"], row["created_at"]) == ("argocd", "per-cluster", "2025-01-01T00:00:00Z")
+        assert (row["project"], row["health_status"], row["resources_count"]) == ("team-a", "Healthy", 3)
+
     def test_null_items_yields_nothing(self):
         result = _driver().run("applications", [ScriptedResponse(json={"items": None})])
         assert result.rows == []
@@ -404,6 +424,59 @@ class TestRevisionRequests:
             assert _revision_requests(app) == [("sha-9", 0), ("sha-8", 0), ("sha-7", 0)]
 
 
+def _chart_app(*history: dict[str, Any]) -> dict[str, Any]:
+    return {"metadata": {"name": "charts", "namespace": "argocd"}, "spec": {}, "status": {"history": list(history)}}
+
+
+HELM_SOURCE = {"repoURL": "https://charts.example.com", "chart": "nginx"}
+
+
+class TestChartRequests:
+    @pytest.mark.parametrize(
+        "app, expected",
+        [
+            # Only the chart source of a multi-source app is requested, newest first, with the
+            # history id so the server resolves the chart that entry deployed.
+            (
+                MULTI_SOURCE_APPLICATION,
+                [_ChartRequest("1.2.4", 1, 2, "", "nginx"), _ChartRequest("1.2.3", 1, 1, "", "nginx")],
+            ),
+            # A git-only application has no chart to resolve.
+            (APPLICATION, []),
+            (
+                _chart_app({"id": 0, "revision": "1.0.0", "source": HELM_SOURCE}),
+                [_ChartRequest("1.0.0", 0, 0, "https://charts.example.com", "nginx")],
+            ),
+            # The same chart version deployed twice is resolved once, from the newest entry.
+            (
+                _chart_app(
+                    {"id": 1, "revision": "1.0.0", "source": HELM_SOURCE},
+                    {"id": 2, "revision": "1.0.0", "source": HELM_SOURCE},
+                ),
+                [_ChartRequest("1.0.0", 0, 2, "https://charts.example.com", "nginx")],
+            ),
+            # The same version of a different chart is a different row.
+            (
+                _chart_app(
+                    {"id": 1, "revision": "1.0.0", "source": HELM_SOURCE},
+                    {"id": 2, "revision": "1.0.0", "source": {**HELM_SOURCE, "chart": "redis"}},
+                ),
+                [
+                    _ChartRequest("1.0.0", 0, 2, "https://charts.example.com", "redis"),
+                    _ChartRequest("1.0.0", 0, 1, "https://charts.example.com", "nginx"),
+                ],
+            ),
+            # Without a history id the request falls back to the application's current sources.
+            (
+                _chart_app({"revision": "1.0.0", "source": HELM_SOURCE}),
+                [_ChartRequest("1.0.0", 0, None, "https://charts.example.com", "nginx")],
+            ),
+        ],
+    )
+    def test_charts_to_resolve(self, app, expected):
+        assert _chart_requests(app) == expected
+
+
 class TestFanOut:
     def test_events_are_fetched_per_application_with_parent_scope(self):
         events = {"items": [{"metadata": {"uid": "ev-1"}, "reason": "ResourceUpdated"}]}
@@ -453,6 +526,76 @@ class TestFanOut:
             "/api/v1/applications/multi/revisions/sha-old/metadata",
         ]
         assert result.params("sourceIndex")[1:] == ["0", "0"]
+
+    def test_chart_details_request_names_the_history_entry_and_source(self):
+        result = _driver().run(
+            "chart_details",
+            [
+                ScriptedResponse(json={"items": [MULTI_SOURCE_APPLICATION]}),
+                ScriptedResponse(json={"description": "NGINX chart", "home": "https://nginx.org"}),
+                ScriptedResponse(json={"description": "NGINX chart", "home": "https://nginx.org"}),
+            ],
+        )
+
+        assert result.paths[1:] == [
+            "/api/v1/applications/multi/revisions/1.2.4/chartdetails",
+            "/api/v1/applications/multi/revisions/1.2.3/chartdetails",
+        ]
+        assert result.params("sourceIndex")[1:] == ["1", "1"]
+        assert result.params("versionId")[1:] == ["2", "1"]
+        assert result.requests[1].param("appNamespace") == "team-ns"
+        assert [(row["chart"], row["revision"], row["description"]) for row in result.rows] == [
+            ("nginx", "1.2.4", "NGINX chart"),
+            ("nginx", "1.2.3", "NGINX chart"),
+        ]
+
+    def test_project_events_walk_the_projects_list(self):
+        project = {"metadata": {"name": "team/a", "uid": "proj-1"}}
+        events = {"items": [{"metadata": {"uid": "ev-1"}, "reason": "ProjectUpdated"}]}
+        # The application project filter must not narrow the projects list.
+        result = _driver(project="team-a").run(
+            "project_events",
+            [ScriptedResponse(json={"items": [project]}), ScriptedResponse(json=events)],
+        )
+
+        assert result.urls[0] == "https://argocd.example.com/api/v1/projects"
+        assert result.paths[1] == "/api/v1/projects/team%2Fa/events"
+        assert [(row["project_name"], row["project_uid"], row["uid"]) for row in result.rows] == [
+            ("team/a", "proj-1", "ev-1")
+        ]
+
+    def test_repository_refs_walk_each_git_repository_once(self):
+        repositories = [
+            {"repo": "https://github.com/org/repo.git", "type": "git"},
+            # The same URL registered again for one project has the same refs.
+            {"repo": "https://github.com/org/repo.git", "type": "git", "project": "team-a"},
+            # Helm repositories have no refs, so requesting them only produces errors.
+            {"repo": "https://charts.example.com", "type": "helm"},
+            # A repository with no type is a git repository.
+            {"repo": "git@github.com:org/scoped.git", "project": "team-b"},
+        ]
+        result = _driver().run(
+            "repository_refs",
+            [
+                ScriptedResponse(json={"items": repositories}),
+                ScriptedResponse(json={"branches": ["main", "release"], "tags": ["v1.0.0"]}),
+                ScriptedResponse(json={"branches": ["main"], "tags": None}),
+            ],
+        )
+
+        assert result.paths == [
+            "/api/v1/repositories",
+            "/api/v1/repositories/https%3A%2F%2Fgithub.com%2Forg%2Frepo.git/refs",
+            "/api/v1/repositories/git%40github.com%3Aorg%2Fscoped.git/refs",
+        ]
+        # A project-scoped repository is only found when the request names its project.
+        assert result.params("appProject")[1:] == [None, "team-b"]
+        assert [(row["repo"], row["ref_type"], row["name"]) for row in result.rows] == [
+            ("https://github.com/org/repo.git", "branch", "main"),
+            ("https://github.com/org/repo.git", "branch", "release"),
+            ("https://github.com/org/repo.git", "tag", "v1.0.0"),
+            ("git@github.com:org/scoped.git", "branch", "main"),
+        ]
 
     def test_resource_tree_flattens_managed_and_orphaned_nodes(self):
         tree = {
@@ -534,21 +677,31 @@ class TestFanOut:
         logger.warning.assert_called_once()
 
     @pytest.mark.parametrize(
-        "endpoint, fragment, json_data",
+        "endpoint, parent, fragment, json_data",
         [
-            ("application_events", "/events", {"items": [{"metadata": {"uid": "ev-1"}}]}),
-            ("revision_metadata", "/revisions/", {"author": "Jane"}),
-            ("managed_resources", "/managed-resources", {"items": [{"kind": "Pod", "name": "frontend"}]}),
-            ("resource_tree", "/resource-tree", {"nodes": [{"kind": "Pod", "name": "frontend"}]}),
+            ("application_events", APPLICATION, "/events", {"items": [{"metadata": {"uid": "ev-1"}}]}),
+            ("revision_metadata", APPLICATION, "/revisions/", {"author": "Jane"}),
+            ("managed_resources", APPLICATION, "/managed-resources", {"items": [{"kind": "Pod", "name": "frontend"}]}),
+            ("resource_tree", APPLICATION, "/resource-tree", {"nodes": [{"kind": "Pod", "name": "frontend"}]}),
+            ("chart_details", MULTI_SOURCE_APPLICATION, "/chartdetails", {"description": "NGINX chart"}),
+            (
+                "project_events",
+                {"metadata": {"name": "default"}},
+                "/events",
+                {"items": [{"metadata": {"uid": "ev-1"}}]},
+            ),
+            ("repository_refs", {"repo": "https://github.com/org/repo"}, "/refs", {"branches": ["main"]}),
         ],
     )
-    def test_every_row_carries_its_primary_key_columns(self, endpoint, fragment, json_data):
+    def test_every_row_carries_its_primary_key_columns(self, endpoint, parent, fragment, json_data):
         # A key column missing from a normalized row makes the Delta merge match on null, so
         # the rows duplicate on every sync.
-        child_responses = [ScriptedResponse(json=json_data)] * (2 if endpoint == "revision_metadata" else 1)
+        child_responses = [ScriptedResponse(json=json_data)] * (
+            2 if endpoint in ("revision_metadata", "chart_details") else 1
+        )
         result = _driver().run(
             endpoint,
-            [ScriptedResponse(json={"items": [APPLICATION]}), *child_responses],
+            [ScriptedResponse(json={"items": [parent]}), *child_responses],
         )
         assert fragment in result.urls[1]
         assert result.rows
@@ -616,16 +769,24 @@ class TestValidateCredentials:
         assert [request.url for request in network.requests_log] == ["https://argocd.example.com/api/v1/projects"]
 
     @pytest.mark.parametrize(
-        "schema_name", ["application_events", "revision_metadata", "managed_resources", "resource_tree"]
+        "schema_name, path",
+        [
+            ("application_events", "/api/v1/applications"),
+            ("revision_metadata", "/api/v1/applications"),
+            ("managed_resources", "/api/v1/applications"),
+            ("resource_tree", "/api/v1/applications"),
+            ("chart_details", "/api/v1/applications"),
+            ("project_events", "/api/v1/projects"),
+            ("repository_refs", "/api/v1/repositories"),
+        ],
     )
-    def test_per_application_schema_probes_the_applications_list(self, schema_name):
-        # These paths need an application name, so the probe cannot request them directly.
-        # They are reached by walking the applications list and need the same permission.
+    def test_per_parent_schema_probes_the_parent_list(self, schema_name, path):
+        # These paths need a parent name, so the probe cannot request them directly. They are
+        # reached by walking the parent list and need the same permission.
         with scripted_network([ScriptedResponse(json={"items": None})]) as network:
             assert validate_credentials("https://argocd.example.com", "tok", schema_name=schema_name) == (True, None)
         assert network.requests_log[0].origin == "https://argocd.example.com"
-        assert network.requests_log[0].path == "/api/v1/applications"
-        assert network.requests_log[0].param("name") == "posthog-connectivity-probe"
+        assert network.requests_log[0].path == path
 
     def test_authority_parser_mismatch_is_rejected_without_probing(self):
         # The probe must not be sent to a host the SSRF check never validated.

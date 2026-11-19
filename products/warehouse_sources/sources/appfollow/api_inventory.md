@@ -25,17 +25,41 @@ auth via the `X-AppFollow-API-Token` header. Docs: <https://docs.api.appfollow.i
 
 ## Endpoints
 
-| Schema            | Path                                                                    | Shape                                 | Rows under  | Primary key                                 | Incremental                   | Default sync |
-| ----------------- | ----------------------------------------------------------------------- | ------------------------------------- | ----------- | ------------------------------------------- | ----------------------------- | ------------ |
-| `app_collections` | `/account/apps`                                                         | single request                        | `apps`      | `[id]`                                      | — (full refresh)              | ✅           |
-| `app_lists`       | `/account/apps/app?apps_id=<id>`                                        | fan-out over collections              | `apps_app`  | `[app_collection_id, app_id]`               | — (full refresh)              | ✅           |
-| `users`           | `/account/users`                                                        | single request                        | root list   | `[id]`                                      | — (full refresh)              | ❌           |
-| `reviews`         | `/reviews?ext_id=<ext_id>&from=&to=&page=`                              | fan-out over apps, page/`pages_count` | `reviews`   | `[ext_id, review_id]`                       | `updated` via `last_modified` | ✅           |
-| `ratings_history` | `/meta/ratings/history?ext_id=<ext_id>&store=&from=&to=&offset=&limit=` | fan-out over apps, offset/limit       | `ratings`   | `[ext_id, store, date]`                     | `date` via `from`             | ❌           |
-| `rankings`        | `/meta/rankings?ext_id=<ext_id>&date=`                                  | fan-out over apps, single request     | unpublished | `[ext_id, country, device, genre_id, date]` | — (full refresh)              | ❌           |
-| `keywords`        | `/aso/keywords?ext_id=<ext_id>&date=&page=`                             | fan-out over apps, `page`             | unpublished | `[ext_id, country, device, date, keyword]`  | — (full refresh)              | ❌           |
-| `app_versions`    | `/meta/versions?ext_id=<ext_id>&country=&page=`                         | fan-out over apps, `page`             | unpublished | `[ext_id, country, version]`                | — (full refresh)              | ❌           |
-| `reviews_stats`   | `/reviews/stats?ext_id=<ext_id>&from=&to=`                              | fan-out over apps, single request     | unpublished | `[ext_id, date]`                            | `date` via `from`             | ❌           |
+| Schema                  | Path                                                                    | Shape                                  | Rows under                                              | Primary key                                 | Incremental                   | Default sync |
+| ----------------------- | ----------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------- | ------------------------------------------- | ----------------------------- | ------------ |
+| `app_collections`       | `/account/apps`                                                         | single request                         | `apps`                                                  | `[id]`                                      | — (full refresh)              | ✅           |
+| `app_lists`             | `/account/apps/app?apps_id=<id>`                                        | fan-out over collections               | `apps_app`                                              | `[app_collection_id, app_id]`               | — (full refresh)              | ✅           |
+| `users`                 | `/account/users`                                                        | single request                         | root list                                               | `[id]`                                      | — (full refresh)              | ❌           |
+| `reviews`               | `/reviews?ext_id=<ext_id>&from=&to=&page=`                              | fan-out over apps, page/`pages_count`  | `reviews`                                               | `[ext_id, review_id]`                       | `updated` via `last_modified` | ✅           |
+| `ratings_history`       | `/meta/ratings/history?ext_id=<ext_id>&store=&from=&to=&offset=&limit=` | fan-out over apps, offset/limit        | `ratings`                                               | `[ext_id, store, date]`                     | `date` via `from`             | ❌           |
+| `rankings`              | `/meta/rankings?ext_id=<ext_id>&date=`                                  | fan-out over apps, single request      | unpublished                                             | `[ext_id, country, device, genre_id, date]` | — (full refresh)              | ❌           |
+| `keywords`              | `/aso/keywords?ext_id=<ext_id>&date=&page=`                             | fan-out over apps, `page`              | unpublished                                             | `[ext_id, country, device, date, keyword]`  | — (full refresh)              | ❌           |
+| `app_versions`          | `/meta/versions?ext_id=<ext_id>&country=&page=`                         | fan-out over apps, `page`              | unpublished                                             | `[ext_id, country, version]`                | — (full refresh)              | ❌           |
+| `reviews_stats`         | `/reviews/stats?ext_id=<ext_id>&from=&to=`                              | fan-out over apps, single request      | unpublished                                             | `[ext_id, date]`                            | `date` via `from`             | ❌           |
+| `reviews_semantic`      | `/reviews/semantic?ext_id=<ext_id>&from=&to=`                           | fan-out over apps, single request      | `reviews` (v1 example)                                  | `[ext_id, review_id]`                       | `date` via `from`             | ❌           |
+| `aso_reports`           | `/reports/aso?ext_id=<ext_id>&from=&to=&channel=channel&period=daily`   | fan-out over apps, 30-day windows      | `data` (v1 example)                                     | `[ext_id, date, channel]`                   | `date` via `from`             | ❌           |
+| `reviews_ratings_stats` | `/reviews/stats/ratings?ext_id=<ext_id>&date=`                          | fan-out over apps, one request per day | `rating_stat` (v1 example)                              | `[ext_id, date, answer_user_id]`            | `date`                        | ❌           |
+| `reviews_replies_stats` | `/reviews/stats/replies?ext_id=<ext_id>&date=`                          | fan-out over apps, one request per day | `user_stat` object (v1 example)                         | `[ext_id, date]`                            | `date`                        | ❌           |
+| `reviews_replies_speed` | `/reviews/stats/replies/speed?ext_id=<ext_id>&date=`                    | fan-out over apps, one request per day | `replies_time_stat` (v1 example)                        | `[ext_id, date, answer_user_id]`            | `date`                        | ❌           |
+| `reviews_replies_count` | `/reviews/stats/replies/count?ext_id=<ext_id>&from=&to=`                | fan-out over apps, single request      | `list.became_worse` + `list.became_better` (v1 example) | `[ext_id, id]`                              | `date` via `from`             | ❌           |
+
+## Dated fan-out tables
+
+The six tables above marked "v1 example" walk each app over date slices (`dated_fanout` in `settings.py`).
+The v2 definitions of these endpoints publish an empty 200 schema, like every other v2 endpoint.
+Their envelope keys and columns come from the response examples in the legacy v1 reference (`https://appfollow.docs.apiary.io`), which documents the same resources under older paths (`/stat/reviews/rating`, `/stat/replies`, `/stat/replies/time`, `/reviews/answer_count`, `/reports/aso_report`, `/reviews/semantic`).
+The query parameters come from the v2 definitions.
+An unknown envelope still degrades to an empty table, not a wrong one.
+
+- `reviews_ratings_stats`, `reviews_replies_stats` and `reviews_replies_speed` take a single `date` (the date of the reviews). We send one request per app per day and stamp the day on every row. The first sync reads 30 days.
+- `/reviews/stats/replies` also takes `from`/`to`, but then returns one total for the range, so the table still walks day by day.
+- `/reviews/stats/replies` returns one object per day (`user_stat`), which becomes one row. Its per-user reply counts stay in the nested `replies` column.
+- `/reviews/stats/replies/count` returns the replied reviews whose rating changed, in two lists. We flatten them and record the list name in `rating_change`.
+- `/reports/aso` allowed one month per request in v1, so we send windows of 30 days at most. `channel=channel` returns downloads per source channel and `period=daily` returns one row per day. The first sync reads one year. The endpoint needs the App Store Connect integration in AppFollow (otherwise it answers 424).
+- `/reviews/semantic` needs the Advanced API add-on and costs 48 credits per request. It has no paging, so one request per app reads the whole window from `DEFAULT_START_DATE`.
+- Every incremental sync starts `DATED_FANOUT_LOOKBACK_DAYS` (7) before the watermark, because reply and rating statistics for a day change after that day. Merge dedupes the re-read rows on the primary key.
+- These tables declare no `sort_mode`, because the date walk restarts for every app.
+- The resume bookmark is the app's `ext_id` plus the first day of the next slice (`slice_start`), so a moved watermark cannot shift it.
 
 ## Discovery chain
 

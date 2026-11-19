@@ -106,10 +106,25 @@ class NodeRunSerializer(serializers.Serializer):
     )
 
 
+class NodeRunSkippedNodeSerializer(serializers.Serializer):
+    node_id = serializers.UUIDField(help_text="The node left out of the run.")
+    name = serializers.CharField(help_text="Name of the node left out of the run.")
+    reason = serializers.CharField(
+        help_text="Why the node was left out: its query doesn't compile, or it depends on a node whose query doesn't compile."
+    )
+
+
 class NodeRunResponseSerializer(serializers.Serializer):
     node_ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="The nodes included in the dependency run.",
+    )
+    skipped = NodeRunSkippedNodeSerializer(
+        many=True,
+        help_text=(
+            "Nodes the run selected but left out, because their query doesn't compile or they depend on one that "
+            "doesn't. Their sources can't be checked against your access, so they don't run."
+        ),
     )
 
 
@@ -839,6 +854,12 @@ class NodeViewSet(
         request=NodeRunSerializer,
         responses={
             200: NodeRunResponseSerializer,
+            400: OpenApiResponse(
+                description="The direction is missing or invalid, the node is not a view, or the node's query doesn't compile."
+            ),
+            403: OpenApiResponse(
+                description="You can't edit every view in the run, or a view in it reads a table you don't have access to."
+            ),
             409: OpenApiResponse(
                 description="The run started from the PostHog app and a view it would build is still running."
             ),
@@ -866,7 +887,7 @@ class NodeViewSet(
             )
 
         try:
-            node_ids = run_related_node_materializations(
+            run = run_related_node_materializations(
                 node.team_id,
                 node.id,
                 direction=body.validated_data["direction"],
@@ -880,7 +901,7 @@ class NodeViewSet(
             raise Conflict(str(error))
         except MaterializationRanRecentlyError as error:
             raise Throttled(wait=error.retry_after_seconds, detail=str(error))
-        return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
+        return response.Response(NodeRunResponseSerializer(run).data, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
         by_param = {

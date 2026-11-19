@@ -13,7 +13,7 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from django.conf import settings
@@ -302,4 +302,4 @@ def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
 
 
 WORKFLOWS = [AEOBrandSentimentWorkflow]
-ACTIVITIES = [classify_aeo_brand_sentiment]
+ACTIVITIES: list[Callable[..., object]] = [classify_aeo_brand_sentiment]
