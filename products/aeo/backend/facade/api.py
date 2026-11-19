@@ -48,6 +48,7 @@ from products.aeo.backend import (
     gaps,
     keyword_suggestions,
     keywords,
+    movers,
     rankings,
     suggestions,
 )
@@ -103,6 +104,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -794,11 +796,40 @@ def get_prompt_set_rankings(
     )
 
 
+def get_prompt_set_movers(
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> PromptSetMovers:
+    """The prompts whose mention rate, and the own pages whose citation rate, gained and lost the most
+    between the last `days` days in the team's timezone and the `days` days before. `branded`, `engine`
+    and `topic` keep the checks on one side of the branded split, of one engine, or of one topic."""
+    return stored_result(
+        team_id,
+        "movers",
+        (timezone_name, timezone.now().astimezone(ZoneInfo(timezone_name)).date(), days, branded.value, engine, topic),
+        lambda: movers.get_movers(
+            team_id,
+            target_domains=catalog.own_domains(team_id),
+            timezone_name=timezone_name,
+            days=days,
+            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        ),
+        refresh=refresh,
+    )
+
+
 def refresh_stored_results(team_id: int, *, timezone_name: str) -> None:
     """Compute the views the page opens on and store them, so a person who opens it never waits for
     the queries. Run it after every write that changes them, and on a timer."""
     get_prompt_set_overview(team_id, timezone_name=timezone_name, days=DEFAULT_STATS_DAYS, refresh=True)
     get_prompt_set_rankings(team_id, timezone_name=timezone_name, days=DEFAULT_STATS_DAYS, refresh=True)
+    get_prompt_set_movers(team_id, timezone_name=timezone_name, days=DEFAULT_STATS_DAYS, refresh=True)
 
 
 def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:

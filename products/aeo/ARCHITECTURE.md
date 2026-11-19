@@ -63,7 +63,7 @@ A count that names one more column reads every row in the window in full, and lo
 
 ## Stored results
 
-The overview and the rankings are the same for every person who opens the page, and their inputs change a few times a day.
+The overview, the rankings and the movers are the same for every person who opens the page, and their inputs change a few times a day.
 `stored_results.py` keeps their results, so a read is one cache lookup and no query on the checks.
 
 - **A result is stored under a data version.** Every writer calls `bump_data_version_on_commit` after it changes what a read returns, and a read looks only under the current version, so it never gets a result from before a write.
