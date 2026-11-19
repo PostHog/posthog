@@ -25,7 +25,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
+from products.warehouse_sources.backend.facade.contracts import PartitionPolicy, UnsupportedSyncTypeError
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
@@ -303,6 +303,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     Status = ExternalDataSchemaStatus
     SyncType = ExternalDataSchemaSyncType
     SyncFrequency = ExternalDataSchemaSyncFrequency
+    PartitionPolicy = PartitionPolicy
 
     name = models.CharField(max_length=400)
     label = models.CharField(max_length=400, null=True, blank=True)
@@ -339,6 +340,17 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
+    # A column rather than a `sync_type_config` key so the activity log records who changed it.
+    # db_default because pods on the previous release insert rows without this column while a deploy runs.
+    partition_policy = models.CharField(
+        max_length=32,
+        choices=PartitionPolicy.choices,
+        default=PartitionPolicy.AUTO.value,
+        db_default=PartitionPolicy.AUTO.value,
+        help_text="How PostHog partitions this table's synced data. `auto` balances query and sync speed. "
+        "`prefer_query_speed` keeps fewer, larger partitions. `prefer_sync_speed` keeps smaller partitions and "
+        "never merges them. `manual` keeps the current layout until someone repartitions the table.",
+    )
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)

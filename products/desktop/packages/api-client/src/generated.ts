@@ -11906,6 +11906,64 @@ export namespace Schemas {
         default_version: string;
     };
     /**
+     * * `auto` - Auto
+     * * `prefer_query_speed` - Prefer query speed
+     * * `prefer_sync_speed` - Prefer sync speed
+     * * `manual` - Manual
+     */
+    export type PartitionPolicyEnum =
+        | "auto"
+        | "prefer_query_speed"
+        | "prefer_sync_speed"
+        | "manual";
+    export type PartitioningSummary = {
+        /**
+         * Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out this table's synced data in partitions, which trades query speed against sync speed. `auto` (the default) balances the two. `prefer_query_speed` keeps fewer, larger partitions, so queries read fewer files but merges during a sync are heavier. `prefer_sync_speed` keeps smaller partitions and never merges them back, so syncs are lighter but queries read more files. `manual` keeps the current layout until someone repartitions the table.
+         *
+         * * `auto` - Auto
+         * * `prefer_query_speed` - Prefer query speed
+         * * `prefer_sync_speed` - Prefer sync speed
+         * * `manual` - Manual
+         */
+        policy: PartitionPolicyEnum;
+        /**
+         * Current partition mode, null before the first sync.
+         */
+        partition_mode: string | null;
+        /**
+         * Current datetime tier, for datetime mode.
+         */
+        partition_format: string | null;
+        /**
+         * Current md5 bucket count, for md5 mode.
+         */
+        partition_count: number | null;
+        /**
+         * Current bucket width, for numerical mode.
+         */
+        partition_size: number | null;
+        /**
+         * Columns the partition key is computed from.
+         */
+        partitioning_keys: Array<string> | null;
+        /**
+         * Size in bytes of the largest partition when the table was last measured.
+         */
+        max_partition_bytes: number | null;
+        /**
+         * Whether the last measurement found nothing to change. Null before the first measurement.
+         */
+        healthy: boolean | null;
+        /**
+         * ISO 8601 time of the last repartition, or of the last one the controller skipped.
+         */
+        last_repartition_at: string | null;
+        /**
+         * Whether a repartition is queued or running. The next sync runs a queued one.
+         */
+        repartition_pending: boolean;
+    };
+    /**
      * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
      */
     export type ExternalDataSchema = {
@@ -12100,6 +12158,14 @@ export namespace Schemas {
          * The effective access level the user has for this object
          */
         user_access_level: string | null;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        partition_policy?: PartitionPolicyEnum | undefined;
+        /**
+         * The table's current partitioning: scheme, size of the largest partition, whether the last measurement found nothing to change, and when it was last repartitioned. Left out of the response when the partitioning controls feature is off for the project.
+         */
+        partitioning: PartitioningSummary | null;
     };
     /**
      * * `warehouse` - warehouse

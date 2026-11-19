@@ -234,6 +234,7 @@ rules:
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
                               |ExternalDataSchemaOOMEvent
+                              |ExternalDataSchemaRepartition
                               |ExternalDataSource
                               |ExternalDataSourceDestination
                               |FeatureFlag
@@ -789,6 +790,7 @@ rules:
                         |ExternalDataJob
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
+                        |ExternalDataSchemaRepartition
                         |ExternalDataSource
                         |FeatureFlag
                         |FeatureFlagCodeAnalysis

@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this external data schema.",
+            "type": "string"
+        },
+        "partition_count": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Number of md5 buckets. Required for `md5` mode."
+        },
+        "partition_format": {
+            "anyOf": [
+                {
+                    "description": "* `month` - One partition per month\n* `week` - One partition per week\n* `day` - One partition per day\n* `hour` - One partition per hour",
+                    "enum": ["month", "week", "day", "hour"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Datetime tier. Required for `datetime` mode. A coarser tier means fewer, larger partitions.\n\n* `month` - One partition per month\n* `week` - One partition per week\n* `day` - One partition per day\n* `hour` - One partition per hour"
+        },
+        "partition_mode": {
+            "anyOf": [
+                {
+                    "description": "* `datetime` - Datetime\n* `md5` - MD5\n* `numerical` - Numerical",
+                    "enum": ["datetime", "md5", "numerical"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Partition mode to rewrite into. Omit to keep the current mode.\n\n* `datetime` - Datetime\n* `md5` - MD5\n* `numerical` - Numerical"
+        },
+        "partition_size": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Width of each numerical bucket. Required for `numerical` mode."
+        },
+        "partitioning_keys": {
+            "description": "Columns to compute the partition key from. Omit to keep the current keys. `datetime` and `numerical` take exactly one column, and need it when the mode changes.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

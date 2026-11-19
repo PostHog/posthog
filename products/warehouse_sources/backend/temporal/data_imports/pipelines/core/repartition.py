@@ -651,6 +651,8 @@ def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    allow_hour_tier: bool = True,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the next finer partition scheme, returning (target, reason).
 
@@ -661,7 +663,8 @@ def select_repartition_target(
     reason explains why (reported in metrics so a skipped table is diagnosable): `within_budget`,
     `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
     hash — otherwise a datetime table out of tiers falls back to md5), `numerical_cannot_shrink`,
-    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    `numerical_no_size`, `unpartitionable_no_keys`, or `hour_tier_needs_oom` (the next datetime tier is
+    `hour` and the caller passed `allow_hour_tier=False`). A chosen target carries reason `selected`.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -721,11 +724,14 @@ def select_repartition_target(
                 partition_mode="md5",
                 partition_count=max(1, math.ceil(total_bytes / target_partition_bytes)),
             ), "selected"
+        next_format = DATETIME_FORMAT_TIERS[current_index + 1]
+        if next_format == "hour" and not allow_hour_tier:
+            return None, "hour_tier_needs_oom"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
             partition_mode="datetime",
-            partition_format=DATETIME_FORMAT_TIERS[current_index + 1],
+            partition_format=next_format,
         ), "selected"
 
     # Unpartitioned but over budget: attempt to enable partitioning via auto-detection. Needs keys.
@@ -828,7 +834,7 @@ def simulate_datetime_coarsening(
     return dict(merged)
 
 
-def _simulate_modulo_coarsening(partition_bytes: dict[str | None, int], new_count: int) -> dict[str | None, int] | None:
+def simulate_modulo_coarsening(partition_bytes: dict[str | None, int], new_count: int) -> dict[str | None, int] | None:
     """Bytes per bucket after reducing an md5 scheme to `new_count` buckets.
 
     Exact only because `new_count` divides the current count: a row in bucket `h % N` lands in
@@ -842,7 +848,7 @@ def _simulate_modulo_coarsening(partition_bytes: dict[str | None, int], new_coun
     return dict(merged)
 
 
-def _simulate_numerical_coarsening(
+def simulate_numerical_coarsening(
     partition_bytes: dict[str | None, int], multiplier: int
 ) -> dict[str | None, int] | None:
     """Bytes per bucket after growing a numerical partition size by `multiplier`.
@@ -872,6 +878,7 @@ def select_coarsen_target(
     *,
     min_md5_count: int = 1,
     preferred_md5_count: int | None = None,
+    min_reduction_factor: int = COARSEN_MIN_REDUCTION_FACTOR,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the coarsest partition scheme whose largest partition still fits `target_partition_bytes`.
 
@@ -902,7 +909,7 @@ def select_coarsen_target(
         return (
             simulated is not None
             and max(simulated.values()) <= target_partition_bytes
-            and len(simulated) * COARSEN_MIN_REDUCTION_FACTOR <= current_count
+            and len(simulated) * min_reduction_factor <= current_count
         )
 
     if mode == "datetime":
@@ -944,7 +951,7 @@ def select_coarsen_target(
         if not allowed:
             return None, "md5_at_partition_floor"
         fitting = [
-            new_count for new_count in allowed if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count))
+            new_count for new_count in allowed if acceptable(simulate_modulo_coarsening(partition_bytes, new_count))
         ]
         if not fitting:
             return None, "no_coarser_layout_fits"
@@ -966,7 +973,7 @@ def select_coarsen_target(
             return None, "numerical_no_size"
         multiplier = 2 ** math.floor(math.log2(max(current_count, 1))) if current_count > 1 else 1
         while multiplier >= 2:
-            if acceptable(_simulate_numerical_coarsening(partition_bytes, multiplier)):
+            if acceptable(simulate_numerical_coarsening(partition_bytes, multiplier)):
                 return RepartitionTarget(
                     partition_keys=keys,
                     trigger_reason="",

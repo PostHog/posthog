@@ -26,6 +26,7 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.integrations import IntegrationUsage
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
@@ -757,6 +758,34 @@ class StaffSchemasPage:
     number: int
     num_pages: int
     count: int
+
+
+class PartitionPolicy(LabeledStrEnum):
+    """How the automatic repartition controller trades query speed against sync speed for one table."""
+
+    AUTO = "auto", "Auto"
+    PREFER_QUERY_SPEED = "prefer_query_speed", "Prefer query speed"
+    PREFER_SYNC_SPEED = "prefer_sync_speed", "Prefer sync speed"
+    MANUAL = "manual", "Manual"
+
+
+class RepartitionStatus(LabeledStrEnum):
+    FLAGGED = "flagged", "Flagged"
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
+
+
+class RepartitionRefusal(StrEnum):
+    INVALID_SCHEME = "invalid_scheme"
+    OVER_BUDGET = "over_budget"
+    UNKNOWN_SIZE = "unknown_size"
+    READ_FAILED = "read_failed"
+    UNSUPPORTED = "unsupported"
+    BUSY = "busy"
+    COOLDOWN = "cooldown"
+    PAUSE_FAILED = "pause_failed"
 
 
 @frozen

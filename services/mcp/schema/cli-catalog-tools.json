@@ -22404,6 +22404,10 @@
                 {
                     "param": "api_version",
                     "key": "api_version"
+                },
+                {
+                    "param": "partition_policy",
+                    "key": "partition_policy"
                 }
             ],
             "injectBody": {},
@@ -22429,6 +22433,40 @@
             "validators": []
         }
     },
+    "external-data-schemas-partitioning-retrieve": {
+        "name": "external-data-schemas-partitioning-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/external_data_schemas/{id}/partitioning/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["schema_id", "schemaId"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
     "external-data-schemas-reload": {
         "name": "external-data-schemas-reload",
         "kind": "http",
@@ -22442,6 +22480,61 @@
             "fallbacks": [],
             "query": null,
             "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["schema_id", "schemaId"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "external-data-schemas-repartition-create": {
+        "name": "external-data-schemas-repartition-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/external_data_schemas/{id}/repartition/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "partition_mode",
+                    "key": "partition_mode"
+                },
+                {
+                    "param": "partition_format",
+                    "key": "partition_format"
+                },
+                {
+                    "param": "partition_count",
+                    "key": "partition_count"
+                },
+                {
+                    "param": "partition_size",
+                    "key": "partition_size"
+                },
+                {
+                    "param": "partitioning_keys",
+                    "key": "partitioning_keys"
+                }
+            ],
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
