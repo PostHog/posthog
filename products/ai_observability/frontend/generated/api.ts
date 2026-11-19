@@ -16,6 +16,8 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilitySessionsListParams,
+    AiObservabilitySessionsRetrieveParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
@@ -166,6 +168,9 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
     ScoreHistogramApi,
+    SessionAvailabilityApi,
+    SessionListApi,
+    SessionListItemApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -696,6 +701,89 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     options?: RequestInit
 ): Promise<OfflineHistoryPageApi> => {
     return apiMutator<OfflineHistoryPageApi>(getAiObservabilityOfflineScorersHistoryListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsListUrl = (projectId: string, params?: AiObservabilitySessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/`
+}
+
+/**
+ * The project's sessions that have a trace in a date range, newest activity first, a page at a time. Each
+ * session's facts cover the whole session, not only the traces in the range.
+ */
+export const aiObservabilitySessionsList = async (
+    projectId: string,
+    params?: AiObservabilitySessionsListParams,
+    options?: RequestInit
+): Promise<SessionListApi> => {
+    return apiMutator<SessionListApi>(getAiObservabilitySessionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/sessions/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/sessions/${id}/`
+}
+
+/**
+ * One session with its facts over its whole extent, for a direct link with no list row to read it from.
+ */
+export const aiObservabilitySessionsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilitySessionsRetrieveParams,
+    options?: RequestInit
+): Promise<SessionListItemApi> => {
+    return apiMutator<SessionListItemApi>(getAiObservabilitySessionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilitySessionsAvailabilityUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/sessions/availability/`
+}
+
+/**
+ * Whether the project has any AI event with a session id within the AI events retention.
+ */
+export const aiObservabilitySessionsAvailability = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SessionAvailabilityApi> => {
+    return apiMutator<SessionAvailabilityApi>(getAiObservabilitySessionsAvailabilityUrl(projectId), {
         ...options,
         method: 'GET',
     })

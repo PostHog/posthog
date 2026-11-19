@@ -116653,6 +116653,50 @@ export namespace Schemas {
       date_to: string;
     }
 
+    export interface SessionAvailability {
+      /** Whether any AI event in the retention window carries a session id. */
+      hasSessions: boolean;
+    }
+
+    export interface TraceNodeStats {
+      costUsd: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      cacheReadTokens: number | null;
+      cacheWriteTokens: number | null;
+      latencyMs: number | null;
+    }
+
+    export interface SessionListItem {
+      /** The session id, as sent in `$ai_session_id`. */
+      id: string;
+      /** When the session's first turn started. */
+      firstSeen: string;
+      /** When the session's last activity ended. */
+      lastSeen: string;
+      /** Milliseconds from the first turn's start to the last answer. */
+      durationMs: number | null;
+      /** How many traces the session holds, one per turn. */
+      turnCount: number;
+      /** The sum of the session's trace totals, whatever the list's date range. Latency is the total time the user waited, summed over the turns. */
+      totals: TraceNodeStats;
+      /** How many of the session's turns have an error. */
+      erroredTurns: number;
+      /** The distinct id of whoever ran the first turn, or null when it has none. */
+      distinctId: string | null;
+      /** The session's first trace. Titles and people are read by this id. */
+      firstTraceId: string;
+      /** When the first trace started, for links that need a hint. */
+      firstTraceCreatedAt: string;
+    }
+
+    export interface SessionList {
+      /** A page of sessions, by latest activity in range, newest first. */
+      items: SessionListItem[];
+      /** The cursor of the next page, or null on the last one. */
+      nextCursor: string | null;
+    }
+
     export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
 
     export interface SessionRecording {
@@ -124668,15 +124712,6 @@ export namespace Schemas {
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
-    export interface TraceNodeStats {
-      costUsd: number | null;
-      inputTokens: number | null;
-      outputTokens: number | null;
-      cacheReadTokens: number | null;
-      cacheWriteTokens: number | null;
-      latencyMs: number | null;
-    }
-
     export interface TracePerson {
       distinctId: string;
       label: string;
@@ -125174,6 +125209,82 @@ export namespace Schemas {
       kind: 'messages';
       /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
       messages: TraceMessage[];
+    }
+
+    export type TraceMetricKey = typeof TraceMetricKey[keyof typeof TraceMetricKey];
+
+
+    export const TraceMetricKey = {
+      Cost: 'cost',
+      Users: 'users',
+      Sessions: 'sessions',
+      Traces: 'traces',
+      ErrorRate: 'error_rate',
+      P95Latency: 'p95_latency',
+    } as const;
+
+    export interface TraceMetricBucket {
+      /** The start of the bucket, in the project's time zone. */
+      start: string;
+      /** The value of each metric over the traces that started in the bucket. */
+      values: Partial<Record<TraceMetricKey, number | null>>;
+    }
+
+    export type TraceMetricBucketSize = typeof TraceMetricBucketSize[keyof typeof TraceMetricBucketSize];
+
+
+    export const TraceMetricBucketSize = {
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
+    export type TraceMetricChangeUnit = typeof TraceMetricChangeUnit[keyof typeof TraceMetricChangeUnit];
+
+
+    export const TraceMetricChangeUnit = {
+      Percent: 'percent',
+      Points: 'points',
+      Seconds: 'seconds',
+    } as const;
+
+    export type TraceMetricStatus = typeof TraceMetricStatus[keyof typeof TraceMetricStatus];
+
+
+    export const TraceMetricStatus = {
+      Ok: 'ok',
+      NotSetUp: 'not_set_up',
+    } as const;
+
+    export interface TraceMetricTile {
+      /** The metric this tile shows. */
+      key: TraceMetricKey;
+      /** The metric over the date range. Cost is in USD, error rate is a fraction from 0 to 1, p95 latency is in seconds. Null when the range has nothing to compute it from. */
+      value: number | null;
+      /** The metric over the period of the same length right before the date range, or null. */
+      previous: number | null;
+      /** How far the value moved from the previous period, in `changeUnit`. Null when either side is null, or when a percent change has a previous value of zero. */
+      change: number | null;
+      /** The unit of `change`. */
+      changeUnit: TraceMetricChangeUnit;
+      /** `not_set_up` when the project has traces in the range but none carries the data this metric needs, such as no cost, no latency, no session or no identified user. */
+      status: TraceMetricStatus;
+    }
+
+    export interface TraceMetrics {
+      /** The start of the date range. */
+      dateFrom: string;
+      /** The end of the date range. */
+      dateTo: string;
+      /** The start of the previous period the tiles compare against. */
+      previousDateFrom: string;
+      /** The end of the previous period, which is `dateFrom`. */
+      previousDateTo: string;
+      /** The width of each bucket. */
+      bucketSize: TraceMetricBucketSize;
+      /** One tile for each metric. */
+      tiles: TraceMetricTile[];
+      /** One bucket for each hour or day of the date range, oldest first, with no gaps. */
+      buckets: TraceMetricBucket[];
     }
 
     export interface TraceNodeContent {
@@ -135476,6 +135587,66 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
+    export type AiObservabilitySessionsListParams = {
+    /**
+     * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * How many sessions a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Lists only traces whose events belong to the person with this UUID.
+     */
+    person_id?: string;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    /**
+     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string;
+    };
+
+    export type AiObservabilitySessionsRetrieveParams = {
+    /**
+     * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
+     */
+    timestamp?: string;
+    };
+
     export type AiObservabilityTracesListParams = {
     /**
      * A trace id, to read the page that holds that trace with the traces before it. Send only one of cursor, beforeCursor and around.
@@ -135670,6 +135841,24 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesMetricsListParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
     };
 
     export type AlertsListParams = {

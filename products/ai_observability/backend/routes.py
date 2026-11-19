@@ -34,6 +34,7 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
+from products.ai_observability.backend.presentation.views.sessions import SessionViewSet
 from products.ai_observability.backend.presentation.views.trace_clusters import TraceClustersViewSet
 from products.ai_observability.backend.presentation.views.trace_evaluations import TraceEvaluationsViewSet
 from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
@@ -73,6 +74,9 @@ def register_routes(routers: RouterRegistry) -> None:
         AIObservabilityInstrumentationChecklistViewSet,
         "project_ai_observability_instrumentation_checklist",
         ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/sessions", SessionViewSet, "project_ai_observability_sessions", ["team_id"]
     )
     # Registered before the traces, so that the trace route does not read "previews" and the others as a trace id.
     for prefix, viewset, basename in [

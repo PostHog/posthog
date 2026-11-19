@@ -69,7 +69,7 @@ from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
-from ..logic.traces.events_fallback import fallback_window, page_window
+from ..logic.traces.events_fallback import FallbackWindow, fallback_window, page_window
 from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeedback, roll_up_by_step
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
@@ -81,6 +81,8 @@ from ..logic.traces.previews import page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
 from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
+from ..logic.traces.session_queries import SessionFacts, load_has_sessions, load_session_facts
+from ..logic.traces.session_selection_queries import decode_session_cursor, encode_session_cursor, load_session_page
 from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
@@ -188,6 +190,8 @@ class NoScoreScaleError(Exception):
 TRACE_LIST_DEFAULT_LIMIT: Final = 50
 TRACE_LIST_MAX_LIMIT: Final = 100
 TRACE_TURNS_MAX_IDS: Final = 20
+SESSION_LIST_DEFAULT_LIMIT: Final = 50
+SESSION_LIST_MAX_LIMIT: Final = 100
 
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
@@ -292,6 +296,76 @@ def _load_page_around(team: Team, user: User, selection: TraceSelection, trace_i
         has_more=forward.has_more,
         has_before=before.has_before or len(kept) < len(before.positions),
         counts=forward.counts,
+    )
+
+
+def load_session_list(
+    team: Team, user: User | None, selection: TraceSelection, *, cursor: str | None, limit: int
+) -> Callable[[], contracts.SessionList]:
+    """Loads a page of the selection's sessions, newest activity first, with each session's facts over its whole
+    extent, and returns the step that builds the list. Raises `InvalidTraceCursorError` for a cursor this read did not
+    hand out. A session with no events found is left out. The step runs no query."""
+    page = load_session_page(
+        team, user, selection, after=decode_session_cursor(cursor) if cursor is not None else None, limit=limit
+    )
+    read_window = selection.window.read_bounds()
+    facts = load_session_facts(
+        team,
+        user,
+        page.session_ids,
+        include_support_traces=selection.include_support_traces,
+        fallback=FallbackWindow(start=read_window.start, end=read_window.end),
+    )
+    next_cursor = encode_session_cursor(page.last_position) if page.has_more and page.last_position else None
+    return lambda: contracts.SessionList(
+        items=[_to_session_item(facts[session_id]) for session_id in page.session_ids if session_id in facts],
+        next_cursor=next_cursor,
+    )
+
+
+def get_session(
+    team: Team,
+    user: User | None,
+    session_id: str,
+    *,
+    hint: datetime | None,
+    include_support_traces: bool = False,
+) -> contracts.SessionListItem | None:
+    """A session older than the AI events retention is read from the shared events table around `hint`, and is not
+    found without one."""
+    facts = load_session_facts(
+        team,
+        user,
+        [session_id],
+        include_support_traces=include_support_traces,
+        fallback=fallback_window(hint) if hint is not None else None,
+    )
+    return _to_session_item(facts[session_id]) if session_id in facts else None
+
+
+def has_sessions(team: Team, user: User | None) -> contracts.SessionAvailability:
+    return contracts.SessionAvailability(has_sessions=load_has_sessions(team, user, now()))
+
+
+def _to_session_item(facts: SessionFacts) -> contracts.SessionListItem:
+    return contracts.SessionListItem(
+        id=facts.session_id,
+        first_seen=facts.first_seen,
+        last_seen=facts.last_seen,
+        duration_ms=facts.duration_ms,
+        turn_count=facts.turn_count,
+        totals=contracts.TraceNodeStats(
+            cost_usd=facts.cost_usd,
+            input_tokens=facts.input_tokens,
+            output_tokens=facts.output_tokens,
+            cache_read_tokens=facts.cache_read_tokens,
+            cache_write_tokens=facts.cache_write_tokens,
+            latency_ms=facts.wait_ms,
+        ),
+        errored_turns=facts.errored_turns,
+        distinct_id=facts.distinct_id,
+        first_trace_id=facts.first_trace_id,
+        first_trace_created_at=facts.first_trace_created_at,
     )
 
 

@@ -536,6 +536,33 @@ class TraceListItem(TraceOverview):
     )
 
 
+class SessionListItem(Contract):
+    id: str = Field(description="The session id, as sent in `$ai_session_id`.")
+    first_seen: datetime = Field(description="When the session's first turn started.")
+    last_seen: datetime = Field(description="When the session's last activity ended.")
+    duration_ms: float | None = Field(description="Milliseconds from the first turn's start to the last answer.")
+    turn_count: int = Field(description="How many traces the session holds, one per turn.")
+    totals: TraceNodeStats = Field(
+        description="The sum of the session's trace totals, whatever the list's date range. Latency is the total "
+        "time the user waited, summed over the turns."
+    )
+    errored_turns: int = Field(description="How many of the session's turns have an error.")
+    distinct_id: str | None = Field(
+        description="The distinct id of whoever ran the first turn, or null when it has none."
+    )
+    first_trace_id: str = Field(description="The session's first trace. Titles and people are read by this id.")
+    first_trace_created_at: datetime = Field(description="When the first trace started, for links that need a hint.")
+
+
+class SessionList(Contract):
+    items: list[SessionListItem] = Field(description="A page of sessions, by latest activity in range, newest first.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
+class SessionAvailability(Contract):
+    has_sessions: bool = Field(description="Whether any AI event in the retention window carries a session id.")
+
+
 class TraceListCounts(Contract):
     total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
     errors: int = Field(description="How many of them have an error.")

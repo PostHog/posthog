@@ -1504,6 +1504,41 @@ export interface TraceNodeStatsApi {
     latencyMs: number | null
 }
 
+export interface SessionListItemApi {
+    /** The session id, as sent in `$ai_session_id`. */
+    id: string
+    /** When the session's first turn started. */
+    firstSeen: string
+    /** When the session's last activity ended. */
+    lastSeen: string
+    /** Milliseconds from the first turn's start to the last answer. */
+    durationMs: number | null
+    /** How many traces the session holds, one per turn. */
+    turnCount: number
+    /** The sum of the session's trace totals, whatever the list's date range. Latency is the total time the user waited, summed over the turns. */
+    totals: TraceNodeStatsApi
+    /** How many of the session's turns have an error. */
+    erroredTurns: number
+    /** The distinct id of whoever ran the first turn, or null when it has none. */
+    distinctId: string | null
+    /** The session's first trace. Titles and people are read by this id. */
+    firstTraceId: string
+    /** When the first trace started, for links that need a hint. */
+    firstTraceCreatedAt: string
+}
+
+export interface SessionListApi {
+    /** A page of sessions, by latest activity in range, newest first. */
+    items: SessionListItemApi[]
+    /** The cursor of the next page, or null on the last one. */
+    nextCursor: string | null
+}
+
+export interface SessionAvailabilityApi {
+    /** Whether any AI event in the retention window carries a session id. */
+    hasSessions: boolean
+}
+
 export interface TraceHumanReviewScoreApi {
     /** The scorer's name. */
     name: string
@@ -7193,6 +7228,66 @@ export const AiObservabilityOfflineScorersHistoryListTagMatch = {
     Any: 'any',
     All: 'all',
 } as const
+
+export type AiObservabilitySessionsListParams = {
+    /**
+     * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * How many sessions a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Lists only traces whose events belong to the person with this UUID.
+     */
+    person_id?: string
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+    /**
+     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string
+}
+
+export type AiObservabilitySessionsRetrieveParams = {
+    /**
+     * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
+     */
+    timestamp?: string
+}
 
 export type AiObservabilityTracesListParams = {
     /**

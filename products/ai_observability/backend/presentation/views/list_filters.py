@@ -1,0 +1,98 @@
+from typing import Any
+
+from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
+
+from posthog.api.mixins import ValidatedRequest
+from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.permissions import scopes_caller_lacks
+
+from ...facade import api
+from .property_filters import QUERY_SCOPE, QUERY_SCOPE_REQUIRED, PropertyFiltersField, filters_need_query_scope
+
+
+def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.IntegerField:
+    return serializers.IntegerField(
+        min_value=1,
+        max_value=maximum,
+        default=default,
+        help_text=f"How many {noun} a page holds, from 1 to {maximum}. Defaults to {default}.",
+    )
+
+
+class ListFilterQuerySerializer(serializers.Serializer):
+    """The filter and paging params that the traces list and the sessions list share. Each list adds its own `limit`."""
+
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, "
+        "or all for the past year. Defaults to seven days ago.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time "
+        "includes that whole day. Defaults to now.",
+    )
+    properties = PropertyFiltersField(
+        required=False,
+        help_text=f"Up to {api.MAX_PROPERTY_FILTERS} property filters as a JSON-encoded list. A trace is listed when one "
+        "of its events matches every filter. Supported types are event, event_metadata, person, session, group, "
+        "cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the "
+        f"{QUERY_SCOPE} scope.",
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Whether to leave out events from the project's test accounts. Defaults to the project's own "
+        "setting for filtering test accounts.",
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring "
+        "case. Leading and trailing spaces are ignored, and a blank value searches nothing.",
+    )
+    person_id = serializers.UUIDField(
+        required=False,
+        help_text="Lists only traces whose events belong to the person with this UUID.",
+    )
+    group_key = serializers.CharField(
+        required=False,
+        help_text="Lists only traces whose events belong to the group with this key. Send it with group_type_index.",
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=GROUP_TYPES_LIMIT - 1,
+        help_text=f"The index of the group type that group_key belongs to, from 0 to {GROUP_TYPES_LIMIT - 1}. "
+        "Send it with group_key.",
+    )
+    cursor = serializers.CharField(
+        required=False,
+        help_text="The nextCursor of the previous page, to read the page after it. Leave it out for the first page.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if ("group_key" in attrs) != ("group_type_index" in attrs):
+            raise serializers.ValidationError("Send group_key and group_type_index together.")
+        return attrs
+
+
+def selection_filters(query: dict[str, Any]) -> dict[str, Any]:
+    """The `TraceSelection` arguments that the shared filter params set."""
+    return {
+        "properties": query.get("properties", ()),
+        "filter_test_accounts": query["filter_test_accounts"],
+        "search": query.get("search") or None,
+        "person_id": str(query["person_id"]) if "person_id" in query else None,
+        "group": api.TraceGroupScope(key=query["group_key"], type_index=query["group_type_index"])
+        if "group_key" in query
+        else None,
+    }
+
+
+def require_query_scope_for_filters(request: ValidatedRequest, query: dict[str, Any]) -> None:
+    if filters_need_query_scope(query.get("properties", ())) and scopes_caller_lacks(request, [QUERY_SCOPE]):
+        raise PermissionDenied(QUERY_SCOPE_REQUIRED)
