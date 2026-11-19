@@ -545,7 +545,9 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
+        if isinstance(data, Mapping) and (
+            data.get("scheduled_at") is not None or "scheduled_at" in getattr(data, "repeated", {})
+        ):
             team = self.context.get("team")
             if team is not None and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
                 fix = "To schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out"
@@ -584,7 +586,7 @@ class ScheduledAtField(serializers.DateTimeField):
         if isinstance(dictionary, MultiValueDict):
             values = dictionary.getlist(self.field_name)
             if len(values) > 1:
-                return values
+                return _Repeated(values)
             if values == [""]:
                 return ""
         repeated = getattr(dictionary, "repeated", {}).get(self.field_name)
@@ -598,8 +600,10 @@ class ScheduledAtField(serializers.DateTimeField):
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
-        if isinstance(value, list):
+        if isinstance(value, _Repeated):
             self.fail("repeated")
+        if not isinstance(value, str | datetime):
+            self.fail("invalid_format")
         shape = SCHEDULED_AT_SHAPE.fullmatch(value) if isinstance(value, str) else None
         if isinstance(value, str) and shape is None:
             self.fail("invalid_format")
@@ -616,18 +620,31 @@ class ScheduledAtField(serializers.DateTimeField):
         return scheduled_at
 
 
+class _Repeated(list):
+    pass
+
+
 class _JsonObject(dict):
-    repeated: dict[str, list[Any]]
+    repeated: dict[str, _Repeated]
 
     @classmethod
     def from_pairs(cls, pairs: list[tuple[str, Any]]) -> "_JsonObject":
         obj = cls(pairs)
         obj.repeated = {}
         if len(obj) < len(pairs):
-            for key in {key for key, _ in pairs if key in obj}:
-                values = [value for pair_key, value in pairs if pair_key == key]
-                if len(values) > 1:
-                    obj.repeated[key] = values
+            values_by_key: dict[str, _Repeated] = {}
+            for key, value in pairs:
+                values_by_key.setdefault(key, _Repeated()).append(value)
+            obj.repeated = {key: values for key, values in values_by_key.items() if len(values) > 1}
+        return obj
+
+    @classmethod
+    def carrying_repeats_of(cls, source: Mapping[str, Any], data: Mapping[str, Any]) -> Mapping[str, Any]:
+        repeated = getattr(source, "repeated", None)
+        if not repeated:
+            return data
+        obj = cls(data)
+        obj.repeated = repeated
         return obj
 
 
@@ -644,6 +661,9 @@ class SendBodyJSONParser(JSONParser):
             )
         except ValueError as exc:
             raise ParseError(f"JSON parse error - {exc}")
+
+
+SEND_BODY_PARSERS = [SendBodyJSONParser, FormParser, MultiPartParser]
 
 
 CODE_SEND_FIELDS = (
@@ -772,11 +792,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         # posthog-node 5.61.0 and posthog 7.81.0 send `template.id` and `identifiers.distinct_id`, so that shape
         # stays accepted. It is left out of the schema so that new callers use the flat fields.
         if isinstance(data, Mapping):
+            source = data
             template, identifiers = data.get("template"), data.get("identifiers")
             if "template_id" not in data and isinstance(template, Mapping):
                 data = {**data, "template_id": template.get("id")}
             if "distinct_id" not in data and isinstance(identifiers, Mapping):
                 data = {**data, "distinct_id": identifiers.get("distinct_id")}
+            data = _JsonObject.carrying_repeats_of(source, data)
         return super().to_internal_value(data)
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -1229,7 +1251,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                schedule = _scheduled_send_properties(scheduled_at if scheduled_by_cdp else None)
+                schedule = _scheduled_send_properties(scheduled_at, scheduled_by_cdp)
                 self._report_transactional_email_send(request, {**usage_properties, **schedule, **outcome})
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
@@ -1620,7 +1642,13 @@ class MessageTemplatesViewSet(
         ),
         parameters=[TEMPLATE_ID_PARAMETER, IDEMPOTENCY_KEY_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
+    @action(
+        detail=True,
+        methods=["POST"],
+        pagination_class=None,
+        required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE],
+        parser_classes=SEND_BODY_PARSERS,
+    )
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._end_request_validation()
         with transactional_email_stage("feature_flag"):
@@ -1694,7 +1722,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
     transactional_email_route = "send_email"
-    parser_classes = [SendBodyJSONParser, FormParser, MultiPartParser]
+    parser_classes = SEND_BODY_PARSERS
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
@@ -1809,10 +1837,10 @@ def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
         )
 
 
-def _scheduled_send_properties(scheduled_at: datetime | None) -> dict[str, Any]:
-    lead = scheduled_at - timezone.now() if scheduled_at else timedelta(0)
-    if lead <= timedelta(0):
+def _scheduled_send_properties(scheduled_at: datetime | None, scheduled: bool) -> dict[str, Any]:
+    if scheduled_at is None or not scheduled:
         return {"scheduled": False, "scheduled_lead_bucket": None}
+    lead = scheduled_at - timezone.now()
     bucket = "<1h" if lead < timedelta(hours=1) else "<1d" if lead < timedelta(days=1) else "<7d"
     return {"scheduled": True, "scheduled_lead_bucket": bucket}
 

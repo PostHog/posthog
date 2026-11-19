@@ -345,7 +345,7 @@ def _json_loads(data: bytes | str) -> Any:
 
 
 def _json_dumps(value: Any) -> str:
-    return json.dumps(value)
+    return json.dumps(value, sort_keys=True)
 
 
 def _response(status_code: int, body: dict[str, Any]) -> requests.Response:

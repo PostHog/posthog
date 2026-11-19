@@ -166,11 +166,20 @@ class TestTransactionalEmail(APIBaseTest):
         key: str | None = None,
     ) -> Any:
         headers = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
-        if isinstance(scheduled_at, list) and route in ("code", "send_email"):
-            body = self._code_send(scheduled_at=None) if route == "code" else self._flat(self.body)
-            members = [f"{json.dumps(k)}:{json.dumps(v)}" for k, v in body.items() if k != "scheduled_at"]
+        if route == "send_email_list_value":
+            body = {**self._flat(self.body), "scheduled_at": scheduled_at}
+            return client.post(self.send_email_url, body, format="json", **headers)
+        if isinstance(scheduled_at, list) and route in ("code", "send_email", "send_email_nested", "template"):
+            url = self.url if route == "template" else self.send_email_url
+            body = {
+                "code": lambda: self._code_send(),
+                "send_email": lambda: self._flat(self.body),
+                "send_email_nested": lambda: {**self.body, "template": {"id": str(self.template.id)}},
+                "template": lambda: self.body,
+            }[route]()
+            members = [f"{json.dumps(k)}:{json.dumps(v)}" for k, v in body.items() if k not in without]
             members += [f'"scheduled_at":{json.dumps(value)}' for value in scheduled_at]
-            return client.post(self.send_email_url, "{" + ",".join(members) + "}", content_type="application/json")
+            return client.post(url, "{" + ",".join(members) + "}", content_type="application/json", **headers)
         if route in ("code", "code_form", "code_key_scoped"):
             body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
             url = "/api/messaging/send/email/" if route == "code_key_scoped" else self.send_email_url
@@ -1174,6 +1183,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("a_time", "2026-11-20T09:00:00Z", (), True),
             ("an_empty_string", "", (), True),
             ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",), True),
+            ("a_time_then_null_in_json", ["2026-11-20T09:00:00Z", None], (), True),
             ("a_time_while_scheduled_sends_are_off", "2026-11-20T09:00:00Z", (), False),
         ]
     )
@@ -1349,13 +1359,16 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand([("template_key", "code"), ("template_id", "send_email")])
     def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(
-        self, mock_post, _flag, _capture, _name, route
+        self, mock_post, _flag, capture, _name, route
     ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         psak = self._psak_client(["hog_flow:write"])
 
         with FakeCdpApi().serving(mock_post) as cdp:
             with time_machine.travel("2026-11-20T08:00:00Z", tick=False):
                 first = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z", key="welcome-1")
+            self.body = {**self.body, "message_data": dict(reversed(self.body["message_data"].items()))}
             with time_machine.travel("2026-11-20T10:00:00Z", tick=False):
                 retry = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z", key="welcome-1")
                 moved = self._send_with_scheduled_at(psak, route, "2026-11-20T11:00:00Z", key="welcome-1")
@@ -1365,6 +1378,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert retry.json()["scheduled_at"] == "2026-11-20T09:00:00.000Z"
         assert (moved.status_code, moved.json()["code"]) == (422, "idempotency_key_reused")
         assert len(cdp.queued) == 1
+        events = analytics.properties_of("transactional email api send")
+        assert [event["scheduled"] for event in events[:2]] == [True, True]
 
     @parameterized.expand(
         [
@@ -1396,6 +1411,13 @@ class TestTransactionalEmail(APIBaseTest):
                 )
                 for name, route in (("template_id_json", "send_email"), ("template_key_json", "code"))
             ),
+            (
+                "nested_template_id_json_a_time_then_null",
+                "send_email_nested",
+                ["2026-11-21T09:00:00Z", None],
+                "repeated",
+            ),
+            ("template_id_a_list", "send_email_list_value", ["2026-11-21T09:00:00Z"], "invalid_format"),
             (
                 "template_key_form_a_later_time_then_one_that_passed",
                 "code_form",
