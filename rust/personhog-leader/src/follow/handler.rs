@@ -38,12 +38,13 @@ impl FollowerHandler {
         }
     }
 
-    /// The config to build a partition under: the live one, or the one its handoff
-    /// captured when that is newer. A partition built under an older one answers no reads.
+    /// The config to build a partition under: the one its handoff captured, unless the
+    /// live one supersedes it. A flip leaves the captured one on a layout no read is
+    /// answered from, and a retirement leaves it naming a generation that is gone.
     fn config_for(&self, partition: u32) -> ChangelogConfig {
         let live = self.changelog.current();
         match self.captured.get(&partition) {
-            Some(captured) if captured.epoch >= live.epoch => captured.clone(),
+            Some(captured) if !live.supersedes(&captured) => captured.clone(),
             _ => live,
         }
     }
