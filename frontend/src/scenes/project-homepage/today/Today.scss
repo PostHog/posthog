@@ -807,6 +807,13 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
+.TodayJumpRow__pin {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 1;
+}
+
 .TodayJumpRow__link {
     display: block;
     overflow: hidden;

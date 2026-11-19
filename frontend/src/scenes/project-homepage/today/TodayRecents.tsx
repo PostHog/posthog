@@ -2,7 +2,7 @@ import { Collapsible } from '@base-ui/react/collapsible'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId, useMemo } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconPin, IconPinFilled } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,24 +14,30 @@ import { TodayPreviewCardProvider } from '~/layout/today/TodayPreviewCardProvide
 import { objectPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomeHeading } from './TodayHomeHeading'
+import { TodayJumpBackPinPicker } from './TodayJumpBackPinPicker'
 import { RECENT_OBJECT_COUNT, todayLogic } from './todayLogic'
+import { JumpBackObject } from './todayRecentObjects'
 
 function RecentObjectRow({
     entry,
     position,
     frequent,
 }: {
-    entry: FileSystemEntry
+    entry: JumpBackObject
     position: number
     frequent: boolean
 }): JSX.Element {
     const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
-    const { jumpBackOpened } = useActions(todayLogic)
+    const { jumpBackOpened, toggleJumpBackPin } = useActions(todayLogic)
+    const { currentTeam } = useValues(todayLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
+    const pinned = entry.jumpBackReason === 'pinned'
+    const pinLabel = pinned ? 'Unpin from Jump back in' : 'Pin to Jump back in'
     return (
-        <li className="TodayJumpRow">
+        <li className={pinned ? 'TodayJumpRow TodayJumpRow--pinned' : 'TodayJumpRow'}>
             <TodayObjectIcon type={entry.type} className="TodayJumpRow__icon" />
             <TodayPreviewTrigger payload={preview}>
                 <LinkPrimitive
@@ -48,11 +54,26 @@ function RecentObjectRow({
                             <span className="sr-only">Last opened </span>
                             <TZLabel time={entry.last_viewed_at} showPopover={false} noStyles />
                         </time>
+                    ) : pinned ? (
+                        <span>Pinned</span>
                     ) : (
                         <span title="Last-opened time is not available">Time unknown</span>
                     )}
                 </span>
             </TodayPreviewTrigger>
+            {currentTeam && homeEditing && (
+                <Button
+                    size="icon-xs"
+                    aria-label={pinLabel}
+                    tooltip={pinLabel}
+                    aria-pressed={pinned}
+                    className="TodayJumpRow__pin"
+                    data-attr="today-home-recent-pin"
+                    onClick={() => toggleJumpBackPin(currentTeam.id, entry)}
+                >
+                    {pinned ? <IconPinFilled /> : <IconPin />}
+                </Button>
+            )}
         </li>
     )
 }
@@ -62,6 +83,7 @@ export function TodayRecents(): JSX.Element {
     const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded } = useValues(todayLogic)
     const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
     const titleId = useId()
     const shown = recentObjects.slice(0, RECENT_OBJECT_COUNT)
     const more = recentObjects.slice(RECENT_OBJECT_COUNT)
@@ -74,14 +96,20 @@ export function TodayRecents(): JSX.Element {
         >
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>Jump back in</TodayHomeHeading>
-                {recentsHasLoaded && more.length > 0 && (
-                    <Collapsible.Trigger
-                        render={<Button variant="link-muted" size="sm" className="-mx-2 -my-1 text-[13px]" />}
-                        data-attr="today-home-recent-more"
-                    >
-                        <span>{listExpanded.recents ? 'Less' : 'More'}</span>
-                        <IconChevronDown className="TodayHome__headingChevron size-3" aria-hidden />
-                    </Collapsible.Trigger>
+                {homeEditing && (
+                    <TodayJumpBackPinPicker
+                        trigger={
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="-my-1"
+                                aria-label="Pin items to Jump back in"
+                                data-attr="today-home-recent-edit"
+                            >
+                                Edit
+                            </Button>
+                        }
+                    />
                 )}
             </div>
             {!recentsHasLoaded || frequentObjectsLoading ? (
@@ -127,6 +155,22 @@ export function TodayRecents(): JSX.Element {
                                 ))}
                             </ul>
                         </Collapsible.Panel>
+                    )}
+                    {more.length > 0 && (
+                        <div className="TodayRows__footer">
+                            <Collapsible.Trigger
+                                render={<Button className="TodayRows__more" />}
+                                data-attr="today-home-recent-more"
+                            >
+                                <IconChevronDown
+                                    className={
+                                        listExpanded.recents ? 'TodayRows__moreIcon rotate-180' : 'TodayRows__moreIcon'
+                                    }
+                                    aria-hidden
+                                />
+                                <span>{listExpanded.recents ? 'Show less' : 'Show more'}</span>
+                            </Collapsible.Trigger>
+                        </div>
                     )}
                 </TodayPreviewCardProvider>
             )}

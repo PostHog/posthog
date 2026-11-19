@@ -63,4 +63,26 @@ describe('recentObjectsForHome', () => {
             expected
         )
     })
+    it('puts pinned objects first and drops them from the recent and frequent objects', () => {
+        const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
+            id,
+            path: `Dashboards/${id}`,
+            type: 'dashboard',
+            ref: id,
+        })
+        const pinned = ['p', 'b', 'q'].map(entry)
+        expect(
+            jumpBackObjectsForHome(['a', 'b', 'c'].map(entry), ['d', 'q'].map(entry), 8, pinned).map((item) => [
+                item.id,
+                item.jumpBackReason,
+            ])
+        ).toEqual([
+            ['p', 'pinned'],
+            ['b', 'pinned'],
+            ['q', 'pinned'],
+            ['a', 'recent'],
+            ['c', 'recent'],
+            ['d', 'frequent'],
+        ])
+    })
 })

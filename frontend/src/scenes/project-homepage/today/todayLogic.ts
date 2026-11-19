@@ -56,7 +56,7 @@ import {
 } from './todayForYouRows'
 import { greetingFor } from './todayGreeting'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { JumpBackObject, jumpBackObjectsForHome } from './todayRecentObjects'
+import { JumpBackObject, jumpBackObjectsForHome, objectKey } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
 import type { TodayReportState } from './todayReportState'
 import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
@@ -208,6 +208,8 @@ export interface todayLogicValues {
     now: number
     promoBanner: TodayPromoBanner | null
     recentObjects: JumpBackObject[]
+    jumpBackPins: Record<string, FileSystemEntry[]>
+    pinnedObjects: FileSystemEntry[]
     reportId: string | null
     reportOpenContext: TodayReportOpenContext | null
     reportPreviews: Record<string, TodayReportPreview>
@@ -270,6 +272,13 @@ export interface todayLogicActions {
     ) => {
         position: number
         product: string
+    }
+    toggleJumpBackPin: (
+        teamId: number,
+        entry: FileSystemEntry
+    ) => {
+        teamId: number
+        entry: FileSystemEntry
     }
     jumpBackOpened: (
         entry: FileSystemEntry,
@@ -376,7 +385,15 @@ export interface todayLogicMeta {
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
         greeting: (now: number, user: UserType | null) => string
-        recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
+        pinnedObjects: (
+            jumpBackPins: Record<string, FileSystemEntry[]>,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => FileSystemEntry[]
+        recentObjects: (
+            recents: FileSystemEntry[],
+            frequentObjects: FileSystemEntry[],
+            pinnedObjects: FileSystemEntry[]
+        ) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
             moreReports: TodayMoreReports | null,
@@ -488,6 +505,7 @@ export const todayLogic = kea<todayLogicType>([
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
+        toggleJumpBackPin: (teamId: number, entry: FileSystemEntry) => ({ teamId, entry }),
         jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
@@ -598,6 +616,21 @@ export const todayLogic = kea<todayLogicType>([
     reducers({
         // Turned on with `?sample=1` and kept until `?sample=0`, so the sample survives moving between pages.
         useSampleData: [false, { persist: true }, { setUseSampleData: (_, { useSampleData }) => useSampleData }],
+        jumpBackPins: [
+            {} as Record<string, FileSystemEntry[]>,
+            { persist: true },
+            {
+                toggleJumpBackPin: (state, { teamId, entry }) => {
+                    const pins = state[teamId] ?? []
+                    const key = objectKey(entry)
+                    const { jumpBackReason: _, ...stored } = entry as JumpBackObject
+                    const next = pins.some((pin) => objectKey(pin) === key)
+                        ? pins.filter((pin) => objectKey(pin) !== key)
+                        : [...pins, stored]
+                    return { ...state, [teamId]: next }
+                },
+            },
+        ],
         // A question about a report waits for the report's current state before PostHog AI opens.
         askingAi: [false, { askAi: (_, { report }) => !!report, askAiFinished: () => false }],
         expandedReportRows: [
@@ -667,10 +700,21 @@ export const todayLogic = kea<todayLogicType>([
             (s) => [s.now, s.user],
             (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
+        pinnedObjects: [
+            (s) => [s.jumpBackPins, s.currentTeam],
+            (
+                jumpBackPins: Record<string, FileSystemEntry[]>,
+                currentTeam: TeamPublicType | TeamType | null
+            ): FileSystemEntry[] => (currentTeam ? (jumpBackPins[currentTeam.id] ?? []) : []),
+        ],
         recentObjects: [
-            (s) => [s.recents, s.frequentObjects],
-            (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]): JumpBackObject[] =>
-                jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT),
+            (s) => [s.recents, s.frequentObjects, s.pinnedObjects],
+            (
+                recents: FileSystemEntry[],
+                frequentObjects: FileSystemEntry[],
+                pinnedObjects: FileSystemEntry[]
+            ): JumpBackObject[] =>
+                jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT, pinnedObjects),
         ],
         shownReportIds: [(s) => [s.reports], (reports: SignalReport[]): string[] => reports.map((report) => report.id)],
         currentMoreReports: [
@@ -894,6 +938,15 @@ export const todayLogic = kea<todayLogicType>([
         }
         return {
             loadCurrentTeamSuccess: () => actions.loadFrequentObjects(),
+            toggleJumpBackPin: ({ teamId, entry }) => {
+                if (!values.useSampleData) {
+                    posthog.capture('today jump back pin toggled', {
+                        object_type: entry.type,
+                        pinned: (values.jumpBackPins[teamId] ?? []).some((pin) => objectKey(pin) === objectKey(entry)),
+                        pin_count: (values.jumpBackPins[teamId] ?? []).length,
+                    })
+                }
+            },
             jumpBackOpened: ({ entry, position, frequent }) => {
                 if (!values.useSampleData) {
                     posthog.capture('today jump back opened', {
