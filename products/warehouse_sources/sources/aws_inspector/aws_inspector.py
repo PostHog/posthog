@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     probe_status_message,
@@ -35,7 +36,6 @@ TRANSPORT_RETRY = BoundedRetry(
     allowed_methods=frozenset(["POST"]),
     raise_on_status=False,
 )
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 ECR_IMAGE_COVERAGE_FILTER = {
     "resourceType": [{"comparison": "EQUALS", "value": "AWS_ECR_CONTAINER_IMAGE"}],
     "scanType": [{"comparison": "EQUALS", "value": "PACKAGE"}],
@@ -177,7 +177,7 @@ def fetch_page(
 
 
 def normalize_row(endpoint: AwsInspectorEndpoint, item: dict[str, Any], region: str) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    row = {camel_to_snake(key): value for key, value in item.items()}
     for column in endpoint.timestamp_columns:
         if row.get(column) is not None:
             row[column] = dt.datetime.fromtimestamp(timestamp(row[column]), tz=dt.UTC)
