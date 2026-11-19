@@ -11,7 +11,9 @@ from django.db.models.lookups import GreaterThan, LessThanOrEqual
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.models import SignalReport, SignalSpend
+from products.signals.backend.trial.limits import TRIAL_OPEN_SIGNAL_LIMIT, TRIAL_RESEARCH_RESERVE_MICROUSD
 from products.signals.backend.trial.models import SignalTrialGrant
 
 
@@ -21,10 +23,18 @@ class TrialUsage:
     running_microusd: int
     reports: int
     running_reports: int
+    researching_reports: int = 0
+    researching_microusd: int = 0
+    open_signals: int = 0
 
     @property
     def spend_microusd(self) -> int:
         return self.settled_microusd + self.running_microusd
+
+    @property
+    def committed_microusd(self) -> int:
+        reserved = self.researching_reports * TRIAL_RESEARCH_RESERVE_MICROUSD
+        return self.spend_microusd - self.researching_microusd + max(self.researching_microusd, reserved)
 
     def exhaustion_reason(self, grant: SignalTrialGrant) -> str:
         if self.spend_microusd >= grant.allowance_microusd:
@@ -33,8 +43,26 @@ class TrialUsage:
             return "report_limit"
         return ""
 
+    def finished(self, grant: SignalTrialGrant) -> bool:
+        """Whether the trial is over. Running reports also exhaust the grant, but they can still end not actionable."""
+        return self.spend_microusd >= grant.allowance_microusd or self.reports >= grant.report_limit
 
-def trial_usage(grant: SignalTrialGrant) -> TrialUsage:
+    def research_refusal(self, grant: SignalTrialGrant) -> str:
+        """Why one more research run cannot start on the grant. Empty when it can."""
+        if self.committed_microusd + TRIAL_RESEARCH_RESERVE_MICROUSD > grant.allowance_microusd:
+            return "cost_limit"
+        if self.reports + self.running_reports >= grant.report_limit:
+            return "report_limit"
+        return ""
+
+    @property
+    def signal_backlog_full(self) -> bool:
+        return self.open_signals >= TRIAL_OPEN_SIGNAL_LIMIT
+
+
+def trial_usage(grant: SignalTrialGrant, *, exclude_report_id: UUID | None = None) -> TrialUsage:
+    """Usage of the grant. `exclude_report_id` leaves out the report that asks to start research, so it does not
+    compete with itself for a report slot or a research reserve."""
     # The grant belongs to the canonical project, including its child environments.
     spend = (
         SignalSpend.objects.unscoped()
@@ -42,22 +70,34 @@ def trial_usage(grant: SignalTrialGrant) -> TrialUsage:
         .aggregate(
             settled=Sum("spend", filter=Q(finalized_at__isnull=False), default=Decimal(0)),
             running=Sum("spend", filter=Q(finalized_at__isnull=True), default=Decimal(0)),
+            researching=Sum(
+                "spend", filter=Q(finalized_at__isnull=True, kind=SignalSpend.Kind.RESEARCH), default=Decimal(0)
+            ),
+            open_signals=Count("id", filter=Q(kind=SignalSpend.Kind.AD_HOC, finalization_requested_at__isnull=True)),
         )
     )
-    delivered = Q(first_visible_at__gte=grant.claimed_at)
+    # The trial promises reports the customer can act on, so a report that research judged not actionable
+    # does not use one of them.
+    delivered = Q(first_visible_at__gte=grant.claimed_at) & ~Q(
+        latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value
+    )
     running = Q(
         first_visible_at__isnull=True,
         self_driving_funding__grant_id=str(grant.id),
         status__in=[SignalReport.Status.POTENTIAL, SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS],
     )
+    researching = Q(self_driving_funding__grant_id=str(grant.id), status=SignalReport.Status.IN_PROGRESS)
     project_teams = Team.objects.filter(Q(id=grant.team_id) | Q(parent_team_id=grant.team_id)).values("id")
+    project_reports = SignalReport.objects.filter(team_id__in=project_teams)
+    if exclude_report_id is not None:
+        project_reports = project_reports.exclude(id=exclude_report_id)
     reports = (
-        SignalReport.objects.filter(team_id__in=project_teams)
-        .filter(delivered | running)
+        project_reports.filter(delivered | running | researching)
         .filter(Q(billing_exempt_reason__isnull=True) | Q(billing_exempt_reason=""))
         .aggregate(
             delivered=Count("id", filter=delivered),
             running=Count("id", filter=running),
+            researching=Count("id", filter=researching),
         )
     )
     return TrialUsage(
@@ -65,6 +105,9 @@ def trial_usage(grant: SignalTrialGrant) -> TrialUsage:
         running_microusd=int(spend["running"] * 10_000),
         reports=reports["delivered"],
         running_reports=reports["running"],
+        researching_reports=reports["researching"],
+        researching_microusd=int(spend["researching"] * 10_000),
+        open_signals=spend["open_signals"],
     )
 
 

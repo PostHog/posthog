@@ -17,6 +17,7 @@ from anthropic.types import Message, Usage
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from requests.exceptions import ReadTimeout
+from temporalio.exceptions import ApplicationError
 
 from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.gateway_usage import GatewayRequestCost
@@ -47,6 +48,7 @@ from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.temporal.summary import (
+    TRIAL_RESEARCH_DEFERRED_ERROR_TYPE,
     CheckReportQuotaGateInput,
     MarkReportInProgressInput,
     check_report_quota_gate_activity,
@@ -58,7 +60,7 @@ from products.signals.backend.trial.direct_reports import funded_report, funded_
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
 from products.signals.backend.trial.llm_execution import TrialLLMExecution
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import TrialPolicy, TrialRefused, TrialResearchDeferred
 from products.signals.backend.trial.reports import (
     implementation_requires_trial_opt_in,
     prepare_report_pass,
@@ -299,10 +301,16 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             self._exhaust_grant(grant)
             self.flag_mock.return_value = True
         with patch(
-            "products.signals.backend.trial.billing.paid_trial_continuation_authorized",
-            side_effect=AssertionError("Accepted work must not request new payment authorization"),
-        ):
+            "products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False
+        ) as paid:
+            if exhausted:
+                with self.assertRaises(TrialResearchDeferred):
+                    prepare_report_pass(
+                        team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id
+                    )
+                return
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
+        paid.assert_not_called()
 
         report.refresh_from_db()
         funding = TrialFunding.from_dict(report.self_driving_funding)
@@ -474,7 +482,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         assert original.spend == 10 and original.trial_grant_id == grant.id
         assert SignalSpend.objects.for_team(self.team.id).get(signal_id=pending_id).finalized_at is not None
 
-    def test_accepted_free_signal_keeps_report_funding_after_trial_exhaustion(self) -> None:
+    def test_accepted_free_signal_does_not_start_trial_research_after_exhaustion(self) -> None:
         grant = self.claim()
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="original")
@@ -482,14 +490,14 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         self.flag_mock.return_value = True
         signal_id = str(uuid4())
         admit_signal(team=self.team, signal_id=signal_id, billing_exempt=True)
-        with patch(
-            "products.signals.backend.trial.billing.paid_trial_continuation_authorized",
-            side_effect=AssertionError("Accepted work must not request new payment authorization"),
+        with (
+            patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False),
+            self.assertRaises(TrialResearchDeferred),
         ):
             prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="promoted", signal_id=signal_id)
         report.refresh_from_db()
         assert report.self_driving_funding is not None
-        assert report.self_driving_funding["grant_id"] == str(grant.id)
+        assert report.self_driving_funding["report_pass_key"] == "original"
         self._assert_report_continues_with_grant(str(report.id), grant)
 
     def test_billable_signal_keeps_existing_funding_after_trial_claim(self) -> None:
@@ -535,8 +543,10 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             assert accepted is not None and report.self_driving_funding == accepted
             assert report.status == SignalReport.Status.IN_PROGRESS
 
-    @parameterized.expand([(False,), (True,)])
-    def test_accepted_signal_finishes_report_after_trial_exhaustion(self, admitted_at_emission: bool) -> None:
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_accepted_signal_does_not_start_trial_research_after_exhaustion(
+        self, admitted_at_emission: bool, paid_authorized: bool
+    ) -> None:
         grant = self.claim()
         signal_id = str(uuid4())
         if admitted_at_emission:
@@ -552,38 +562,36 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.CANDIDATE, triggering_signal_id=signal_id, signal_count=1
         )
+        start = MarkReportInProgressInput(
+            team_id=self.team.id, report_id=str(report.id), signal_id=signal_id, trial_policy_version=1
+        )
         with (
             patch(
-                "products.signals.backend.trial.billing.TrialBilling.status",
-                side_effect=AssertionError("No new payment check"),
-            ) as billing_status,
+                "products.signals.backend.trial.billing.paid_trial_continuation_authorized",
+                return_value=paid_authorized,
+            ),
             patch("products.signals.backend.temporal.summary._capture_report_event", new_callable=AsyncMock),
             patch(
                 "products.signals.backend.temporal.summary.temporalio.activity.info",
                 return_value=SimpleNamespace(workflow_run_id="accepted-signal", activity_id="first-pass"),
             ),
         ):
-            assert not async_to_sync(check_report_quota_gate_activity)(
-                CheckReportQuotaGateInput(
-                    team_id=self.team.id, report_id=str(report.id), stage="summary_entry", signal_id=signal_id
-                )
-            )
-            async_to_sync(mark_report_in_progress_activity)(
-                MarkReportInProgressInput(
-                    team_id=self.team.id, report_id=str(report.id), signal_id=signal_id, trial_policy_version=1
-                )
-            )
-        billing_status.assert_not_called()
+            if paid_authorized:
+                async_to_sync(mark_report_in_progress_activity)(start)
+            else:
+                with self.assertRaises(ApplicationError) as deferred:
+                    async_to_sync(mark_report_in_progress_activity)(start)
+                assert deferred.exception.type == TRIAL_RESEARCH_DEFERRED_ERROR_TYPE
+                assert deferred.exception.non_retryable
         report.refresh_from_db()
-        assert report.self_driving_funding is not None
-        assert report.self_driving_funding["grant_id"] == str(grant.id)
-        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
-        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=signal_id)
-        with patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False):
-            with self.assertRaises(TrialRefused):
-                prepare_report_pass(
-                    team=self.team, report_id=str(report.id), operation_key="explicit-later-rerun", signal_id=signal_id
-                )
+        if paid_authorized:
+            assert report.status == SignalReport.Status.IN_PROGRESS
+            assert report.self_driving_funding is not None
+            assert (report.self_driving_funding["funding"], report.self_driving_funding["grant_id"]) == ("paid", "")
+            return
+        assert (report.status, report.self_driving_funding) == (SignalReport.Status.CANDIDATE, None)
+        assert report.triggering_signal_id is None
+        assert trial_usage(grant).open_signals == 0
 
     def test_older_report_can_implement_after_the_project_claims_a_trial(self) -> None:
         report = SignalReport.objects.create(team=self.team)

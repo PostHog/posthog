@@ -1,6 +1,10 @@
 from posthog.dataclasses import frozen
 
 MAX_TRIAL_GRANTS_PER_ORGANIZATION = 1
+# Held against the allowance for each research run in flight, because a run books most of its cost when it ends.
+TRIAL_RESEARCH_RESERVE_MICROUSD = 1_700_000
+TRIAL_OPEN_SIGNAL_LIMIT = 10
+TRIAL_FIRST_SYNC_RECORD_LIMIT = 3
 
 
 @frozen

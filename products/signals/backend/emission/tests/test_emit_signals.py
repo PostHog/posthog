@@ -88,6 +88,7 @@ def no_trial() -> Iterator[None]:
         patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=False),
         patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
         patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+        patch(f"{ACTIVITY_MODULE_PATH}.trial_first_sync_record_limit", return_value=None),
     ):
         yield
 
