@@ -143,6 +143,7 @@ from products.access_control.backend.facade.user_access_control import (
     resource_to_display_name,
 )
 from products.access_control.backend.presentation.access_control import (
+    AccessControlSerializer,
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
@@ -2463,10 +2464,19 @@ class ProjectViewSet(
         return UserPermissions(cast(User, self.request.user), team)
 
 
+@extend_schema_view(
+    access_controls=extend_schema(
+        exclude=False,
+        methods=["PUT"],
+        request=AccessControlSerializer,
+        responses={200: AccessControlSerializer, 204: None},
+    ),
+)
 class RootProjectViewSet(ProjectViewSet):
     # NOTE: We don't want people creating projects via the "current_organization" concept, but rather specify the org ID
     # in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+    include_actions_in_api_docs = {"access_controls": ("PUT",)}
 
 
 class PremiumMultiProjectPermission(BasePermission):
