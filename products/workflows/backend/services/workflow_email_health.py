@@ -149,10 +149,17 @@ def build_warn_thresholds() -> list[DetectorThreshold]:
 
 
 @frozen
+class JudgedCounts:
+    counts: EmailSendingCounts
+    earlier_sent: int
+
+
+@frozen
 class ProjectBreach:
     sent: int
     events: int
     rate: float
+    earlier_sent: int = 0
 
 
 @frozen
@@ -165,6 +172,7 @@ class PauseDecision:
     events: int
     rate: float
     project: ProjectBreach | None = None
+    earlier_sent: int = 0
 
     @property
     def reason(self) -> str:
@@ -205,6 +213,10 @@ def _rate(events: int, sent: int) -> float:
     # the window for sends just outside it can push the ratio past 1. Clamp to 100%, matching the
     # reputation endpoint: past 100% the number stops meaning anything.
     return min(1.0, events / sent) if sent else 0.0
+
+
+def _crosses(*, events: int, sent: int, earlier_sent: int, rate: float) -> bool:
+    return _rate(events, sent) >= rate and _rate(events, max(sent, earlier_sent)) >= rate
 
 
 def _discover_candidate_team_ids(*, now: datetime, thresholds: list[DetectorThreshold]) -> set[int]:
@@ -297,14 +309,14 @@ def _breach(
     flow: HogFlow,
     flow_name: str,
     counts: EmailSendingCounts,
+    earlier_sent: int,
     threshold: DetectorThreshold,
 ) -> PauseDecision | None:
     events = _events_for_signal(counts, threshold.signal)
     # Both volume gates first: 1 complaint out of 12 sends is a 8% rate and no information.
     if counts.sent < threshold.min_sent or events < threshold.min_events:
         return None
-    rate = _rate(events, counts.sent)
-    if rate < threshold.rate:
+    if not _crosses(events=events, sent=counts.sent, earlier_sent=earlier_sent, rate=threshold.rate):
         return None
     return PauseDecision(
         team_id=flow.team_id,
@@ -313,7 +325,8 @@ def _breach(
         threshold=threshold,
         sent=counts.sent,
         events=events,
-        rate=rate,
+        rate=_rate(events, counts.sent),
+        earlier_sent=earlier_sent,
     )
 
 
@@ -322,18 +335,20 @@ def _project_breach(
     flow: HogFlow,
     flow_name: str,
     counts: EmailSendingCounts,
+    earlier_sent: int,
     project_counts: EmailSendingCounts,
+    project_earlier_sent: int,
     threshold: DetectorThreshold,
 ) -> PauseDecision | None:
     project_events = _events_for_signal(project_counts, threshold.signal)
     if project_counts.sent < threshold.min_sent or project_events < threshold.min_events:
         return None
-    project_rate = _rate(project_events, project_counts.sent)
-    if project_rate < threshold.rate:
+    if not _crosses(
+        events=project_events, sent=project_counts.sent, earlier_sent=project_earlier_sent, rate=threshold.rate
+    ):
         return None
     events = _events_for_signal(counts, threshold.signal)
-    rate = _rate(events, counts.sent)
-    if events == 0 or rate < threshold.rate:
+    if events == 0 or not _crosses(events=events, sent=counts.sent, earlier_sent=earlier_sent, rate=threshold.rate):
         return None
     return PauseDecision(
         team_id=flow.team_id,
@@ -342,8 +357,14 @@ def _project_breach(
         threshold=threshold,
         sent=counts.sent,
         events=events,
-        rate=rate,
-        project=ProjectBreach(sent=project_counts.sent, events=project_events, rate=project_rate),
+        rate=_rate(events, counts.sent),
+        project=ProjectBreach(
+            sent=project_counts.sent,
+            events=project_events,
+            rate=_rate(project_events, project_counts.sent),
+            earlier_sent=project_earlier_sent,
+        ),
+        earlier_sent=earlier_sent,
     )
 
 
@@ -351,28 +372,43 @@ def _first_breach(
     *,
     flow: HogFlow,
     flow_name: str,
-    counts: EmailSendingCounts,
-    project_counts: EmailSendingCounts,
+    judged: JudgedCounts,
+    project: JudgedCounts,
     thresholds: list[DetectorThreshold],
 ) -> PauseDecision | None:
     for threshold in thresholds:
-        decision = _breach(flow=flow, flow_name=flow_name, counts=counts, threshold=threshold)
+        decision = _breach(
+            flow=flow,
+            flow_name=flow_name,
+            counts=judged.counts,
+            earlier_sent=judged.earlier_sent,
+            threshold=threshold,
+        )
         if decision is not None:
             return decision
     for threshold in thresholds:
         decision = _project_breach(
-            flow=flow, flow_name=flow_name, counts=counts, project_counts=project_counts, threshold=threshold
+            flow=flow,
+            flow_name=flow_name,
+            counts=judged.counts,
+            earlier_sent=judged.earlier_sent,
+            project_counts=project.counts,
+            project_earlier_sent=project.earlier_sent,
+            threshold=threshold,
         )
         if decision is not None:
             return decision
     return None
 
 
-def _summed(counts: list[EmailSendingCounts]) -> EmailSendingCounts:
-    return EmailSendingCounts(
-        sent=sum(item.sent for item in counts),
-        bounced_hard=sum(item.bounced_hard for item in counts),
-        complained=sum(item.complained for item in counts),
+def _summed(judged: list[JudgedCounts]) -> JudgedCounts:
+    return JudgedCounts(
+        counts=EmailSendingCounts(
+            sent=sum(item.counts.sent for item in judged),
+            bounced_hard=sum(item.counts.bounced_hard for item in judged),
+            complained=sum(item.counts.complained for item in judged),
+        ),
+        earlier_sent=sum(item.earlier_sent for item in judged),
     )
 
 
@@ -425,13 +461,18 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
         window_start = window_end - window
         warn_group = [threshold for threshold in warn_thresholds if threshold.window == window]
         counts_by_team = _counts_by_flow(team_ids=sorted(candidate_team_ids), after=window_start, before=window_end)
+        earlier_by_team = _counts_by_flow(
+            team_ids=sorted(counts_by_team), after=window_start - window, before=window_start
+        )
         for team_id, (counts_by_flow, names_by_flow_id) in counts_by_team.items():
-            judged: dict[str, tuple[HogFlow, EmailSendingCounts]] = {}
+            earlier_by_flow = earlier_by_team.get(team_id, ({}, {}))[0]
+            judged: dict[str, tuple[HogFlow, JudgedCounts]] = {}
             for flow_id, counts in counts_by_flow.items():
                 flow = flows_by_id.get(flow_id)
                 if flow is None or flow.team_id != team_id:
                     continue
                 effective_counts = counts
+                earlier_sent = earlier_by_flow.get(flow_id, EmailSendingCounts()).sent
                 resumed_at = flow.email_sending_resumed_at
                 if resumed_at is not None and _hour_ceil(resumed_at) > window_start:
                     # Re-arm after a resume. Without this, feedback that arrived before the pause
@@ -439,14 +480,16 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     # The clamp starts at the first full hour after the resume: the resume hour's
                     # rows can hold pre-resume feedback merged with post-resume feedback, so that
                     # partial hour is not judgeable either way.
-                    effective_counts = _clamped_counts_for_flow(
-                        flow=flow, after=_hour_ceil(resumed_at), before=window_end
-                    )
-                judged[flow_id] = (flow, effective_counts)
+                    clamped_start = _hour_ceil(resumed_at)
+                    effective_counts = _clamped_counts_for_flow(flow=flow, after=clamped_start, before=window_end)
+                    earlier_sent = _clamped_counts_for_flow(
+                        flow=flow, after=clamped_start - (window_end - clamped_start), before=clamped_start
+                    ).sent
+                judged[flow_id] = (flow, JudgedCounts(counts=effective_counts, earlier_sent=earlier_sent))
             # Paused workflows are out of scope, so a project's totals hold only the workflows
             # that still send: the feedback that paused one cannot pause its siblings again.
-            project_counts = _summed([counts for _, counts in judged.values()])
-            for flow_id, (flow, effective_counts) in judged.items():
+            project = _summed([counts for _, counts in judged.values()])
+            for flow_id, (flow, flow_counts) in judged.items():
                 # One pause per workflow per sweep. The first breach is the one reported, and the
                 # windows are walked shortest first so the reason names the tightest signal.
                 if flow_id in paused_flow_ids:
@@ -455,8 +498,8 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                 decision = _first_breach(
                     flow=flow,
                     flow_name=flow_name,
-                    counts=effective_counts,
-                    project_counts=project_counts,
+                    judged=flow_counts,
+                    project=project,
                     thresholds=group,
                 )
                 if decision is not None:
@@ -471,8 +514,8 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                 warning = _first_breach(
                     flow=flow,
                     flow_name=flow_name,
-                    counts=effective_counts,
-                    project_counts=project_counts,
+                    judged=flow_counts,
+                    project=project,
                     thresholds=warn_group,
                 )
                 if warning is not None:
@@ -687,11 +730,13 @@ def _decision_log_fields(decision: PauseDecision) -> dict[str, str | int | float
         "signal": decision.threshold.signal,
         "window": decision.threshold.window_label,
         "emails_sent": decision.sent,
+        "earlier_emails_sent": decision.earlier_sent,
         "events": decision.events,
         "rate": decision.rate,
         "threshold_rate": decision.threshold.rate,
         "scope": _scope(decision),
         "project_emails_sent": decision.project.sent if decision.project else decision.sent,
+        "project_earlier_emails_sent": decision.project.earlier_sent if decision.project else decision.earlier_sent,
         "project_rate": decision.project.rate if decision.project else decision.rate,
     }
 

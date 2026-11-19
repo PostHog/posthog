@@ -297,6 +297,47 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         warned = sorted(call.kwargs["hog_flow_id"] for call in self.warning_email.call_args_list)
         assert warned == sorted([str(self.flow.id), str(spreading.id)])
 
+    @parameterized.expand(
+        [
+            ("late_bounces_after_a_large_send_the_day_before", [(0, 30, 100_000, 0), (0, 1, 2000, 120)], None, []),
+            ("steady_sender", [(0, 30, 2000, 0), (0, 1, 2000, 120)], None, [0]),
+            ("late_bounces_in_the_hour_after_a_large_send", [(0, 2, 3000, 0), (0, 1, 300, 40)], None, []),
+            (
+                "project_breach_after_a_sibling_sent_a_large_batch",
+                [(0, 1, 150, 30), (1, 1, 150, 30), (2, 1, 150, 5), (2, 2, 3000, 0)],
+                None,
+                [],
+            ),
+            ("late_bounces_after_a_resume", [(0, 2, 5000, 0), (0, 1, 1200, 80)], 2, []),
+        ]
+    )
+    def test_feedback_is_judged_against_the_sends_of_the_window_before(
+        self,
+        _name: str,
+        seeds: list[tuple[int, int, int, int]],
+        resumed_hours_ago: int | None,
+        paused: list[int],
+    ):
+        flows = [
+            self.flow,
+            HogFlow.objects.create(name="Second blast", team=self.team),
+            HogFlow.objects.create(name="Onboarding", team=self.team),
+        ]
+        for flow_index, hours_ago, sent, hard_bounces in seeds:
+            self._seed(
+                source_id=str(flows[flow_index].id),
+                sent=sent,
+                hard_bounces=hard_bounces,
+                at=self.now - timedelta(hours=hours_ago),
+            )
+        if resumed_hours_ago is not None:
+            self.flow.email_sending_resumed_at = self.now - timedelta(hours=resumed_hours_ago, minutes=-5)
+            self.flow.save(update_fields=["email_sending_resumed_at"])
+
+        applied, _ = self._sweep()
+
+        assert sorted(decision.hog_flow_id for decision in applied) == sorted(str(flows[i].id) for i in paused)
+
     def test_warning_is_not_repeated_within_the_cooldown(self):
         self._seed(sent=10000, complaints=20)
         self.flow.email_sending_warned_at = self.now - timedelta(days=1)
