@@ -417,7 +417,7 @@ def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest
 
 
 @pytest.mark.parametrize(
-    "ownership, summary, expected_head",
+    "ownership, summary, unreadable, expected_head",
     [
         # Individual-only ownership must reach the prompt, not collapse to
         # "no ownership-source match", and the team-membership note (computed
@@ -425,13 +425,26 @@ def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest
         (
             {"teams": [], "individuals": ["@handle"]},
             "individually owned by @handle",
+            False,
             "Ownership: individually owned by @handle",
         ),
-        ({"teams": [], "individuals": []}, "", "Ownership: no ownership-source match"),
+        ({"teams": [], "individuals": []}, "", False, "Ownership: no ownership-source match"),
+        (
+            {"teams": [], "individuals": []},
+            "",
+            True,
+            "Ownership: unknown, because the ownership files could not be read at the merge base. Treat"
+            " a rule this PR adds or changes as one that takes paths another team owns.",
+        ),
     ],
 )
-def test_format_ownership_individual_only(ownership: dict, summary: str, expected_head: str) -> None:
-    cl = {"ownership": ownership, "ownership_summary": summary, "author_on_owning_team": False}
+def test_format_ownership_individual_only(ownership: dict, summary: str, unreadable: bool, expected_head: str) -> None:
+    cl = {
+        "ownership": ownership,
+        "ownership_summary": summary,
+        "author_on_owning_team": False,
+        "ownership_unreadable": unreadable,
+    }
     out = Reviewer(Path("."))._format_ownership(cl)
     assert out.splitlines()[0] == expected_head
     assert "NOT on the owning team" not in out

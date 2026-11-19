@@ -4,6 +4,7 @@ import threading
 import pytest
 from unittest.mock import MagicMock, patch
 
+from structlog.testing import capture_logs
 from trino.exceptions import HttpError, TrinoQueryError, TrinoUserError
 
 from products.managed_warehouse.backend import trino_execution as execution
@@ -56,6 +57,41 @@ async def test_cancellation_reaches_cursor_and_waits_for_cleanup(deadline_expire
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_logs_each_query_id_while_the_model_is_still_running() -> None:
+    first_query_id = "20261118_000000_00001_first"
+    second_query_id = "20261118_000000_00002_second"
+    cursor = MagicMock(query_id=first_query_id)
+    release = threading.Event()
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        control.attach(cursor)
+        assert release.wait(10)
+        return 42
+
+    def logged_query_ids() -> list[str]:
+        return [log["trino_query_id"] for log in logs if "trino_query_id" in log]
+
+    async def until_logged(count: int) -> None:
+        async with asyncio.timeout(10):
+            while len(logged_query_ids()) < count:
+                await asyncio.sleep(0)
+
+    with patch.object(execution, "TRINO_QUERY_ID_LOG_SECONDS", 0), capture_logs() as logs:
+        task = asyncio.create_task(execution.run_trino_model(execute, query_seconds=60))
+        try:
+            await until_logged(1)
+            for _ in range(3):
+                await asyncio.sleep(0)
+            cursor.query_id = second_query_id
+            await until_logged(2)
+        finally:
+            release.set()
+        assert await task == 42
+
+    assert logged_query_ids() == [first_query_id, second_query_id]
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 import type { ReplayVideoExportContext } from '@/api/replayVideo'
 
-import { videoSecondsForSessionSeconds } from './videoTime'
+import { sessionSecondsForVideoSeconds, videoSecondsForSessionSeconds } from './videoTime'
 
 // Half a second of pre-roll, 10 s of activity, a 90 s idle stretch the render skipped, a gap the player never marked,
 // then 30 s of activity.
@@ -33,5 +33,18 @@ describe('videoSecondsForSessionSeconds', () => {
         ],
     ])('%s', (_name, sessionSeconds, context, expected) => {
         expect(videoSecondsForSessionSeconds(sessionSeconds, context)).toBeCloseTo(expected, 6)
+    })
+})
+
+describe('sessionSecondsForVideoSeconds', () => {
+    test.each<[string, number, ReplayVideoExportContext | undefined, number]>([
+        ['an active stretch runs with the session', 5.5, CUT, 5],
+        ['the frame after a cut lands where playback resumed', 10.56, CUT, 110],
+        ['a later active stretch runs ahead by the cut', 25.58, CUT, 125],
+        ['pre-roll before the first stretch reads as its start', 0.2, CUT, 0],
+        ['past the end reads as the last stretch end', 99, CUT, 140],
+        ['without periods both clocks read the same', 25, { video_duration_s: 60 }, 25],
+    ])('%s', (_name, videoSeconds, context, expected) => {
+        expect(sessionSecondsForVideoSeconds(videoSeconds, context)).toBeCloseTo(expected, 6)
     })
 })

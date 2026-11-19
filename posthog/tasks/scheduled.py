@@ -13,7 +13,11 @@ from posthog.cloud_utils import is_hobby
 from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
-from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
+from posthog.tasks.calculate_cohort import (
+    dispatch_static_cohort_reconciliations,
+    finalize_cohort_backfill_runs,
+    publish_cohort_backfill_run_gauges,
+)
 from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
@@ -77,7 +81,11 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
+from products.aeo.backend.facade.tasks import (
+    refresh_aeo_stored_results_task,
+    run_aeo_citation_checks_task,
+    score_aeo_sentiment_backlog_task,
+)
 from products.ai_gateway.backend.facade.tasks import sweep_ineligible_dev_token_owners
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
@@ -1403,6 +1411,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="publish cohort backfill run gauges",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/30"),
+        dispatch_static_cohort_reconciliations.s(),
+        name="dispatch static cohort reconciliations",
+    )
+
     # Poll PandaDoc for legal documents we still think are unsigned and archive
     # any signed PDFs that missed their webhook — the safety net that recovers
     # dropped completion webhooks and the current signed-but-stuck backlog.
@@ -1445,5 +1460,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         score_aeo_sentiment_backlog_task.s(),
         name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
+    )
+    # More often than a stored result lives, so the views the page opens on are always stored.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_aeo_stored_results_task.s(),
+        name="AEO stored results refresh",
         expires_seconds=9 * 60,
     )

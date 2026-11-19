@@ -83,6 +83,7 @@ export enum Scene {
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
+    ExploreFlagCalls = 'ExploreFlagCalls',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -104,6 +105,8 @@ export enum Scene {
     IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgeLibraries = 'BusinessKnowledgeLibraries',
+    BusinessKnowledgeLibrary = 'BusinessKnowledgeLibrary',
     BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
@@ -114,7 +117,6 @@ export enum Scene {
     Library = 'Library',
     AnalyticsList = 'AnalyticsList',
     AnalyticsSpaces = 'AnalyticsSpaces',
-    AnalyticsProductHome = 'AnalyticsProductHome',
     Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
@@ -456,6 +458,8 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Business knowledge
     [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibraries]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibrary]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,

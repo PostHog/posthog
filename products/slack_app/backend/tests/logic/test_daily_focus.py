@@ -2,14 +2,21 @@ from datetime import UTC, datetime, time
 from zoneinfo import ZoneInfo
 
 import pytest
+from unittest.mock import patch
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.logic.daily_focus import claim_due_daily_focus, next_run_after, previous_run_before
+from products.slack_app.backend.logic.daily_focus import (
+    DailyFocusAccess,
+    claim_due_daily_focus,
+    daily_focus_access,
+    next_run_after,
+    previous_run_before,
+)
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.temporal.activities.slack_app_work_focus import find_slack_app_work_focus_activity
 from products.slack_app.backend.temporal.types import SlackAppWorkFocusInputs
-from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID
+from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
 
 PRAGUE = ZoneInfo("Europe/Prague")
 NINE = time(9, 0)
@@ -120,3 +127,29 @@ def test_a_daily_run_queued_without_its_claimed_time_sends_nothing(workspace_int
     )
 
     assert outcome == "superseded"
+
+
+@pytest.mark.parametrize(
+    "linked, scopes, daily_flag, search_flag, expected",
+    [
+        (True, "search:read.public", True, True, DailyFocusAccess.READY),
+        # The link predates the search scopes, and a new link would ask for them.
+        (True, "users:read", True, True, DailyFocusAccess.RELINK),
+        # A new link would not ask for them either, so there is nothing to prompt.
+        (True, "users:read", True, False, DailyFocusAccess.NONE),
+        (True, "users:read", False, True, DailyFocusAccess.NONE),
+        (False, "", True, True, DailyFocusAccess.NONE),
+    ],
+    ids=["can search", "needs relink", "relink would not help", "flag off", "not linked"],
+)
+@pytest.mark.django_db
+def test_daily_focus_access_tells_a_relink_from_no_access(
+    org_team_user, workspace_integration, link_user, linked, scopes, daily_flag, search_flag, expected
+) -> None:
+    _, _, user = org_team_user
+    if linked:
+        link_user(user, user_scopes=scopes)
+    flags = {"slack-app-daily-work-focus": daily_flag, "slack-app-link-search-scopes": search_flag}
+
+    with patch("posthoganalytics.feature_enabled", side_effect=lambda key, *a, **k: flags[key]):
+        assert daily_focus_access(workspace_integration, SLACK_USER_ID) is expected

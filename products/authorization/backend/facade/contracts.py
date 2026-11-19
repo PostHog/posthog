@@ -57,6 +57,15 @@ class Resource:
     created_by_id: int | None = None
     parent: Parent | None = None
 
+    @classmethod
+    def project(cls, project_id: int) -> Self:
+        """One project, by the id of its main team."""
+        return cls(type=ResourceType.PROJECT, id=str(project_id))
+
+    @classmethod
+    def organization(cls, organization_id: UUID | str) -> Self:
+        return cls(type=ResourceType.ORGANIZATION, id=str(organization_id))
+
 
 @dataclass(frozen=True, kw_only=True)
 class Subject:

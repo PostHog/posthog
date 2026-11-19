@@ -108,12 +108,16 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(web["health"]["error_rate"], 0.1)
         self.assertAlmostEqual(web["health"]["request_rate"], 10 / 7200, places=6)
         self.assertGreaterEqual(web["health"]["p95_ms"], 50)
+        # Nine fast requests and one error: the error counts as frustrated.
+        self.assertAlmostEqual(web["health"]["apdex"], 0.9)
         self.assertEqual(data["results"][2]["status"], "good")
+        self.assertAlmostEqual(data["results"][2]["health"]["apdex"], 1.0)
 
     def test_root_client_spans_count_when_a_service_has_no_server_spans(self) -> None:
         worker = next(r for r in self._list()["results"] if r["service_name"] == "worker")
         self.assertEqual(worker["health"]["span_count"], 4)
         self.assertAlmostEqual(worker["health"]["error_rate"], 0.25)
+        self.assertAlmostEqual(worker["health"]["apdex"], 0.75)
         self.assertEqual(worker["status"], "serious")
 
     def test_environment_filters_and_is_listed(self) -> None:

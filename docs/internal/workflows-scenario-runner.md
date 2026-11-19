@@ -71,7 +71,10 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
 - **Each run:** one profile, one lease, one cap.
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
+- **Live log:** while the card runs, the host copies the run's `live.jsonl` to `live.jsonl` under the run's prefix, whole lines only, waiting 5 seconds between copies, and once more when the card ends. That last copy can land after the run is marked done, and teardown can cut it short, so the run's evidence is the complete log. A failed copy never fails the run, and each copy has a time limit. `SCENARIO_LIVE_COPY=off` in the host's environment turns the copy off, and the run behaves as it did before the copy existed.
 - **Reader capacity:** a card with a `pg.failover` valve is judged on the reader's capacity around the failover request. Other cards skip that judgment, and the reader's capacity still prices the run.
+- **Enhanced Monitoring:** the stack monitors the writer every second and the reader at the production setting, so the failover card measures the reader as production runs it. The profile's optional `readerMonitoringIntervalSeconds` sets another reader interval: 1, 5, 10, 15, 30 or 60 seconds. The admission estimate prices each instance's monitoring logs at its interval.
+  An older controller rejects a profile that sets `readerMonitoringIntervalSeconds`, so remove the field from the profile before you clean up a stack with an older controller.
 - **Locally:** both cards are `invalid`, the failover card at its valve and the scale card at its CPU bar, because only a run host carries the run manifest.
 
 ## Glossary
@@ -319,7 +322,6 @@ sequenceDiagram
 ```
 
 The janitor puts a stalled job back as `available` with a future `scheduled` time, so convergence waits for every unfinished job, not only the due ones.
-That is why `load` rejects a kill, freeze or connection-drop card whose `convergeWithin` cannot cover the janitor's stall recovery.
 
 ### SES feedback: a bounce reaches suppression
 
@@ -478,7 +480,6 @@ It rejects:
 
 - unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
 - ramp steps that do not add up to `drive.for`, or a step that does not scale higher than the one before;
-- a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
@@ -503,7 +504,7 @@ A scorecard records the profile's name and hash, never its numbers.
 ```ts
 // nodejs/tests/scenarios/runner/runner.ts
 export interface Runner {
-  up(): Promise<void>
+  up(signal: AbortSignal): Promise<void>
   run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
   down(): Promise<void>
 }
@@ -529,7 +530,7 @@ export interface Runner {
 ```ts
 // nodejs/tests/scenarios/environment/environment.ts
 export interface Environment {
-  up(): Promise<void>
+  up(signal: AbortSignal): Promise<void>
   reset(settings: Profile['settings']): Promise<void>
   edgeUrl(): string
   role(name: Role): RoleHandle
@@ -554,7 +555,9 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - It takes a lock on its state directory, so one runner uses it at a time.
   - It stops the leftovers of a crashed invocation: processes whose marker names its state directory.
   - It refuses to start, exit 2, and names the command that stops each one, when a stranger runs: a CDP process without its marker, or another runner's roles. It also refuses while a port it needs is held, and while the events consumer group keeps a member it did not start.
-  - When the dev stack is not up, it writes a dev config with `hogli dev:generate --with workflows --without nodejs` into its state directory and starts it with `hogli up -d --custom <config>`, which leaves the box's saved settings alone. It always waits with `hogli wait`. The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
+  - When the dev stack is not up, it saves the stack's units in its state directory, the `workflows` intent and the units it leaves out, and generates a dev config from them with a bare `hogli dev:generate`, so no unit name reaches a command line. It starts the stack with `hogli up -d --custom <config>`, which leaves the box's saved settings alone, and gives the first start an hour to become ready, because a fresh host builds the Rust services first. It always waits with `hogli wait`, and a cancelled run stops that wait.
+    - The `nodejs` unit is left out because, with no capability group set, it runs every CDP consumer, which would share the events consumer group and the job rows.
+    - The frontend, the `ingestion` unit and the tunnel unit are left out because no card uses them. The cards produce their events straight to the CDP events topic, and `ingestion` would race the migrations of a fresh database.
   - It starts the edge and cdp-api, waits until the email and webhook templates exist in Postgres, syncing them with `hogli dev:sync-hog-templates` when they are missing, and then starts the other roles. Roles cache a missing template, so they must not start first.
 - **`reset` is complete.** It runs before every card, so a failed or crashed run never poisons the next. In order:
   1. Stop every role: `SIGCONT` then `SIGTERM` to each process group, `SIGKILL` to what is left after 10 seconds. A role still running 2 seconds after `SIGKILL` fails the stop, naming its pid.
@@ -820,25 +823,28 @@ A property is added without a version change; a rename, a removal or a change of
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
 
 The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirty` flags local edits they do not cover.
+A cloud run also publishes its environment, such as `writer_class`, `reader_acu_min`, `reader_acu_max`, `reader_monitoring_interval_seconds`, `host_class`, `engine_version` and `pooler_replicas`.
+Its `fingerprint` hashes that environment with the pooler settings and the local fingerprint.
+Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and they fingerprint apart from later runs at any interval, because the fingerprint now hashes the field.
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                                                                                                                                                                    |
-| ------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                                                                            |
-| `status_reason`     | string          | Why, in one line                                                                                                                                                                                                                           |
-| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                                                                              |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                                                                    |
-| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                                                                  |
-| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                                                                                |
-| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                                                |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                        |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                               |
-| `janitor_resets`    | number or null  | Jobs the janitor reset while the run was sampled; `duplicate_sends` allows one resend for each, `null` when the run stopped first                                                                                                          |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                                       |
-| `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                        |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                 |
+| Property            | Type            | Meaning                                                                                                                                                                                                                                                                                                   |
+| ------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                                                                                                                                           |
+| `status_reason`     | string          | Why, in one line                                                                                                                                                                                                                                                                                          |
+| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                                                                                                                                             |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                                                                                                                                   |
+| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                                                                                                                                 |
+| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                                                                                                                                               |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                                                                                                               |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                                                                                       |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                                                                                              |
+| `janitor_resets`    | number or null  | Jobs the janitor reset while the run was sampled; `duplicate_sends` allows one resend for each, `null` when the run stopped first                                                                                                                                                                         |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                                                                                                      |
+| `bars`              | array           | One entry per bar: its name, unit, `limit` (a number in that unit, absent from older scorecards) and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                                                                                       |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                                                                                |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:

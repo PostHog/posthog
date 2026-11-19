@@ -38,6 +38,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -86,10 +87,12 @@ from products.replay_vision.backend.temporal.constants import (
     on_demand_priority,
 )
 from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
     create_experiment,
     seed_scanner_spend,
     set_rank,
     snapshot_for as _snapshot_for,
+    unsynced_allowance,
 )
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.signals.backend.facade.api import (
@@ -1193,7 +1196,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     def test_scout_create_respects_the_organization_quota(
         self, _name: str, organization_limit: int | None, credit_limit: int, expected_status: int
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         self._authenticate_as_scout()
 
@@ -1234,7 +1239,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         organization_limit: int | None,
         expected_status: int,
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         ceiling = dict(ceiling)
         if ceiling.pop("armed_for_launch", False):
@@ -1306,7 +1313,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     def test_scout_duplicate_requires_a_credit_limit(
         self, _name: str, credit_limit: int | None, expected_status: int, organization_limit: int | None
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         scanner = self._create_scanner(name="source", credit_limit=credit_limit)
         self._authenticate_as_scout()
@@ -1832,7 +1841,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         ReplayScanner.objects.filter(pk=scanner.pk).update(disabled_reason=reason_before)
 
         # One free credit is left, less than one observation costs, so the sweep would stop it straight away.
-        with patch("products.replay_vision.backend.quota.FREE_TIER_MONTHLY_CREDITS", 1):
+        with unsynced_allowance(free_credits=1):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
 
         self.assertEqual(resp.status_code, status, resp.json())
@@ -3167,7 +3176,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
-        exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
+        exhausted = MagicMock(credit_limit=500, period_end=timezone.now(), awaiting_billing_sync=False)
         with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
@@ -3178,6 +3187,20 @@ class TestObserveAction(_VisionAPITestCase):
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], "replay_vision_quota_exhausted")
         self.assertEqual(report.call_args.args[2]["trigger"], "on_demand")
+
+    def test_observe_waits_for_billing_to_sync_an_unsynced_org(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-unsynced"}, format="json"
+            )
+
+        self.assertEqual((resp.status_code, resp.json()["code"]), (503, "billing_sync_pending"))
+        start_workflow.assert_not_called()
 
     def test_observe_is_refused_when_the_scanner_limit_is_reached(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3290,7 +3313,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # Enough in-flight headroom, but only one observation's worth of credits left → quota is the
         # binding limit, so the skip reason must say quota, not in-flight.
         cost = observation_credits_for_model(self.scanner.model)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost):
+        with unsynced_allowance(credit_limit=cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
@@ -3356,7 +3379,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         seed_scanner_spend(self.scanner, cost)
         ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=cost * scanner_limit_multiplier)
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost * org_quota_multiplier):
+        with unsynced_allowance(credit_limit=cost * org_quota_multiplier):
             resp = self.client.post(
                 self.bulk_url(str(self.scanner.id)), data={"session_ids": ["s-1", "s-2"]}, format="json"
             )
@@ -3431,7 +3454,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # Quota is the tighter limit, but the whole batch fits under it: one session is merely
         # already running, so no exhaustion should be reported.
         cost = observation_credits_for_model(self.scanner.model)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 2 * cost):
+        with unsynced_allowance(credit_limit=2 * cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.bulk_url(str(self.scanner.id)), data={"session_ids": ["already", "b"]}, format="json"
@@ -3629,7 +3652,7 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-quota")
 
-        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
+        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now(), awaiting_billing_sync=False)
         with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
@@ -4844,7 +4867,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+        with unsynced_allowance(credit_limit=0):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self._scan()
 
@@ -4915,7 +4938,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+        with unsynced_allowance(credit_limit=0):
             resp = self._scan(session_ids=["sess-1", "sess-2"])
 
         self.assertEqual(resp.status_code, 202, resp.json())
