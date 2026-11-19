@@ -51,6 +51,7 @@ from products.signals.backend.contracts import (
 )
 from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import (
+    ReportLinkKind,
     ReportTaskActionKind,
     ReviewerEditAction,
     ReviewerRemovalReason,
@@ -84,6 +85,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_link_summary import LinkStripKind, PlanStepState, ReportLinkSummary
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.report_monitoring_summary import (
     MonitoringLeadCheck,
@@ -1913,6 +1915,88 @@ class ReportMonitoringSummarySerializer(serializers.Serializer):
     )
 
 
+class LinkedReportRefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The linked report's id.")
+    title = serializers.CharField(allow_null=True, help_text="The linked report's title.")
+    status = serializers.ChoiceField(
+        choices=SignalReport.Status.choices,
+        help_text="The linked report's status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    implementation_pr_url = serializers.CharField(
+        allow_null=True, help_text="The linked report's primary implementation pull request, if one is attached."
+    )
+    implementation_pr_state = serializers.ChoiceField(
+        choices=SignalReportAssignment.PrState.choices,
+        allow_null=True,
+        help_text="Latest known state of that pull request: unknown, draft, open, closed, or merged.",
+    )
+
+
+class LinkPlanStepSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The step's report id.")
+    title = serializers.CharField(allow_null=True, help_text="The step's report title.")
+    state = serializers.ChoiceField(
+        choices=PlanStepState.choices,
+        help_text=(
+            "`merged`: the step's pull request merged or the step resolved. `in_review`: the step has a pull "
+            "request that is not closed. `waiting`: no work is in flight yet. `dismissed`: the step was archived."
+        ),
+    )
+
+
+class LinkPlanSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The plan's report id.")
+    title = serializers.CharField(allow_null=True, help_text="The plan's report title.")
+    status = serializers.ChoiceField(
+        choices=SignalReport.Status.choices,
+        help_text="The plan's report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
+    steps = LinkPlanStepSerializer(
+        many=True,
+        help_text="The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out.",
+    )
+    lead_step_id = serializers.UUIDField(
+        help_text=(
+            "The step to show for the whole plan: the first step in review, else the first waiting step, else the "
+            "last step."
+        ),
+    )
+    position = serializers.IntegerField(
+        allow_null=True,
+        help_text="This report's place among the steps, from 1. Null when this report is the plan.",
+    )
+
+
+class OtherReportLinkSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ReportLinkKind.choices, help_text="How this report relates to the other.")
+    report = LinkedReportRefSerializer(help_text="The other report.")
+
+
+class ReportLinkSummarySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=LinkStripKind.choices,
+        help_text=(
+            "The link the inbox row shows. `part_of`: this report is a step of `plan`. `plan`: this report is the "
+            "plan, and `plan` lists its steps. Other values name an outgoing link to `report`. The order of "
+            "preference is plan, `recurrence_of`, `duplicate_of`, `depends_on`, `follow_up_of`."
+        ),
+    )
+    report = LinkedReportRefSerializer(
+        allow_null=True,
+        help_text="The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`.",
+    )
+    also_follow_up = serializers.BooleanField(
+        help_text="True when this report is also a follow-up of the same report it recurs after.",
+    )
+    plan = LinkPlanSummarySerializer(
+        allow_null=True, help_text="The plan, when `kind` is `part_of` or `plan`. Null otherwise."
+    )
+    other_links = OtherReportLinkSerializer(
+        many=True,
+        help_text="This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out.",
+    )
+
+
 class ReportSourceSuggestionSerializer(serializers.Serializer):
     product = serializers.ChoiceField(
         choices=SuggestedSourceProduct.choices,
@@ -3527,6 +3611,12 @@ class SignalReportListSerializer(SignalReportSerializer):
             "with open follow-up checks."
         ),
     )
+    link_summary = serializers.SerializerMethodField(
+        help_text=(
+            "The one link the inbox row shows, read for the whole page at once. Null when the report links to no "
+            "live report, is no plan, or the inbox card links rollout is off for the organization."
+        ),
+    )
 
     class Meta(SignalReportSerializer.Meta):
         fields = [
@@ -3535,8 +3625,15 @@ class SignalReportListSerializer(SignalReportSerializer):
             "personal_tier",
             "personal_reason",
             "monitoring_summary",
+            "link_summary",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(ReportLinkSummarySerializer(allow_null=True))
+    def get_link_summary(self, obj: SignalReport) -> dict[str, object] | None:
+        summaries: dict[str, ReportLinkSummary] = self.context.get("link_summaries_map", {})
+        summary = summaries.get(str(obj.id))
+        return dict(ReportLinkSummarySerializer(summary).data) if summary is not None else None
 
     @extend_schema_field(ReportMonitoringSummarySerializer(allow_null=True))
     def get_monitoring_summary(self, obj: SignalReport) -> dict[str, object] | None:
