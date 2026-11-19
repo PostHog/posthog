@@ -1216,21 +1216,32 @@ def _live_postgres_context(*, orders_column_restricted: bool) -> HogQLContext:
 
 
 @pytest.mark.parametrize(
-    "query, error",
+    "query, dialect, error, printed",
     [
-        ("SELECT email FROM orders WHERE secret IS NULL", "Unable to resolve field: secret"),
-        ("SELECT (SELECT secret FROM notes LIMIT 1) FROM orders", "Unable to resolve field: secret"),
-        ("SELECT toString(o) FROM orders AS o", "Unable to resolve field: o"),
-        ("SELECT secret FROM notes", None),
+        ("SELECT email FROM orders WHERE secret IS NULL", "postgres", "Unable to resolve field: secret", None),
+        ("SELECT (SELECT secret FROM notes LIMIT 1) FROM orders", "postgres", "Unable to resolve field: secret", None),
+        ("SELECT toString(o) FROM orders AS o", "postgres", "Unable to resolve field: o", None),
+        ("SELECT secret FROM notes", "postgres", None, "SELECT secret FROM"),
+        ("SELECT (SELECT id) FROM orders", "postgres", None, "SELECT id)"),
+        ("SELECT CURRENT_DATE FROM orders", "hogql", None, "current_date"),
     ],
-    ids=["unknown_name", "correlated_subquery", "whole_row", "unrestricted_table_passes_through"],
+    ids=[
+        "unknown_name",
+        "correlated_subquery",
+        "whole_row",
+        "unrestricted_table_passes_through",
+        "allowed_outer_column",
+        "sql_keyword_in_hogql_pass",
+    ],
 )
-def test_column_restricted_live_table_rejects_names_outside_its_fields(query: str, error: str | None) -> None:
+def test_column_restricted_live_table_rejects_names_outside_its_fields(
+    query: str, dialect: HogQLDialect, error: str | None, printed: str | None
+) -> None:
     context = _live_postgres_context(orders_column_restricted=True)
 
     if error is not None:
         with pytest.raises(QueryError, match=error):
-            prepare_and_print_ast(parse_select(query), context, "postgres")
+            prepare_and_print_ast(parse_select(query), context, dialect)
         return
-    sql, _ = prepare_and_print_ast(parse_select(query), context, "postgres")
-    assert "SELECT secret FROM" in sql
+    sql, _ = prepare_and_print_ast(parse_select(query), context, dialect)
+    assert printed is not None and printed.lower() in sql.lower()

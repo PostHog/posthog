@@ -2752,7 +2752,7 @@ class Resolver(CloningVisitor):
                 fix = function_call if node.start is not None and node.end is not None else None
             else:
                 fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
-            if self.dialect == "clickhouse" or self._column_restricted_table_in_scope():
+            if self.dialect == "clickhouse" or self._may_read_hidden_column(node, name):
                 # To debug, add a breakpoint() here and print self.context.database
                 #
                 # from rich.pretty import pprint
@@ -3087,17 +3087,22 @@ class Resolver(CloningVisitor):
         except Exception:
             return False
 
-    def _column_restricted_table_in_scope(self) -> bool:
-        # Every enclosing scope counts, because the external server resolves an unknown name in a
-        # correlated subquery against the outer tables too. A bare table alias, which reads the whole
-        # row, is also an unknown name here.
-        for scope in self.scopes:
-            for table_type in scope.tables.values():
-                if not isinstance(table_type, ast.BaseTableType):
-                    continue
-                table = table_type.resolve_database_table(self.context)
-                if isinstance(table, DirectSQLTable) and table.column_restricted:
-                    return True
+    def _may_read_hidden_column(self, node: ast.Field, name: str) -> bool:
+        if len(node.chain) == 1 and name.lower() in POSTGRES_KEYWORD_TYPES:
+            return False
+        # The external server resolves an unknown name innermost scope first, through correlated
+        # subqueries, so the first scope that knows the name or holds a restricted table decides.
+        # A bare table alias, which reads the whole row, is also an unknown name here.
+        for scope in reversed(self.scopes):
+            tables = [
+                table_type.resolve_database_table(self.context)
+                for table_type in scope.tables.values()
+                if isinstance(table_type, ast.BaseTableType)
+            ]
+            if any(table.has_field(name) for table in tables):
+                return False
+            if any(isinstance(table, DirectSQLTable) and table.column_restricted for table in tables):
+                return True
         return False
 
     def _get_scope(self):
