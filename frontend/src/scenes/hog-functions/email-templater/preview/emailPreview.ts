@@ -135,7 +135,18 @@ export function personPropertiesUsed(templates: string[]): string[] {
     return Array.from(new Set(keys))
 }
 
+// The renderer escapes values for html, and the worker renders text fields without that, so undo it here.
+const ESCAPED_CHARACTERS: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&#34;': '"',
+    '&#39;': "'",
+}
+
 /** Renders as plain text, with each missing value read out as its label, for one-line summaries. */
 export function renderEmailPreviewText(template: string, person: EmailPreviewPerson | null): string {
-    return splitUnresolved(renderEmailPreviewMarked(template, person)).join('')
+    return splitUnresolved(renderEmailPreviewMarked(template, person))
+        .join('')
+        .replace(/&(?:amp|lt|gt|#34|#39);/g, (entity) => ESCAPED_CHARACTERS[entity])
 }

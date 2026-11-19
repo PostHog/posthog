@@ -3,6 +3,7 @@ import {
     personPropertiesUsed,
     renderEmailPreview,
     renderEmailPreviewMarked,
+    renderEmailPreviewText,
     withUnresolvedChips,
 } from './emailPreview'
 
@@ -97,6 +98,12 @@ describe('renderEmailPreview', () => {
         ],
     ])('strips html from %s without hanging', (_name, template, expected) => {
         expect(renderEmailPreview(template, person)).toBe(expected)
+    })
+
+    it('renders plain text without html escaping', () => {
+        expect(
+            renderEmailPreviewText('Hi {{ person.properties.company }}', { id: 'p', properties: { company: 'A&B' } })
+        ).toBe('Hi A&B')
     })
 
     it('falls back to the template rather than throwing on a broken tag', () => {

@@ -13,7 +13,7 @@ export function CanvasPreviewPersonPanel(): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
     const templates = workflow.actions.flatMap((action) => {
         const email = emailContent(action)
-        return email ? [email.subject, email.html ?? '', email.text ?? ''] : []
+        return email ? [email.subject, email.preheader ?? '', email.html ?? '', email.text ?? ''] : []
     })
 
     if (!enabled || templates.length === 0) {
