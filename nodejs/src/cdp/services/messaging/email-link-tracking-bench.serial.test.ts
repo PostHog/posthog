@@ -13,7 +13,7 @@ describe('email link tracking benchmark', () => {
     // the nesting limit is at its floor.
     const deepestNesting = '<span>'.repeat(MIN_NESTING_LIMIT - 3)
     const unmatchedEndTags = '</x>'.repeat(400_000)
-    const attributes = Array.from({ length: 200_000 }, (_, i) => `a${i}`).join(' ')
+    const attributes = Array.from({ length: 150_000 }, (_, i) => `a${i}`).join(' ')
     const textBeforeTable = 'x<b></b>'.repeat(200_000)
     const longTag = `<a href="https://example.com/x" ${Array.from({ length: 2_000 }, (_, i) => `a${i}`).join(' ')}>`
     const rebuiltLinks = '<p>x</p>'.repeat(20_000)

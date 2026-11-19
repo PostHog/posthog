@@ -56,6 +56,7 @@ import {
 import {
     EmailFormattingTooCostlyError,
     EmailNestingTooDeepError,
+    MAX_ATTRIBUTE_BUDGET,
     MAX_ELEMENT_BUDGET,
     MIN_NESTING_LIMIT,
     NESTING_BUDGET,
@@ -626,6 +627,23 @@ describe('EmailTrackingService', () => {
                 const breaks = (count: number): string => `<body>${'<br>'.repeat(count)}${link}</body>`
                 expect(sesTrack(breaks(MAX_ELEMENT_BUDGET - 4))).toContain('phl:0')
                 expect(() => sesTrack(breaks(MAX_ELEMENT_BUDGET - 3))).toThrow(EmailFormattingTooCostlyError)
+            })
+
+            it('refuses an email with more attributes than any email may hold', () => {
+                const tag = (count: number): string =>
+                    `<body><a href="https://example.com/" ${Array.from({ length: count }, (_, i) => `a${i}`).join(' ')}>a</a></body>`
+                // The href is one of them.
+                expect(sesTrack(tag(MAX_ATTRIBUTE_BUDGET - 1))).toContain('phl:0')
+                expect(() => sesTrack(tag(MAX_ATTRIBUTE_BUDGET))).toThrow(EmailFormattingTooCostlyError)
+            })
+
+            it('refuses an email whose MathML annotation the parser rereads for each child', () => {
+                // Each child that opens or closes inside an `<annotation-xml>` makes the parser read all of its
+                // attributes again, looking for an encoding.
+                const annotated = (attributes: number, children: number): string =>
+                    `<body><math><annotation-xml ${Array.from({ length: attributes }, (_, i) => `a${i}`).join(' ')}>${'<mi></mi>'.repeat(children)}</annotation-xml></math><a href="https://example.com/">a</a></body>`
+                expect(sesTrack(annotated(100, 1_000))).toContain('phl:0')
+                expect(() => sesTrack(annotated(2_000, 10_000))).toThrow(EmailFormattingTooCostlyError)
             })
 
             it('sends a small email nested deeper than the floor of the limit', () => {

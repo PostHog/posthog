@@ -80,9 +80,13 @@ export const MIN_ELEMENT_BUDGET = 50_000
 // Each element costs memory and time even when the tree stays linear, and a send may carry tens of megabytes of
 // HTML. No email a client renders in full comes near this many.
 export const MAX_ELEMENT_BUDGET = 500_000
+// The tokenizer builds each attribute with its source location before the parser sees the tag, so one tag can hold
+// hundreds of megabytes of them.
+export const MAX_ATTRIBUTE_BUDGET = 200_000
 // The parser compares each formatting element a start tag opens with every one still open, attribute by attribute, so
 // many open formatting elements with many attributes cost their count times their attributes. The copies it rebuilds
-// from an earlier tag are not compared.
+// from an earlier tag are not compared. Work on its list of formatting elements, and each read of an element's
+// attributes, counts against the same budget.
 export const FORMATTING_BUDGET = 10_000_000
 const FORMATTING_TAGS = new Set([
     'a',
@@ -102,7 +106,7 @@ const FORMATTING_TAGS = new Set([
 ])
 
 // Shared by the document and every comment read as markup, so the elements they build together stay in budget.
-type ParseBounds = { depth: number; elementsLeft: number; formattingLeft: number }
+type ParseBounds = { depth: number; elementsLeft: number; attributesLeft: number; formattingLeft: number }
 
 const parseBoundsFor = (html: string): ParseBounds => {
     let tags = 0
@@ -112,6 +116,7 @@ const parseBoundsFor = (html: string): ParseBounds => {
     return {
         depth: Math.max(MIN_NESTING_LIMIT, Math.floor(NESTING_BUDGET / Math.max(tags, 1))),
         elementsLeft: Math.min(MAX_ELEMENT_BUDGET, MIN_ELEMENT_BUDGET + ELEMENTS_PER_TAG * tags),
+        attributesLeft: MAX_ATTRIBUTE_BUDGET,
         formattingLeft: FORMATTING_BUDGET,
     }
 }
@@ -130,7 +135,7 @@ export class EmailNestingTooDeepError extends EmailHtmlTooComplexError {
 export class EmailFormattingTooCostlyError extends EmailHtmlTooComplexError {
     constructor() {
         super(
-            'This email leaves formatting tags such as <b> or <font> open across so much of it that its links are too costly to read. Close those tags and send it again.'
+            'This email has too many elements or attributes, or leaves formatting tags such as <b> or <font> open across too much of it, to read its links. Simplify its HTML and send it again.'
         )
         this.name = 'EmailFormattingTooCostlyError'
     }
@@ -171,6 +176,15 @@ const boundedAdapter = (
     }
     return {
         ...defaultTreeAdapter,
+        // The parser rereads an element's attributes, such as a MathML annotation's for its encoding each time a
+        // child opens or closes inside it.
+        getAttrList(element) {
+            bounds.formattingLeft -= element.attrs.length
+            if (bounds.formattingLeft < 0) {
+                throw new EmailFormattingTooCostlyError()
+            }
+            return defaultTreeAdapter.getAttrList(element)
+        },
         createElement(tagName, namespaceURI, attrs) {
             if (--bounds.elementsLeft < 0) {
                 throw new EmailFormattingTooCostlyError()
@@ -243,6 +257,19 @@ const limitFormattingListWork = (parser: Parser<DefaultTreeAdapterMap>, bounds: 
     list.clearToLastMarker = charged(list.clearToLastMarker.bind(list))
     list.getElementEntryInScopeWithTagName = charged(list.getElementEntryInScopeWithTagName.bind(list))
     list.getElementEntry = charged(list.getElementEntry.bind(list))
+}
+
+// Stops a parse before the tokenizer starts an attribute past the budget, since it builds a whole tag's attributes
+// before the parser sees the tag. `_createAttr` is internal to the tokenizer of parse5 7.1.2, which the patch pins.
+const limitAttributes = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds): void => {
+    const tokenizer = parser.tokenizer as unknown as { _createAttr: (firstCharacter: string) => void }
+    const createAttr = tokenizer._createAttr.bind(tokenizer)
+    tokenizer._createAttr = (firstCharacter) => {
+        if (--bounds.attributesLeft < 0) {
+            throw new EmailFormattingTooCostlyError()
+        }
+        createAttr(firstCharacter)
+    }
 }
 
 // Splits a start tag into its attributes as the HTML tokenizer does, repeats included. `close` is the tag's `>`.
@@ -409,6 +436,7 @@ const scanComment = (
         })
         limitNesting(parser, bounds)
         limitFormattingListWork(parser, bounds)
+        limitAttributes(parser, bounds)
         parser.tokenizer.write(comment.content, true)
         fragment = parser.getFragment()
     } catch (error) {
@@ -462,6 +490,7 @@ const scanHtml = (html: string): Scan => {
     })
     limitNesting(parser, bounds)
     limitFormattingListWork(parser, bounds)
+    limitAttributes(parser, bounds)
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
     const comments: CommentNode[] = []
