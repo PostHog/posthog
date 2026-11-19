@@ -405,6 +405,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
                         if (status === 'active' && !sandboxSenderConfirmed) {
                             // The row can be older than the server's steps, so the check reads the server's copy.
                             const live = await fetchStoredWorkflow(workflow.id)
+                            // A dialog opened after the user left would ask about a workflow they no longer see.
+                            if (cache.disposables.isDisposed) {
+                                return { results: [], count: 0 }
+                            }
                             if (!live) {
                                 lemonToast.error(
                                     "Couldn't check this workflow's email steps. Refresh the page and try again."

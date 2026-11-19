@@ -468,6 +468,40 @@ describe('workflowsLogic', () => {
             expect(screen.getAllByText(ENABLE_DIALOG)).toHaveLength(1)
         })
 
+        it('asks nothing when the list closes while the enable check runs', async () => {
+            const row = withEmail('draft', 'email_sandbox')
+            useListMocks(200, { deleted: 1 }, row)
+            let release: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            let markChecking: () => void = () => {}
+            const checking = new Promise<void>((resolve) => {
+                markChecking = resolve
+            })
+            useMocks({
+                get: {
+                    [DETAIL_URL]: async () => {
+                        markChecking()
+                        await held
+                        return [200, row]
+                    },
+                },
+            })
+            jest.mocked(LemonDialog.open).mockRestore()
+
+            const enabling = expectLogic(logic, () => logic.actions.toggleWorkflowStatus(row)).toFinishAllListeners()
+            await checking
+            logic.unmount()
+            release()
+            await enabling
+            await act(async () => {})
+
+            expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+            expect(writes).toEqual([])
+            logic.mount()
+        })
+
         it('sends one write when Enable is chosen again while the first enable saves', async () => {
             let stored = withEmail('draft', 'function_email')
             useListMocks(200, { deleted: 1 }, stored)

@@ -5098,6 +5098,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 } finally {
                     actions.setCheckingSandboxSender(false)
                 }
+                // A dialog opened after the user left would ask about a workflow they no longer see.
+                if (cache.disposables.isDisposed) {
+                    return
+                }
                 if (!live) {
                     lemonToast.error("Couldn't check this workflow's email steps. Refresh the page and try again.")
                     return

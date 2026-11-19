@@ -822,6 +822,41 @@ describe('workflowLogic auto-save', () => {
                 opened.mockRestore()
             })
 
+            it('asks nothing when the editor closes while the enable check runs', async () => {
+                const loaded = loadedWith('live')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markChecking: () => void = () => {}
+                const checking = new Promise<void>((resolve) => {
+                    markChecking = resolve
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/hog_flows/:id/': async () => {
+                            markChecking()
+                            await held
+                            return [200, loaded]
+                        },
+                    },
+                })
+
+                const enabling = expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toFinishAllListeners()
+                await checking
+                logic.unmount()
+                release()
+                await enabling
+                await act(async () => {})
+
+                expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+                expect(patchBodies).toEqual([])
+            })
+
             it('sends one write when Enable is clicked again while the first enable saves', async () => {
                 const loaded = loadedWith('none')
                 useMocks(activeMocks(loaded))
