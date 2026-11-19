@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import SocketTimeoutError
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -103,6 +104,7 @@ from posthog.errors import (
     ExposedCHQueryError,
     unknown_type_error,
 )
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
 from posthog.models.team import Team
@@ -121,6 +123,7 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
@@ -1092,24 +1095,30 @@ class HogQLQueryExecutor:
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
 
-            def run_on_clickhouse(sql: str, *, with_column_types: bool) -> Any:
+            def run_on_clickhouse(sql: str, *, with_column_types: bool, timeout_seconds: int | None = None) -> Any:
                 with events_route_scope(printed_events_route):
                     return sync_execute(
                         sql,
                         clickhouse_context.values,
+                        settings={"max_execution_time": timeout_seconds} if timeout_seconds else None,
                         with_column_types=with_column_types,
                         workload=workload,
                         team_id=self.team.pk,
                         readonly=True,
                         ch_user=self.ch_user,
                         external_tables=list(clickhouse_context.external_tables.values()) or None,
+                        send_receive_timeout=timeout_seconds,
                     )
 
             def run_clickhouse_query() -> Any:
                 return run_on_clickhouse(clickhouse_sql, with_column_types=True)
 
             def describe_column_types() -> list[str]:
-                rows = run_on_clickhouse(f"DESCRIBE TABLE ({clickhouse_sql})", with_column_types=False)
+                rows = run_on_clickhouse(
+                    f"DESCRIBE TABLE ({clickhouse_sql})",
+                    with_column_types=False,
+                    timeout_seconds=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
+                )
                 return [column_type for _, column_type, *_ in rows]
 
             stats = query_stats.get_active()
@@ -1129,7 +1138,10 @@ class HogQLQueryExecutor:
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
                 except CHQueryErrorUnknownType as error:
-                    raise self._name_unreadable_columns(error, describe_column_types) from error
+                    named_error = self._name_unreadable_columns(error, describe_column_types)
+                    if named_error is None:
+                        raise
+                    raise named_error from error
                 _raise_for_raw_bytes_in_string_results(
                     self.results[: self.returned_row_limit], self.types, self.query_type
                 )
@@ -1181,19 +1193,21 @@ class HogQLQueryExecutor:
 
     def _name_unreadable_columns(
         self, error: CHQueryErrorUnknownType, describe_column_types: Callable[[], list[str]]
-    ) -> CHQueryErrorUnknownType:
+    ) -> CHQueryErrorUnknownType | None:
         try:
             column_types = describe_column_types()
+        except (ClickHouseQueryTimeOut, SocketTimeoutError):
+            return None
         except Exception as describe_error:
             capture_exception(describe_error, {"team_id": self.team.pk})
-            return error
+            return None
         if not error.unreadable_type or len(column_types) != len(self.print_columns):
-            return error
+            return None
         unreadable_names = [
             name for name, column_type in zip(self.print_columns, column_types) if error.unreadable_type in column_type
         ]
         if not unreadable_names:
-            return error
+            return None
         return unknown_type_error(error.unreadable_type, unreadable_names, code=error.code)
 
     @tracer.start_as_current_span("HogQLQueryExecutor.prepare_for_sharing")

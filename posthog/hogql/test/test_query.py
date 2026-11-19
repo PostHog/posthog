@@ -58,8 +58,8 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError, unknown_type_error
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -2655,6 +2655,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ),
             str(error.exception),
         )
+
+    @parameterized.expand(
+        [
+            ("describe_times_out", ClickHouseQueryTimeOut()),
+            ("describe_fails", InternalCHQueryError("Unknown error.", code=1000)),
+        ]
+    )
+    def test_unreadable_result_type_keeps_the_original_error_when_describe_fails(
+        self, _name: str, describe_error: Exception
+    ) -> None:
+        original_error = unknown_type_error("Variant(String, UInt8)")
+        with patch("posthog.hogql.query.sync_execute", side_effect=[original_error, describe_error]):
+            with self.assertRaises(CHQueryErrorUnknownType) as error:
+                execute_hogql_query("SELECT 1 AS mixed", team=self.team)
+
+        self.assertIs(error.exception, original_error)
+        self.assertIsNot(error.exception.__cause__, error.exception)
 
     @parameterized.expand(
         [
