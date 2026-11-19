@@ -158,7 +158,7 @@ class TestSandboxEmailSteps(APIBaseTest):
             assert flow.status == status
             assert flow.actions[1]["type"] == "email_sandbox"
         else:
-            assert "sandbox sender isn't available" in response.json()["detail"]
+            assert "PostHog test sender isn't available" in response.json()["detail"]
 
     def test_a_saved_hog_step_sends_its_own_template_not_client_bytecode(self) -> None:
         with _flag(True), _runtime(True):
@@ -220,7 +220,7 @@ class TestSandboxEmailSteps(APIBaseTest):
             response = self._try_to_run(path)
 
         assert response.status_code == 400, response.json()
-        assert "The sandbox sender can't send from workflows yet" in response.json()["detail"]
+        assert "The PostHog test sender can't send from workflows yet" in response.json()["detail"]
         assert not HogFlow.objects.filter(status="active", actions__contains=[{"type": "email_sandbox"}]).exists()
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
@@ -267,7 +267,7 @@ class TestSandboxEmailSteps(APIBaseTest):
                 )
 
         assert response.status_code == 400, response.json()
-        assert "Only workflows can use the sandbox sender" in response.json()["detail"]
+        assert "Only workflows can use the PostHog test sender" in response.json()["detail"]
         assert not HogFlow.objects.filter(actions__contains=[{"type": "email_sandbox"}]).exists()
 
     @parameterized.expand(
@@ -413,8 +413,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, False, OWN_EMAIL_STEP_ID, "sandbox sender isn't available"),
-            ("organization_blocked", True, True, OWN_EMAIL_STEP_ID, "can't use the sandbox sender"),
+            ("flag_off", False, False, OWN_EMAIL_STEP_ID, "PostHog test sender isn't available"),
+            ("organization_blocked", True, True, OWN_EMAIL_STEP_ID, "can't use the PostHog test sender"),
             ("step_id_the_provider_cannot_tag", True, False, "welcome:email", "Add a new email step"),
         ]
     )

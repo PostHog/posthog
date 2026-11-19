@@ -200,6 +200,8 @@ export const KeyMetrics: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -217,6 +219,8 @@ export const KeyMetricsInProgressBucket: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -235,6 +239,8 @@ export const KeyMetricsLoading: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading
                 usersLoading
+                kpisLoaded={false}
+                usersLoaded={false}
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -258,6 +264,8 @@ export const KeyMetricsEmptyRange: Story = {
                 intentClusterCount={metric(0, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -275,6 +283,8 @@ export const KeyMetricsLoadError: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 kpisFailed
                 onRetryKpis={() => {}}
                 showIntentClusters

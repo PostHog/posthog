@@ -1796,6 +1796,12 @@ class HogFunctionViewSet(
                 locked = None
                 before_update = None
 
+            # The serializer saves the instance it loaded before this lock. A delete that committed in
+            # between, such as a queryset update that retires an alert's destinations, would be undone
+            # by that save writing `deleted=False` back, so only an explicit undelete may proceed.
+            if locked is not None and locked.deleted and serializer.validated_data.get("deleted") is not False:
+                raise exceptions.NotFound()
+
             route_to_draft = route_to_draft and locked is not None
 
             # Draft edits race against other draft edits, not against the live row (which they don't

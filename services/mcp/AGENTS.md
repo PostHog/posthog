@@ -13,7 +13,16 @@ Run these commands from the repository root:
 
 - **Text about one product lives in that product's files.** `[review]` Put a workflow in a skill under `products/<name>/skills/`. Put a note on a tool's result in `agent_note` in the product's `tools.yaml`. Every product shares `src/tools/exec.ts` and `src/templates/sections/`, so keep product text out of them.
 - A redirect for a removed tool is the exception. It goes in `DEPRECATED_TOOL_REDIRECTS` in `src/tools/exec.ts`.
-- If product text must be in the server instructions, agree the change in `#team-context-and-mcp` before you write it.
+
+## Shared core: ask team-context-and-mcp first
+
+The core is the code and text that every customer's agent hits:
+`src/tools/exec.ts`, `src/tools/exec-learn.ts`, `src/hono/instructions.ts`, `src/lib/instructions-formatter.ts`, `src/hono/guidance/`,
+and the `cli-*`, `exec-*`, `basic-functionality`, `compact-instructions`, `skills-first` and `tool-search` sections in `src/templates/sections/`.
+
+- **A change to a core file from outside `team-context-and-mcp` is agreed with the team before you write it.** `[review]` Before you edit a core file, stop and tell the user which file the change touches and why. Then ask them to agree the change in `#team-context-and-mcp`, or to tell you explicitly to continue without it. Do not ask when the user says they are on the team.
+- Stamphog does not approve a core change from an author outside the team, so a human must approve it. Request [`PostHog/team-context-and-mcp`](https://github.com/orgs/PostHog/teams/team-context-and-mcp) as reviewers.
+- In the PR description, include a short **MCP core** note. Say what changes for every agent, and who agreed it, or that the author continued without agreement.
 
 ## Unsolicited elicitation: high risk
 

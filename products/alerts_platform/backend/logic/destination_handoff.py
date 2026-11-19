@@ -26,6 +26,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.alerts_platform.backend.delivery.destinations import copies_of_live_hog_functions
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
@@ -438,19 +439,18 @@ def _endpoints_by_configuration(
     Reads the configurations' own destinations in one query and the team's routes once, however many
     configurations an edit touches."""
     own: dict[UUID, dict[str, _Endpoint]] = {configuration_id: {} for configuration_id in groups}
-    owning = [
-        configuration_id
-        for configuration_id, (configuration, _) in groups.items()
-        if configuration.destinations_owner == PlatformAlertOwner.PLATFORM
-    ]
-    if owning:
-        rows = (
-            AlertDestination.objects.for_team(team_id)
-            .filter(configuration_id__in=owning, enabled=True, type__in=INCIDENT_DESTINATION_TYPES)
-            .order_by("created_at", "id")
-            .values_list("id", "configuration_id", "config")
-        )
-        for destination_id, configuration_id, config in rows:
+    rows = list(
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id__in=list(groups), enabled=True, type__in=INCIDENT_DESTINATION_TYPES)
+        .order_by("created_at", "id")
+        .values_list("id", "configuration_id", "config", "legacy_hog_function_ids")
+    )
+    # A row that copies a live HogFunction does not send, as in delivery, so the HogFunction keeps the firing.
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={destination_id: copied for destination_id, *_, copied in rows}
+    )
+    for destination_id, configuration_id, config, _ in rows:
+        if destination_id not in copies:
             data = cast(AlertDestinationData, config)
             own[configuration_id].setdefault(
                 address(data), _Endpoint(destination_id=str(destination_id), routed=False, data=data)

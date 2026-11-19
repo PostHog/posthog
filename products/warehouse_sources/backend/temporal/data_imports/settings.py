@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
@@ -50,7 +52,7 @@ WORKFLOWS = [
     PostImportWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     create_external_data_job_model_activity,
     update_external_data_job_model,
     import_data_activity_sync,

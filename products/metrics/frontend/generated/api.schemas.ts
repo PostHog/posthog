@@ -1386,6 +1386,10 @@ export interface _MetricNameApi {
      * @nullable
      */
     first_seen?: string | null
+    /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+    series_count?: number
+    /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+    tag_key_count?: number
     /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
     classic_histogram?: _MetricClassicHistogramApi
 }
@@ -1665,6 +1669,10 @@ export type MetricsValuesRetrieveParams = {
      * @minLength 1
      */
     match?: MetricsValuesRetrieveMatch
+    /**
+     * Add `series_count` and `tag_key_count` for each name, over the last 24 hours.
+     */
+    series_stats?: boolean
     /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024

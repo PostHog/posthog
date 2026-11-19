@@ -5,12 +5,15 @@ The master push and the hourly run of Backend CI live on Depot CI, which keeps i
 artifacts apart from GitHub Actions. This is the Depot counterpart of listing workflow runs
 with `gh api` and fetching artifacts with `gh run download`.
 
-    depot_backend_runs.py find --trigger schedule --prefix timing_data- --min-artifacts 38 --limit 5
+    depot_backend_runs.py find --trigger schedule --matrix full --prefix timing_data- --min-artifacts 38 --limit 5
     depot_backend_runs.py download <run-id> --pattern 'timing_data-Core-*' --dir timing
     depot_backend_runs.py gate-runs --trigger push --limit 40 --out runs.json
 
 `find` prints one `<run-id> <sha>` line per run of the trigger with the artifacts, newest first;
 it lists successful runs unless `--status` says otherwise.
+`--matrix` keeps the scheduled runs of one cron: `full` for the 3-hourly full matrix, `core-only` for
+the hourly runs in between. Depot does not record which cron fired a run, so the run's creation time
+tells them apart: a run that starts late still belongs to the tick before it.
 `download` unpacks each matching artifact into `<dir>/<artifact name>/`, the layout
 `gh run download` produces. `gate-runs` writes the newest runs of one trigger as JSON, each
 with the conclusion of its gate job, in the shape .github/scripts/ci-alerts-devex.js reads
@@ -47,6 +50,9 @@ PARALLEL_CLI_CALLS = 8
 # The Depot CLI returns at most 200 workflows, which is 8 days of hourly runs.
 MAX_LISTED = 200
 TRIGGERS = ("push", "schedule")
+MATRICES = ("full", "core-only")
+CI_BACKEND_SCHEDULE_MINUTE = 23
+CI_BACKEND_FULL_MATRIX_EVERY_HOURS = 3
 MASTER_REF = "refs/heads/master"
 # Master is the compare base, so these statuses mean master contains the commit.
 ON_MASTER_STATUSES = frozenset({"BEHIND", "IDENTICAL"})
@@ -164,9 +170,22 @@ def master_only(workflows: list[ListedWorkflow], *, trigger: str, repo: str = RE
     return [w for w in workflows if w["sha"] in on_master]
 
 
-def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
+def scheduled_matrix(created_at: str) -> str:
+    created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    tick = created - timedelta(minutes=CI_BACKEND_SCHEDULE_MINUTE)
+    return "full" if tick.hour % CI_BACKEND_FULL_MATRIX_EVERY_HOURS == 0 else "core-only"
+
+
+def master_workflows(
+    statuses: list[str], limit: int, *, trigger: str, matrix: str | None = None, repo: str = REPO
+) -> list[ListedWorkflow]:
     """The master Backend CI workflows of one trigger in the given states, newest first."""
-    return master_only(listed_workflows(statuses, limit, trigger=trigger, repo=repo), trigger=trigger, repo=repo)
+    workflows = master_only(listed_workflows(statuses, limit, trigger=trigger, repo=repo), trigger=trigger, repo=repo)
+    if matrix is None:
+        return workflows
+    if trigger != "schedule":
+        raise ValueError("--matrix applies only to scheduled runs")
+    return [w for w in workflows if scheduled_matrix(w["created_at"]) == matrix]
 
 
 def show(workflow_id: str) -> ShownWorkflow:
@@ -187,11 +206,18 @@ def newest_per_name(run_artifacts: list[Artifact]) -> list[Artifact]:
 
 
 def find(
-    prefix: str, min_artifacts: int, limit: int, max_age_days: int, *, trigger: str, statuses: list[str]
+    prefix: str,
+    min_artifacts: int,
+    limit: int,
+    max_age_days: int,
+    *,
+    trigger: str,
+    statuses: list[str],
+    matrix: str | None = None,
 ) -> list[ListedWorkflow]:
     cutoff = (datetime.now(UTC) - timedelta(days=max_age_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     found: list[ListedWorkflow] = []
-    for workflow in master_workflows(statuses, MAX_LISTED, trigger=trigger):
+    for workflow in master_workflows(statuses, MAX_LISTED, trigger=trigger, matrix=matrix):
         if workflow["created_at"] < cutoff:
             break
         try:
@@ -267,8 +293,8 @@ def gate_run(listed: ListedWorkflow) -> GateRun:
     }
 
 
-def gate_runs(trigger: str, limit: int) -> list[GateRun]:
-    listed = master_workflows(["queued", "running", *sorted(ENDED)], limit, trigger=trigger)
+def gate_runs(trigger: str, limit: int, matrix: str | None = None) -> list[GateRun]:
+    listed = master_workflows(["queued", "running", *sorted(ENDED)], limit, trigger=trigger, matrix=matrix)
     with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
         runs = list(pool.map(gate_run, listed))
     # An empty or inconclusive window must not resolve an existing CI incident.
@@ -290,6 +316,7 @@ def main() -> int:
     find_parser.add_argument("--max-age-days", type=int, default=14)
     # A run whose unrelated job failed after the upload still carries the artifact.
     find_parser.add_argument("--status", action="append", choices=sorted(ENDED), default=None)
+    find_parser.add_argument("--matrix", choices=MATRICES)
     download_parser = commands.add_parser("download")
     download_parser.add_argument("run_id")
     download_parser.add_argument("--pattern", action="append", required=True)
@@ -297,6 +324,7 @@ def main() -> int:
     gate_parser = commands.add_parser("gate-runs")
     gate_parser.add_argument("--trigger", choices=TRIGGERS, required=True)
     gate_parser.add_argument("--limit", type=int, required=True)
+    gate_parser.add_argument("--matrix", choices=MATRICES)
     gate_parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
@@ -308,13 +336,14 @@ def main() -> int:
             args.max_age_days,
             trigger=args.trigger,
             statuses=args.status or ["finished"],
+            matrix=args.matrix,
         ):
             sys.stdout.write(f"{workflow['run_id']} {workflow['sha']}\n")
         return 0
     if args.command == "gate-runs":
         # Written whole, so a reader never sees a half-written file.
         partial = args.out.with_suffix(".partial")
-        partial.write_text(json.dumps(gate_runs(args.trigger, args.limit)))
+        partial.write_text(json.dumps(gate_runs(args.trigger, args.limit, args.matrix)))
         partial.replace(args.out)
         return 0
     count = download(args.run_id, args.pattern, args.dir)

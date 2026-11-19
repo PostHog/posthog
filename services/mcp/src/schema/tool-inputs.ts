@@ -1654,7 +1654,7 @@ export const WorkflowActionEmailPatchSchema = z
             .optional()
             .describe(
                 "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
-                    'preheader, text, to, from, replyTo, cc, bcc. A sandbox step (type email_sandbox) takes only ' +
+                    'preheader, text, to, from, replyTo, cc, bcc. A PostHog test sender step (type email_sandbox) takes only ' +
                     'subject, preheader, text and to. The design is edited via operations, and html is always ' +
                     're-rendered from it.'
             ),
