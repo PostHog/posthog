@@ -1199,24 +1199,37 @@ class QueryTermsUsed(Scorer):
     """Fraction of ``expected[name]["terms"]`` found in successful data queries.
 
     Grades that a derived query kept what defines a measure, for example the event and the plan exclusion
-    of a governed metric, or that it reached every source a markdown definition names.
+    of a governed metric, or that it reached every source a markdown definition names. A term is a string or
+    a list of strings, and a list counts as found when any one of its strings is in a query.
     """
 
     def _name(self) -> str:
         return "query_terms_used"
+
+    @staticmethod
+    def _is_valid_term(term: object) -> bool:
+        if isinstance(term, str):
+            return bool(term)
+        return isinstance(term, list) and bool(term) and all(isinstance(option, str) and option for option in term)
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         terms = spec.get("terms")
-        if not isinstance(terms, list) or not terms:
+        if not isinstance(terms, list) or not terms or not all(self._is_valid_term(term) for term in terms):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
         parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         queries = [_query_text(call) for call in _successful_sql(parser) if not _is_discovery(call)]
-        found = [term for term in terms if any(term.lower() in query for query in queries)]
+        found = [
+            term
+            for term in terms
+            if any(
+                option.lower() in query for option in ([term] if isinstance(term, str) else term) for query in queries
+            )
+        ]
         return Score(
             name=self._name(),
             score=len(found) / len(terms),

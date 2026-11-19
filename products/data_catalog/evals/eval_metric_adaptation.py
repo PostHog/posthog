@@ -115,7 +115,8 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
             expected={
                 "metric_describe_before_adapted_sql": {},
                 # A business-only filter already leaves out personal/free, so the query need not name it.
-                "query_terms_used": {"terms": ["paid_bill", "business/"]},
+                # A query grouped by plan answers it too, and that SQL never names business/.
+                "query_terms_used": {"terms": ["paid_bill", ["business/", "group by"]]},
                 "semantic_layer_answer": {
                     "expected_behavior": (
                         f"Find {MRR_METRIC.name} in the catalog and read its definition with metric-describe. Adapt "

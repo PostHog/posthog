@@ -862,22 +862,53 @@ def test_run_override_used_matches_the_overrides(
     assert score.score == expected_score
 
 
-def test_query_terms_used_ignores_catalog_lookups() -> None:
-    calls: list[tuple[str, dict[str, Any], str]] = [
+_BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", ["business/", "group by"]]
+
+
+@parameterized.expand(
+    [
         (
-            "execute-sql",
-            {"query": "SELECT definition FROM system.information_schema.metrics -- personal/free"},
-            "completed",
+            "catalog_lookup_ignored",
+            [
+                "SELECT definition FROM system.information_schema.metrics -- personal/free",
+                "SELECT sum(amount) FROM events WHERE event = 'paid_bill'",
+            ],
+            ["paid_bill", "personal/free"],
+            0.5,
+            ["personal/free"],
         ),
-        ("execute-sql", {"query": "SELECT sum(amount) FROM events WHERE event = 'paid_bill'"}, "completed"),
+        (
+            "alternative_filter",
+            ["SELECT sum(amount) FROM events WHERE event = 'paid_bill' AND properties.plan LIKE 'business/%'"],
+            _BUSINESS_MRR_TERMS,
+            1.0,
+            [],
+        ),
+        (
+            "alternative_group_by",
+            ["SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill' GROUP BY properties.plan"],
+            _BUSINESS_MRR_TERMS,
+            1.0,
+            [],
+        ),
+        (
+            "no_alternative",
+            ["SELECT sum(amount) FROM events WHERE event = 'paid_bill'"],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [["business/", "group by"]],
+        ),
     ]
+)
+def test_query_terms_used_scores_terms_in_data_queries(
+    _name: str, queries: list[str], terms: list[Any], expected_score: float, expected_missing: list[Any]
+) -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [("execute-sql", {"query": query}, "completed") for query in queries]
 
-    score = QueryTermsUsed()._run_eval_sync(
-        {"raw_log": _tool_log(calls)}, {"query_terms_used": {"terms": ["paid_bill", "personal/free"]}}
-    )
+    score = QueryTermsUsed()._run_eval_sync({"raw_log": _tool_log(calls)}, {"query_terms_used": {"terms": terms}})
 
-    assert score.score == 0.5
-    assert score.metadata["missing"] == ["personal/free"]
+    assert score.score == expected_score
+    assert score.metadata["missing"] == expected_missing
 
 
 @parameterized.expand(
