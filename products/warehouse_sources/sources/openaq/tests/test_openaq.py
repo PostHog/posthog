@@ -161,29 +161,44 @@ class TestDetailFanOut:
                     "value": 12.5,
                     "datetime": {"utc": "2026-01-06T00:00:00Z", "local": "2026-01-06T01:00:00+01:00"},
                 },
+                "/v3/locations",
                 "/v3/locations/1/latest",
                 {"location_id": 1, "sensor_id": 10, "datetime": "2026-01-06T00:00:00Z", "value": 12.5},
             ),
             (
+                "parameter_latest",
+                {
+                    "sensorsId": 10,
+                    "locationsId": 7,
+                    "value": 12.5,
+                    "datetime": {"utc": "2026-01-06T00:00:00Z", "local": "2026-01-06T01:00:00+01:00"},
+                },
+                "/v3/parameters",
+                "/v3/parameters/1/latest",
+                {"parameter_id": 1, "sensor_id": 10, "location_id": 7, "datetime": "2026-01-06T00:00:00Z"},
+            ),
+            (
                 "location_flags",
                 _FLAG,
+                "/v3/locations",
                 "/v3/locations/1/flags",
                 {"location_id": 1, "flag_type_id": 3, "datetime_from": "2026-01-01T00:00:00Z"},
             ),
             (
                 "sensor_flags",
                 _FLAG,
+                "/v3/locations",
                 "/v3/sensors/10/flags",
                 {"sensor_id": 10, "flag_type_id": 3, "datetime_from": "2026-01-01T00:00:00Z"},
             ),
         ]
     )
     def test_fans_out_per_parent_and_keys_rows_by_parent(
-        self, endpoint: str, item: dict[str, Any], child_path: str, expected_key: dict[str, Any]
+        self, endpoint: str, item: dict[str, Any], parent_path: str, child_path: str, expected_key: dict[str, Any]
     ) -> None:
         result = _driver().run(endpoint, [_page([{"id": 1, "sensors": [{"id": 10}]}]), _page([item])])
 
         assert result.raised is None
-        assert result.paths == ["/v3/locations", child_path]
+        assert result.paths == [parent_path, child_path]
         assert len(result.rows) == 1
         assert {key: result.rows[0][key] for key in expected_key} == expected_key

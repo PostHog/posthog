@@ -18,10 +18,13 @@ import { AccessDenied } from '../AccessDenied'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 import { ActivityLogRow } from './ActivityLogRow'
+import { HumanizedActivityLogItem } from './humanizeActivity'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number
     caption?: string | JSX.Element
+    /** Extra buttons for a row, shown next to its link button, e.g. restoring the version the entry produced. */
+    renderRowActions?: (logItem: HumanizedActivityLogItem) => JSX.Element | null
 }
 
 const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
@@ -62,7 +65,13 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+export const ActivityLog = ({
+    scope,
+    id,
+    caption,
+    startingPage = 1,
+    renderRowActions,
+}: ActivityLogProps): JSX.Element | null => {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -80,13 +89,25 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                 featureDetail="activity-log"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
-                <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
+                <ActivityLogContents
+                    scope={scope}
+                    id={id}
+                    caption={caption}
+                    startingPage={startingPage}
+                    renderRowActions={renderRowActions}
+                />
             </PayGateMini>
         </div>
     )
 }
 
-const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element => {
+const ActivityLogContents = ({
+    scope,
+    id,
+    caption,
+    startingPage = 1,
+    renderRowActions,
+}: ActivityLogProps): JSX.Element => {
     const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
 
@@ -108,6 +129,7 @@ const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityL
                         key={logItem.id || index}
                         logItem={logItem}
                         highlighted={logItem.id === highlightedActivityId}
+                        actions={renderRowActions?.(logItem)}
                     />
                 ))}
             </div>

@@ -4,9 +4,10 @@ import { parseHost } from '@/posthog/host'
 
 import { longFlag, parseOption, type OptionSpec, type OptionValues } from './command'
 import type { PostHogConfig } from './config'
-import { EXIT_USAGE, HogError } from './errors'
+import { EXIT_SUCCESS, EXIT_USAGE, HogError, KEPT_ON_NO_FAIL_CODES, NO_FAIL_CODES } from './errors'
 import type { Env, Runtime, RuntimeFetch } from './runtime'
 import { parseOrThrow, type ParseFailure } from './schema'
+import { joinList } from './text'
 
 // Options every command takes. Each one also reads the env vars in `env`, in order, and some read
 // the posthog.json key at the `config` path. A flag beats an env var, which beats posthog.json.
@@ -59,7 +60,7 @@ export const GLOBAL_OPTIONS = {
         type: 'boolean',
         env: ['HOG_NO_FAIL'],
         config: 'cli.noFail',
-        description: 'Exit with code 0 when the command fails or reports a problem, for builds that must not break',
+        description: `Exit with code ${EXIT_SUCCESS} instead of ${joinList(NO_FAIL_CODES.map(String), 'or')}, for builds that must not break. Codes ${joinList(KEPT_ON_NO_FAIL_CODES.map(String), 'and')} stay`,
     },
     skipSslVerification: {
         type: 'boolean',
@@ -176,6 +177,16 @@ export function resolveGlobals(
         resolved[name] = parseOption(spec, value, source, 'invalid_setting')
     }
     return resolved as GlobalOptions
+}
+
+// Node and Bun skip certificate checks for every request when NODE_TLS_REJECT_UNAUTHORIZED is "0". "false"
+// counts too, because a false alarm only costs the run what it downloads.
+export function tlsVerificationOff(env: Env, globals: GlobalOptions): string | undefined {
+    if (globals.skipSslVerification) {
+        return 'TLS verification is off'
+    }
+    const value = env.NODE_TLS_REJECT_UNAUTHORIZED?.trim().toLowerCase()
+    return value === '0' || value === 'false' ? 'NODE_TLS_REJECT_UNAUTHORIZED turns TLS verification off' : undefined
 }
 
 const WINDOW_MS = 60_000

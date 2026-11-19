@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -292,7 +293,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 completed_at=now - timedelta(minutes=minutes_ago),
                 metrics={"prediction_date": prediction_date, "per_model": {str(champion.pk): {"realized_auc": auc}}},
             )
-        live = AutoresearchTrainingRun.objects.create(pipeline=preliminary, status="running", iteration_budget=8)
+        live_task_id, live_task_run_id = uuid.uuid4(), uuid.uuid4()
+        live = AutoresearchTrainingRun.objects.create(
+            pipeline=preliminary,
+            status="running",
+            iteration_budget=8,
+            task_id=live_task_id,
+            task_run_id=live_task_run_id,
+        )
         for number, holdout, description in [(0, 0.72, "baseline"), (1, 0.69, "try fewer features")]:
             AutoresearchIteration.objects.create(
                 pipeline=preliminary,
@@ -338,6 +346,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 2,
                 [],
                 {
+                    "task_id": str(live_task_id),
+                    "task_run_id": str(live_task_run_id),
+                    "task_url": f"/tasks/{live_task_id}",
                     "iteration_budget": 8,
                     "experiment_count": 2,
                     "best_holdout_score": 0.72,
@@ -360,12 +371,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             pipeline=busy, training_run=busy_run, iteration_number=0, recipe_hash="b", recipe_snapshot={}, status="kept"
         )
         with CaptureQueriesContext(connection) as more_queries:
-            self.client.get(f"{self.base_url}/")
+            more_resp = self.client.get(f"{self.base_url}/")
 
         def autoresearch_queries(captured: CaptureQueriesContext) -> int:
             return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
 
         assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
+        busy_live = next(row for row in more_resp.json()["results"] if row["name"] == "Busy")["live_training_run"]
+        assert {k: busy_live[k] for k in ("task_id", "task_run_id", "task_url")} == {
+            "task_id": None,
+            "task_run_id": None,
+            "task_url": None,
+        }
         assert {name: row["coverage"] for name, row in by_name.items()} == {
             "Validated": coverage,
             "Preliminary": None,
@@ -757,6 +774,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("unexpected", RuntimeError("boom"), "unavailable"),
+        ]
+    )
+    def test_validate_reports_why_the_check_did_not_run(self, _name: str, exc: Exception, expected_code: str):
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows", side_effect=exc):
+            resp = self.client.post(f"{self.base_url}/validate/", {"target_event": "$signup"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert data["error_code"] == expected_code
+        assert data["error"]
+
+    @parameterized.expand(
+        [
             ("missing_target", {}),
             ("list_shaped_target_definition", {"target_event": "$signup", "target_definition": [1]}),
         ]
@@ -1134,7 +1166,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         body = resp.json()
         assert (body["used"], body["limit"]) == (1, limit)
         if limit:
-            assert body["next_slot_at"] == (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+            assert body["next_slot_at"] == (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z")
         else:
             assert body["next_slot_at"] is None
         mock_run_training.assert_not_called()
@@ -1257,7 +1289,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.json() == {
             "max_training_runs_per_day": 1,
             "training_runs_used": 1,
-            "next_slot_at": (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z"),
+            "next_slot_at": (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z"),
             "max_iterations_per_run": 10,
             "max_live_pipelines": 2,
             "live_pipelines": 1,

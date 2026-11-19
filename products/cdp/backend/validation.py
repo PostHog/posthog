@@ -15,9 +15,11 @@ from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
@@ -36,6 +38,7 @@ from products.cdp.backend.filters import (
     compile_filters_expr,
     filter_action_ids,
     filter_cohort_ids,
+    iter_property_leaves,
 )
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -53,7 +56,7 @@ logger = logging.getLogger(__name__)
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
 # Matches the cap the tasks API puts on a task's repositories.
-MAX_TASK_REPOSITORIES = 10
+MAX_TASK_REPOSITORIES = 20
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
@@ -87,9 +90,10 @@ MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
+    rotation = from_value.get("integrationIds")
     return {
         integration_id
-        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        for integration_id in [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
 
@@ -112,6 +116,63 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
         raise serializers.ValidationError(
             {"input": "This integration can't be used as a function input. Choose a different integration."}
         )
+
+
+@frozen
+class _SenderRow:
+    kind: str
+    domain: str
+
+
+_NO_SENDER_ROW = _SenderRow(kind="", domain="")
+
+
+def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> dict[int, _SenderRow]:
+    shared_cache = context.get("email_integration_domain_cache")
+    cache: dict[int, _SenderRow] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
+    if missing_ids:
+        for row in IntegrationManager.any.with_source_rows().get_many(team_id, missing_ids).values():
+            config = row.config or {}
+            domain = (
+                (config.get("domain") or email_domain(config.get("email") or "") or "") if row.kind == "email" else ""
+            )
+            cache[row.id] = _SenderRow(kind=row.kind, domain=domain.lower())
+        for integration_id in missing_ids:
+            cache.setdefault(integration_id, _NO_SENDER_ROW)
+    return {integration_id: cache[integration_id] for integration_id in integration_ids}
+
+
+def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
+    get_team = context.get("get_team")
+    if get_team is None:
+        return
+    existing = context.get("live_email_from") or []
+    stored_ids: set[int] = set()
+    for stored in existing if isinstance(existing, list) else [existing]:
+        if isinstance(stored, dict):
+            stored_ids |= _sender_integration_ids(stored)
+    new_ids = _sender_integration_ids(from_value) - stored_ids
+    if not new_ids:
+        return
+    senders = _load_senders(new_ids, context, team_id=get_team().id)
+    if any(sender.kind and sender.kind != "email" for sender in senders.values()):
+        raise serializers.ValidationError(
+            {"input": "This sender can't send email from a workflow. Choose a verified email sender."}
+        )
+
+
+def reject_new_non_email_senders(inputs_schema: list[dict] | None, inputs: dict | None, context: dict) -> None:
+    if not isinstance(inputs, dict):
+        return
+    for schema in inputs_schema or []:
+        if not isinstance(schema, dict) or schema.get("type") not in ("email", "native_email"):
+            continue
+        email_input = inputs.get(schema.get("key"))
+        value = email_input.get("value") if isinstance(email_input, dict) else None
+        from_value = value.get("from") if isinstance(value, dict) else None
+        if isinstance(from_value, dict):
+            _validate_email_sender_kind(from_value, context)
 
 
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
@@ -168,22 +229,10 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    # An empty cached domain means the id resolved to no email integration for this team; the
-    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
-    shared_cache = context.get("email_integration_domain_cache")
-    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
-    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
-    if missing_ids:
-        for integration in IntegrationManager.email.credentials.get_many(get_team().id, missing_ids).values():
-            config = integration.config or {}
-            domain_cache[integration.id] = (
-                config.get("domain") or email_domain(config.get("email") or "") or ""
-            ).lower()
-        for integration_id in missing_ids:
-            domain_cache.setdefault(integration_id, "")
+    senders = _load_senders(integration_ids, context, team_id=get_team().id)
 
     for integration_id in sorted(integration_ids):
-        integration_domain = domain_cache.get(integration_id) or ""
+        integration_domain = senders[integration_id].domain
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
@@ -312,14 +361,22 @@ def _is_unlayer_render_of(html: str, block_html: str) -> bool:
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
     if not design:
         return True
+    # The new email editor stores the html it rendered with its document. Once the html has moved on, the design next
+    # to that document shows an older email, so it's replaced by the current html.
+    document = design.get("emailDocument") if isinstance(design, dict) else None
+    if isinstance(document, dict) and isinstance(document.get("html"), str):
+        return document["html"] != html
     try:
         wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
     except (KeyError, IndexError, TypeError):
         return False
+    # The new email editor stores its document next to the wrap. When the html has moved on, that document is stale,
+    # and the refresh below drops it along with the old wrap.
+    design_without_document = {key: value for key, value in design.items() if key != "emailDocument"}
     return (
         isinstance(wrapped_html, str)
         and wrapped_html != html
-        and design == build_html_wrap_design(wrapped_html)
+        and design_without_document == build_html_wrap_design(wrapped_html)
         and not _is_unlayer_render_of(html, wrapped_html)
     )
 
@@ -1009,6 +1066,7 @@ class InputsItemSerializer(serializers.Serializer):
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
 
+                _validate_email_sender_kind(from_value, self.context)
                 _validate_email_sender_override(from_value, self.context)
 
             if (
@@ -1095,6 +1153,16 @@ class InputsItemSerializer(serializers.Serializer):
                             "Invalid template: this field uses single-curly templating like "
                             "{person.properties.email}. Liquid-style {{ ... }} syntax is not "
                             f"supported here. ({str(e)})"
+                        )
+                    }
+                )
+            # A brace typed as plain text, such as JSON in an AI prompt, opens an expression that never parses.
+            if isinstance(e, HogQLSyntaxError):
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            f"Invalid template: {str(e)}. Curly braces insert a value, like "
+                            "{person.properties.email}. To use a literal brace, type \\{ instead."
                         )
                     }
                 )
@@ -1258,13 +1326,13 @@ def _contains_behavioral_property(filters: dict) -> bool:
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
     can never evaluate."""
     entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
-    property_lists = [filters.get("properties") or []] + [
+    property_trees = [filters.get("properties") or []] + [
         entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
     ]
     return any(
         isinstance(prop, dict) and prop.get("type") == "behavioral"
-        for property_list in property_lists
-        for prop in property_list
+        for property_tree in property_trees
+        for prop in iter_property_leaves(property_tree)
     )
 
 
@@ -1469,6 +1537,12 @@ COHORT_NOT_READY_CODE = "cohort_not_ready"
 
 
 def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
+    if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled and has_realtime_state(cohort):
+        return serializers.ValidationError(
+            f"Realtime is off for cohort {cohort.pk}. Turn it on from the cohort's page, and workflows can use the "
+            "cohort once it finishes calculating.",
+            code=COHORT_NOT_READY_CODE,
+        )
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
     if readiness is not None and readiness.state in (CohortRealtimeState.BUILDING, CohortRealtimeState.REBUILDING):
         percent = readiness.build.percent_complete if readiness.build is not None else None
@@ -1506,7 +1580,9 @@ def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team, *, require_
             )
         if cohort.is_flag_compatible:
             continue
-        can_become_ready = cohort.cohort_type == CohortType.REALTIME and has_realtime_state(cohort)
+        can_become_ready = (
+            cohort.cohort_type == CohortType.REALTIME and cohort.realtime_enabled and has_realtime_state(cohort)
+        )
         if require_ready or not can_become_ready:
             raise _cohort_not_ready_error(cohort)
 

@@ -2,6 +2,7 @@ package process
 
 import (
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
@@ -18,6 +19,7 @@ type Manager struct {
 	globalShell string
 	quitCh      chan struct{}
 	quitOnce    sync.Once
+	samplerOnce sync.Once
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -61,6 +63,35 @@ func (m *Manager) SetSend(send func(tea.Msg)) {
 	m.send = send
 }
 
+// sampleMetricsLoop reads the host process table once per tick for all processes.
+func (m *Manager) sampleMetricsLoop() {
+	ticker := time.NewTicker(metricsSampleInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.quitCh:
+			return
+		case <-ticker.C:
+		}
+		var sampled []*Process
+		for _, p := range m.Procs() {
+			if p.metricsEnabled.Load() && p.IsRunning() {
+				sampled = append(sampled, p)
+			}
+		}
+		if len(sampled) == 0 {
+			continue
+		}
+		tree := loadProcessTree()
+		for _, p := range sampled {
+			p.sampleMetrics(tree)
+		}
+		if send := m.Send(); send != nil {
+			send(MetricsMsg{})
+		}
+	}
+}
+
 // Launches all processes whose autostart is not explicitly false
 func (m *Manager) StartAll() {
 	m.mu.Lock()
@@ -68,6 +99,7 @@ func (m *Manager) StartAll() {
 	procs := m.procs
 	m.mu.Unlock()
 
+	m.samplerOnce.Do(func() { go m.sampleMetricsLoop() })
 	for _, p := range procs {
 		if p.Cfg.ShouldAutostart() {
 			_ = p.Start(send)

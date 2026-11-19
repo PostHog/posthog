@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { ReactNode } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 
@@ -9,18 +10,33 @@ interface SurveyThemeSelectorProps {
     onSelectTheme: (theme: SurveyTheme) => void
     disabled?: boolean
     showHeader?: boolean
+    leadingCard?: ReactNode
 }
 
-function ThemePreviewCard({
+// Hover and selection change color only. A press scales the card, never below 0.96.
+export const THEME_CARD_INTERACTION = clsx(
+    'transition-[border-color,box-shadow,transform] duration-150 ease-out enabled:active:scale-[0.96]',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2'
+)
+
+// Columns by card count, so no card sits alone on the last row.
+const GRID_COLUMNS: Record<number, string> = {
+    6: 'grid-cols-3 @2xl:grid-cols-6',
+    7: 'grid-cols-4 @3xl:grid-cols-7',
+}
+
+export function ThemePreviewCard({
     theme,
     isSelected,
     onClick,
     disabled,
+    autoFocus,
 }: {
     theme: SurveyTheme
     isSelected: boolean
     onClick: () => void
     disabled?: boolean
+    autoFocus?: boolean
 }): JSX.Element {
     const { appearance } = theme
 
@@ -29,10 +45,10 @@ function ThemePreviewCard({
             type="button"
             onClick={onClick}
             disabled={disabled}
+            autoFocus={autoFocus}
             className={clsx(
-                'group relative flex flex-col rounded-lg border-2 p-2 text-left transition-all duration-200',
-                'hover:scale-[1.02] active:scale-[0.98]',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                'group relative flex flex-col rounded-lg border-2 p-2 text-left',
+                THEME_CARD_INTERACTION,
                 isSelected
                     ? 'border-primary bg-primary/5 shadow-md'
                     : 'border-border bg-bg-light hover:border-primary/50 hover:shadow-sm',
@@ -42,7 +58,7 @@ function ThemePreviewCard({
             {/* Selection indicator */}
             <div
                 className={clsx(
-                    'absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200',
+                    'absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full transition-transform duration-150 ease-out',
                     isSelected ? 'scale-100 bg-primary' : 'scale-0 bg-transparent'
                 )}
             >
@@ -107,9 +123,10 @@ export function SurveyThemeSelector({
     onSelectTheme,
     disabled,
     showHeader = true,
+    leadingCard,
 }: SurveyThemeSelectorProps): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="@container space-y-2">
             {showHeader ? (
                 <div>
                     <h3 className="m-0 font-medium">Choose a theme</h3>
@@ -117,7 +134,14 @@ export function SurveyThemeSelector({
                 </div>
             ) : null}
 
-            <div className="grid grid-cols-3 gap-2 md:grid-cols-6 max-w-4xl">
+            <div
+                className={clsx(
+                    'grid max-w-4xl gap-2',
+                    GRID_COLUMNS[surveyThemes.length + (leadingCard ? 1 : 0)] ??
+                        'grid-cols-[repeat(auto-fill,minmax(7rem,1fr))]'
+                )}
+            >
+                {leadingCard}
                 {surveyThemes.map((theme) => (
                     <ThemePreviewCard
                         key={theme.id}

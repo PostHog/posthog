@@ -473,6 +473,10 @@ def test_dispatch_sends_to_configured_reviewer(
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
             return_value=flag_result,
         ) as evaluate_flag,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.organization_inbox_slack_state_buttons_enabled",
+            return_value=False,
+        ),
     ):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
@@ -626,6 +630,39 @@ def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_
     assert slack_cls.call_args.args[0] == (newer if binding == "bound" else oldest)
 
 
+@pytest.mark.parametrize(("flag_enabled", "expected_posts"), [(True, 2), (False, 1)])
+@pytest.mark.django_db
+def test_dispatch_posts_state_buttons_as_a_thread_reply_only_when_enabled(org_and_team, flag_enabled, expected_posts):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "buttons-reviewer@example.com", "buttons-bot")
+    integration = _make_slack_integration(team, reviewer)
+    SignalUserAutonomyConfig.objects.create(
+        user=reviewer, slack_notification_integration=integration, slack_notification_channel="C123|#inbox"
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["buttons-bot"])
+
+    fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100", "channel": "C123"}
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.organization_inbox_slack_state_buttons_enabled",
+            return_value=flag_enabled,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert fake_client.chat_postMessage.call_count == expected_posts
+    if flag_enabled:
+        followup = fake_client.chat_postMessage.call_args.kwargs
+        assert followup["thread_ts"] == "1700000000.000100"
+        action_ids = [e["action_id"] for e in followup["blocks"][1]["elements"]]
+        assert action_ids == ["signals_resolve_report", "signals_dismiss_report", "signals_remove_report_reviewer"]
+        value = json.loads(followup["blocks"][1]["elements"][0]["value"])
+        assert value == {"integration_id": integration.id, "report_id": str(report.id), "team_id": team.id}
+
+
 @pytest.mark.parametrize(
     ("target", "posted_channel"),
     [
@@ -662,6 +699,9 @@ def test_dispatch_records_the_notification_thread_for_the_report(org_and_team, t
         channel=posted_channel,
         thread_ts="1700000000.000100",
     ) == str(report.id)
+
+    assert report.slack_threads.get(thread_ts="1700000000.000100").target == target.split("|", 1)[0]
+    assert report.slack_threads.get(thread_ts="1700000000.000100").recipient_user_ids == [reviewer.id]
 
 
 @pytest.mark.django_db
@@ -934,6 +974,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
 
     fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100", "channel": "CSHARED"}
     capture_context = MagicMock()
     capture = capture_context.__enter__.return_value
     with (
@@ -952,6 +993,8 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
     body = fake_client.chat_postMessage.call_args.kwargs["blocks"][2]["elements"][0]["text"]
     assert "<@U_OWN>" in body and "<@U_FALLBACK>" in body
     assert capture.call_args.kwargs["properties"]["destination"] == "team"
+
+    assert report.slack_threads.get().recipient_user_ids == []
 
 
 @pytest.mark.django_db
@@ -1166,6 +1209,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     mentions = {"shared1@example.com": "U_ONE", "shared2@example.com": "U_TWO"}
 
     fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100", "channel": "C123"}
     with (
         patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
         patch(
@@ -1183,6 +1227,8 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     # The single message still tags both reviewers that resolved to the channel.
     context_text = call_kwargs["blocks"][2]["elements"][0]["text"]
     assert "👤 Suggested owners: <@U_ONE> <@U_TWO>" in context_text
+
+    assert report.slack_threads.get().recipient_user_ids == [user1.id, user2.id]
 
 
 @pytest.mark.django_db

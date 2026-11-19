@@ -135,7 +135,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     if (quillSurface) {
         return (
-            <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
                 {localValues.map((value, index) => (
                     <div key={index} className="flex flex-wrap items-center gap-2">
                         <Input

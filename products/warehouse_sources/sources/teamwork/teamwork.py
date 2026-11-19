@@ -1,23 +1,25 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Response
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     HttpBasicAuth,
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.teamwork.settings import TEAMWORK_ENDPOINTS, TeamworkEndpointConfig
+from products.warehouse_sources.sources.teamwork.settings import PAGE_SIZE, TEAMWORK_ENDPOINTS, TeamworkEndpointConfig
 
-# Max page size accepted by the majority of V3 endpoints.
-PAGE_SIZE = 500
 # A single V3 request is hard-capped at 50,000 records (= 100 pages of 500). We stop one run at that
 # boundary rather than letting the API error out. Incremental endpoints resume past it on the next
 # scheduled run (the cursor watermark has advanced); full-refresh endpoints can't.
@@ -95,13 +97,62 @@ class TeamworkPaginator(PageNumberPaginator):
 
 def _build_params(config: TeamworkEndpointConfig, updated_after: str | None) -> dict[str, Any]:
     # `page` is injected by the paginator; the rest are static for the whole sync window.
-    params: dict[str, Any] = {"pageSize": PAGE_SIZE}
+    params: dict[str, Any] = {"pageSize": PAGE_SIZE} if config.paginated else {}
     if config.order_by:
         params["orderBy"] = config.order_by
         params["orderMode"] = "asc"
     if updated_after:
         params["updatedAfter"] = updated_after
     return params
+
+
+def _client_config(host: str, api_key: str, paginator: Any) -> ClientConfig:
+    return {
+        "base_url": base_url(host),
+        # Only non-secret headers here; the API key travels via framework http_basic auth
+        # (redacted from logs) using the key as username and any value as password.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "http_basic", "username": api_key, "password": "x"},
+        "paginator": paginator,
+        # Pin every request to the validated host and reject any redirect: the Basic auth
+        # header must never be forwarded off the host boundary (SSRF / credential leak).
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
+def _fanout_source(host: str, api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+    config = TEAMWORK_ENDPOINTS[endpoint]
+    assert config.fanout is not None
+    parent_config = TEAMWORK_ENDPOINTS[config.fanout.parent_name]
+
+    # Parents are few (one row per workflow), so the fan-out carries no resume state.
+    resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=TEAMWORK_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(host, api_key, TeamworkPaginator()),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=False,
+            page_size_param="pageSize",
+            child_params_extra=_build_params(config, None),
+            parent_endpoint_extra={"paginator": TeamworkPaginator(), "data_selector": parent_config.data_key},
+            child_endpoint_extra={"paginator": TeamworkPaginator(), "data_selector": config.data_key},
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+    )
 
 
 def teamwork_source(
@@ -115,6 +166,8 @@ def teamwork_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = TEAMWORK_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _fanout_source(host, api_key, endpoint, team_id, job_id)
 
     is_incremental = should_use_incremental_field and config.incremental_field is not None
     updated_after = (
@@ -132,18 +185,7 @@ def teamwork_source(
             updated_after = resume.updated_after
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(host),
-            # Only non-secret headers here; the API key travels via framework http_basic auth
-            # (redacted from logs) using the key as username and any value as password.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "http_basic", "username": api_key, "password": "x"},
-            "paginator": TeamworkPaginator(),
-            # Pin every request to the validated host and reject any redirect: the Basic auth
-            # header must never be forwarded off the host boundary (SSRF / credential leak).
-            "allowed_hosts": [],
-            "allow_redirects": False,
-        },
+        "client": _client_config(host, api_key, TeamworkPaginator() if config.paginated else SinglePagePaginator()),
         "resource_defaults": {},
         "resources": [
             {

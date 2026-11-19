@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { MessagingTabActions } from '../../MessagingTabActions'
+import { SendingDomainRow } from '../../Transactional/sendFromCode/SendingDomainRow'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
@@ -50,46 +52,8 @@ const renderInApp = async (ui: JSX.Element): Promise<void> => {
     await flush()
 }
 
-type EntryExpectation = (pagePath: string) => void
-
-const expectOldModal: EntryExpectation = () => {
-    expect(screen.getByText(LEGACY_MODAL_TITLE)).toBeInTheDocument()
-    expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
-}
-
-const expectSendingDomainPage: EntryExpectation = (pagePath) => {
-    expect(router.values.location.pathname).toMatch(new RegExp(`${pagePath}$`))
-    expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
-}
-
-const expectWizardModalForSender: EntryExpectation = (pagePath) => {
-    expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
-    expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
-    expect(screen.getByText('Open full page').closest('a')).toHaveAttribute('href', expect.stringContaining(pagePath))
-}
-
-const expectOldBroadcastModal = (): void => {
-    expect(screen.getByText(LEGACY_MODAL_TITLE)).toBeInTheDocument()
-}
-
-const expectAddSenderModal: EntryExpectation = () => {
-    expect(screen.getByText('Add a sender')).toBeInTheDocument()
-    expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
-}
-
-const expectWizardInBroadcastModal = (): void => {
-    expect(screen.getByText('Set up a sending domain')).toBeInTheDocument()
-    expect(screen.getByText('Which domain should your emails come from?')).toBeInTheDocument()
-}
-
 describe('email domain setup entry points', () => {
     let backend: FakeEmailDomainBackend
-
-    const setWizardFlag = (enabled: boolean): void => {
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD] : [], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: enabled,
-        })
-    }
 
     beforeEach(() => {
         jest.useFakeTimers()
@@ -108,68 +72,80 @@ describe('email domain setup entry points', () => {
         jest.restoreAllMocks()
     })
 
-    describe.each([
-        ['off', false, expectOldModal, expectOldModal, expectOldBroadcastModal, expectOldModal],
+    it.each([
         [
-            'on',
-            true,
-            expectSendingDomainPage,
-            expectWizardModalForSender,
-            expectWizardInBroadcastModal,
-            expectAddSenderModal,
+            'the email card in the channel catalog',
+            <MessageChannels key="catalog" />,
+            ['workflows-channel-catalog-connect-email'],
         ],
-    ])(
-        'with the wizard flag %s',
-        (_, wizardEnabled, expectEntry, expectConfigure, expectBroadcastModal, expectAddAnother) => {
-            beforeEach(() => setWizardFlag(wizardEnabled))
-
-            it('starts from the email card in the channel catalog', async () => {
-                await renderInApp(<MessageChannels />)
-                expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
-                fireEvent.click(element('workflows-channel-catalog-connect-email'))
-                await flush()
-                expectEntry(urls.workflowsEmailDomain('new'))
-            })
-
-            it('adds another sender from the email card once a domain exists', async () => {
-                backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
-                await renderInApp(<MessageChannels />)
-                expect(document.querySelector('[data-attr="email-domain-add-sender"]') !== null).toBe(wizardEnabled)
-                fireEvent.click(element('workflows-channel-catalog-connect-email'))
-                await flush()
-                expectAddAnother('')
-            })
-
-            it('starts from configure on an unverified sender', async () => {
-                backend.addSender({ email: `hello@${DOMAIN}` })
-                await renderInApp(<MessageChannels />)
-                fireEvent.click(screen.getByText(DOMAIN))
-                expect(screen.getByText('Unverified')).toBeInTheDocument()
-                fireEvent.click(screen.getByText('Configure'))
-                await flush()
-                expectConfigure(urls.workflowsEmailDomain(SENDER_ID))
-            })
-
-            it('keeps the sender settings for configure on a verified sender', async () => {
-                backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
-                await renderInApp(<MessageChannels />)
-                fireEvent.click(screen.getByText(DOMAIN))
-                fireEvent.click(screen.getByText('Configure'))
-                await flush()
-                expectOldModal('')
-            })
-
-            it('starts from the broadcast sender modal', async () => {
-                const onComplete = jest.fn()
-                await renderInApp(<EmailSetupModal entry="broadcast" onClose={jest.fn()} onComplete={onComplete} />)
-                expectBroadcastModal()
-                expect(onComplete).not.toHaveBeenCalled()
-            })
+        [
+            'the new channel menu in the header',
+            <MessagingTabActions key="header" tab="channels" channelsUrl={urls.workflows('channels')} />,
+            ['new-channel-button', 'Email'],
+        ],
+        ['the transactional sending domain row', <SendingDomainRow key="row" />, ['send-from-code-set-up-domain']],
+    ])('starts a new domain from %s', async (_from, ui, clicks) => {
+        await renderInApp(ui)
+        for (const target of clicks) {
+            fireEvent.click(document.querySelector(`[data-attr="${target}"]`) ?? screen.getByText(target))
+            await flush()
         }
-    )
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
+        expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
+    })
+
+    it('sends a domain still waiting for its DNS records from the transactional row to its setup page', async () => {
+        const pending = backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<SendingDomainRow />)
+        fireEvent.click(element('send-from-code-check-dns-records'))
+        await flush()
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(pending.id)}$`))
+    })
+
+    it('adds another sender from the email card once a domain exists', async () => {
+        backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
+        await renderInApp(<MessageChannels />)
+        expect(element('email-domain-add-sender')).toBeInTheDocument()
+        fireEvent.click(element('workflows-channel-catalog-connect-email'))
+        await flush()
+        expect(screen.getByText('Add a sender')).toBeInTheDocument()
+        expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
+    })
+
+    it('starts from configure on an unverified sender', async () => {
+        backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<MessageChannels />)
+        fireEvent.click(screen.getByText(DOMAIN))
+        expect(screen.getByText('Unverified')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Configure'))
+        await flush()
+        expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
+        expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
+        expect(screen.getByText('Open full page').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringContaining(urls.workflowsEmailDomain(SENDER_ID))
+        )
+    })
+
+    it('keeps the sender settings for configure on a verified sender', async () => {
+        backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
+        await renderInApp(<MessageChannels />)
+        fireEvent.click(screen.getByText(DOMAIN))
+        fireEvent.click(screen.getByText('Configure'))
+        await flush()
+        expect(screen.getByText(LEGACY_MODAL_TITLE)).toBeInTheDocument()
+        expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
+    })
+
+    it('starts from the broadcast sender modal', async () => {
+        const onComplete = jest.fn()
+        await renderInApp(<EmailSetupModal entry="broadcast" onClose={jest.fn()} onComplete={onComplete} />)
+        expect(screen.getByText('Set up a sending domain')).toBeInTheDocument()
+        expect(screen.getByText('Which domain should your emails come from?')).toBeInTheDocument()
+        expect(onComplete).not.toHaveBeenCalled()
+    })
 
     it('closes the setup modal when the person opens the full page from configure', async () => {
-        setWizardFlag(true)
         backend.addSender({ email: `hello@${DOMAIN}` })
         await renderInApp(<MessageChannels />)
         fireEvent.click(screen.getByText(DOMAIN))
@@ -189,7 +165,6 @@ describe('email domain setup entry points', () => {
     ])(
         'stays open for the settings after creating a sender, and reports it when closed (entry %s)',
         async (entry, fullPageTarget) => {
-            setWizardFlag(true)
             const onComplete = jest.fn()
             const onClose = jest.fn()
             await renderInApp(<EmailSetupModal entry={entry} onClose={onClose} onComplete={onComplete} />)
@@ -212,11 +187,26 @@ describe('email domain setup entry points', () => {
             expect(onClose).not.toHaveBeenCalled()
         }
     )
+
+    it('opens the existing sender when the new address already has one', async () => {
+        const existing = backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<EmailSetupModal onClose={jest.fn()} onComplete={jest.fn()} />)
+
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        await flush()
+        fireEvent.click(screen.getByText('Open it'))
+        await flush()
+
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(existing.id)}$`))
+    })
+
     describe('adding a sender to an existing domain', () => {
         const OTHER_DOMAIN = 'news.example.com'
 
         beforeEach(() => {
-            setWizardFlag(true)
             backend.addSender({ email: `hello@${DOMAIN}`, name: 'Acme', verified: true })
             backend.verifyDomain(DOMAIN)
             backend.addSender({ email: `team@${OTHER_DOMAIN}`, name: 'Acme news', verified: true })
@@ -329,7 +319,6 @@ describe('email domain setup entry points', () => {
     })
 
     it('stays on the submitted domain and offers to finish verification when a new sender from the email card does not verify', async () => {
-        setWizardFlag(true)
         backend.addSender({ email: 'hi@stale.example.com', name: 'Stale', verified: true })
         backend.addSender({ email: 'team@news.example.com', name: 'News', verified: true })
         backend.verifyDomain('news.example.com')

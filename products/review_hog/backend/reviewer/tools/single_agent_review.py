@@ -13,15 +13,18 @@ import json
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from difflib import SequenceMatcher
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    DEVEX_LENS,
+    DEVEX_LENS_MAX_FINDINGS,
+    DEVEX_LENS_NAME,
     FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
     FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENSES,
@@ -66,6 +69,15 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
+RULE_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "REVIEW.md", "SKILL.md"})
+RULE_DIRECTORIES = frozenset({".agents", ".claude"})
+_SHELL_SAFE_PATH = re.compile(r"[A-Za-z0-9._/-]+")
+
+
+def is_rule_file(path: str) -> bool:
+    parts = PurePosixPath(path).parts
+    return bool(parts) and (parts[-1] in RULE_FILE_NAMES or not RULE_DIRECTORIES.isdisjoint(parts[:-1]))
+
 
 def _commit_sha(value: str | None) -> str | None:
     return value if value is not None and _COMMIT_SHA.fullmatch(value) else None
@@ -88,7 +100,8 @@ def load_core_prompt() -> str:
 class SingleAgentPrompt:
     """The prompt of one single-agent session: the PR or its part, earlier findings, guidelines, format.
 
-    `scope_files` limits the diff to one lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
+    `scope_files` limits the diff to one lens part, and `whole_pr_files` holds every file of the PR when
+    `pr_files` holds only a delta. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
     to the reviewable files, and then to none: the file list marks each file it leaves out, and the
     session reads those changes with git against `merge_base_sha`.
     """
@@ -105,13 +118,19 @@ class SingleAgentPrompt:
         scope_files: list[str] | None = None,
         for_lens: bool = False,
         delta_since: str | None = None,
+        changed_since_review: "ChangedSinceReview | None" = None,
+        changed_code_only: bool = False,
+        whole_pr_files: list[PRFile] | None = None,
     ) -> None:
         self.repository = repository
         self.delta_since = delta_since
+        self.changed_since_review = changed_since_review
+        self.changed_code_only = changed_code_only
         self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
         self.pr_files = pr_files
+        self.whole_pr_files = whole_pr_files if whole_pr_files is not None else pr_files
         self.prior_findings = prior_findings
         self.scope_files = scope_files
         self.for_lens = for_lens
@@ -178,6 +197,24 @@ class SingleAgentPrompt:
         ]
         return json.dumps(covered, indent=2) if covered else None
 
+    def _changed_rule_files(self) -> tuple[list[str], int]:
+        """The changed rule files the prompt can name, and how many more have a path it must not repeat.
+
+        A rename counts under both names, because renaming a rule file away removes it from the checkout.
+        The session is asked to quote a named path in a shell command, so a path the author could use to
+        break out of the quotes or the sentence is counted, never repeated.
+        """
+        paths = list(
+            dict.fromkeys(
+                path
+                for f in self.whole_pr_files
+                for path in (f.filename, f.previous_filename)
+                if path and is_rule_file(path)
+            )
+        )
+        named = [path for path in paths if _SHELL_SAFE_PATH.fullmatch(path)]
+        return named, len(paths) - len(named)
+
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
         return _commit_sha(self.merge_base_sha)
@@ -190,6 +227,12 @@ class SingleAgentPrompt:
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
         covered = self._covered_findings()
+        rule_files, unnamed_rule_file_count = self._changed_rule_files()
+        changed_since_review = (
+            self.changed_since_review.describe()
+            if self.changed_since_review is not None and not self.delta_since
+            else None
+        )
         return template.render(
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
@@ -203,6 +246,13 @@ class SingleAgentPrompt:
             SCOPE=without_cache_marker(", ".join(f"`{path}`" for path in scope)) if scope else None,
             DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
+            CHANGED_RULE_FILES=(
+                without_cache_marker(", ".join(f"`{path}`" for path in rule_files)) if rule_files else None
+            ),
+            UNNAMED_RULE_FILE_COUNT=unnamed_rule_file_count,
+            CHANGED_SINCE_REVIEW=without_cache_marker(changed_since_review) if changed_since_review else None,
+            DISCARDED_LEVELS="P2 or P3" if self.changed_code_only else "P3",
+            CHANGE_MARGIN=FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
             COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
             CACHE_MARKER=PROMPT_CACHE_MARKER,
             GUIDELINES=self.guidelines,
@@ -291,6 +341,7 @@ def compose_flash_findings(
     group_levels: Mapping[str, int] | None = None,
     budget_left: int | None = None,
     first_review: bool = False,
+    devex: Sequence[Issue] = (),
 ) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
@@ -303,6 +354,9 @@ def compose_flash_findings(
     but not under the budget drops as `budget`, the rest as `cap`. A first review gets
     `FLASH_FIRST_REVIEW_CAP_MULTIPLIER` times the cap.
 
+    The devex lens findings (`devex`) take no part in the cap or the budget. They have their own lane of
+    `DEVEX_LENS_MAX_FINDINGS`, ranked after every other finding, and the rest of them drop as `cap`.
+
     The caller persists only the kept findings. A persisted finding that never posts counts as already
     raised, so every later turn would keep it off the PR too.
     """
@@ -313,8 +367,10 @@ def compose_flash_findings(
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
     under_cap = others[: max(cap - len(must_fix), 0)]
     kept = under_cap if budget_left is None else under_cap[: max(budget_left - len(must_fix), 0)]
-    kept_ids = {issue.id for issue in [*must_fix, *kept]}
+    devex_ranked = _flash_order(list(devex), [], group_levels)
+    kept_ids = {issue.id for issue in [*must_fix, *kept, *devex_ranked[:DEVEX_LENS_MAX_FINDINGS]]}
     over_budget_ids = {issue.id for issue in under_cap} - kept_ids
+    ranked = [*ranked, *devex_ranked]
     return FlashSelection(
         kept=[issue for issue in ranked if issue.id in kept_ids],
         dropped=[
@@ -332,6 +388,7 @@ def compose_flash_findings(
 _SESSION_NAMES = {
     SINGLE_AGENT_SOURCE: "main",
     **{lens.source: name.replace("-", "_") for name, lens in FLASH_LENSES.items()},
+    DEVEX_LENS.source: DEVEX_LENS_NAME,
 }
 
 
@@ -360,12 +417,20 @@ class FlashTurnStats:
     must_fix_off_change: int | None = None
 
 
+def _stats_disposition(drop: DroppedIssue) -> str:
+    """The drop reason the completed event counts. A devex lane drop is not a turn cap drop, so cap pressure compares."""
+    if drop.disposition == "cap" and drop.issue.source_perspective == DEVEX_LENS.source:
+        return "devex_lane"
+    return drop.disposition
+
+
 def flash_turn_stats(
     candidates: list[Issue],
     selection: FlashSelection,
     *,
     reviewable_lines: int,
     changed_since: "ChangedSinceReview | None" = None,
+    devex_lens: bool = False,
 ) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
@@ -373,7 +438,7 @@ def flash_turn_stats(
     session reported. The on and off change split reads the stored priority instead, because it counts
     what the turn posts.
     """
-    per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
+    per_session = {name: 0 for name in _SESSION_NAMES.values() if devex_lens or name != DEVEX_LENS_NAME}
     must_fix = dict(per_session)
     for issue in candidates:
         session = _SESSION_NAMES.get(issue.source_perspective or "", issue.source_perspective or "unknown")
@@ -396,7 +461,7 @@ def flash_turn_stats(
         candidates=per_session,
         must_fix=must_fix,
         after_dedup=len(selection.kept) + cut,
-        dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
+        dropped=dict(Counter(_stats_disposition(drop) for drop in selection.dropped)),
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
         budget_left=selection.budget_left,
@@ -446,6 +511,8 @@ def _resolve_duplicates(
     lens_outcome: DedupOutcome,
     *,
     earlier_ids: set[str],
+    devex: Sequence[Issue] = (),
+    devex_outcome: DedupOutcome | None = None,
 ) -> list[_HeldDuplicate]:
     """Keep only the removals whose target survives, and point each one at the survivor.
 
@@ -458,10 +525,13 @@ def _resolve_duplicates(
     """
     main_ids = {issue.id for issue in main}
     lens_ids = {issue.id for issue in lens}
+    devex_ids = {issue.id for issue in devex}
     calls = [
         (main_outcome, main_ids | earlier_ids),
         (lens_outcome, lens_ids | main_ids | earlier_ids),
     ]
+    if devex_outcome is not None:
+        calls.append((devex_outcome, devex_ids | lens_ids | main_ids | earlier_ids))
     targets: dict[str, str] = {}
     removals: dict[str, _HeldDuplicate] = {}
     for outcome, shown_ids in calls:
@@ -476,7 +546,7 @@ def _resolve_duplicates(
             targets[issue_id] = named
             removals[issue_id] = _HeldDuplicate(duplicate=duplicate, fell_back=outcome.fell_back)
 
-    rank = {issue.id: position for position, issue in enumerate(_flash_order(main, lens))}
+    rank = {issue.id: position for position, issue in enumerate(_flash_order(main, [*lens, *devex]))}
     for start in list(targets):
         path: list[str] = []
         node = start
@@ -515,12 +585,17 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
     duplicate reported a more severe level of the same stored priority, such as a P0 merged into a P1,
     takes that level, so its comment leads with it; the turn stats count both levels as must-fix.
     Across stored priorities the survivor keeps its session's level, which the turn stats count.
+
+    A devex lens duplicate raises only a devex survivor. A raise of another session's finding to must-fix would move
+    that finding out of the cap, so a routed turn would post a different set than an unrouted one.
     """
     kept_by_id = {issue.id: issue for issue in kept}
     group_levels: dict[str, int] = {}
     for duplicate in duplicates:
         survivor = kept_by_id.get(duplicate.duplicate_of or "")
-        if survivor is None:
+        if survivor is None or (
+            duplicate.issue.source_perspective == DEVEX_LENS.source and survivor.source_perspective != DEVEX_LENS.source
+        ):
             continue
         group_levels[survivor.id] = max(
             group_levels.get(survivor.id, _reported_level(survivor)), _reported_level(duplicate.issue)
@@ -616,6 +691,21 @@ def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
     return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
 
 
+def _line_ranges(lines: set[int]) -> str:
+    """`{1, 2, 3, 7}` as `1-3, 7`."""
+    ranges: list[str] = []
+    ordered = sorted(lines)
+    start = previous = ordered[0]
+    for line in [*ordered[1:], None]:
+        if line is not None and line == previous + 1:
+            previous = line
+            continue
+        ranges.append(str(start) if start == previous else f"{start}-{previous}")
+        if line is not None:
+            start = previous = line
+    return ", ".join(ranges)
+
+
 def _within_margin(start: int, end: int | None, lines: set[int]) -> bool:
     """Whether any of `lines` falls in `start`..`end`, widened by the follow-up change margin."""
     margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
@@ -650,6 +740,14 @@ class ChangedSinceReview:
             if earlier.filename not in current_names:
                 changed_line_counts[earlier.filename] = _count_delta(None, earlier)
         return cls(lines=lines, files_without_patch=files_without_patch, changed_line_counts=changed_line_counts)
+
+    def describe(self) -> str | None:
+        """The changed lines per file as a Markdown list, or None when no line changed."""
+        entries = [f"- `{filename}`: the whole file" for filename in sorted(self.files_without_patch)]
+        entries.extend(
+            f"- `{filename}`: lines {_line_ranges(lines)}" for filename, lines in sorted(self.lines.items()) if lines
+        )
+        return "\n".join(entries) or None
 
     def reviewable_line_count(self) -> int:
         """How many diff lines of reviewable files changed, in the units of `flash_reviewable_lines`."""
@@ -732,10 +830,12 @@ async def dedupe_flash_findings(
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
-    Two dedup calls run in parallel. The main findings dedup against earlier turns only: Flash posts what it
+    The dedup calls run in parallel. The main findings dedup against earlier turns only: Flash posts what it
     finds whatever other comments on the PR say. The lens findings dedup against those too and against the
     main findings as anchors, so a lens
-    finding can lose to a main finding but never the other way around. A removal holds only when what
+    finding can lose to a main finding but never the other way around. The devex lens findings dedup in a
+    third call with the main and lens findings as anchors, so they can lose to any other session's finding but
+    never take its place. A removal holds only when what
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
@@ -746,8 +846,9 @@ async def dedupe_flash_findings(
     old_code_ids = {issue.id for issue in old_code}
     reviewed = [issue for issue in issues if issue.id not in old_code_ids]
     main = [issue for issue in reviewed if issue.source_perspective == SINGLE_AGENT_SOURCE]
-    lens = [issue for issue in reviewed if issue.source_perspective != SINGLE_AGENT_SOURCE]
-    main_outcome, lens_outcome = await asyncio.gather(
+    devex = [issue for issue in reviewed if issue.source_perspective == DEVEX_LENS.source]
+    lens = [issue for issue in reviewed if issue.source_perspective not in (SINGLE_AGENT_SOURCE, DEVEX_LENS.source)]
+    main_outcome, lens_outcome, devex_outcome = await asyncio.gather(
         deduplicate_issues(
             team_id=team_id,
             user_id=user_id,
@@ -775,13 +876,68 @@ async def dedupe_flash_findings(
             for_flash=True,
             fall_back_on_any_error=fall_back_on_any_error,
         ),
+        deduplicate_issues(
+            team_id=team_id,
+            user_id=user_id,
+            issues=devex,
+            pr_metadata=pr_metadata,
+            pr_comments=[],
+            prior_findings=prior_findings,
+            branch=branch,
+            repository=repository,
+            workflow_id_prefix=workflow_id_prefix,
+            anchors=[*main, *lens],
+            for_flash=True,
+            # The optional lane must never fail or retry the turn's dedup.
+            fall_back_on_any_error=True,
+        ),
     )
+    # The positional fallback ignores the anchors, so its devex findings could repeat a main or lens finding.
+    lost_devex = devex if devex_outcome.fell_back else []
+    if lost_devex:
+        logger.warning("The devex dedup fell back, so the devex lane posts nothing on this turn")
     prior_keys = {finding.issue_key for finding, _ in prior_findings}
-    held = _resolve_duplicates(main, lens, main_outcome, lens_outcome, earlier_ids=prior_keys)
+    held = _resolve_duplicates(
+        main,
+        lens,
+        main_outcome,
+        lens_outcome,
+        earlier_ids=prior_keys,
+        devex=devex,
+        devex_outcome=None if lost_devex else devex_outcome,
+    )
     removed_ids = {removal.duplicate.issue.id for removal in held}
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
-    group_levels = _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
+    kept_devex = [issue for issue in devex if issue.id not in removed_ids and not lost_devex]
+    group_levels = _raise_survivors([*kept_main, *kept_lens, *kept_devex], [removal.duplicate for removal in held])
+    # A devex finding that repeats a main or lens finding the cap or budget then drops would leave the PR with
+    # neither, so the most severe devex finding of each such anchor goes back into the devex lane.
+    shared_ids = {issue.id for issue in [*main, *lens]}
+    posted_ids = {
+        issue.id
+        for issue in compose_flash_findings(
+            kept_main,
+            kept_lens,
+            lens_part_count=lens_part_count,
+            group_levels=group_levels,
+            budget_left=budget_left,
+            first_review=first_review,
+        ).kept
+    }
+    by_unposted_anchor: dict[str, list[Issue]] = {}
+    for removal in held:
+        anchor = removal.duplicate.duplicate_of
+        if (
+            removal.duplicate.issue.source_perspective == DEVEX_LENS.source
+            and anchor is not None
+            and anchor in shared_ids
+            and anchor not in posted_ids
+        ):
+            by_unposted_anchor.setdefault(anchor, []).append(removal.duplicate.issue)
+    restored_ids = {_flash_order(group, [])[0].id for group in by_unposted_anchor.values()}
+    held = [removal for removal in held if removal.duplicate.issue.id not in restored_ids]
+    kept_devex = [*kept_devex, *(issue for issue in devex if issue.id in restored_ids)]
     composed = compose_flash_findings(
         kept_main,
         kept_lens,
@@ -789,6 +945,7 @@ async def dedupe_flash_findings(
         group_levels=group_levels,
         budget_left=budget_left,
         first_review=first_review,
+        devex=kept_devex,
     )
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
@@ -796,15 +953,17 @@ async def dedupe_flash_findings(
         for removal in held
     ]
     logger.info(
-        "Flash keeps %s of %s main and %s lens finding(s) left after dedup, after %s on unchanged code",
+        "Flash keeps %s of %s main, %s lens and %s devex finding(s) left after dedup, after %s on unchanged code",
         len(composed.kept),
         len(kept_main),
         len(kept_lens),
+        len(kept_devex),
         len(old_code),
     )
     old_code_drops = [DroppedIssue(issue=issue, disposition="old_code") for issue in old_code]
+    lost_devex_drops = [DroppedIssue(issue=issue, disposition="cap") for issue in lost_devex]
     return replace(
         composed,
-        dropped=[*old_code_drops, *dedup_drops, *composed.dropped],
+        dropped=[*old_code_drops, *dedup_drops, *composed.dropped, *lost_devex_drops],
         dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back,
     )

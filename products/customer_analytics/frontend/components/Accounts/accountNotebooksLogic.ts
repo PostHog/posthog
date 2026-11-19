@@ -22,8 +22,6 @@ import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanel
 import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import { accountsNotebooksCreate, accountsNotebooksList } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountNotebookApi,
@@ -663,7 +661,6 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
         updateNotebookSuccess: ({ updatedNotebook, payload }) => {
-            tagsModel.findMounted()?.actions.loadTags()
             posthog.capture(AccountsEvents.NoteUpdated, {
                 notebook_short_id: updatedNotebook.short_id,
                 fields: Object.keys(payload?.updates ?? {}),

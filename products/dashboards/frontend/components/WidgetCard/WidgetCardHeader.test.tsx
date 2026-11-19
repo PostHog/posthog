@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { WidgetCardHeader, type DashboardWidgetTopHeadingProps } from './WidgetCardHeader'
+import { WidgetCardHeader } from './WidgetCardHeader'
+import type { DashboardWidgetTopHeadingProps } from './WidgetCardTopHeading'
 
 describe('WidgetCardHeader', () => {
     afterEach(() => {

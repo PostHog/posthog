@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confirm_complaints": {
+            "default": false,
+            "description": "Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.",
+            "type": "boolean"
+        },
+        "identifiers": {
+            "description": "The email addresses to remove, at most 100 per request.",
+            "items": {
+                "maxLength": 512,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["identifiers"],
+    "type": "object"
+}

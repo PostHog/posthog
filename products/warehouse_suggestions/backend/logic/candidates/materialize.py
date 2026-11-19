@@ -69,7 +69,7 @@ class SavingsEstimate:
     background_seconds_saved: float
     main_saving: WarehouseSuggestionMainSaving
     bytes_saved: float
-    clears_a_floor: bool
+    qualifies: bool
     score: float
 
 
@@ -262,12 +262,12 @@ class MaterializeCandidate(Candidate):
             (
                 estimate
                 for estimate in (estimate_savings(context, reads, interval, refresh) for interval in intervals)
-                if estimate.clears_a_floor
+                if estimate.qualifies
             ),
             None,
         )
         if estimate is None:
-            return "savings stay under the floors at every allowed refresh interval"
+            return "it saves too little or scans too much more at every allowed refresh interval"
         basis = interval_basis(
             estimate.interval,
             frequency.bounds.allowed,
@@ -309,8 +309,8 @@ class MaterializeCandidate(Candidate):
         if cost is None:
             return _Unmeasured(recomputations=recomputations)
         estimate = recomputation_savings(context, reads, recomputations, interval, cost)
-        if not estimate.clears_a_floor:
-            return "savings stay under the floors at the interval the views that read it need"
+        if not estimate.qualifies:
+            return "it saves too little or scans too much more at the interval the views that read it need"
         return _proposal(
             context,
             saved_query,
@@ -320,6 +320,7 @@ class MaterializeCandidate(Candidate):
             incremental,
             basis=WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH,
             recomputed_by_views=recomputations.consumers,
+            measurement_capped=cost.capped,
         )
 
     def _read_floor_rejection(self, context: CandidateContext, reads: SubjectReads) -> str | None:
@@ -372,6 +373,7 @@ def _proposal(
     *,
     basis: WarehouseSuggestionRefreshIntervalBasis,
     recomputed_by_views: int = 0,
+    measurement_capped: bool = False,
 ) -> _Proposal:
     sources = _classify_sources(context, saved_query.id, frequency)
     freshness_today = int(frequency.max_data_age.total_seconds()) or None
@@ -391,6 +393,7 @@ def _proposal(
         unknown_sources=sources.unknown,
         refresh_interval_basis=basis,
         recomputed_by_views=recomputed_by_views,
+        measurement_capped=measurement_capped,
     )
     return _Proposal(
         payload=_with_refresh_mode(
@@ -491,7 +494,7 @@ def evaluation_cost(
         return None
     if unfinished.failed:
         return "its cost could not be measured"
-    return QueryCost(seconds=unfinished.seconds, read_bytes=0)
+    return QueryCost(seconds=unfinished.seconds, read_bytes=0, capped=True)
 
 
 def recomputation_savings(
@@ -535,6 +538,7 @@ def _estimate(
         saved.read_bytes >= rules.min_bytes_saved
         and saved.read_bytes >= rules.min_saved_share * cost_without.read_bytes
     )
+    within_extra_bytes = saved.read_bytes >= -rules.max_extra_bytes
     time_ratio = saved.seconds / rules.min_seconds_saved
     bytes_ratio = saved.read_bytes / rules.min_bytes_saved
     bytes_lead = clears_bytes and (not clears_time or bytes_ratio > time_ratio)
@@ -547,7 +551,7 @@ def _estimate(
         background_seconds_saved=background_saved.seconds,
         main_saving=_main_saving(bytes_lead, waiting_saved.seconds, background_saved.seconds),
         bytes_saved=saved.read_bytes,
-        clears_a_floor=clears_time or clears_bytes,
+        qualifies=(clears_time or clears_bytes) and within_extra_bytes,
         score=max(time_ratio, bytes_ratio),
     )
 

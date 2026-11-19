@@ -898,6 +898,7 @@ WHERE and(
             timings=self.timings,
             modifiers=modifiers,
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
+            **self._hogql_context_kwargs(),
         )
 
         results = self.paginator.results

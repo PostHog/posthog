@@ -9,11 +9,13 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
-from django.db.models import Model, Q
+from django.db.models import Model
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_safe
+from django.utils.cache import add_never_cache_headers
+from django.utils.datastructures import MultiValueDict
+from django.views.decorators.http import require_GET, require_safe
 
 import structlog
 
@@ -22,10 +24,12 @@ from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
+from posthog.admin.console.results import OperationResult, OperationResults, ResultState
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -34,7 +38,8 @@ logger = structlog.get_logger(__name__)
 R = TypeVar("R")
 
 SEARCH_LIMIT = 25
-RECENT_TEAMS_LIMIT = 8
+RECENT_RECORDS_LIMIT = 8
+RECENT_TOOLS_LIMIT = 6
 
 
 @frozen
@@ -122,23 +127,67 @@ class ConsoleEnvironment:
         }
 
 
-class RecentTeams:
-    """The teams this staff member opened last, kept in the session, so the home page has somewhere to start."""
+@frozen
+class RecentRecord:
+    record_type: RecordType
+    title: str
+    subtitle: str
+    url: str
 
-    SESSION_KEY = "admin_console_recent_teams"
+
+class RecentRecords:
+    """The records this staff member opened last, kept in the session, so the home page has somewhere to start."""
+
+    SESSION_KEY = "admin_console_recent_records"
 
     @classmethod
-    def remember(cls, request: HttpRequest, team: Team) -> None:
-        recent = [team_id for team_id in request.session.get(cls.SESSION_KEY, []) if team_id != team.pk]
-        request.session[cls.SESSION_KEY] = [team.pk, *recent][:RECENT_TEAMS_LIMIT]
+    def remember(cls, request: HttpRequest, record_type: RecordType, obj: Model) -> None:
+        entry = [record_type.key, str(obj.pk)]
+        recent = [item for item in request.session.get(cls.SESSION_KEY, []) if item != entry]
+        request.session[cls.SESSION_KEY] = [entry, *recent][:RECENT_RECORDS_LIMIT]
 
     @classmethod
-    def load(cls, request: HttpRequest) -> list[Team]:
-        team_ids: list[int] = request.session.get(cls.SESSION_KEY, [])
-        if not team_ids:
-            return []
-        teams = Team.objects.select_related("organization").in_bulk(team_ids)
-        return [teams[team_id] for team_id in team_ids if team_id in teams]
+    def load(cls, request: HttpRequest) -> list[RecentRecord]:
+        entries: list[list[str]] = request.session.get(cls.SESSION_KEY, [])
+        pks_by_type: dict[str, list[str]] = {}
+        for key, pk in entries:
+            if key in RECORD_TYPES:
+                pks_by_type.setdefault(key, []).append(pk)
+        found: dict[tuple[str, str], Model] = {}
+        for key, pks in pks_by_type.items():
+            for obj in RECORD_TYPES[key].queryset().filter(pk__in=pks):
+                found[(key, str(obj.pk))] = obj
+        recent = []
+        for key, pk in entries:
+            obj = found.get((key, pk))
+            if obj is None:
+                continue
+            record_type = RECORD_TYPES[key]
+            recent.append(
+                RecentRecord(
+                    record_type=record_type,
+                    title=record_type.title(obj),
+                    subtitle=record_type.subtitle(obj),
+                    url=record_type.url(obj),
+                )
+            )
+        return recent
+
+
+class RecentTools:
+    """The tools this staff member opened last, so the few each person uses sit on the home page."""
+
+    SESSION_KEY = "admin_console_recent_tools"
+
+    @classmethod
+    def remember(cls, request: HttpRequest, tool: ConsoleTool) -> None:
+        recent = [key for key in request.session.get(cls.SESSION_KEY, []) if key != tool.key]
+        request.session[cls.SESSION_KEY] = [tool.key, *recent][:RECENT_TOOLS_LIMIT]
+
+    @classmethod
+    def load(cls, request: HttpRequest) -> list[ConsoleTool]:
+        tools = [console.get_tool(key) for key in request.session.get(cls.SESSION_KEY, [])]
+        return [tool for tool in tools if tool is not None]
 
 
 def _search_teams(query: str) -> list[Team]:
@@ -151,8 +200,19 @@ def _search_teams(query: str) -> list[Team]:
     by_token = list(teams.filter(api_token=query)[:1])
     if by_token:
         return by_token
-    matches = teams.filter(Q(name__icontains=query) | Q(organization__name__icontains=query))
-    return list(matches.order_by("-id")[:SEARCH_LIMIT])
+    # Team names and organization names are searched in two queries, so each one can use the trigram index on its
+    # own table. One query with an OR across the join cannot use either index and scans every team.
+    by_team_name = Team.objects.filter(name__icontains=query)
+    by_organization_name = Team.objects.filter(
+        organization_id__in=Organization.objects.filter(name__icontains=query).values("id")
+    )
+    team_ids = {
+        *by_team_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+        *by_organization_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+    }
+    newest_ids = sorted(team_ids, reverse=True)[:SEARCH_LIMIT]
+    found = teams.in_bulk(newest_ids)
+    return [found[team_id] for team_id in newest_ids if team_id in found]
 
 
 def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
@@ -167,6 +227,22 @@ def _find_user(query: str) -> User | None:
     return EmailLookupHandler.get_user_by_email(query, is_active=None)
 
 
+def _as_uuid(query: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(query)
+    except ValueError:
+        return None
+
+
+def _find_by_uuid(record_id: uuid.UUID) -> HttpResponse | None:
+    # Both lookups hit a unique index: the organization primary key, then the team UUID.
+    organization = Organization.objects.filter(pk=record_id).only("pk").first()
+    if organization is not None:
+        return redirect("admin_console_organization", pk=organization.pk)
+    team = Team.objects.filter(uuid=record_id).only("pk").first()
+    return redirect("admin_console_team", pk=team.pk) if team is not None else None
+
+
 def console_home(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()
     user = _find_user(query)
@@ -174,11 +250,21 @@ def console_home(request: HttpRequest) -> HttpResponse:
         return HttpResponseRedirect(
             _with_kept_query(reverse("admin_console_user", kwargs={"pk": user.pk}), request, (SUPPORT_TICKET_PARAM,))
         )
-    teams = _search_teams(query)
+    record_id = _as_uuid(query)
+    if record_id is not None:
+        found = _find_by_uuid(record_id)
+        if found is not None:
+            return found
+        # A project API token can have the form of a UUID, and the token match uses a unique index.
+        # A UUID is never a name, so the name scan across every team stays skipped.
+        teams = list(Team.objects.select_related("organization").filter(api_token=query)[:1])
+    else:
+        teams = _search_teams(query)
     if len(teams) == 1:
         if not query.isdigit():
             messages.info(request, f'Opened the only team that matches "{query}".')
         return redirect("admin_console_team", pk=teams[0].pk)
+    organizations = list({team.organization_id: team.organization for team in teams}.values())
     return render(
         request,
         "admin_console/home.html",
@@ -186,11 +272,15 @@ def console_home(request: HttpRequest) -> HttpResponse:
             **ConsoleEnvironment.context(),
             "query": query,
             "teams": teams,
-            "recent_teams": [] if query else RecentTeams.load(request),
-            "tools": console.tools(),
-            "team_panels": console.panels_for("team"),
+            "organizations": organizations,
+            "recent_records": [] if query else RecentRecords.load(request),
+            "recent_tools": [] if query else RecentTools.load(request),
         },
     )
+
+
+def tools_index(request: HttpRequest) -> HttpResponse:
+    return render(request, "admin_console/tools.html", ConsoleEnvironment.context())
 
 
 def _record_type(record: str) -> RecordType:
@@ -226,8 +316,7 @@ def _rendered_operation(
 def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
-    if isinstance(obj, Team):
-        RecentTeams.remember(request, obj)
+    RecentRecords.remember(request, record_type, obj)
     panels = [
         RenderedPanel(
             panel=panel,
@@ -242,7 +331,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                         kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
                     ),
                 )
-                for operation in panel.operations(obj)
+                for operation in _offered_operations(panel, obj)
             ],
         )
         for panel in console.panels_for(record_type.key)
@@ -272,14 +361,23 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
     )
 
 
+def _offered_operations(panel: Panel, obj: Model) -> list[Operation]:
+    operations = panel.operations(obj)
+    if panel.operation_keys is not None:
+        undeclared = sorted({operation.key for operation in operations} - panel.operation_keys)
+        if undeclared:
+            raise ValueError(f"Console panel {panel.key!r} offers operations missing from operation_keys: {undeclared}")
+    return operations
+
+
 def _is_offered(panel: Panel, obj: Model, operation_key: str) -> bool:
-    return any(operation.key == operation_key for operation in panel.operations(obj))
+    return any(operation.key == operation_key for operation in _offered_operations(panel, obj))
 
 
 def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     # Look the operation up in what the panel offers now, so a stale form cannot run an operation the
     # current state no longer allows, for example suspending a team that is already suspended.
-    for operation in panel.operations(obj):
+    for operation in _offered_operations(panel, obj):
         if operation.key == operation_key:
             return operation
     raise Http404("This operation is not available for this record right now")
@@ -355,8 +453,14 @@ class ConfirmStep:
     def __init__(self, request: HttpRequest, confirmation: ConfirmationToken) -> None:
         self.confirmation = confirmation
         self.token = request.POST.get("confirm_token") if request.method == "POST" else None
-        submitted = request.POST if request.method == "POST" else None
-        self.data: QueryDict | None = confirmation.load(self.token) if self.token is not None else submitted
+        self.data: QueryDict | None = None
+        self.files: MultiValueDict | None = None
+        if self.token is not None:
+            confirmed = confirmation.load(self.token)
+            if confirmed is not None:
+                self.data, self.files = confirmed.data, confirmed.files
+        elif request.method == "POST":
+            self.data, self.files = request.POST, request.FILES
 
     @property
     def confirmed(self) -> bool:
@@ -366,6 +470,11 @@ class ConfirmStep:
     def expired(self) -> bool:
         return self.confirmed and self.data is None
 
+    def bind(self, operation: Operation | ToolOperation, initial: dict[str, object] | None = None) -> forms.Form | None:
+        if operation.form_class is None:
+            return None
+        return operation.form_class(self.data, self.files, initial=initial or operation.form_initial)
+
     def render_expired(self, request: HttpRequest) -> HttpResponse:
         messages.error(request, "This confirmation expired or was made for something else. Review the change again.")
         return redirect(request.get_full_path())
@@ -373,7 +482,7 @@ class ConfirmStep:
     def render_preview(
         self, request: HttpRequest, context: dict[str, object], form: forms.Form, preview: Callable[[], Page]
     ) -> HttpResponse:
-        page = preview()
+        page = preview().refuse_secrets("preview")
         if form.errors:
             return render(request, "admin_console/operation.html", context, status=400)
         return render(
@@ -383,10 +492,44 @@ class ConfirmStep:
         )
 
 
+def _no_store(response: HttpResponse) -> HttpResponse:
+    add_never_cache_headers(response)
+    return response
+
+
+def _show_result(
+    request: HttpRequest, operation: Operation | ToolOperation, target: OperationTarget, page: Page
+) -> HttpResponse:
+    result = OperationResult(
+        actor_id=cast(User, request.user).pk, operation_label=operation.label, target=target, page=page
+    )
+    try:
+        return _no_store(OperationResults.redirect_to(result))
+    except Exception:
+        # The operation already ran, and its result may hold a password that the control plane returns only
+        # once. When the result cannot be stored, this response is the only way left to show it, so the page
+        # renders here, at the cost that a reload would submit the form again.
+        logger.exception("admin_console_result_handoff_failed", operation=operation.key)
+        context = {**ConsoleEnvironment.context(), "result": result}
+        return _no_store(render(request, "admin_console/result.html", context))
+
+
+@require_GET
+def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
+    """The result page of an operation that ran. It shows once, so a reload never runs the operation again."""
+    read = OperationResults.take(request, result_id)
+    context = {**ConsoleEnvironment.context(), "result": read.result, "state": read.state}
+    response = render(request, "admin_console/result.html", context, status=200 if read.result else 410)
+    if read.state != ResultState.KEY_MISSING:
+        OperationResults.forget_key(response, result_id)
+    return _no_store(response)
+
+
 def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
     # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
     # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
-    assert operation.form_class is not None
+    if operation.form_class is None:
+        return None
     preselected = {
         name: request.GET[name]
         for name, field in operation.form_class.base_fields.items()
@@ -423,9 +566,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
     step = ConfirmStep(request, ConfirmationToken(request, f"{record_type.key}:{obj.pk}:{panel.key}", operation.key))
     if step.expired:
         return step.render_expired(request)
-    form = None
-    if operation.form_class is not None:
-        form = operation.form_class(step.data, initial=_record_form_initial(request, operation))
+    form = step.bind(operation, initial=_record_form_initial(request, operation))
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",
@@ -452,8 +593,12 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     response = _audited(audit, lambda: operation.handler(request, obj, form))
+    if not isinstance(response, HttpResponse) or response.status_code < 400:
+        step.confirmation.discard_uploads()
     if response is None:
         return redirect(record_url)
+    if isinstance(response, Page):
+        return _show_result(request, operation, target, response)
     if response.status_code >= 400:
         obj.refresh_from_db()
         # A handler can fail after its state change committed, for example when a notification fails.
@@ -490,6 +635,7 @@ def _with_query(url: str, request: HttpRequest) -> str:
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
+    offered = tool.operations(request)
     operations = [
         _rendered_operation(
             request,
@@ -500,15 +646,17 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
                 request,
             ),
         )
-        for operation in tool.operations(request)
+        for operation in offered
+        if operation.listed
     ]
+    RecentTools.remember(request, tool)
     return render(
         request,
         "admin_console/tool.html",
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
-            "page": tool.page(request),
+            "page": tool.page(request).refuse_secrets("tool page").check_decisions(offered),
             "operations": operations,
             "query_suffix": _query_suffix(request),
         },
@@ -528,6 +676,18 @@ def tool_live(request: HttpRequest, tool_key: str, live_key: str) -> HttpRespons
     response = render(request, "admin_console/_live.html", {"tool": tool, "live": live, "live_url": live_url})
     # console.js swaps in only a response that carries this header, never a login page or an error page.
     response["X-Console-Live"] = "1"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@require_safe
+def tool_download(request: HttpRequest, tool_key: str, download_key: str) -> HttpResponse:
+    """A file a tool hands staff. It reads only, like the tool page that links to it."""
+    download = _get_tool(tool_key).download(request, download_key)
+    if download is None:
+        raise Http404("Unknown download")
+    response = HttpResponse(download.content, content_type=download.content_type)
+    response["Content-Disposition"] = f'attachment; filename="{download.filename}"'
     response["Cache-Control"] = "no-store"
     return response
 
@@ -564,9 +724,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if step.expired:
         return step.render_expired(request)
 
-    form = None
-    if operation.form_class is not None:
-        form = operation.form_class(step.data, initial=operation.form_initial)
+    form = step.bind(operation)
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
@@ -579,10 +737,12 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))
+    if not isinstance(result, HttpResponse) or result.status_code < 400:
+        step.confirmation.discard_uploads()
     if result is None:
         return redirect(tool_url)
     if isinstance(result, Page):
-        return render(request, "admin_console/result.html", {**context, "page": result})
+        return _show_result(request, operation, target, result)
     if result.status_code >= 400:
         if form is not None:
             return render(request, "admin_console/operation.html", context, status=result.status_code)

@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentConversationEvent } from "@posthog/agent-contracts";
 import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as localTools from "../adapters/codex-app-server/local-tools-mcp";
 import * as piRpc from "../pi/rpc-client";
+import type { Logger } from "../utils/logger";
 import { PiAgentServer } from "./pi-agent-server";
 import type { AgentServerConfig } from "./types";
 
@@ -1580,4 +1581,40 @@ describe("PiAgentServer", () => {
       expect(server.modelContextWindow).toBe(expectedContextWindow);
     },
   );
+});
+
+describe("PiAgentServer logger", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function recordedLines(overrides: Partial<AgentServerConfig>): string[] {
+    const lines: string[] = [];
+    for (const method of ["debug", "info"] as const) {
+      vi.spyOn(console, method).mockImplementation((line: string) => {
+        lines.push(line);
+      });
+    }
+    const { logger } = new PiAgentServer(config(overrides)) as unknown as {
+      logger: Logger;
+    };
+    logger.debug("probe-debug");
+    logger.info("probe-info");
+    return lines;
+  }
+
+  it("honors the configured format and level", () => {
+    const lines = recordedLines({ logFormat: "json", logLevel: "info" });
+
+    expect(lines.map((line) => JSON.parse(line).message)).toEqual([
+      "probe-info",
+    ]);
+  });
+
+  it("keeps debug text output by default", () => {
+    const lines = recordedLines({});
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("[PiAgentServer] [debug] probe-debug");
+  });
 });

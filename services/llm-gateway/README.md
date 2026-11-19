@@ -19,7 +19,7 @@ curl -X POST http://localhost:8080/django/v1/chat/completions \
   -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4.1-mini",
+    "model": "gpt-6-luna",
     "messages": [{"role": "user", "content": "Hello"}],
     "user": "end-user-distinct-id"
   }'
@@ -255,7 +255,7 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | `wizard`             | API key + OAuth | All                                                | Max AI assistant                |
 | `django`             | API key only    | All                                                | Server-side Django calls        |
 | `growth`             | API key only    | All                                                | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini                                       | AI observability translation    |
+| `llma_translation`   | API key only    | gpt-4.1-mini, gpt-6-luna                           | AI observability translation    |
 | `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini, gpt-5-nano, gpt-5-mini | AI observability summarization  |
 | `llma_eval_summary`  | API key only    | gpt-5-mini                                         | AI observability eval summary   |
 

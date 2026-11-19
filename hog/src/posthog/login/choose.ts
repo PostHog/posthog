@@ -134,8 +134,8 @@ export class ProjectMismatch extends HogError {
 
         super(
             'project_mismatch',
-            `${namedBy} names project ${target.projectId}, and hog has no login for it on ${target.host}.${loggedIn}`,
-            `Run \`${command}\` and pick project ${target.projectId} on the approval page. Each project keeps its own login.`,
+            `${namedBy} names project ${target.projectId}, but you aren't logged in to it on ${target.host}.${loggedIn}`,
+            `Run \`${command}\` and pick project ${target.projectId} on the approval page. Each project has its own login.`,
             EXIT_USAGE,
             { configPath: query.configPath ?? null, host: target.host, projectId: target.projectId, command }
         )

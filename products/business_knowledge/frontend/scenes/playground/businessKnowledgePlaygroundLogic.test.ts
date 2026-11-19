@@ -278,6 +278,8 @@ describe('businessKnowledgePlaygroundLogic', () => {
             content: 'Refunds after 30 days need manager approval.',
             is_generated: false,
             url: '',
+            matched_by: 'keyword',
+            similarity: null,
         }
         mockedSearch.mockRejectedValueOnce(new ApiError('invalid', 400, undefined, { detail: 'Query is too long.' }))
         logic.actions.setSearchQuery('  refund  ')

@@ -197,19 +197,23 @@ date_to = experiment.end_date + timedelta(seconds=conversion_window_seconds)
 
 The exposure precomputation does NOT need this extension — exposures only occur within the experiment date range.
 
+## CUPED lookback
+
+A CUPED metric needs each user's metric events from the `lookback_days` before their first exposure. The build starts `lookback_days` before the experiment start, and the precomputed read starts there too, so the covariate comes from the stored rows. For funnels, only the step scan rolls back: the build's exposure branch keeps the experiment start, and the read keeps it on `step_0`, so a pre-start exposure is neither stored on its own nor anchors a funnel. The rolled-back start is part of the job hash: a metric builds separate jobs with CUPED on and off, and a metric that never had CUPED keeps its jobs.
+
 ## Key differences from exposure precomputation
 
-|                            | Exposures                              | Metric events                              |
-| -------------------------- | -------------------------------------- | ------------------------------------------ |
-| **Granularity**            | 1 row per user per job                 | 1 row per event per job                    |
-| **Re-aggregation on read** | Yes — `argMin`/`min`/`max` across jobs | No — events are unique per daily window    |
-| **Table**                  | `experiment_exposures_preaggregated`   | `experiment_metric_events_preaggregated`   |
-| **Time range**             | Experiment start → end                 | Experiment start → end + conversion window |
-| **Stores variant**         | Yes                                    | No — variant comes from exposures CTE      |
+|                            | Exposures                              | Metric events                                                         |
+| -------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| **Granularity**            | 1 row per user per job                 | 1 row per event per job                                               |
+| **Re-aggregation on read** | Yes — `argMin`/`min`/`max` across jobs | No — events are unique per daily window                               |
+| **Table**                  | `experiment_exposures_preaggregated`   | `experiment_metric_events_preaggregated`                              |
+| **Time range**             | Experiment start → end                 | Experiment start (minus the CUPED lookback) → end + conversion window |
+| **Stores variant**         | Yes                                    | No — variant comes from exposures CTE                                 |
 
 ## Scope
 
-Implemented for **ordered funnels**, **count/sum/avg/min/max mean metrics** (per-event value stored in `numeric_value`, deduplicated on read by event identity since replayed build rows would double sums and skew averages; the aggregation itself runs at read time, so all five math types store identical rows), **dau/unique_session mean metrics** (the read counts distinct IDs from `entity_id`/`session_id`, which every mean build stores; `numeric_value` holds the same constant a count metric stores, so a count metric and an ID-math metric on the same source share build jobs), **ratio metrics** (one build per side, each the build a mean metric on that source would produce, so a side shares jobs with such a metric; the read serves both sides from the table or neither, and the whole type sits behind the default-off `experiments-ratio-metric-events-preaggregation` kill-switch flag), and **retention metrics**. Unordered funnels and unique-group and HogQL math are not precomputed; breakdowns, CUPED, and data warehouse sources always fall back to a direct scan.
+Implemented for **ordered funnels**, **count/sum/avg/min/max mean metrics** (per-event value stored in `numeric_value`, deduplicated on read by event identity since replayed build rows would double sums and skew averages; the aggregation itself runs at read time, so all five math types store identical rows), **dau/unique_session mean metrics** (the read counts distinct IDs from `entity_id`/`session_id`, which every mean build stores; `numeric_value` holds the same constant a count metric stores, so a count metric and an ID-math metric on the same source share build jobs), **ratio metrics** (one build per side, each the build a mean metric on that source would produce, so a side shares jobs with such a metric; the read serves both sides from the table or neither, and the whole type sits behind the default-off `experiments-ratio-metric-events-preaggregation` kill-switch flag), and **retention metrics**. Unordered funnels and unique-group and HogQL math are not precomputed; breakdowns and data warehouse sources always fall back to a direct scan. A CUPED mean or funnel metric is precomputed behind the default-off `experiments-cuped-metric-events-preaggregation` kill-switch flag (see "CUPED lookback" above); with the flag off it scans its metric events directly and keeps its precomputed exposures.
 
 Retention stores one row per event matching the start or completion predicate, with two flags in `steps` (`steps[1]` = matched start_event, `steps[2]` = matched completion_event; one event can match both). The read path swaps the two raw-events CTE sources for flag-filtered reads of the precomputed table; start anchoring (FIRST_SEEN/LAST_SEEN), the per-user retention window, the maturity gate, and the same-event exclusion all stay read-time, so they behave identically on both paths. The scan extension past the experiment end is `conversion_window + retention_window_end` rather than the conversion window alone, capped at 90 days (`METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS`); oversized windows fall back to a direct scan.
 

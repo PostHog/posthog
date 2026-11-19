@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -521,8 +520,7 @@ class TestNotebookCellState(APIBaseTest):
         self._run(notebook, "down", "select * from df", NotebookNodeRun.Status.DONE)
         assert build_notebook_cell_state(self.team.id, notebook)[1].status == "stale"
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_state_endpoint_returns_cells_and_kernel(self, _mock_enabled) -> None:
+    def test_state_endpoint_returns_cells_and_kernel(self) -> None:
         notebook = self._notebook(
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" outputTab="visualization" '
             'vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar","chartSettings":{"yAxis":[{"column":"n"}]}}} />\n\n'

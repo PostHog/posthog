@@ -62,6 +62,7 @@ from products.experiments.backend.metric_resolution import (
     build_metric,
     find_metric_dict,
     metric_dict_reads_data_warehouse,
+    metric_dict_uses_warehouse_native_source,
     scheduled_metric_definitions,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -139,6 +140,8 @@ def _eligible_experiments() -> list[Experiment]:
             team_id__in=team_ids,
             start_date__lte=timezone.now() - MIN_EXPERIMENT_RUNTIME,
             end_date__isnull=True,
+            # An experiment on a feature flag rule never precomputes, so it has no second path to compare.
+            feature_flag_rule_id__isnull=True,
         )
         .exclude(deleted=True)
         .exclude(archived=True)
@@ -223,10 +226,13 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
                 break
             metric_type = metric_dict["metric_type"]
             metric_uuid = metric_dict["uuid"]
+            # A warehouse-native metric never precomputes, so the two runs would only query the customer's
+            # warehouse twice for the same answer.
             if (
                 quotas.get(metric_type, 0) <= 0
                 or metric_uuid in seen_uuids
                 or metric_dict_reads_data_warehouse(metric_dict)
+                or metric_dict_uses_warehouse_native_source(metric_dict)
             ):
                 continue
             seen_uuids.add(metric_uuid)

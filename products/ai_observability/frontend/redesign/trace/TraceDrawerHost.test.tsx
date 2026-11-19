@@ -3,7 +3,6 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,13 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTracesNodesRetrieve } from '../../generated/api'
-import {
-    decodeIdSegment,
-    makeEvaluationResults,
-    makeFeedback,
-    makeNodeDetail,
-    makeTraceResource,
-} from './adapter/testFixtures'
+import { decodeIdSegment, makeEvaluationResults, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { TraceDrawerHost } from './TraceDrawerHost'
 import type { TraceDrawerListId } from './traceDrawerLists'
 import { traceDrawerLogic } from './traceDrawerLogic'
@@ -74,9 +67,6 @@ function setUp(url: string, sceneRect: Partial<DOMRect> = {}): void {
     initKeaTests()
     localStorage.clear()
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-        [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
-    })
     panelLayoutLogic.mount()
     panelLayoutLogic.actions.setMainContentRect(Object.assign(document.body.getBoundingClientRect(), sceneRect))
     router.actions.push(url)
@@ -162,23 +152,36 @@ describe('TraceDrawerHost', () => {
         release()
     })
 
-    it.each(['spans', 'summary'] as const)(
-        'applies the opening of the list once, so stepping from %s stays there',
-        async (mode) => {
-            silenceKeaLoadersErrors()
-            useTraceMocks(answerTrace('a'))
-            setUp(drawerUrl(ROW_A, urls.aiObservabilityCluster('run-1', 3)))
-            const view = renderHost([ROW_A, ROW_B], 'cluster-traces')
-            const host = traceViewHostLogic({ hostId: traceDrawerLogic({ listId: 'cluster-traces' }).values.hostId })
-            await waitFor(() => expect(host.values.mode).toBe('summary'))
-            act(() => host.actions.setMode(mode))
+    it.each([
+        ['spans', 'toolbar'],
+        ['summary', 'toolbar'],
+        ['spans', 'list'],
+        ['summary', 'list'],
+    ] as const)('keeps the selected %s view when opening another trace from the %s', async (mode, source) => {
+        silenceKeaLoadersErrors()
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A, urls.aiObservabilityCluster('run-1', 3)))
+        const view = renderHost([ROW_A, ROW_B], 'cluster-traces')
+        const drawer = traceDrawerLogic({ listId: 'cluster-traces' })
+        const host = traceViewHostLogic({ hostId: drawer.values.hostId })
+        await waitFor(() => expect(host.values.mode).toBe('thread'))
+        act(() => host.actions.setMode(mode))
 
-            fireEvent.click(attr(view.container, 'trace-drawer-next'))
+        const list = render(
+            <LemonButton data-attr="open-trace-b" onClick={() => drawer.actions.openRow(ROW_B)}>
+                Open trace B
+            </LemonButton>
+        )
+        const target =
+            source === 'list' ? attr(list.container, 'open-trace-b') : attr(view.container, 'trace-drawer-next')
+        fireEvent.mouseDown(target)
+        fireEvent.mouseUp(target)
+        fireEvent.click(target)
 
-            await view.findAllByText('answer-b')
-            expect(host.values.mode).toBe(mode)
-        }
-    )
+        await view.findAllByText('answer-b')
+        expect(router.values.searchParams.trace).toBe('b')
+        expect(host.values.mode).toBe(mode)
+    })
 
     it('steps with n and p, but not while typing or with a modal open', async () => {
         useTraceMocks(answerTrace('a'))

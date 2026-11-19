@@ -11,7 +11,7 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -28,8 +28,10 @@ from products.product_analytics.backend.facade.contracts import (
     AgentInsightRead,
     ChartExplanation,
     ChartExplanationAuthor,
+    InsightActionReference,
     InsightDashboardContext,
     InsightSeries,
+    InsightSummary,
     InsightVariableDefinition,
     SavedInsightDefinition,
     SavedTrendsInsight,
@@ -141,6 +143,19 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
 
 
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    """Store metadata a backfill computed from ``query_at_read``, without holding a lock while it computed.
+
+    Writes only while the insight still lacks current metadata and its query is still ``query_at_read``,
+    so a save that landed after the backfill read the insight wins. Returns whether the write happened.
+    """
+    return logic.store_backfilled_query_metadata(
+        insight_id=insight_id, query_at_read=query_at_read, query_metadata=query_metadata
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 
@@ -213,6 +228,78 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collection[int]) -> dict[int, set[int]]:
+    """Which of the given insights in these teams are not deleted, by team, in one query."""
+    live: dict[int, set[int]] = {}
+    if not team_ids or not insight_ids:
+        return live
+    # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+    # nosemgrep: idor-lookup-without-team
+    rows = Insight.objects.filter(team_id__in=list(team_ids), id__in=list(insight_ids))
+    for team_id, insight_id in rows.values_list("team_id", "id"):
+        live.setdefault(team_id, set()).add(insight_id)
+    return live
+
+
+def _visible_insight_rows(
+    insight_ids: Collection[int],
+    *,
+    project_id: int,
+    access_control: UserAccessControl | None,
+    include_deleted: bool,
+    fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
+    queryset = manager.filter(team__project_id=project_id, id__in=list(insight_ids))
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    rows = list(queryset.values("id", "team_id", "created_by_id", *fields))
+    if access_control is None:
+        return rows
+    denied = set(
+        access_control.denied_object_ids(
+            "insight", [(str(row["id"]), row["team_id"], row["created_by_id"]) for row in rows], "viewer"
+        )
+    )
+    return [row for row in rows if str(row["id"]) not in denied]
+
+
+def existing_insight_ids(
+    insight_ids: Collection[int],
+    *,
+    project_id: int,
+    access_control: UserAccessControl | None = None,
+    include_deleted: bool = False,
+) -> set[int]:
+    rows = _visible_insight_rows(
+        insight_ids, project_id=project_id, access_control=access_control, include_deleted=include_deleted, fields=()
+    )
+    return {row["id"] for row in rows}
+
+
+def insight_summaries(
+    insight_ids: Collection[int], *, project_id: int, access_control: UserAccessControl
+) -> list[InsightSummary]:
+    rows = _visible_insight_rows(
+        insight_ids,
+        project_id=project_id,
+        access_control=access_control,
+        include_deleted=True,
+        fields=("short_id", "name", "derived_name", "created_at", "last_modified_at", "deleted"),
+    )
+    return [
+        InsightSummary(
+            id=row["id"],
+            short_id=row["short_id"],
+            name=row["name"] or row["derived_name"] or "Untitled insight",
+            created_at=row["created_at"],
+            last_modified_at=row["last_modified_at"],
+            deleted=row["deleted"],
+        )
+        for row in rows
+    ]
+
+
 def saved_trends_insights(
     *,
     team_ids: Collection[int],
@@ -242,6 +329,14 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
+def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
+    """Live insights of this team whose name contains ``search``, ignoring case, in one query.
+
+    The generated name counts only for an insight without a saved name, so a match is the name the insight shows.
+    """
+    return logic.insight_ids_named_like(team_id=team_id, search=search)
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
@@ -260,6 +355,16 @@ def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], sinc
     Shared and embedded views have no viewer, so they are not counted. Insights nobody viewed are left out.
     """
     return logic.viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
+
+
+def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
+    """Up to `limit` live saved insights of the team whose query or filters reference the action."""
+    return logic.insights_referencing_action(team_id=team_id, action_id=action_id, limit=limit)
+
+
+def count_insights_referencing_actions(*, team_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    """For each action, how many live saved insights of the team reference it. An action without one is absent."""
+    return logic.count_insights_referencing_actions(team_id=team_id, action_ids=action_ids)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
@@ -320,6 +425,26 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
         return False
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     return access_control.check_access_level_for_object(insight, "viewer")
+
+
+def insight_ids_created_by(*, team_id: int, user_id: int, insight_ids: Collection[int] | None = None) -> set[int]:
+    """The ids of this team's insights the user created, deleted ones included, among ``insight_ids`` when given.
+    Access control exempts a creator from object rules on their own insights."""
+    insights = Insight.objects.filter(team_id=team_id, created_by_id=user_id)
+    if insight_ids is not None:
+        insights = insights.filter(id__in=insight_ids)
+    return set(insights.values_list("id", flat=True))
+
+
+def viewable_insight_ids(*, access_control: UserAccessControl, team_id: int, insight_ids: Collection[int]) -> set[int]:
+    """The ids among ``insight_ids`` of this team's insights the user may view, deleted ones included, as the
+    alert API's read gate narrows them."""
+    if not insight_ids:
+        return set()
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team_id, id__in=insight_ids), resource="insight"
+    )
+    return set(insights.values_list("id", flat=True))
 
 
 def viewable_insights(*, team: Team, user: User, insight_ids: Collection[int]) -> list[ViewableInsight]:
@@ -440,7 +565,7 @@ def get_insight_series(
         team,
         user,
         short_id=insight.short_id,
-        name=insight.name,
+        name=insight.name or insight.derived_name,
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,

@@ -49,6 +49,63 @@ class TestRequests:
         assert isinstance(result.raised, ValueError)
 
 
+class TestFineTuneFanOut:
+    @parameterized.expand(
+        [
+            ("events", "fine_tune_events", "events", {"type": "job_start", "message": "Job started"}),
+            ("checkpoints", "fine_tune_checkpoints", "checkpoints", {"step": 10, "path": "s3://ckpt/10"}),
+        ]
+    )
+    def test_walks_every_job_and_skips_a_deleted_one(
+        self, _name: str, endpoint: str, suffix: str, child_row: dict[str, Any]
+    ) -> None:
+        result = _run(
+            endpoint,
+            [
+                _response({"data": [{"id": "ft-1"}, {"id": "ft-gone"}, {"id": "ft-2"}]}),
+                _response({"data": [child_row]}),
+                # A job deleted between the listing and the child fetch must not fail the table.
+                _response({"error": "not found"}, 404),
+                _response({"data": [child_row]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [r.path for r in result.requests] == [
+            "/v1/fine-tunes",
+            f"/v1/fine-tunes/ft-1/{suffix}",
+            f"/v1/fine-tunes/ft-gone/{suffix}",
+            f"/v1/fine-tunes/ft-2/{suffix}",
+        ]
+        # Unpaginated endpoints: no page-size param may leak onto parent or child requests.
+        assert all(r.query == {} for r in result.requests)
+        assert result.rows == [{**child_row, "fine_tune_id": "ft-1"}, {**child_row, "fine_tune_id": "ft-2"}]
+
+    def test_child_body_without_data_key_fails_loud(self) -> None:
+        result = _run("fine_tune_events", [_response({"data": [{"id": "ft-1"}]}), _response({"unexpected": "shape"})])
+
+        assert isinstance(result.raised, ValueError)
+
+
+class TestTopLevelEndpoints:
+    def test_clusters_never_sync_the_kubeconfig(self) -> None:
+        cluster = {"cluster_id": "c-1", "cluster_name": "train", "kube_config": "apiVersion: v1\nusers: [token]"}
+        result = _run("clusters", [_response({"clusters": [cluster]})])
+
+        assert result.raised is None
+        assert result.requests[0].path == "/v1/compute/clusters"
+        assert result.rows == [{"cluster_id": "c-1", "cluster_name": "train"}]
+
+    def test_instance_types_read_the_v2_catalog(self) -> None:
+        row = {"id": "it-1", "gpuType": "H100", "priceCentsPerHour": 499}
+        result = _run("instance_types", [_response({"data": [row], "object": "list", "next_cursor": None})])
+
+        assert result.raised is None
+        assert result.requests[0].url == "https://api.together.xyz/v2/public/inference-instance-types"
+        assert result.requests[0].headers["authorization"] == "Bearer together_test"
+        assert result.rows == [row]
+
+
 class TestRetryAndErrorClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
     def test_retryable_statuses_are_retried_then_succeed(self, _name, status_code) -> None:
@@ -94,6 +151,19 @@ class TestGetStatusCode:
         assert request.path == "/v1/endpoints"
         assert request.query == {"type": ("dedicated",)}
 
+    @parameterized.expand(
+        [
+            # A per-job path has no job id to fill in, so the probe checks the job listing instead.
+            ("fan_out_child_probes_parent", "fine_tune_checkpoints", f"{TOGETHER_AI_BASE_URL}/fine-tunes"),
+            ("absolute_url", "instance_types", "https://api.together.xyz/v2/public/inference-instance-types"),
+        ]
+    )
+    def test_schema_probe_url(self, _name: str, endpoint: str, expected_url: str) -> None:
+        with scripted_network([_response({})]) as network:
+            get_status_code("together_test", endpoint)
+
+        assert network.requests_log[0].url == expected_url
+
 
 class TestTogetherAISourceResponse:
     @parameterized.expand(list(TOGETHER_AI_ENDPOINTS.keys()))
@@ -105,8 +175,13 @@ class TestTogetherAISourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == cfg.primary_keys
-        # Partition on the stable creation timestamp — never updated_at — so partitions
-        # don't rewrite on every sync.
-        assert response.partition_keys == [cfg.partition_key]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
+        if cfg.partition_key is None:
+            # A catalog with no creation time must not ask for datetime partitioning on a missing column.
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+        else:
+            # Partition on the stable creation timestamp — never updated_at — so partitions
+            # don't rewrite on every sync.
+            assert response.partition_keys == [cfg.partition_key]
+            assert response.partition_mode == "datetime"
+            assert response.partition_format == "month"

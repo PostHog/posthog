@@ -123,33 +123,27 @@ class TestApplyFollowupModelOverride:
 
 class TestStopRunForRuntimeHandoff:
     @pytest.mark.parametrize(
-        "override,flag_enabled,cancel_outcome,expected,captured_outcome",
+        "override,cancel_outcome,expected,captured_outcome",
         [
-            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "accepted", True, None),
-            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "already_terminal", True, None),
-            (SlackAppModelOverride(model="gpt-5.6-sol"), True, "unavailable", False, "stop_failed"),
-            (SlackAppModelOverride(model="gpt-5.6-sol"), False, "accepted", False, "flag_off"),
-            (SlackAppModelOverride(model="claude-fable-5"), True, "accepted", False, None),
-            (SlackAppModelOverride(reasoning_effort="high"), True, "accepted", False, None),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), "accepted", True, None),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), "already_terminal", True, None),
+            (SlackAppModelOverride(model="gpt-5.6-sol"), "unavailable", False, "stop_failed"),
+            (SlackAppModelOverride(model="claude-fable-5"), "accepted", False, None),
+            (SlackAppModelOverride(reasoning_effort="high"), "accepted", False, None),
         ],
         ids=[
             "stopped",
             "already_finished",
             "workflow_unreachable",
-            "flag_off",
             "same_runtime",
             "effort_only",
         ],
     )
     def test_hands_off_only_when_the_live_run_is_stopped(
-        self, catalogue, override, flag_enabled, cancel_outcome, expected, captured_outcome
+        self, catalogue, override, cancel_outcome, expected, captured_outcome
     ):
         slack = _slack()
         with (
-            patch(
-                "products.slack_app.backend.feature_flags.is_slack_app_runtime_handoff_enabled",
-                return_value=flag_enabled,
-            ),
             patch(
                 "products.tasks.backend.facade.cancellation.cancel_task_run",
                 return_value=(cancel_outcome, None),

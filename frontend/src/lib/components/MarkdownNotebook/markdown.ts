@@ -52,6 +52,8 @@ type ComponentScanState = {
 }
 
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const COLUMN_BOUNDARY_REGEX = /^<(Column|Columns)(\s[^\n]*?)?>$/
+const COLUMN_CLOSE_REGEX = /^<\/(Column|Columns)>$/
 const ESCAPED_COMPONENT_START_REGEX = /^\\<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const MAX_COMPONENT_BLOCK_LINES = 1_000
 const MAX_COMPONENT_BLOCK_CHARACTERS = 256 * 1024
@@ -338,6 +340,12 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
     }
     if (node.type === 'component' && node.tagName === 'Image') {
         return serializeImageNode(node)
+    }
+    if (node.type === 'component' && (node.tagName === 'ColumnEnd' || node.tagName === 'ColumnsEnd')) {
+        return `</${node.tagName.slice(0, -3)}>`
+    }
+    if (node.type === 'component' && (node.tagName === 'Column' || node.tagName === 'Columns')) {
+        return `<${node.tagName}${serializeComponentProps(node.props)}>`
     }
     if (node.type === 'component') {
         const multilineSource = getUnchangedMultilineComponentSource(node)
@@ -691,6 +699,18 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         }
     }
 
+    const columnClose = COLUMN_CLOSE_REGEX.exec(trimmed)
+    if (columnClose) {
+        return {
+            node: { id: '', type: 'component', tagName: `${columnClose[1]}End`, props: {} },
+            nextLineIndex: lineIndex + 1,
+        }
+    }
+    if (COLUMN_BOUNDARY_REGEX.test(trimmed) && !trimmed.endsWith('/>')) {
+        const parsed = parseComponentTag(`${trimmed.slice(0, -1)} />`)
+        return { ...parsed, nextLineIndex: lineIndex + 1 }
+    }
+
     if (COMPONENT_START_REGEX.test(trimmed)) {
         const parsedComponent = parseComponentBlock(lines, lineIndex)
         const parsedNode = parsedComponent.node
@@ -800,6 +820,7 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
             DIVIDER_BLOCK_REGEX.test(trimmed) ||
             (trimmed.startsWith('<!--') && getCommentBlockEndLine(lines, nextLineIndex) !== null) ||
             COMPONENT_START_REGEX.test(trimmed) ||
+            COLUMN_CLOSE_REGEX.test(trimmed) ||
             HEADING_REGEX.test(line) ||
             isTableStart(lines, nextLineIndex) ||
             ORDERED_LIST_REGEX.test(line) ||

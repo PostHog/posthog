@@ -1,7 +1,7 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { NodeProperties, ThreadMessage } from '../types'
+import { ThreadMessage } from '../types'
 import { jsonContent, messagesContent, messagesSides } from './sampleContent'
-import { SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
+import { SampleTraceFixture, sampleDetail, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '2fa60c6497874ba3c4633d94fdfae64f'
 const GENERATION_ID = 'd6263394121a6a51'
@@ -116,6 +116,7 @@ const tree: TraceNodeApi[] = [
         id: TRACE_ID,
         kind: 'trace',
         name: 'run-budget-rollup',
+        label: 'run-budget-rollup #1',
         model: null,
         stats: sampleStats({ costUsd: 0.0435, inputTokens: 2, outputTokens: 218, latencyMs: 3539 }),
         hasError: false,
@@ -124,6 +125,7 @@ const tree: TraceNodeApi[] = [
                 id: GENERATION_ID,
                 kind: 'generation',
                 name: 'run-budget-rollup',
+                label: 'run-budget-rollup #2',
                 model: 'claude-opus-5-5',
                 stats: generationStats,
                 hasError: false,
@@ -133,43 +135,26 @@ const tree: TraceNodeApi[] = [
     },
 ]
 
-const traceProperties: NodeProperties = {
-    timestamp: TIMESTAMP,
-    provider: null,
-    temperature: null,
-    sessionId: null,
-    promptName: null,
-    promptVersion: null,
-    person: 'user-1',
-}
-
 export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     header: {
         name: 'run-budget-rollup',
         hasError: false,
         backLink: { label: 'Back to traces', href: '/traces' },
     },
-    summary: {
-        traceId: TRACE_ID,
-        timestamp: TIMESTAMP,
-        person: { label: 'user-1', href: '/person/user-1' },
+    trace: {
+        id: TRACE_ID,
+        createdAt: TIMESTAMP,
+        sessionId: null,
+        person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
     },
     tree,
     initialNodeId: GENERATION_ID,
     details: {
-        [TRACE_ID]: {
-            content: jsonContent(null, null),
-            error: null,
-            properties: traceProperties,
-            evals: { status: 'ready', results: [] },
-            raw: sampleRaw('trace', TRACE_ID, null),
-        },
-        [GENERATION_ID]: {
+        [TRACE_ID]: sampleDetail({ content: jsonContent(null, null), raw: sampleRaw('trace', TRACE_ID, null) }),
+        [GENERATION_ID]: sampleDetail({
             content: messagesContent(input, output),
-            error: null,
-            properties: { ...traceProperties, provider: 'anthropic.messages' },
-            evals: { status: 'ready', results: [] },
+            metadata: { provider: 'anthropic.messages' },
             raw: sampleRaw('generation', GENERATION_ID, {
                 name: '$ai_generation',
                 timestamp: TIMESTAMP,
@@ -193,7 +178,7 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
                     resource_locator: 'personal-finance/workbooks/monthly-budget/cards/rollup-final',
                 },
             }),
-        },
+        }),
     },
     thread: {
         status: 'ready',
@@ -214,4 +199,5 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
         ],
         totalMs: 3539,
     },
+    evaluationResults: [],
 }

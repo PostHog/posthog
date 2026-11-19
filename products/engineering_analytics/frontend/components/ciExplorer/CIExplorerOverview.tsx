@@ -10,7 +10,6 @@ import { CIExplorerCanvas } from './CIExplorerCanvas'
 import { CIExplorerShare } from './CIExplorerShare'
 import { CIExplorerTrail } from './CIExplorerTrail'
 
-/** The CI of one commit: where the camera is, its share of the job time on request, and the canvas. */
 export function CIExplorerOverview(): JSX.Element {
     const { activePush, selectedHeadSha, logicProps, jobTimeOpen, failedJobRuns, jobsByRunLoading } =
         useValues(ciExplorerLogic)

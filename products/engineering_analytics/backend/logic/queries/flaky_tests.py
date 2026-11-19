@@ -1,18 +1,7 @@
-"""HogQL aggregation of per-test CI run evidence into the active test-health queue.
+"""The test-health queue: ``_test_spans.run_evidence()`` grouped by nodeid and ranked by blast radius.
 
-Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
-by nodeid, and ranks by blast radius: how many PRs a test broke and how often it broke master.
-
-A test is a ``confirmed_flake`` only where the evidence already carries proof (one commit was
-seen both failing and passing it: a re-run attempt going green, or an in-job retry), and every
-other failure is an honest ``suspected_regression`` rather than a guess dressed up as one.
-Failing on many distinct PRs proves only that a failure is not one PR's fault, never that the
-test is flaky: real regressions fail across PRs too.
-
-Every figure is an absolute count: the emitter drops sub-threshold passes, so there is no
-denominator to divide by.
-
-Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
+Every figure is an absolute count, because the emitter drops sub-threshold passes and leaves no
+denominator.
 """
 
 from datetime import datetime
@@ -79,9 +68,8 @@ def query_flaky_tests(
     pr_number: int | None = None,
 ) -> FlakyTestList:
     repository = curated.repository
-    # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
-    # cannot tell one connected repo's spans from another, so return nothing rather than leak every
-    # repository's flaky signals into the selected source's queue.
+    # Spans are scoped by repository. Without a repository identity the read would return every
+    # connected repository's spans, so it returns nothing.
     if not repository:
         return FlakyTestList(items=[], truncated=False, limit=limit)
 
@@ -112,7 +100,6 @@ def query_flaky_tests(
     if pr_number is not None:
         scope_filters.append("countIf(pr_number = {pr_number}) > 0")
         placeholders["pr_number"] = ast.Constant(value=str(pr_number))
-    # +1 so a full page tells us more tests qualified than returned.
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
     query = (
@@ -134,7 +121,7 @@ def query_flaky_tests(
             FlakyTestItem(
                 runner=CITestRunner(runner),
                 nodeid=nodeid,
-                # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
+                # Older spans carry no selector, so it is rebuilt from the nodeid.
                 selector=selector or selector_from_nodeid(nodeid),
                 classification=FlakyTestClassification.from_run_evidence(
                     quarantined_failed_run_count=quarantined_failed_run_count,

@@ -1,6 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "annotations": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Context for whoever responds, such as {\"runbook_url\": \"https://...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "cooldown_minutes": {
             "description": "Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.",
             "minimum": 0,

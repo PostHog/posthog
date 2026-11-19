@@ -3,6 +3,7 @@ export enum AnalyticsEvent {
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
     MCP_TOOL_CALL = '$mcp_tool_call',
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
+    MCP_EXPERIMENT_HEALTH_RETURNED = 'mcp experiment health returned',
 }
 
 // Emitted as `$mcp_version` / `mcp_version` on analytics events. The MCP server

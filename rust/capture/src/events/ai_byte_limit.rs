@@ -36,7 +36,7 @@ use crate::prometheus::report_dropped_events;
 use crate::v0_request::{DataType, ProcessedEvent};
 
 /// Flat allowance for the `CapturedEvent` envelope fields not in `data`.
-const ENVELOPE_WEIGHT_BYTES: usize = 512;
+pub(crate) const ENVELOPE_WEIGHT_BYTES: usize = 512;
 
 /// Charge `payload_bytes` against `token`'s AI budget and report whether the
 /// event is over it.

@@ -1,0 +1,192 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "composition": {
+            "description": "Formula and pinned input versions to validate without saving.",
+            "properties": {
+                "expression": {
+                    "description": "Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.",
+                    "maxLength": 1024,
+                    "type": "string"
+                },
+                "inputs": {
+                    "description": "Named, version-pinned input scorers for the same item. Nested composites are not supported.",
+                    "items": {
+                        "properties": {
+                            "alias": {
+                                "description": "Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.",
+                                "maxLength": 32,
+                                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                                "type": "string"
+                            },
+                            "scorer_version_id": {
+                                "description": "Exact immutable version of an ordinary input scorer.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["alias", "scorer_version_id"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["expression", "inputs"],
+            "type": "object"
+        },
+        "config": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"categorical\".",
+                    "properties": {
+                        "max_selections": {
+                            "description": "Maximum selections allowed. Only valid when selection_mode is \"multiple\".",
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "min_selections": {
+                            "description": "Minimum selections required. Only valid when selection_mode is \"multiple\".",
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "options": {
+                            "description": "Ordered categorical options. Must contain at least one option with unique keys.",
+                            "items": {
+                                "properties": {
+                                    "key": {
+                                        "description": "Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected.",
+                                        "maxLength": 128,
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "description": "Human-readable label shown in the review UI.",
+                                        "maxLength": 256,
+                                        "minLength": 1,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "label"],
+                                "type": "object"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "passing_rule": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "categories": {
+                                            "description": "Passing category keys. Every returned category must be included.",
+                                            "items": {
+                                                "maxLength": 128,
+                                                "type": "string"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": ["categories"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule."
+                        },
+                        "selection_mode": {
+                            "description": "Whether reviewers select one option or many. Defaults to \"single\".",
+                            "enum": ["single", "multiple"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["options"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"numeric\".",
+                    "properties": {
+                        "max": {
+                            "description": "Optional inclusive maximum score (must be ≥ min).",
+                            "type": "number"
+                        },
+                        "min": {
+                            "description": "Optional inclusive minimum score.",
+                            "type": "number"
+                        },
+                        "passing_rule": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "operator": {
+                                            "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+                                            "enum": ["gte", "lte"],
+                                            "type": "string"
+                                        },
+                                        "threshold": {
+                                            "description": "Finite passing threshold within any configured score bounds.",
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["operator", "threshold"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule."
+                        },
+                        "step": {
+                            "description": "Optional increment step for numeric input, e.g. 1 or 0.5.",
+                            "exclusiveMinimum": 0,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"boolean\".",
+                    "properties": {
+                        "false_label": {
+                            "description": "Optional label shown for the false branch (e.g. \"No\").",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "true_is_failure": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Whether true means failure. False, omitted, or null means true passes in offline evaluations."
+                        },
+                        "true_label": {
+                            "description": "Optional label shown for the true branch (e.g. \"Yes\").",
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            ],
+            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
+        },
+        "kind": {
+            "description": "Expected formula output kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
+            "enum": ["categorical", "numeric", "boolean"],
+            "type": "string"
+        }
+    },
+    "required": ["kind", "composition"],
+    "type": "object"
+}

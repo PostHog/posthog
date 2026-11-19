@@ -206,6 +206,7 @@ export class ToolDomainExtractor {
         'destroy',
         'run',
         'accept',
+        'add',
         'archive',
         'calculate',
         'cancel',
@@ -252,6 +253,7 @@ export class ToolDomainExtractor {
         'unarchive',
         'unfreeze',
         'upload',
+        'validate',
     ])
 
     private readonly items: ToolItem[]

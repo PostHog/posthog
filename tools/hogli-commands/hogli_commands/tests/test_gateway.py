@@ -68,6 +68,35 @@ def test_the_exchanged_verifier_matches_the_approved_challenge_and_stdout_holds_
     assert parse_qs(approval.query)["cli_challenge"] == [challenge.decode()]
 
 
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ((), {}),
+        (("--cap", "200", "--ttl", "3d"), {"cli_cap_usd": ["200.00"], "cli_ttl_seconds": ["259200"]}),
+        (("--ttl", "90m"), {"cli_ttl_seconds": ["5400"]}),
+        (("--ttl", "7200"), {"cli_ttl_seconds": ["7200"]}),
+    ],
+)
+def test_cap_and_ttl_prefill_the_approval_page(args: tuple[str, ...], expected: dict[str, list[str]]) -> None:
+    result, opened = _run(MagicMock(return_value=_response(201, _MINTED)), *args)
+
+    assert result.exit_code == 0, result.output
+    query = parse_qs(urlparse(opened[0]).query)
+    assert {key: value for key, value in query.items() if key in ("cli_cap_usd", "cli_ttl_seconds")} == expected
+
+
+@pytest.mark.parametrize("ttl", ["8x", "h", "0h", "-3d"])
+def test_a_malformed_ttl_is_refused_before_the_browser_opens(ttl: str) -> None:
+    post = MagicMock()
+
+    result, opened = _run(post, "--ttl", ttl)
+
+    assert result.exit_code == 2
+    assert "--ttl must look like" in result.stderr
+    assert opened == []
+    post.assert_not_called()
+
+
 def test_a_refused_exchange_reports_the_server_detail_and_prints_no_token() -> None:
     post = MagicMock(return_value=_response(400, {"code": "invalid_code", "detail": "code is expired or used"}))
 

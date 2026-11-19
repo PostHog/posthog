@@ -8,6 +8,7 @@ import {
     FitViewOptions,
     MiniMap,
     type Node,
+    type NodeTypes,
     Panel,
     ReactFlow,
     ReactFlowProvider,
@@ -83,6 +84,7 @@ export interface LineageGraphProps {
     selectable?: boolean
     /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
+    nodeTypes?: NodeTypes
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
@@ -331,6 +333,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                 direction={props.direction ?? 'RIGHT'}
                 fitViewOptions={props.fitViewOptions}
                 variant={props.variant ?? 'full'}
+                nodeTypes={props.nodeTypes ?? LINEAGE_NODE_TYPES}
             />
         )
     }
@@ -342,7 +345,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             defaultNodes={decoratedNodes}
             edges={decoratedEdges}
             onPaneClick={props.selectable ? () => setSelectedNodeId(null) : undefined}
-            nodeTypes={LINEAGE_NODE_TYPES}
+            nodeTypes={props.nodeTypes ?? LINEAGE_NODE_TYPES}
             nodesDraggable={props.nodesDraggable ?? false}
             onNodeDragStop={(_, node) => {
                 lastNodeDrag.current = { nodeId: node.id, stoppedAt: Date.now() }

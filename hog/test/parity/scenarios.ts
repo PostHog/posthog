@@ -1,6 +1,8 @@
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { LANGUAGES } from '@/commands/schema/shared'
+
 import type { Scenario, StoredObject } from './fake-server'
 import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING, write } from './fixtures'
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
@@ -33,6 +35,8 @@ export interface ParityScenario {
     objects?: () => StoredObject[]
     // Variables both CLIs get on top of the credentials, like the build settings Xcode exports.
     env?: Record<string, string>
+    // Compare posthog.json by content, because each CLI formats and timestamps it its own way.
+    schemaConfig?: boolean
 }
 
 // The files posthog-cli left behind in another scenario: its inputs with the golden's changes.
@@ -459,4 +463,51 @@ SCENARIOS.push(
             before: [hermesArgs.inject('rn')],
         }
     )
+)
+
+// `posthog-cli exp schema pull` and `hog schema pull` write the same module and posthog.json entry.
+const schema = (
+    name: string,
+    language: string,
+    args: { rust: string[]; hog: string[] },
+    files: () => Files = () => ({}),
+    server: Scenario = 'fresh'
+): ParityScenario => ({
+    name: `schema-pull-${name}`,
+    server,
+    files,
+    rust: ['exp', 'schema', 'pull', '--language', language, ...args.rust],
+    hog: ['schema', 'pull', '--language', language, ...args.hog],
+    snapshot: true,
+    schemaConfig: true,
+})
+
+SCENARIOS.push(
+    ...LANGUAGES.map((language) => schema(language, language, { rust: [], hog: [] })),
+    schema('typescript-sdk-none', 'typescript', { rust: ['--sdk', 'none'], hog: ['--sdk', 'none'] }),
+    schema('typescript-sdk-none-folder', 'typescript', {
+        rust: ['--sdk', 'none', '-o', 'src/lib/'],
+        hog: ['--sdk', 'none', '--file', 'src/lib/'],
+    }),
+    schema(
+        'typescript-sdk-none-old-server',
+        'typescript',
+        { rust: ['--sdk', 'none'], hog: ['--sdk', 'none'] },
+        undefined,
+        'no-sdk'
+    ),
+    // No --sdk: the saved entry decides, so a later pull keeps the types-only module.
+    schema('typescript-sdk-none-saved', 'typescript', { rust: [], hog: [] }, () => ({
+        'posthog.json': JSON.stringify({
+            languages: {
+                typescript: {
+                    output_path: 'src/events.ts',
+                    sdk: 'none',
+                    schema_hash: 'hash-old',
+                    updated_at: '2026-01-01T00:00:00+00:00',
+                    event_count: 1,
+                },
+            },
+        }),
+    }))
 )

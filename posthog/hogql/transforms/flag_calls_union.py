@@ -54,6 +54,7 @@ from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JO
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     EVENTS_NAMES,
     EventsScan,
+    FlagCallScope,
     ScanVisitor,
     SyntaxVisitor,
     and_conditions,
@@ -151,7 +152,7 @@ def read_flag_calls_with_union(
     database = _union_database(context)
     if database is None:
         return UnionRename(renamed=False, refusals=())
-    only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
+    only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
     if not only_in_flag_evaluations and _flag_key_is_restricted(database, context):
         # The union tells the flag calls that only events holds by their raw `$feature_flag`, with `_HAS_FLAG_KEY`, and
         # a restricted property reads as missing. Each flag call since the cutoff would then come from both tables.
@@ -179,8 +180,7 @@ def read_flag_calls_in_inline_cohort(
     every flag call, an inline cohort reads them from `events` as before. `resolve_in_cohorts_conjoined` splices its
     cohorts in before the swap runs, so its caller passes `read_flag_calls_from_union=False`: the swap sees those scans.
     """
-    database = _union_database(context)
-    if database is None or not database.flag_calls_only_in_flag_evaluations:
+    if _union_database(context) is None or not context.flag_calls_only_in_flag_evaluations():
         return query
     renamer = _UnionRenamer(
         cache(partial(team_flag_key_compares_as_string, context)),
@@ -193,17 +193,16 @@ def read_flag_calls_in_inline_cohort(
     return query
 
 
-def require_union_readable(resolved: ast.AST, context: HogQLContext, view_name: str | None = None) -> None:
+def require_union_readable(resolved: ast.AST, context: HogQLContext, scope: FlagCallScope | None = None) -> None:
     """Raises a QueryError when an organization with flag calls only in `flag_evaluations` has a union scan in
     `resolved` that reads a field the union cannot supply. An inline cohort is spliced in after the rename, so only
     the resolved query shows its scans. `IN COHORT` resolves its join before lazy table resolution builds the
     union, so that call is the last point where ClickHouse has not yet rejected the query."""
-    database = _union_database(context)
-    if database is None or not database.flag_calls_only_in_flag_evaluations:
+    if _union_database(context) is None or not context.flag_calls_only_in_flag_evaluations():
         return
     unreadable = union_unreadable_reason(resolved, context)
     if unreadable is not None:
-        raise flag_calls_only_in_flag_evaluations_error(unreadable, view_name)
+        raise flag_calls_only_in_flag_evaluations_error(unreadable, scope)
 
 
 def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
@@ -358,11 +357,7 @@ def rename_flag_call_scans_to_union(
 
 def _union_database(context: HogQLContext) -> "Database | None":
     """The database when the union reads this query's mixed flag-call scans, and None otherwise."""
-    if (
-        not context.rewrite_flag_calls_to_flag_evaluations
-        or context.database is None
-        or not context.database.read_flag_calls_with_union
-    ):
+    if not context.rewrite_flag_calls_to_flag_evaluations or not context.reads_flag_calls_with_union():
         return None
     return context.database
 

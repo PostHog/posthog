@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { WorkflowsConfig } from '~/types'
+import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
 
-type ConsentMode = NonNullable<WorkflowsConfig['email_tracking_consent_mode']>
+type ConsentMode = NonNullable<TeamWorkflowsConfigApi['email_tracking_consent_mode']>
 
 export function WorkflowsEmailTrackingConsentSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -19,8 +19,6 @@ export function WorkflowsEmailTrackingConsentSettings(): JSX.Element {
             onChange={(value: ConsentMode) => {
                 updateCurrentTeam({
                     workflows_config: {
-                        capture_workflows_engagement_events:
-                            currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                         email_tracking_consent_mode: value,
                     },
                 })

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { NAV_PANEL_PLACEMENT } from './navPanelAdShared'
 import { NavPanelMcpAd } from './NavPanelMcpAd'
 
 const meta = {
@@ -17,7 +18,7 @@ type Story = StoryObj<{}>
 const notConnectedStory = (width: string): Story => ({
     render: (): JSX.Element => (
         <div className={width}>
-            <NavPanelMcpAd />
+            <NavPanelMcpAd placement={NAV_PANEL_PLACEMENT.SIDEBAR} />
         </div>
     ),
     parameters: {

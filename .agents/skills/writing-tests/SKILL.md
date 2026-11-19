@@ -57,7 +57,8 @@ A new test file needs a team owner, because ownership routes its failures and fl
 Put it next to the code it tests, inside `products/<name>/` when one product owns the behavior, so it inherits that owner.
 Check with `hogli owners:who <path>`.
 When no team owns the path, name the team responsible for the behavior it checks in the nearest `owners.yaml`, not the team of a helper it imports.
-CI fails a test file in a new directory that no team owns, and `hogli ci:preflight` runs the same check before you push.
+CI fails a pull request that leaves a test file with no team owner: a new file, a moved file, or a file that an `owners.yaml` edit left without a team.
+The pre-push hook runs the same check and blocks the push.
 
 ### 3. Does it go red?
 
@@ -144,6 +145,11 @@ When the behavior can't be pulled out, because it lives in a query, a transactio
 
 When you extract a decision this way, such as the dedupe, routing, or eligibility rule that [.agents/architecture.md](../../architecture.md) keeps pure, put the case matrix on the pure function and keep one database-backed test as a wiring guard.
 Without that guard, a refactor that stops calling the decision passes every pure case.
+
+**A property is the right shape when a pure unit has a rule that holds for every input**: a round trip, an optimized path that must match a slow reference, or a port that must match the original.
+Generate the inputs (Hypothesis, proptest, or a loop over a small domain you can enumerate), keep the test at the pure level, and bound the number of examples so it stays fast.
+Hypothesis loads its built-in `ci` profile on a CI runner, which derandomizes the run; proptest picks a new random seed on every run unless `PROPTEST_RNG_SEED` is set, and writes each failure to a `proptest-regressions/` file to commit.
+Either way, copy each counterexample it finds into a fixed case.
 
 Reach for ClickHouse, the Node serial lane, or a browser only when the regression lives there.
 
@@ -303,6 +309,7 @@ Reach for ClickHouse, the Node serial lane, or a browser only when the regressio
   When the code under test branches on a mode, set the mode in the test, with one `@parameterized` case for each mode that matters.
 - **A test you added that fails in CI blocks the merge, even when the job is green.**
   Trunk can quarantine a repeated failure, and a quarantined failure does not fail the job.
+  The E2E Playwright job is the exception: it reruns each quarantined failure with two retries and reds the job when the test still fails, so only a flake that passes on rerun stays green.
 - **Every `@skip`, `xfail`, or `.skip` carries a one-line reason and a linked issue.**
   A permanently skipped test is dead weight: delete it or fix it.
 - **Never commit `.only`** (`it.only`, `describe.only`).

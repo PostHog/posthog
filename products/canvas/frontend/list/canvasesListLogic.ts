@@ -37,6 +37,7 @@ export interface canvasesListLogicValues {
     currentTeamId: number | null // teamLogic
     breadcrumbs: Breadcrumb[]
     canvases: CanvasApi[]
+    canvasesLoadFailed: boolean
     canvasesResponse: PaginatedCanvasListApi | null
     canvasesResponseLoading: boolean
     hiddenIds: string[]
@@ -126,6 +127,14 @@ export const canvasesListLogic = kea<canvasesListLogicType>([
                 setListParams: (_, { params }) => params.page,
             },
         ],
+        // Keeps a failed load from reading as an empty list.
+        canvasesLoadFailed: [
+            false,
+            {
+                loadCanvases: () => false,
+                loadCanvasesFailure: () => true,
+            },
+        ],
         // Rows deleted in this session stay hidden through the undo window, before the server knows.
         hiddenIds: [
             [] as string[],
@@ -207,13 +216,10 @@ export const canvasesListLogic = kea<canvasesListLogicType>([
         return { setSearch: buildUrl, setOrdering: buildUrl, setPage: buildUrl }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.canvases()]: (_, searchParams, __, { method }) => {
+        [urls.canvases()]: (_, searchParams) => {
             const params = parseListParams(searchParams)
             if (params.search !== values.search || params.ordering !== values.ordering || params.page !== values.page) {
                 actions.setListParams(params)
-            } else if (method !== 'REPLACE') {
-                // Same state, but a fresh visit: refresh. A REPLACE is the URL catching up with our own action.
-                actions.loadCanvases()
             }
         },
     })),

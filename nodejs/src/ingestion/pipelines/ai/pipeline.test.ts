@@ -215,12 +215,49 @@ describe('AiIngestionPipeline', () => {
         expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
+    it('reports the bytes above the included allowance as an ai_overage_bytes record', async () => {
+        const message = createMessage('$ai_generation', { $ai_input: 'x'.repeat(150_000) })
+        const receivedBytes = Buffer.byteLength(parseJSON(message.value!.toString()).data, 'utf8')
+
+        await runPipeline([message])
+
+        expect(ingestedUsage).toHaveLength(2)
+        const [eventRecord, overageRecord] = ingestedUsage
+        expect(eventRecord.usageKey).toBe('ai_events')
+        expect(overageRecord).toEqual({
+            teamId: team.id,
+            usageKey: 'ai_overage_bytes',
+            recordId: `${eventRecord.recordId}:${receivedBytes}`,
+            quantity: receivedBytes - 100_000,
+            unit: 'bytes',
+            timestampMs: eventRecord.timestampMs,
+        })
+    })
+
     it('double-writes AI events to both the events and ai_events outputs', async () => {
         await runPipeline([createMessage('$ai_generation')])
 
         expect(producedForTopic(EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(AI_EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+    })
+
+    it('stamps the received size as $ai_event_bytes on both copies, over client and transform values', async () => {
+        mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
+            Promise.resolve({
+                event: { ...event, properties: { ...event.properties, $ai_event_bytes: 2 } },
+                invocationResults: [],
+            })
+        )
+        const message = createMessage('$ai_generation', { $ai_event_bytes: 1, $ai_input: 'café ☕' })
+        const receivedBytes = Buffer.byteLength(parseJSON(message.value!.toString()).data, 'utf8')
+
+        await runPipeline([message])
+
+        const [eventsCopy] = producedForTopic(EVENTS_TOPIC)
+        const [aiCopy] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(parseJSON(eventsCopy.properties).$ai_event_bytes).toBe(receivedBytes)
+        expect(parseJSON(aiCopy.properties).$ai_event_bytes).toBe(receivedBytes)
     })
 
     it('nulls invalid AI token properties before emitting', async () => {
