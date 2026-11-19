@@ -42,7 +42,7 @@ EXPECTED_MAJORS = {
     "@posthog/react": 1,
     "posthog-js-lite": 4,
     "posthog-react-native": 4,
-    "posthog-rs": 0,
+    "posthog-rs": 1,
     "posthog-go": 1,
 }
 NPM_SDKS = ("posthog-node", "posthog-js", "@posthog/react", "posthog-js-lite", "posthog-react-native")
@@ -69,13 +69,13 @@ PYTHON_PINS = (
     ("tools/infra-scripts/clitools/requirements.txt", "posthog", None),
 )
 
-# (manifest, TOML path to the dependency table, lockfile). posthog-rs is 0.x, so Cargo
-# already treats every minor as breaking and the bot bumps those routinely; the guard
-# holds only the major, which keeps 1.0 out until its migration.
+# (manifest, TOML path to the dependency table, lockfile). The guard holds only the major.
 RUST_PINS = (
     ("rust/Cargo.toml", ("workspace", "dependencies"), "rust/Cargo.lock"),
     ("cli/Cargo.toml", ("dependencies",), "cli/Cargo.lock"),
 )
+# posthog-rs publishes as `posthog` since 1.0 and keeps `posthog-rs` as a compatibility crate.
+RUST_CRATES = ("posthog", "posthog-rs")
 
 GO_MODULE = "github.com/posthog/posthog-go"
 GO_MANIFEST = "bin/hobby-installer/go.mod"
@@ -244,6 +244,11 @@ def _lock_package_major(lock_path: Path, package: str) -> int:
     return _major(next(p["version"] for p in packages if p["name"] == package))
 
 
+def _lock_package_majors(lock_path: Path, packages: tuple[str, ...]) -> set[int]:
+    entries = tomllib.loads(lock_path.read_text(encoding="utf-8"))["package"]
+    return {_major(p["version"]) for p in entries if p["name"] in packages}
+
+
 def check_node(root: Path) -> list[str]:
     problems = []
     for manifest, section, package, spec in npm_manifests(root):
@@ -327,22 +332,33 @@ def check_python(root: Path) -> list[str]:
 
 def check_rust(root: Path) -> list[str]:
     problems = []
-    expected = EXPECTED_MAJORS["posthog-rs"]
     for manifest, table, lock in RUST_PINS:
+        expected = EXPECTED_MAJORS["posthog-rs"]
         data = tomllib.loads((root / manifest).read_text(encoding="utf-8"))
         for key in table:
             data = data[key]
-        dependency = data["posthog-rs"]
-        requirement = dependency if isinstance(dependency, str) else dependency["version"]
-        try:
-            major = cargo_requirement_major(requirement)
-        except ValueError as err:
-            problems.append(f"{manifest}: {err}")
+        declared = [(name, data[name]) for name in RUST_CRATES if name in data]
+        if not declared:
+            problems.append(f"{manifest} declares neither of {', '.join(RUST_CRATES)}")
             continue
-        if major != expected:
-            problems.append(f"{manifest}: posthog-rs = {requirement!r}, expected major {expected}. {MIGRATION_HINT}")
-        if _lock_package_major(root / lock, "posthog-rs") != expected:
-            problems.append(f"{lock} resolves posthog-rs outside major {expected}")
+        for name, dependency in declared:
+            # A git dependency must still carry `version`, so the major stays readable.
+            requirement = dependency if isinstance(dependency, str) else dependency.get("version")
+            if requirement is None:
+                problems.append(f"{manifest}: {name} has no version requirement; add `version` beside `git`")
+                continue
+            try:
+                major = cargo_requirement_major(requirement)
+            except ValueError as err:
+                problems.append(f"{manifest}: {err}")
+                continue
+            if major != expected:
+                problems.append(f"{manifest}: {name} = {requirement!r}, expected major {expected}. {MIGRATION_HINT}")
+        resolved = _lock_package_majors(root / lock, RUST_CRATES)
+        if resolved != {expected}:
+            problems.append(
+                f"{lock} resolves {'/'.join(RUST_CRATES)} to majors {sorted(resolved)}, expected {{{expected}}}"
+            )
     return problems
 
 

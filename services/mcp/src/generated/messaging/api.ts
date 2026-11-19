@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -199,6 +199,89 @@ export const MessagingPreferencesRemoveOptOutCreateBody = () => zod.object({
 })
 
 /**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary List the most recent provider imports
+ */
+export const MessagingProviderImportsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Start a background import from another messaging tool
+ */
+export const MessagingProviderImportsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingProviderImportsCreateBodyStepsItemMax = 64
+
+export const messagingProviderImportsCreateBodyApiKeyMax = 512
+
+export const MessagingProviderImportsCreateBody = () => zod.object({
+    provider: zod
+        .enum(['customerio', 'resend', 'postmark'])
+        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark')
+        .describe(
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark'
+        ),
+    steps: zod
+        .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
+        .min(1)
+        .describe(
+            "Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send."
+        ),
+    api_key: zod
+        .string()
+        .max(messagingProviderImportsCreateBodyApiKeyMax)
+        .optional()
+        .describe(
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time."
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Get a provider import and its progress
+ */
+export const MessagingProviderImportsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary List the providers and what each can import
+ */
+export const MessagingProviderImportsProvidersListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Send a Supabase project's auth emails through transactional email templates.
  * @summary Get the Supabase auth email settings
  */
@@ -295,4 +378,60 @@ export const MessagingSuppressionsBulkAddSuppressionsCreateBody = () => zod.obje
             })
         )
         .describe('Addresses to suppress, at most 1000 per request.'),
+})
+
+/**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax = 512
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax = 100
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault = false
+
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateBody = () => zod.object({
+    identifiers: zod
+        .array(zod.string().max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax))
+        .min(1)
+        .max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax)
+        .describe('The email addresses to remove, at most 100 per request.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
+})
+
+/**
+ * List suppressed recipients for the team, most recently updated first.
+ * @summary List suppressed email addresses for the team
+ */
+export const MessagingSuppressionsSuppressionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSuppressionsSuppressionsRetrieveQuerySearchMax = 512
+
+export const MessagingSuppressionsSuppressionsRetrieveQueryParams = () => zod.object({
+    page: zod.number().optional(),
+    page_size: zod.number().optional(),
+    search: zod
+        .string()
+        .max(messagingSuppressionsSuppressionsRetrieveQuerySearchMax)
+        .optional()
+        .describe('Case-insensitive substring match on the recipient email address.'),
 })

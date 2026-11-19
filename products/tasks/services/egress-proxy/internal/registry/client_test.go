@@ -111,6 +111,65 @@ func TestClientLookupContract(t *testing.T) {
 	}
 }
 
+func TestClientClusterHTTPRequiresExplicitOptIn(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		origin string
+		allow  bool
+		valid  bool
+	}{
+		{"https default", "https://registry.example.com", false, true},
+		{"cluster default", "http://registry.tasks.svc.cluster.local:8000", false, false},
+		{"cluster opt in", "http://registry.tasks.svc.cluster.local:8000", true, true},
+		{"public http", "http://registry.example.com", true, false},
+		{"raw ip", "http://10.0.0.10:8000", true, false},
+		{"short service", "http://registry.tasks.svc:8000", true, false},
+		{"suffix", "http://registry.tasks.svc.cluster.local.example.com", true, false},
+		{"extra label", "http://extra.registry.tasks.svc.cluster.local", true, false},
+		{"userinfo", "http://user@registry.tasks.svc.cluster.local", true, false},
+		{"path", "http://registry.tasks.svc.cluster.local/api", true, false},
+		{"query", "http://registry.tasks.svc.cluster.local?key=value", true, false},
+		{"fragment", "http://registry.tasks.svc.cluster.local#fragment", true, false},
+		{"malformed", "http://%zz", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := registry.New(registry.Config{
+				BaseURL: tc.origin, AllowClusterHTTP: tc.allow, Region: "test-region",
+				SigningKey: registryTestKey, Timeout: time.Second,
+			})
+			if (err == nil) != tc.valid {
+				t.Fatalf("New() = %v; valid=%v", err, tc.valid)
+			}
+		})
+	}
+}
+
+func TestClientClusterHTTPDoesNotFollowRedirects(t *testing.T) {
+	_, registration := registrationFixture(t)
+	var requests int
+	client, err := registry.New(registry.Config{
+		BaseURL: "http://registry.tasks.svc.cluster.local:8000", AllowClusterHTTP: true,
+		Region: "test-region", SigningKey: registryTestKey, Timeout: time.Second,
+		HTTPClient: &http.Client{Transport: registryRoundTripper(func(r *http.Request) (*http.Response, error) {
+			requests++
+			if r.URL.Scheme != "http" || r.URL.Host != "registry.tasks.svc.cluster.local:8000" || r.Header.Get("Authorization") == "" {
+				t.Fatalf("unexpected registry request: %s", r.URL)
+			}
+			return &http.Response{
+				StatusCode: http.StatusTemporaryRedirect,
+				Header:     http.Header{"Location": {"http://foreign.tasks.svc.cluster.local:8000"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Lookup(t.Context(), lookupFor(registration)); !errors.Is(err, identity.ErrUnavailable) || requests != 1 {
+		t.Fatalf("redirected lookup = %v, requests=%d", err, requests)
+	}
+}
+
 func TestClientLookupFailures(t *testing.T) {
 	body, expected := registrationFixture(t)
 	for _, status := range []int{401, 403, 404, 429, 500, 503} {

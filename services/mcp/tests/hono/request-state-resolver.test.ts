@@ -1039,10 +1039,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         await catalog.warmup()
         const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
 
-        const result = await resolver.resolve(makeProps({ apiToken: 'phs_test', mcpClientName: 'customer-agent' }))
+        mockTokenStore.set('projectSecretKeyProjectId', '42')
+
+        // The caller names project 7, and the key belongs to project 42.
+        const result = await resolver.resolve(
+            makeProps({
+                apiToken: 'phs_test',
+                mcpClientName: 'customer-agent',
+                projectId: '7',
+                organizationId: 'org-7',
+            })
+        )
 
         expect(result.allTools.map((tool) => tool.name).sort()).toEqual([...PROJECT_SECRET_KEY_TOOLS].sort())
         expect(result.useSingleExec).toBe(false)
+        expect(mockPinned.last).toMatchObject({ projectId: '42' })
+        expect(mockPinned.last?.orgId).toBeUndefined()
     })
 
     it('merges request excludeTools into catalog filter options', async () => {

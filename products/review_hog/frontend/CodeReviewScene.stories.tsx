@@ -40,11 +40,17 @@ import type {
     ReviewValidatorConfigApi,
     UserBasicApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
+import type {
+    CodeReviewApprovalRepositoryApi,
+    DigestRunApi,
+    PaginatedCodeReviewApprovalRoutingRunListApi,
+    ReviewRunApi,
+} from 'products/stamphog/frontend/generated/api.schemas'
 
 import { expect } from 'storybook/test'
 
 import { CodeReviewScene } from './CodeReviewScene'
-import { CodeReviewTab } from './reviewHogSettingsLogic'
+import { CodeReviewTab } from './codeReviewTabs'
 
 const defaultSettings: ReviewUserSettingsApi = {
     default_review_mode: 'follow',
@@ -53,7 +59,7 @@ const defaultSettings: ReviewUserSettingsApi = {
     urgency_threshold: 'consider',
     celebrate_clean_reviews: true,
     review_inbox_prs: false,
-    stamphog_review_inbox_prs: false,
+    approval_review_inbox_prs: false,
     sources: {
         default_review_mode: 'default',
         review_drafts: 'default',
@@ -61,10 +67,10 @@ const defaultSettings: ReviewUserSettingsApi = {
         urgency_threshold: 'default',
         celebrate_clean_reviews: 'default',
         review_inbox_prs: 'default',
-        stamphog_review_inbox_prs: 'default',
+        approval_review_inbox_prs: 'default',
     },
     project_defaults: { urgency_threshold: 'consider', celebrate_clean_reviews: true },
-    stamphog_connected: false,
+    approval_connected: false,
 }
 
 function completedReview(overrides: Partial<ReviewRecentReviewApi>): ReviewRecentReviewApi {
@@ -586,21 +592,159 @@ function rowById(id: string): [string, StoryRepositoryRow] | undefined {
     return Object.entries(storyState.rows).find(([, row]) => row.id === id)
 }
 
+const approvalRepository = (
+    index: number,
+    overrides: Partial<CodeReviewApprovalRepositoryApi>
+): CodeReviewApprovalRepositoryApi =>
+    ({
+        id: `00000000-0000-0000-0000-${String(index).padStart(12, '0')}`,
+        repository: 'example-org/web',
+        provider: 'github',
+        enabled: true,
+        digest_enabled: false,
+        installation_id: '1',
+        review_mode: 'label',
+        trigger_label: 'auto-approve',
+        routing_mode: 'off',
+        routing_fork_labels: {},
+        review_on_clean_external_review: false,
+        user_access_level: 'manager',
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: '2026-09-01T00:00:00Z',
+        ...overrides,
+    }) as CodeReviewApprovalRepositoryApi
+
+// One row per Approve choice, so the settings stories show each one.
+function approvalRepositories(accessLevel: string): CodeReviewApprovalRepositoryApi[] {
+    return [
+        approvalRepository(1, {
+            repository: 'example-org/api',
+            review_on_clean_external_review: true,
+            routing_mode: 'fallback',
+        }),
+        approvalRepository(2, { repository: 'example-org/docs', enabled: false }),
+        approvalRepository(3, {
+            repository: 'example-org/web',
+            review_mode: 'all',
+            digest_enabled: true,
+            routing_mode: 'always',
+        }),
+        approvalRepository(4, { repository: 'example-org/worker', trigger_label: 'needs-review' }),
+    ].map((repo) => ({ ...repo, user_access_level: accessLevel }))
+}
+
+const approvalRun = (overrides: Partial<ReviewRunApi>): ReviewRunApi =>
+    ({
+        id: '00000000-0000-0000-0000-0000000000b1',
+        pull_request: '00000000-0000-0000-0000-0000000000c1',
+        repository: 'example-org/web',
+        pr_number: 412,
+        pr_url: 'https://github.com/example-org/web/pull/412',
+        title: 'Paginate the reviews table',
+        author_login: 'example-dev',
+        head_sha: 'a91f3cd8e2b1447fa0c2d9e5b7318fa4c02d1e77',
+        head_branch: 'paginate-reviews',
+        trigger: 'label',
+        status: 'completed',
+        verdict: 'approved',
+        created_at: '2026-10-01T10:00:00Z',
+        updated_at: '2026-10-01T10:03:00Z',
+        started_at: '2026-10-01T10:00:05Z',
+        completed_at: '2026-10-01T10:03:00Z',
+        ...overrides,
+    }) as ReviewRunApi
+
+const digestRun = (overrides: Partial<DigestRunApi>): DigestRunApi =>
+    ({
+        id: '00000000-0000-0000-0000-0000000000d1',
+        audience_key: 'repo:example-org/web',
+        slack_channel_id: 'C012AB3CD',
+        slack_channel_name: 'team-web',
+        status: 'completed',
+        pr_count: 2,
+        summary: { headline: 'The reviews table pages, and the billing summary is cached.', prs: [] },
+        error: '',
+        slack_message_ts: '1790000000.000100',
+        created_at: '2026-09-30T09:00:00Z',
+        posted_at: '2026-09-30T09:00:04Z',
+        ...overrides,
+    }) as DigestRunApi
+
+const digestRuns = [
+    digestRun({}),
+    digestRun({
+        id: '00000000-0000-0000-0000-0000000000d2',
+        audience_key: 'repo:example-org/api',
+        slack_channel_name: 'team-api',
+        pr_count: 0,
+        summary: { headline: '', prs: [] },
+        slack_message_ts: '',
+        created_at: '2026-09-29T09:00:00Z',
+        posted_at: '2026-09-29T09:00:02Z',
+    }),
+    digestRun({
+        id: '00000000-0000-0000-0000-0000000000d3',
+        status: 'failed',
+        pr_count: 3,
+        error: 'not_in_channel',
+        slack_message_ts: '',
+        created_at: '2026-09-28T09:00:00Z',
+        posted_at: null,
+    }),
+]
+
+const approvalRuns = [
+    approvalRun({}),
+    approvalRun({
+        id: '00000000-0000-0000-0000-0000000000b2',
+        repository: 'example-org/api',
+        pr_number: 98,
+        title: 'Cache the billing summary',
+        trigger: 'reviewhog_clean',
+        verdict: 'escalate',
+    }),
+    approvalRun({
+        id: '00000000-0000-0000-0000-0000000000b3',
+        pr_number: 415,
+        title: 'Fix timezone handling in the weekly digest',
+        status: 'reviewing',
+        verdict: 'none',
+        completed_at: null,
+    }),
+]
+
+const emptyRoutingPage: PaginatedCodeReviewApprovalRoutingRunListApi = {
+    count: 0,
+    next: null,
+    previous: null,
+    results: [],
+}
+
+const paginated = <T,>(results: T[]): { count: number; next: null; previous: null; results: T[] } => ({
+    count: results.length,
+    next: null,
+    previous: null,
+    results,
+})
+
 function OpenTab({
     tab,
     review,
+    digests,
     children,
 }: {
-    tab: CodeReviewTab
+    tab?: CodeReviewTab
     review?: string
+    digests?: boolean
     children: JSX.Element
 }): JSX.Element {
     useEffect(() => {
         router.actions.replace(urls.codeReview(), {
-            ...(tab === 'settings' ? { tab } : {}),
+            ...(tab ? { tab } : {}),
             ...(review ? { review } : {}),
+            ...(digests ? { digests: '1' } : {}),
         })
-    }, [tab, review])
+    }, [tab, review, digests])
     return children
 }
 
@@ -624,7 +768,11 @@ const meta: Meta<typeof CodeReviewScene> = {
     },
     decorators: [
         (Story, context): JSX.Element => (
-            <OpenTab tab={context.parameters.tab ?? 'activity'} review={context.parameters.review}>
+            <OpenTab
+                tab={context.parameters.tab}
+                review={context.parameters.review}
+                digests={context.parameters.digests}
+            >
                 <div className="p-4">
                     <Story />
                 </div>
@@ -638,9 +786,43 @@ const meta: Meta<typeof CodeReviewScene> = {
                         { ...MOCK_DEFAULT_USER, is_staff: context.parameters.isStaff ?? false },
                     ],
                     '/api/users/@me/github_login/': { github_login: 'example-dev' },
-                    '/api/projects/:team_id/review_hog/settings/': () => [200, storyState.settings],
-                    '/api/projects/:team_id/review_hog/project_settings/': () => [200, storyState.project],
-                    '/api/projects/:team_id/review_hog/repositories/': () => [
+                    '/api/projects/:team_id/code_review/approvals/repositories/': () => [
+                        200,
+                        paginated(
+                            context.parameters.approvalConnected === false
+                                ? []
+                                : approvalRepositories(context.parameters.approvalAccess ?? 'manager')
+                        ),
+                    ],
+                    '/api/projects/:team_id/code_review/approvals/repositories/available_repositories/': () => [
+                        200,
+                        context.parameters.approvalConnected === false
+                            ? { repositories: [], total_count: 0, has_installation: false }
+                            : {
+                                  repositories: ['example-org/infra', 'example-org/mobile'],
+                                  total_count: 2,
+                                  has_installation: true,
+                              },
+                    ],
+                    '/api/projects/:team_id/code_review/approvals/repositories/install_info/': {
+                        app_slug: 'example-app',
+                        install_url: 'https://github.com/apps/example-app/installations/new',
+                        authorize_url: 'https://github.com/login/oauth/authorize',
+                    },
+                    // The worker repository has no owners.yaml, so the reviewer requests hint shows both states.
+                    '/api/projects/:team_id/code_review/approvals/repositories/:id/owners_file/': ({ params }) => [
+                        200,
+                        { owners_file: String(params.id).endsWith('4') ? 'missing' : 'found' },
+                    ],
+                    '/api/projects/:team_id/code_review/approvals/digests/': paginated(digestRuns),
+                    '/api/projects/:team_id/code_review/approvals/runs/': paginated(approvalRuns),
+                    '/api/projects/:team_id/code_review/approvals/reviewer_routing/owners/': [
+                        { owner: 'team-web', kind: 'team', pr_count: 12 },
+                    ],
+                    '/api/projects/:team_id/code_review/approvals/reviewer_routing/': emptyRoutingPage,
+                    '/api/projects/:team_id/code_review/settings/': () => [200, storyState.settings],
+                    '/api/projects/:team_id/code_review/project_settings/': () => [200, storyState.project],
+                    '/api/projects/:team_id/code_review/repositories/': () => [
                         200,
                         Object.entries(storyState.rows).map(([full_name, row]) => ({
                             ...row,
@@ -651,7 +833,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                             created_at: '2026-09-20T10:00:00Z',
                         })),
                     ],
-                    '/api/projects/:team_id/review_hog/repository_overview/': ({ request }) => {
+                    '/api/projects/:team_id/code_review/repository_overview/': ({ request }) => {
                         const params = new URL(request.url).searchParams
                         const search = params.get('search')?.toLowerCase() ?? ''
                         const view = params.get('view') ?? 'all'
@@ -698,7 +880,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         count: members.length,
                     },
                     // Before `reviews/:id/`, which would otherwise take `table` for a review id.
-                    '/api/projects/:team_id/review_hog/reviews/table/': ({ request }) => {
+                    '/api/projects/:team_id/code_review/reviews/table/': ({ request }) => {
                         // A running row keeps its spinner, so only the story that shows it opts in.
                         const rows = context.parameters.withRunningReview ? [runningReview, ...reviewRows] : reviewRows
                         const running = new URL(request.url).searchParams.get('status') === 'running'
@@ -711,27 +893,27 @@ const meta: Meta<typeof CodeReviewScene> = {
                             },
                         ]
                     },
-                    '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
-                    '/api/projects/:team_id/review_hog/reviews/:id/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/reviews/perspective_stats/': perspectiveStats,
+                    '/api/projects/:team_id/code_review/reviews/:id/': ({ params }) => {
                         const detail = reviewDetails[String(params.id)]
                         return detail ? [200, detail] : [404, { detail: 'Review not found.' }]
                     },
-                    '/api/projects/:team_id/review_hog/perspectives/': perspectives,
-                    '/api/projects/:team_id/review_hog/blind_spots/': [
+                    '/api/projects/:team_id/code_review/perspectives/': perspectives,
+                    '/api/projects/:team_id/code_review/blind_spots/': [
                         singleSkill(
                             'review-hog-blind-spots-general',
                             'One more pass over each chunk for what every perspective missed.',
                             true
                         ),
                     ],
-                    '/api/projects/:team_id/review_hog/validators/': [
+                    '/api/projects/:team_id/code_review/validators/': [
                         singleSkill(
                             'review-hog-validation-default',
                             'Drops speculative, noisy and low-value findings before they reach the PR.',
                             true
                         ),
                     ],
-                    '/api/projects/:team_id/review_hog/resolution/': [
+                    '/api/projects/:team_id/code_review/resolution/': [
                         singleSkill(
                             'review-hog-resolution-default',
                             'Fixes what is worth it and safe, and replies to every thread.',
@@ -745,7 +927,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                     ],
                 },
                 post: {
-                    '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/repositories/': async ({ request }) => {
                         const write = (await request.json()) as ReviewRepositoryWriteApi
                         saveRepository(write)
                         const row = storyState.rows[write.full_name]
@@ -766,7 +948,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                             },
                         ]
                     },
-                    '/api/projects/:team_id/review_hog/repositories/:id/people/': async ({ request, params }) => {
+                    '/api/projects/:team_id/code_review/repositories/:id/people/': async ({ request, params }) => {
                         const { user_id, kind } = (await request.json()) as ReviewRepositoryPersonRequestApi
                         const member = members.find((m) => m.user.id === user_id)
                         const found = rowById(String(params.id))
@@ -776,7 +958,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         found[1].people = [...found[1].people, person(member.user, kind)]
                         return [201, {}]
                     },
-                    '/api/projects/:team_id/review_hog/project_settings/people/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/project_settings/people/': async ({ request }) => {
                         const { user_id, kind } = (await request.json()) as ReviewRepositoryPersonRequestApi
                         const member = members.find((m) => m.user.id === user_id)
                         if (member) {
@@ -787,7 +969,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         }
                         return [201, storyState.project]
                     },
-                    '/api/projects/:team_id/review_hog/repository_choices/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/repository_choices/': async ({ request }) => {
                         const write = (await request.json()) as ReviewRepositoryChoiceWriteApi
                         if ((write.mode === 'flash') === inherited(write.full_name).flash) {
                             delete storyState.choices[write.full_name]
@@ -801,17 +983,17 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                 },
                 patch: {
-                    '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/settings/': async ({ request }) => {
                         const update = (await request.json()) as PatchedReviewUserSettingsApi
                         storyState.settings = { ...storyState.settings, ...update }
                         return [200, storyState.settings]
                     },
-                    '/api/projects/:team_id/review_hog/project_settings/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/project_settings/': async ({ request }) => {
                         const update = (await request.json()) as PatchedReviewProjectSettingsApi
                         storyState.project = { ...storyState.project, ...update }
                         return [200, storyState.project]
                     },
-                    '/api/projects/:team_id/review_hog/installation_claims/:id/': async ({ request }) => {
+                    '/api/projects/:team_id/code_review/installation_claims/:id/': async ({ request }) => {
                         const { scope } = (await request.json()) as { scope: ReviewInstallationClaimScopeEnumApi }
                         const [installation] = storyState.project.installations
                         storyState.project = { ...storyState.project, installations: [{ ...installation, scope }] }
@@ -819,7 +1001,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                 },
                 delete: {
-                    '/api/projects/:team_id/review_hog/repository_choices/:id/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/repository_choices/:id/': ({ params }) => {
                         const name = Object.keys(storyState.choices).find(
                             (key) => storyState.choices[key].id === params.id
                         )
@@ -828,14 +1010,14 @@ const meta: Meta<typeof CodeReviewScene> = {
                         }
                         return [204]
                     },
-                    '/api/projects/:team_id/review_hog/repositories/:id/people/:personId/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/repositories/:id/people/:personId/': ({ params }) => {
                         const found = rowById(String(params.id))
                         if (found) {
                             found[1].people = found[1].people.filter((entry) => entry.id !== params.personId)
                         }
                         return [200, {}]
                     },
-                    '/api/projects/:team_id/review_hog/project_settings/people/:personId/': ({ params }) => {
+                    '/api/projects/:team_id/code_review/project_settings/people/:personId/': ({ params }) => {
                         storyState.project = {
                             ...storyState.project,
                             people: storyState.project.people.filter((entry) => entry.id !== params.personId),
@@ -888,6 +1070,7 @@ export const Settings: Story = {
         await expect(canvas.getByText('Last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Commit fixes to my pull requests')).toBeVisible()
+        await expect(canvas.queryByText('Auto-approval')).not.toBeInTheDocument()
     },
 }
 
@@ -895,6 +1078,7 @@ export const SettingsForMember: Story = {
     parameters: {
         tab: 'settings',
         canEdit: false,
+        approvalAccess: 'editor',
         claimScope: 'selected',
         savedSettings: { default_review_mode: 'flash' },
     },
@@ -913,8 +1097,92 @@ export const SettingsForMember: Story = {
     },
 }
 
+export const ApprovalSettings: Story = {
+    parameters: { tab: 'approval_settings' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        // The repository names also head the digest list, so rows are found by their selects.
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toBeEnabled()
+        await expect(canvas.getByText('Manager')).toBeVisible()
+        await expect(await canvas.findByText('no owners.yaml')).toBeVisible()
+        await expect(canvas.getByText('2 more repositories')).toBeVisible()
+        await expect(canvas.getByLabelText('Include example-org/web in the digest')).toBeChecked()
+    },
+}
+
+export const ApprovalSettingsForMember: Story = {
+    parameters: { tab: 'approval_settings', approvalAccess: 'editor' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Manager access required')).toBeVisible()
+        // A select with a disabled reason stays focusable for its tooltip, so it is marked with aria-disabled.
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        // An editor may still resume a paused repository.
+        await expect(canvas.getByLabelText('Approve for example-org/docs')).not.toHaveAttribute('aria-disabled', 'true')
+    },
+}
+
+export const ApprovalSettingsPausedFilter: Story = {
+    parameters: { tab: 'approval_settings' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toBeVisible()
+        // The Paused select of a paused repository also reads "Paused", so the chip is found by its bar.
+        const chips = canvasElement.querySelector<HTMLElement>('.LemonSegmentedButton')
+        await expect(chips).not.toBeNull()
+        within(chips as HTMLElement)
+            .getByText('Paused')
+            .click()
+        await waitFor(() => expect(canvas.queryByLabelText('Approve for example-org/worker')).not.toBeInTheDocument())
+        await expect(canvas.getByLabelText('Approve for example-org/docs')).toBeVisible()
+        await expect(canvas.getByText('Settings stay. Resume to approve again.')).toBeVisible()
+    },
+}
+
+export const ApprovalSettingsNotConnected: Story = {
+    parameters: { tab: 'approval_settings', approvalConnected: false },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Install the Stamphog app on GitHub')).toBeVisible()
+        await expect(canvas.queryByLabelText('Approve for example-org/worker')).not.toBeInTheDocument()
+    },
+}
+
+export const ApprovalHistory: Story = {
+    parameters: { tab: 'approval_history' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Cache the billing summary')).toBeVisible()
+        await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
+    },
+}
+
+export const ApprovalSettingsDigestHistory: Story = {
+    parameters: { tab: 'approval_settings', digests: true },
+    play: async () => {
+        // The modal renders in a portal outside the story root.
+        const body = within(document.body)
+        await waitFor(() => expect(body.getByText('repo:example-org/api')).toBeVisible())
+        await expect(body.getByText('Nothing to post')).toBeVisible()
+        await expect(body.getByText('Failed')).toBeVisible()
+    },
+}
+
+export const CodeYouOwn: Story = {
+    parameters: { tab: 'code_you_own' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(
+            await canvas.findByText('Pick your team to see the pull requests that changed code it owns.')
+        ).toBeVisible()
+    },
+}
+
 export const SavedInboxOptIns: Story = {
-    parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
+    parameters: { savedSettings: { review_inbox_prs: true, approval_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const inboxLabel = 'Review my Inbox PRs'
@@ -922,20 +1190,20 @@ export const SavedInboxOptIns: Story = {
         // so query again on every attempt until the saved values arrive.
         await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })
         const inboxSwitch = canvas.getByLabelText(inboxLabel)
-        const stamphogSwitch = canvas.getByLabelText('Let Stamphog review my Inbox PRs')
+        const stamphogSwitch = canvas.getByLabelText('Auto-approve my Inbox PRs')
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()
     },
 }
 
-export const FlagDisabledForStaff: Story = {
-    parameters: { featureFlags: [], isStaff: true },
+export const FlagOff: Story = {
+    parameters: { featureFlags: [] },
     play: async ({ canvasElement }) => {
-        userLogic.actions.loadUser()
-        await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(true))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Page not found')).toBeVisible()
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toBeVisible()
+        await expect(canvas.getByText('Approval settings')).toBeVisible()
+        await expect(canvas.queryByText('Review activity')).not.toBeInTheDocument()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
     },
 }

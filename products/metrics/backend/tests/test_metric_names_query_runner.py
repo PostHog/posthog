@@ -394,6 +394,17 @@ class TestFoldClassicHistograms(SimpleTestCase):
         self.assertEqual(folded[0]["first_seen"], "2025-12-31T23:00:00+00:00")
         self.assertNotIn("classic_histogram", folded[1])
 
+    def test_folded_histogram_takes_series_stats_from_the_count_row(self):
+        stats = {"lag_bucket": (40, 3), "lag_sum": (4, 2), "lag_count": (4, 2)}
+        rows = [
+            {**self._row(name, "2026-01-01T00:00:00+00:00"), "series_count": series, "tag_key_count": keys}
+            for name, (series, keys) in stats.items()
+        ]
+
+        folded = fold_classic_histograms(rows)
+
+        self.assertEqual((folded[0]["series_count"], folded[0]["tag_key_count"]), (4, 2))
+
     @parameterized.expand(
         [
             ("missing_sum", ["x_bucket", "x_count"]),
@@ -565,6 +576,23 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             dt.datetime.fromisoformat(rows[0]["first_seen"]), anchor.replace(minute=0, second=0, microsecond=0)
         )
+
+    def test_values_series_stats_count_label_sets_and_tag_keys(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for pod in ("a", "b", "c"):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http.duration",
+                points=[(anchor, 1.0), (anchor - dt.timedelta(minutes=1), 2.0)],
+                labels={"pod": pod, "route": "/api"},
+            )
+        seed_metric(team_id=self.team.id, metric_name="queue.depth", points=[(anchor, 1.0)], labels={"queue": "q"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/values/?sparklines=false&series_stats=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stats = {row["name"]: (row["series_count"], row["tag_key_count"]) for row in response.json()["results"]}
+        self.assertEqual(stats, {"http.duration": (3, 2), "queue.depth": (1, 1)})
 
     def test_values_defaults_keep_the_catalog_shape(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)

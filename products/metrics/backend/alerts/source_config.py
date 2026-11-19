@@ -82,4 +82,7 @@ METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
     rollout_flag="platform-alerts-source-metrics",
+    # Prometheus fires at the first evaluation a full `for:` after the first breach, so a `for:` of a day
+    # at one-minute checks needs a day of checks plus the one that starts it.
+    max_evaluation_periods=1441,
 )

@@ -87,6 +87,10 @@ posthog_worktree_borrow() {
                 _ph_flox_on_path=1
             fi
         done
+        # The pnpm in .flox/run runs on the wrong Node; on-activate.sh writes shims that do not.
+        if [ -n "$_ph_flox_on_path" ] && [ -d "$_ph_flox_root/.flox/cache/node-shims" ]; then
+            PATH="$_ph_flox_root/.flox/cache/node-shims:$PATH"
+        fi
         if [ -n "$_ph_flox_on_path" ]; then
             posthog_export_ca_bundle
         fi

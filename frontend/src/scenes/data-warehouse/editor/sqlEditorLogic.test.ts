@@ -3,12 +3,11 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardsApi from '@posthog/products-dashboards/frontend/generated/api'
 
 import { ApiError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
     databaseTableListLogic,
@@ -1850,6 +1849,39 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('names the breadcrumb and title after the opened metric', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/my_metric/': [
+                        200,
+                        {
+                            name: 'my_metric',
+                            definition: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        },
+                    ],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'my_metric' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'setQueryInput'])
+
+            expect(editorRootLogic.values.titleSectionProps).toMatchObject({
+                name: 'my_metric',
+                forceBackTo: { path: urls.dataCatalogMetric('my_metric') },
+            })
+            expect(editorRootLogic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(['SQL query', 'my_metric'])
+        })
+
         it('opens another metric when the editor already holds a query', async () => {
             useMocks({
                 get: {
@@ -2435,7 +2467,9 @@ describe('sqlEditorLogic', () => {
                 query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
                 types: [],
             })
+            expect(logic.values.viewUpdateInProgress).toBe(true)
             await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess']).toFinishAllListeners()
+            expect(logic.values.viewUpdateInProgress).toBe(false)
 
             expect(open).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -2447,6 +2481,63 @@ describe('sqlEditorLogic', () => {
             expect(updateBodies[0].acknowledge_breaking_changes).toBeUndefined()
             expect(updateBodies[1].acknowledge_breaking_changes).toBe(true)
             open.mockRestore()
+        })
+
+        it('keeps the editor locked until a breaking column change is canceled and reports the unsaved view', async () => {
+            const updateBodies: Record<string, any>[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                        updateBodies.push((await request.json()) as Record<string, any>)
+                        return [
+                            400,
+                            {
+                                code: 'breaking_column_change',
+                                detail: 'This change removes columns that downstream views use.',
+                                extra: {
+                                    removed_columns: ['legacy_value'],
+                                    affected_views: ['weekly_summary'],
+                                    affected_view_count: 1,
+                                    has_hidden_affected_views: false,
+                                },
+                            },
+                        ]
+                    },
+                },
+            })
+            let closeDialog: (() => void) | undefined
+            let markDialogOpened!: () => void
+            const dialogOpened = new Promise<void>((resolve) => {
+                markDialogOpened = resolve
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation((options) => {
+                closeDialog = options.onAfterClose
+                markDialogOpened()
+            })
+            const toast = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'x')
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            expect(logic.values.viewUpdateInProgress).toBe(true)
+            await dialogOpened
+            expect(logic.values.viewUpdateInProgress).toBe(true)
+            closeDialog?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.viewUpdateInProgress).toBe(false)
+            expect(updateBodies).toHaveLength(1)
+            expect(toast).toHaveBeenCalledWith('View was not saved')
+            open.mockRestore()
+            toast.mockRestore()
         })
 
         it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {

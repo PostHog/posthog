@@ -254,11 +254,13 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        repositorySaving,
+        decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority, updateRepository } = useActions(
         inboxReportDetailLogic(logicProps)
     )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -291,7 +293,6 @@ export function InboxDetailFrame({
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const reportActions = useReportDetailActions(report)
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const showCreatePr = canCreateImplementationPr(report)
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
@@ -502,6 +503,9 @@ export function InboxDetailFrame({
                                 updatePriority(priority)
                             }}
                             prioritySaving={prioritySaving}
+                            onRepositoryChange={updateRepository}
+                            repositorySaving={repositorySaving}
+                            decisionAttributions={decisionAttributions}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}
@@ -637,7 +641,8 @@ export function InboxDetailFrame({
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
                     {implementButtonInHeader && implementButton}
-                    {hasPostHogAiAccess && <DiscussReportButton report={report} reportUrl={reportUrl} />}
+                    {/* Discuss is always available and stays inline as its own dropdown button. */}
+                    <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                     <div className="hidden @4xl:flex items-center gap-2">
                         {reportActions.map((action) => (

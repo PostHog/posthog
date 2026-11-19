@@ -22,6 +22,9 @@ Parameters:
         Type: String
         AllowedValues: ['true', 'false']
         Default: 'false'
+    ReaderMonitoringInterval:
+        Type: Number
+        AllowedValues: [1, 5, 10, 15, 30, 60]
     AvailabilityZone:
         Type: AWS::EC2::AvailabilityZone::Name
     DbSubnetGroup:
@@ -121,7 +124,8 @@ Resources:
                 Ref: AvailabilityZone
             DBParameterGroupName:
                 Ref: InstanceParameterGroup
-            MonitoringInterval: 1
+            MonitoringInterval:
+                Ref: ReaderMonitoringInterval
             MonitoringRoleArn:
                 Ref: MonitoringRole
 

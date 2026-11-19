@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.growth.backend.temporal.signup_enrichment import (
     ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
@@ -5,4 +7,4 @@ from products.growth.backend.temporal.signup_enrichment import (
 
 WORKFLOWS = [*SIGNUP_ENRICHMENT_WORKFLOWS]
 
-ACTIVITIES = [*SIGNUP_ENRICHMENT_ACTIVITIES]
+ACTIVITIES: list[Callable[..., object]] = [*SIGNUP_ENRICHMENT_ACTIVITIES]

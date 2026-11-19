@@ -62,11 +62,20 @@ describe('supabaseAuthEmailsLogic', () => {
             get: {
                 '/api/projects/:team_id/messaging_supabase_auth_emails/settings/': () =>
                     failedLoads.includes('settings') ? [500] : [200, settingsResponse()],
-                '/api/projects/:team_id/messaging_templates/': async () => {
+                '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
                     await templatesListed
+                    const params = new URL(request.url).searchParams
+                    const offset = Number(params.get('offset') ?? 0)
+                    const limit = Math.min(Number(params.get('limit') ?? 100), 100)
                     return failedLoads.includes('templates')
                         ? [500]
-                        : [200, { count: messageTemplates.length, results: messageTemplates }]
+                        : [
+                              200,
+                              {
+                                  count: messageTemplates.length,
+                                  results: messageTemplates.slice(offset, offset + limit),
+                              },
+                          ]
                 },
             },
             patch: {
@@ -291,6 +300,24 @@ describe('supabaseAuthEmailsLogic', () => {
             )
         }
     )
+
+    it('counts a mapped template that arrives past the first page of 100 as usable', async () => {
+        const filler = Array.from({ length: 100 }, (_, index) => ({
+            id: `00000000-0000-4000-a000-${String(index).padStart(12, '0')}`,
+            transactional_hog_flow_id: null,
+            sensitive: true,
+            deleted: false,
+        }))
+        messageTemplates = [...filler, ...messageTemplates]
+        stored.templates = { signup: SENDABLE, recovery: SENDABLE }
+        const logic = await mounted()
+
+        logic.actions.openSetup()
+        await settled(logic)
+
+        expect(logic.values.transactionalTemplates?.map((template) => template.id)).toEqual([SENDABLE])
+        expect(logic.values.missingStarterTypes).toEqual([])
+    })
 
     it.each([
         [{}, 'Created 2 starter templates', null],

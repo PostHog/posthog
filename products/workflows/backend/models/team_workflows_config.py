@@ -58,6 +58,9 @@ class TeamWorkflowsConfig(models.Model):
     # bulk apply rewrites the steps whose values still follow them. Off by default.
     email_utm_tags_enabled = models.BooleanField(default=False, db_default=False)
     email_utm_params = models.JSONField(default=dict, db_default={}, blank=True)
+    # Tracked email links carry ph_workflow_run=<run id>, so a click joins the session it starts.
+    # The CDP email worker reads this flag, and a team that has no row is tagged.
+    email_workflow_run_link_tag_enabled = models.BooleanField(default=True, db_default=True)
 
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.

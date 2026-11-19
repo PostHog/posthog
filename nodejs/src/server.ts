@@ -8,7 +8,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
@@ -50,13 +50,13 @@ import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
-import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import {
     CyclotronJobQueueRateLimitedPostgresV2,
     sesRateLimitedQueueOptions,
 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createEmailAttachmentsValkeyPool } from './cdp/services/messaging/attachment-uploads'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
@@ -177,6 +177,7 @@ export class PluginServer implements NodeServer {
                   cdpProducerRegistry: this.cdpProducerRegistry!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
+                  consistentPersonReader: cdpServices!.consistentPersonReader,
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
@@ -277,7 +278,7 @@ export class PluginServer implements NodeServer {
                     this.config,
                     {
                         ...cdpDeps!,
-                        idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                        emailAttachmentsValkey: createEmailAttachmentsValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
                             optional: true,
                         }),
@@ -523,6 +524,7 @@ export class PluginServer implements NodeServer {
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
                     boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+                    releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,
@@ -611,6 +613,7 @@ export class PluginServer implements NodeServer {
     private async createCdpSharedServices({ geoipMode }: { geoipMode: MmdbMode }): Promise<{
         geoipService: GeoIPService
         personRepository: PersonReadRepository
+        consistentPersonReader: ConsistentPersonReader | undefined
         groupRepository: GroupReadRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
@@ -631,6 +634,12 @@ export class PluginServer implements NodeServer {
 
         const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
+        // Its own client name keeps the connection metrics of the two routers apart.
+        const leaderLabel = `${clientLabel}-leader`
+        const personhogLeaderClient = createPersonHogClient(this.config, {
+            addr: this.config.PERSONHOG_LEADER_ADDR,
+            clientName: leaderLabel,
+        })
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(
@@ -642,6 +651,9 @@ export class PluginServer implements NodeServer {
         return {
             geoipService,
             personRepository,
+            consistentPersonReader: personhogLeaderClient
+                ? new PersonHogPersonReadRepository(personhogLeaderClient, leaderLabel)
+                : undefined,
             groupRepository,
             encryptedFields,
             integrationManager,

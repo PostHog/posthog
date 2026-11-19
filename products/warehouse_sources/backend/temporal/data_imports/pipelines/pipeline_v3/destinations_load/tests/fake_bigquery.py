@@ -40,6 +40,26 @@ _ADD_COLUMN_CLAUSE = re.compile(r"ADD COLUMN IF NOT EXISTS\s+`([^`]+)`\s+(\w+)",
 # What schema autodetect gives a parquet column, in the legacy names `SchemaField` reports.
 _AUTODETECTED_TYPE = {pa.int64(): "INTEGER", pa.float64(): "FLOAT", pa.bool_(): "BOOLEAN"}
 
+# NUMERIC's own range: scale 9, 29 integer digits. A decimal column outside it needs BIGNUMERIC
+# in the job's `decimal_target_types`, the way real BigQuery's autodetect does.
+_NUMERIC_MAX_SCALE = 9
+_NUMERIC_MAX_PRECISION = 38
+
+
+def _autodetected_type(arrow_type: pa.DataType, decimal_target_types: frozenset[str]) -> str:
+    if pa.types.is_decimal(arrow_type):
+        if arrow_type.scale <= _NUMERIC_MAX_SCALE and arrow_type.precision <= _NUMERIC_MAX_PRECISION:
+            return "NUMERIC"
+        if "BIGNUMERIC" in decimal_target_types:
+            return "BIGNUMERIC"
+        raise BadRequest(
+            "Error while reading data, error message: The value for column is out of valid NUMERIC range: "
+            f"Value will lose precision after scaling down to NUMERIC type; scale: {arrow_type.scale}. Consider "
+            "specifying decimal target types to allow a larger range of values."
+        )
+    return _AUTODETECTED_TYPE.get(arrow_type, "STRING")
+
+
 # `get_table` reports a column's type using the legacy names regardless of which standard SQL
 # name the DDL that created it used, so a column added as INT64 still comes back as INTEGER.
 _REPORTED_TYPE = {"INT64": "INTEGER", "FLOAT64": "FLOAT", "BOOL": "BOOLEAN"}
@@ -118,7 +138,8 @@ class FakeBigQueryClient:
     def load_table_from_file(self, buffer, ref: str, job_config: bigquery.LoadJobConfig) -> _Job:
         data = pq.read_table(buffer)
         rows = data.to_pylist()
-        types = {field.name: _AUTODETECTED_TYPE.get(field.type, "STRING") for field in data.schema}
+        decimal_target_types = job_config.decimal_target_types or frozenset({"NUMERIC"})
+        types = {field.name: _autodetected_type(field.type, decimal_target_types) for field in data.schema}
         name = _ref_of(ref)
 
         if job_config.write_disposition == bigquery.WriteDisposition.WRITE_TRUNCATE or name not in self.tables:

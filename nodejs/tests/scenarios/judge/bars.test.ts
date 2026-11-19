@@ -1,7 +1,7 @@
 import type { Named, Step } from '../cards'
 import { BarEvidence, BarResult, CpuPoint, judgeBars } from './bars'
 import type { JournalEntry } from './judge'
-import type { MetricSample } from './measurements'
+import type { HostSample, MetricSample } from './measurements'
 
 const T = Date.UTC(2026, 0, 5, 10, 0, 0)
 const MINUTE = 60_000
@@ -10,7 +10,7 @@ const STEPS: Step[] = [
     { scale: 10, fromMs: MINUTE, toMs: 2 * MINUTE },
 ]
 const BARS: Named[] = [
-    { name: 'writer_cpu_under', params: { percent: 70 } },
+    { name: 'writer_cpu_under', params: { percent: 75 } },
     { name: 'pickup_p99_under', params: { seconds: 5, queues: ['hogflow', 'email'] } },
 ]
 const LE = ['1', '5', '10', '+Inf']
@@ -75,18 +75,26 @@ const offeredAtRates = (...perSecond: number[]): JournalEntry[] =>
 const cpu = (percentByMinute: Record<number, number>): CpuPoint[] =>
     Object.entries(percentByMinute).map(([minute, percent]) => ({ at: T + Number(minute) * MINUTE, percent }))
 
+const hostBusy = (inFirstStep: number, inSecondStep: number): HostSample[] =>
+    Array.from({ length: 25 }, (_, i) => i * 5).map((atS) => ({
+        at: T + atS * 1000,
+        busyTicks: Math.min(atS, 60) * 100 * inFirstStep + Math.max(atS - 60, 0) * 100 * inSecondStep,
+        totalTicks: atS * 100,
+    }))
+
 const evidence = (changes: Partial<BarEvidence>): BarEvidence => ({
     journal: offeredAtRates(1, 10),
     samples: scrapedEvery5s(120, prompt),
     drive: { startedAt: T, endedAt: T + 2 * MINUTE },
     steps: STEPS,
     writerCpu: cpu({ 0: 40, 1: 65 }),
+    host: [],
     ...changes,
 })
 
 const HELD: BarResult[] = [
-    { name: 'writer_cpu_under', unit: '%', passed: true },
-    { name: 'pickup_p99_under', unit: 's', passed: true },
+    { name: 'writer_cpu_under', unit: '%', limit: 75, passed: true },
+    { name: 'pickup_p99_under', unit: 's', limit: 5, passed: true },
 ]
 
 const broke = (bar: 0 | 1, scale: number, atS: number, value: number, key?: string, offered = scale): BarResult => ({
@@ -220,6 +228,40 @@ describe('judgeBars', () => {
             [HELD[0], unjudged(1, 'no metrics from cdp-cyclotron-worker-email in the 1x step')],
         ],
         [
+            'the run host reached its CPU ceiling in the 10x step, so the writer CPU there is not judged',
+            { host: hostBusy(0.4, 0.95), hostCpuCeiling: 0.95, writerCpu: cpu({ 0: 40, 1: 85 }) },
+            [
+                unjudged(0, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+                unjudged(1, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+            ],
+        ],
+        [
+            'the run host was over its CPU ceiling from the 1x step on, so no later step is read',
+            { host: hostBusy(0.95, 0.4), hostCpuCeiling: 0.9, writerCpu: cpu({ 0: 40, 1: 85 }) },
+            [
+                unjudged(0, 'the run host was 95% busy in the 1x step, at or over the 90% ceiling'),
+                unjudged(1, 'the run host was 95% busy in the 1x step, at or over the 90% ceiling'),
+            ],
+        ],
+        [
+            'a bar broke in the 1x step before the run host went over its CPU ceiling in the 10x step',
+            { host: hostBusy(0.4, 0.95), hostCpuCeiling: 0.9, writerCpu: cpu({ 0: 90, 1: 95 }) },
+            [broke(0, 1, 0, 90), unjudged(1, 'the run host was 95% busy in the 10x step, at or over the 90% ceiling')],
+        ],
+        [
+            'a busy run host is not judged without a CPU ceiling in the profile',
+            { host: hostBusy(0.4, 0.95), writerCpu: cpu({ 0: 40, 1: 85 }) },
+            [broke(0, 10, 60, 85), HELD[1]],
+        ],
+        [
+            'fewer than two host CPU samples fall in a step while the profile sets a CPU ceiling',
+            { hostCpuCeiling: 0.9 },
+            [
+                unjudged(0, 'fewer than two host CPU samples in the 1x step'),
+                unjudged(1, 'fewer than two host CPU samples in the 1x step'),
+            ],
+        ],
+        [
             'the drive was interrupted before its 10x step',
             { drive: { startedAt: T, endedAt: T + MINUTE } },
             [unjudged(0, 'the drive ended before the 10x step'), unjudged(1, 'the drive ended before the 10x step')],
@@ -245,6 +287,6 @@ describe('judgeBars', () => {
 
         const [, pickup] = judgeBars([BARS[0], { ...BARS[1], params: { ...BARS[1].params, seconds } }], overflowing)
 
-        expect(pickup).toEqual(expected)
+        expect(pickup).toEqual({ ...expected, limit: seconds })
     })
 })
