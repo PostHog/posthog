@@ -758,7 +758,7 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface ProjectBasicType {
+export interface ProjectBasicType extends Partial<Pick<ProjectApi, 'logo_media_id'>> {
     [key: string]: any
     id: number
     organization_id: string
