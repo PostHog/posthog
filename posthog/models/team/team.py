@@ -288,6 +288,7 @@ class Team(UUIDTClassicModel):
             # The admin console looks teams up by any part of their name. Django compiles icontains to
             # UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
             GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_team_name_trgm"),
+            models.Index(fields=["updated_at"], name="posthog_team_updated_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(

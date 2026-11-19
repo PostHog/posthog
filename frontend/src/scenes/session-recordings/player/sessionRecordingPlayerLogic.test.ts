@@ -346,6 +346,38 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('fullscreen across recordings', () => {
+        afterEach(() => {
+            delete (document as any).fullscreenElement
+        })
+
+        it.each([
+            { given: 'its own element is fullscreen', keep: true, fullscreen: 'player', expected: true },
+            { given: 'another element is fullscreen', keep: true, fullscreen: 'body', expected: false },
+            { given: 'the opener did not opt in', keep: undefined, fullscreen: 'player', expected: false },
+        ] as const)('isFullScreen is $expected at mount when $given', ({ keep, fullscreen, expected }) => {
+            const playerElement = document.createElement('div')
+            playerElement.requestFullscreen = jest.fn().mockResolvedValue(undefined)
+            Object.defineProperty(document, 'fullscreenElement', {
+                configurable: true,
+                get: () => (fullscreen === 'player' ? playerElement : document.body),
+            })
+
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+                playerRef: { current: playerElement },
+                keepFullScreenAcrossRecordings: keep,
+            })
+            logic.mount()
+
+            expect(logic.values.isFullScreen).toBe(expected)
+            expect(playerElement.requestFullscreen).not.toHaveBeenCalled()
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.

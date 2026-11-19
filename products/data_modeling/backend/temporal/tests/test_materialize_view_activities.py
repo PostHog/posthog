@@ -14,6 +14,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import httpx
+import aiohttp
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
@@ -2106,6 +2107,24 @@ class TestMaterializeViewActivity:
                 ),
                 2,
                 (dt.timedelta(seconds=20), dt.timedelta(seconds=40)),
+            ),
+            (
+                aiohttp.ClientConnectorError(
+                    unittest.mock.MagicMock(host="clickhouse", port=8443, ssl=True),
+                    OSError(111, "Connect call failed"),
+                ),
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
+                aiohttp.ClientOSError(104, "Connection reset by peer"),
+                1,
+                (dt.timedelta(seconds=10), dt.timedelta(seconds=20)),
+            ),
+            (
+                aiohttp.ServerDisconnectedError("Server disconnected"),
+                1,
+                (dt.timedelta(seconds=10), dt.timedelta(seconds=20)),
             ),
             (
                 ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),

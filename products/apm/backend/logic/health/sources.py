@@ -46,7 +46,10 @@ NO_ENVIRONMENT = ""
 # attribute, so a bare-method span gets the template appended: "POST" becomes "POST /users/:id".
 HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 # Checked in order: http.route is the stable server attribute, url.template the newer generic one.
-ROUTE_ATTRIBUTES = ("http.route", "url.template")
+# A job with no server spans counts its root spans, and those are often an outgoing call named only by
+# its method, an HTTP request or a Redis command. Its target names it instead: "GET redis",
+# "POST profiles.internal". Hosts and database systems stay few, unlike raw URL paths.
+ROUTE_ATTRIBUTES = ("http.route", "url.template", "db.system", "server.address", "net.peer.name")
 
 ENVIRONMENT_ATTRIBUTES = (
     "deployment.environment.name",
