@@ -6894,8 +6894,8 @@ Diffed against: <https://kestra.io/kestra.yml>
 - [x] `Flow revisions (GET /api/v1/{tenant}/flows/{namespace}/{id}/revisions)` — resolve flowRevision in executions and compare outcomes across workflow versions (high)
 - [x] `Execution metrics (GET /api/v1/{tenant}/metrics/{executionId})` — analyze task counters and measured values, such as processed rows and bytes (high)
 - [x] `Logs (GET /api/v1/{tenant}/logs/search)` — investigate recurring failures and warnings across executions and tasks (medium)
-- [ ] `Task outputs (GET /api/v1/{tenant}/outputs/tasks/{executionId}; GET /api/v1/{tenant}/outputs/tasks/{executionId}/{taskRunId})` — connect workflow results to execution performance and downstream processing (medium)
-- [ ] `Instance usage (GET /api/v1/{tenant}/usages/all)` — track aggregate execution and flow usage for capacity planning (medium)
+- [x] `Task outputs (GET /api/v1/{tenant}/outputs/tasks/{executionId}; GET /api/v1/{tenant}/outputs/tasks/{executionId}/{taskRunId})` — connect workflow results to execution performance and downstream processing (medium)
+- [x] `Instance usage (GET /api/v1/{tenant}/usages/all)` — track aggregate execution and flow usage for capacity planning (medium)
 
 Note: Located and parsed the official OpenAPI specification through the API reference renderer. Execution search returns ApiLightExecution, while execution detail contains task runs and attempts. Task runs, revisions, metrics, and outputs require requests for each execution or flow. Settings, secrets, file operations, plugins, and execution actions were excluded; instance versions can differ from this specification.
 
