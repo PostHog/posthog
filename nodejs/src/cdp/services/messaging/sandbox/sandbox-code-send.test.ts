@@ -11,7 +11,11 @@ import express from 'ultimate-express'
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_EMAIL_STATUS, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import {
+    KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
+    KAFKA_EMAIL_STATUS,
+    KAFKA_HOG_INVOCATION_RESULTS,
+} from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -416,6 +420,17 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 attachment_bytes: 0,
             })
             expect(queued).toEqual([])
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL)
+                    .map(({ value }) => value)
+            ).toEqual([
+                expect.objectContaining({
+                    kind: 'transactional-email',
+                    teamId: world.team.id,
+                    job: expect.objectContaining({ id: res.body.invocation_id }),
+                }),
+            ])
         } finally {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
         }
