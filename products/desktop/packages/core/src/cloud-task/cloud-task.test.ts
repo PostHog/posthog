@@ -48,6 +48,24 @@ function createJsonResponse(
   });
 }
 
+function createLogEntriesResponse(
+  entries: unknown[],
+  offset = 0,
+  count = offset + entries.length,
+): Response {
+  return new Response(
+    entries.map((entry) => JSON.stringify(entry)).join("\n"),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/jsonl",
+        "X-Log-Offset": String(offset),
+        "X-Log-Count": String(count),
+      },
+    },
+  );
+}
+
 function createSseResponse(payload: string, status = 200): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -191,9 +209,7 @@ describe("CloudTaskEngine", () => {
           updated_at: "2026-01-01T00:00:00Z",
         }),
       )
-      .mockResolvedValue(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      );
+      .mockResolvedValue(createLogEntriesResponse([]));
 
     const frame =
       'id: 5\ndata: {"type":"permission_request","requestId":"req-1","toolCall":{"toolCallId":"tool-1"},"options":[]}\n\n';
@@ -248,7 +264,7 @@ describe("CloudTaskEngine", () => {
         }),
       )
       .mockResolvedValueOnce(
-        createJsonResponse(
+        createLogEntriesResponse(
           [
             {
               type: "notification",
@@ -264,12 +280,12 @@ describe("CloudTaskEngine", () => {
               },
             },
           ],
-          200,
-          { "X-Has-More": "true" },
+          0,
+          4,
         ),
       )
       .mockResolvedValueOnce(
-        createJsonResponse(
+        createLogEntriesResponse(
           [
             {
               type: "notification",
@@ -321,8 +337,8 @@ describe("CloudTaskEngine", () => {
               },
             },
           ],
-          200,
-          { "X-Has-More": "false" },
+          1,
+          4,
         ),
       );
 
@@ -510,7 +526,7 @@ describe("CloudTaskEngine", () => {
               ? input.toString()
               : input.url,
         );
-        if (!url.pathname.includes("/session_logs/")) {
+        if (!url.pathname.includes("/log_entries/")) {
           return Promise.resolve(
             createJsonResponse({
               id: "run-1",
@@ -523,15 +539,12 @@ describe("CloudTaskEngine", () => {
             }),
           );
         }
-        const offset = Number(url.searchParams.get("offset") ?? "0");
+        const offset = Number(url.searchParams.get("start") ?? "0");
         const limit = Number(url.searchParams.get("limit"));
         logRequests.push({ offset, limit });
         const page = chain.slice(offset, offset + limit);
         return Promise.resolve(
-          createJsonResponse(page, 200, {
-            "X-Has-More": String(offset + page.length < chain.length),
-            "X-Matching-Count": String(chain.length),
-          }),
+          createLogEntriesResponse(page, offset, chain.length),
         );
       });
       mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
@@ -602,7 +615,7 @@ describe("CloudTaskEngine", () => {
             ? input.toString()
             : input.url,
       );
-      if (!url.pathname.includes("/session_logs/")) {
+      if (!url.pathname.includes("/log_entries/")) {
         return Promise.resolve(
           createJsonResponse({
             id: "run-1",
@@ -615,14 +628,11 @@ describe("CloudTaskEngine", () => {
           }),
         );
       }
-      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const offset = Number(url.searchParams.get("start") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
       const page = chain.slice(offset, offset + limit);
       return Promise.resolve(
-        createJsonResponse(page, 200, {
-          "X-Has-More": String(offset + page.length < chain.length),
-          "X-Matching-Count": String(chain.length),
-        }),
+        createLogEntriesResponse(page, offset, chain.length),
       );
     });
     mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
@@ -688,7 +698,7 @@ describe("CloudTaskEngine", () => {
             ? input.toString()
             : input.url,
       );
-      if (!url.pathname.includes("/session_logs/")) {
+      if (!url.pathname.includes("/log_entries/")) {
         return Promise.resolve(
           createJsonResponse({
             id: "run-1",
@@ -701,14 +711,11 @@ describe("CloudTaskEngine", () => {
           }),
         );
       }
-      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const offset = Number(url.searchParams.get("start") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
       const page = chain.slice(offset, offset + limit);
       return Promise.resolve(
-        createJsonResponse(page, 200, {
-          "X-Has-More": String(offset + page.length < chain.length),
-          "X-Matching-Count": String(chain.length),
-        }),
+        createLogEntriesResponse(page, offset, chain.length),
       );
     });
     mockStreamFetch.mockResolvedValue(
@@ -814,7 +821,7 @@ describe("CloudTaskEngine", () => {
     expect(
       mockNetFetch.mock.calls.some(([input]) => {
         const url = typeof input === "string" ? input : input.toString();
-        return url.includes("/session_logs/");
+        return url.includes("/log_entries/");
       }),
     ).toBe(false);
   });
@@ -835,9 +842,7 @@ describe("CloudTaskEngine", () => {
           updated_at: "2026-01-01T00:00:00Z",
         }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      );
+      .mockResolvedValueOnce(createLogEntriesResponse([]));
 
     const consoleEntry = (message: string) =>
       `data: {"type":"notification","timestamp":"2026-01-01T00:00:01Z","notification":{"jsonrpc":"2.0","method":"_posthog/console","params":{"sessionId":"run-1","level":"info","message":"${message}"}}}`;
@@ -892,10 +897,8 @@ describe("CloudTaskEngine", () => {
     // fetch run detail and history, plus post-bootstrap status verification.
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -975,9 +978,7 @@ describe("CloudTaskEngine", () => {
           updated_at: "2026-01-01T00:00:00Z",
         }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      );
+      .mockResolvedValueOnce(createLogEntriesResponse([]));
 
     mockStreamFetch
       .mockResolvedValueOnce(
@@ -1031,9 +1032,7 @@ describe("CloudTaskEngine", () => {
           updated_at: "2026-01-01T00:00:00Z",
         }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockResolvedValueOnce(
         createJsonResponse({
           id: "run-1",
@@ -1126,13 +1125,9 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(createJsonResponse(runResponse))
-      .mockResolvedValueOnce(
-        createJsonResponse([historicalEntry], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([historicalEntry]))
       .mockResolvedValueOnce(createJsonResponse(runResponse))
-      .mockResolvedValueOnce(
-        createJsonResponse([historicalEntry], 200, { "X-Has-More": "false" }),
-      );
+      .mockResolvedValueOnce(createLogEntriesResponse([historicalEntry]));
 
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(`id: 1\ndata: ${JSON.stringify(liveEntry)}\n\n`),
@@ -1199,9 +1194,7 @@ describe("CloudTaskEngine", () => {
     expect(getWatcherEmittedEntryCount()).toBe(1);
 
     mockNetFetch.mockResolvedValueOnce(
-      createJsonResponse([historicalEntry, liveEntry], 200, {
-        "X-Has-More": "false",
-      }),
+      createLogEntriesResponse([historicalEntry, liveEntry]),
     );
 
     service.watch({
@@ -1240,9 +1233,7 @@ describe("CloudTaskEngine", () => {
           updated_at: "2026-01-01T00:00:00Z",
         }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([historicalEntry], 200, { "X-Has-More": "false" }),
-      );
+      .mockResolvedValueOnce(createLogEntriesResponse([historicalEntry]));
     mockStreamFetch.mockResolvedValueOnce(createOpenSseResponse(""));
 
     const input = {
@@ -1268,7 +1259,7 @@ describe("CloudTaskEngine", () => {
     // One history page for the bootstrap: the second watch fetched nothing.
     const historyFetches = mockNetFetch.mock.calls.filter(([input]) =>
       String(input instanceof Request ? input.url : input).includes(
-        "/session_logs/",
+        "/log_entries/",
       ),
     );
     expect(historyFetches).toHaveLength(1);
@@ -1296,9 +1287,7 @@ describe("CloudTaskEngine", () => {
           updated_at: "2026-01-01T00:00:00Z",
         }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      );
+      .mockResolvedValueOnce(createLogEntriesResponse([]));
 
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(
@@ -1373,10 +1362,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
 
       statusFetchCount += 1;
@@ -1432,10 +1419,8 @@ describe("CloudTaskEngine", () => {
     // non-terminal run reconnects (see the test above); the stream-end sentinel must override that.
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -1494,7 +1479,7 @@ describe("CloudTaskEngine", () => {
       },
     };
 
-    // Hold the session_logs fetch open until the stream has already delivered
+    // Hold the log_entries fetch open until the stream has already delivered
     // stream-end and closed, so completion races the bootstrap snapshot.
     let releaseSessionLogs: (() => void) | undefined;
     const sessionLogsGate = new Promise<void>((resolve) => {
@@ -1503,11 +1488,9 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation(async (input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
+      if (url.includes("/log_entries/")) {
         await sessionLogsGate;
-        return createJsonResponse([historicalEntry], 200, {
-          "X-Has-More": "false",
-        });
+        return createLogEntriesResponse([historicalEntry]);
       }
       return createJsonResponse({
         id: "run-1",
@@ -1531,7 +1514,7 @@ describe("CloudTaskEngine", () => {
       teamId: 2,
     });
 
-    // Stream connects, delivers stream-end and EOFs while session_logs hangs.
+    // Stream connects, delivers stream-end and EOFs while log_entries hangs.
     await waitFor(() => mockStreamFetch.mock.calls.length === 1);
     await vi.advanceTimersByTimeAsync(1_000);
 
@@ -1567,10 +1550,8 @@ describe("CloudTaskEngine", () => {
     let runFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       runFetchCount += 1;
       // First fetch bootstraps an active run; the stream then ends without ever
@@ -1641,10 +1622,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -1704,11 +1683,9 @@ describe("CloudTaskEngine", () => {
       let sessionLogsFetches = 0;
       mockNetFetch.mockImplementation((input: string | Request) => {
         const url = typeof input === "string" ? input : input.url;
-        if (url.includes("/session_logs/")) {
+        if (url.includes("/log_entries/")) {
           sessionLogsFetches += 1;
-          return Promise.resolve(
-            createJsonResponse([], 200, { "X-Has-More": "false" }),
-          );
+          return Promise.resolve(createLogEntriesResponse([]));
         }
         return Promise.resolve(
           createJsonResponse({
@@ -1824,7 +1801,7 @@ describe("CloudTaskEngine", () => {
             ? input.toString()
             : input.url,
       );
-      if (!url.pathname.includes("/session_logs/")) {
+      if (!url.pathname.includes("/log_entries/")) {
         return Promise.resolve(
           createJsonResponse({
             id: "run-1",
@@ -1837,7 +1814,7 @@ describe("CloudTaskEngine", () => {
           }),
         );
       }
-      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const offset = Number(url.searchParams.get("start") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
       if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
         probes += 1;
@@ -1848,10 +1825,7 @@ describe("CloudTaskEngine", () => {
         Math.min(offset + limit, persistedCount),
       );
       return Promise.resolve(
-        createJsonResponse(page, 200, {
-          "X-Has-More": String(offset + page.length < persistedCount),
-          "X-Matching-Count": String(persistedCount),
-        }),
+        createLogEntriesResponse(page, offset, persistedCount),
       );
     });
 
@@ -1945,7 +1919,7 @@ describe("CloudTaskEngine", () => {
             ? input.toString()
             : input.url,
       );
-      if (!url.pathname.includes("/session_logs/")) {
+      if (!url.pathname.includes("/log_entries/")) {
         return Promise.resolve(
           createJsonResponse({
             id: "run-1",
@@ -1958,7 +1932,7 @@ describe("CloudTaskEngine", () => {
           }),
         );
       }
-      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const offset = Number(url.searchParams.get("start") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
       if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
         probes += 1;
@@ -1969,10 +1943,7 @@ describe("CloudTaskEngine", () => {
         Math.min(offset + limit, persistedCount),
       );
       return Promise.resolve(
-        createJsonResponse(page, 200, {
-          "X-Has-More": String(offset + page.length < persistedCount),
-          "X-Matching-Count": String(persistedCount),
-        }),
+        createLogEntriesResponse(page, offset, persistedCount),
       );
     });
 
@@ -2095,7 +2066,7 @@ describe("CloudTaskEngine", () => {
             ? input.toString()
             : input.url,
       );
-      if (!url.pathname.includes("/session_logs/")) {
+      if (!url.pathname.includes("/log_entries/")) {
         return Promise.resolve(
           createJsonResponse({
             id: "run-1",
@@ -2108,7 +2079,7 @@ describe("CloudTaskEngine", () => {
           }),
         );
       }
-      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const offset = Number(url.searchParams.get("start") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
       if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
         probes += 1;
@@ -2119,10 +2090,7 @@ describe("CloudTaskEngine", () => {
         Math.min(offset + limit, persistedCount),
       );
       return Promise.resolve(
-        createJsonResponse(page, 200, {
-          "X-Has-More": String(offset + page.length < persistedCount),
-          "X-Matching-Count": String(persistedCount),
-        }),
+        createLogEntriesResponse(page, offset, persistedCount),
       );
     });
 
@@ -2231,10 +2199,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -2288,10 +2254,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -2373,10 +2337,8 @@ describe("CloudTaskEngine", () => {
     let runFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       runFetchCount += 1;
       // Calls 1-3 (bootstrap, post-bootstrap verify, first legacy poll) report an
@@ -2448,10 +2410,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -2523,10 +2483,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -2601,10 +2559,8 @@ describe("CloudTaskEngine", () => {
     let runFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       runFetchCount += 1;
       const terminal = runFetchCount >= 2;
@@ -2661,10 +2617,8 @@ describe("CloudTaskEngine", () => {
     let runFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       runFetchCount += 1;
       // Bootstrap sees an active run so the stream actually opens; the
@@ -2724,10 +2678,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(makeInProgressRun());
     });
@@ -2788,10 +2740,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -2893,9 +2843,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun()) // bootstrap: fetchTaskRun
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      ) // bootstrap: fetchSessionLogs
+      .mockResolvedValueOnce(createLogEntriesResponse([])) // bootstrap: fetchSessionLogs
       // Each stream error triggers handleStreamCompletion → fetchTaskRun
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
@@ -2961,9 +2909,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun()) // bootstrap: fetchTaskRun
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      ) // bootstrap: fetchSessionLogs
+      .mockResolvedValueOnce(createLogEntriesResponse([])) // bootstrap: fetchSessionLogs
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // First connection delivers an explicit backend error frame (accruing the
@@ -3055,9 +3001,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun())
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // Connections that fail immediately (under SSE_HEALTHY_CONNECTION_MS) are
@@ -3108,10 +3052,8 @@ describe("CloudTaskEngine", () => {
     let statusFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       statusFetchCount += 1;
       return Promise.resolve(
@@ -3171,9 +3113,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun())
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // Each connection stays open with a keepalive for 65s (> the healthy
@@ -3254,9 +3194,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun())
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // Each connection opens, delivers nothing, then is transport-cut at 65s. Healthiness is
@@ -3312,10 +3250,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -3397,9 +3333,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun())
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // First 3 connections fail fast at the transport level and accrue reconnect attempts. The 4th
@@ -3502,9 +3436,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun())
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // First connection hangs forever: no bytes, no error, no EOF, simulating a half-open
@@ -3595,9 +3527,7 @@ describe("CloudTaskEngine", () => {
       .mockResolvedValueOnce(
         createJsonResponse({ id: "run-1", status: "in_progress" }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockResolvedValue(
         createJsonResponse({ id: "run-1", status: "in_progress" }),
       );
@@ -3654,9 +3584,7 @@ describe("CloudTaskEngine", () => {
       .mockResolvedValueOnce(
         createJsonResponse({ id: "run-1", status: "in_progress" }),
       )
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      )
+      .mockResolvedValueOnce(createLogEntriesResponse([]))
       .mockResolvedValue(
         createJsonResponse({ id: "run-1", status: "in_progress" }),
       );
@@ -3752,9 +3680,7 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch
       .mockResolvedValueOnce(makeInProgressRun()) // bootstrap: fetchTaskRun
-      .mockResolvedValueOnce(
-        createJsonResponse([], 200, { "X-Has-More": "false" }),
-      ) // bootstrap: fetchSessionLogs
+      .mockResolvedValueOnce(createLogEntriesResponse([])) // bootstrap: fetchSessionLogs
       .mockImplementation(() => Promise.resolve(makeInProgressRun()));
 
     // Connections 1-4 each emit a backend error frame, pacing reconnects on streamErrorAttempts.
@@ -3843,10 +3769,8 @@ describe("CloudTaskEngine", () => {
     let statusFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       statusFetchCount += 1;
       return Promise.resolve(
@@ -3891,10 +3815,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       if (url === "https://logs.example.com/run-1.jsonl") {
         return Promise.resolve(
@@ -3944,10 +3866,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       if (url === "https://logs.example.com/run-1.jsonl") {
         return Promise.resolve(
@@ -4084,7 +4004,7 @@ describe("CloudTaskEngine", () => {
         }),
       )
       .mockResolvedValueOnce(
-        createJsonResponse(
+        createLogEntriesResponse(
           [
             {
               type: "notification",
@@ -4100,12 +4020,12 @@ describe("CloudTaskEngine", () => {
               },
             },
           ],
-          200,
-          { "X-Has-More": "true" },
+          0,
+          2,
         ),
       )
       .mockResolvedValueOnce(
-        createJsonResponse(
+        createLogEntriesResponse(
           [
             {
               type: "notification",
@@ -4121,8 +4041,8 @@ describe("CloudTaskEngine", () => {
               },
             },
           ],
-          200,
-          { "X-Has-More": "false" },
+          1,
+          2,
         ),
       );
 
@@ -4188,10 +4108,8 @@ describe("CloudTaskEngine", () => {
     // Default stream_token resolves with stream_base_url: null, so the read leg is Django.
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -4249,10 +4167,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -4319,10 +4235,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({
@@ -4383,10 +4297,8 @@ describe("CloudTaskEngine", () => {
     let runFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       runFetchCount += 1;
       // Calls 1-3 (bootstrap, post-bootstrap verify, first legacy poll) report an active run; the
@@ -4451,10 +4363,8 @@ describe("CloudTaskEngine", () => {
     let runFetchCount = 0;
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       runFetchCount += 1;
       // Bootstrap (call 1) reports an active run so the stream opens; the stream-end stop path's
@@ -4508,10 +4418,8 @@ describe("CloudTaskEngine", () => {
 
     mockNetFetch.mockImplementation((input: string | Request) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/session_logs/")) {
-        return Promise.resolve(
-          createJsonResponse([], 200, { "X-Has-More": "false" }),
-        );
+      if (url.includes("/log_entries/")) {
+        return Promise.resolve(createLogEntriesResponse([]));
       }
       return Promise.resolve(
         createJsonResponse({

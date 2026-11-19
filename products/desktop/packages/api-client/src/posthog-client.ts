@@ -130,6 +130,10 @@ import {
 } from "./fetcher";
 import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
+import {
+  parseLogEntriesPage,
+  type TaskRunSessionLogsPage,
+} from "./log-entries";
 import type {
   McpAgentGrantScope,
   McpAuditCounts,
@@ -306,14 +310,8 @@ export interface RecordingExport {
 }
 
 type SessionLogsPage =
-  | { ok: true; entries: StoredLogEntry[]; headers: Headers }
+  | { ok: true; body: string; headers: Headers }
   | { ok: false; status: number; statusText: string };
-
-export interface TaskRunSessionLogsPage {
-  entries: StoredLogEntry[];
-  hasMore: boolean;
-  matchingCount: number | null;
-}
 
 export interface TaskUsage {
   token_cost_usd: number;
@@ -5237,8 +5235,8 @@ export class PostHogAPIClient {
         }
         // Read the body here, while the timer is still armed: fetch resolves on
         // headers, and a page body stalling after them is what wedges hydration.
-        const entries = (await response.json()) as StoredLogEntry[];
-        return { ok: true, entries, headers: response.headers };
+        const body = await response.text();
+        return { ok: true, body, headers: response.headers };
       } catch (err) {
         const status = requestErrorStatus(err);
         const retryable = status === undefined || status >= 500;
@@ -5256,37 +5254,21 @@ export class PostHogAPIClient {
     options: { limit: number; offset?: number; after?: string },
   ): Promise<TaskRunSessionLogsPage> {
     const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/session_logs/`;
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/log_entries/`;
     const url = new URL(`${this.api.baseUrl}${path}`);
+    const offset = options.offset ?? 0;
     url.searchParams.set("limit", String(options.limit));
-    if (options.offset) {
-      url.searchParams.set("offset", String(options.offset));
-    }
+    url.searchParams.set("start", String(offset));
     if (options.after) {
       url.searchParams.set("after", options.after);
     }
-    const page = await this.fetchSessionLogsPage(
-      url,
-      path,
-      options.offset ?? 0,
-    );
+    const page = await this.fetchSessionLogsPage(url, path, offset);
     if (!page.ok) {
       throw new Error(
-        `Failed to fetch session logs page at offset ${options.offset ?? 0}: ${page.status} ${page.statusText}`,
+        `Failed to fetch session logs page at offset ${offset}: ${page.status} ${page.statusText}`,
       );
     }
-    // Number(null) is 0, so an absent header must stay null.
-    const matchingHeader = page.headers.get("X-Matching-Count");
-    const matchingCount =
-      matchingHeader === null ? null : Number(matchingHeader);
-    return {
-      entries: page.entries,
-      hasMore: page.headers.get("X-Has-More") === "true",
-      matchingCount:
-        matchingCount !== null && Number.isFinite(matchingCount)
-          ? matchingCount
-          : null,
-    };
+    return parseLogEntriesPage(page.body, page.headers, offset);
   }
 
   async getTaskRunSessionLogsResult(
