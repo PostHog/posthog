@@ -194,14 +194,29 @@ export interface TopMessage {
     label: string
     kind: EntryKind
     sent: number
+    openRate: number
     clickRate: number
 }
 export const TOP_MESSAGES_R3: TopMessage[] = [
-    { key: 'receipt', label: 'Receipt', kind: 'transactional', sent: 21400, clickRate: 0.52 },
-    { key: 'webinar', label: 'Webinar invite: funnels in practice', kind: 'broadcast', sent: 3210, clickRate: 0.11 },
-    { key: 'trial', label: 'Trial ending reminder', kind: 'workflow', sent: 4180, clickRate: 0.094 },
-    { key: 'october', label: 'October product update', kind: 'broadcast', sent: 12480, clickRate: 0.08 },
-    { key: 'digest', label: 'Weekly digest', kind: 'workflow', sent: 16800, clickRate: 0.061 },
+    { key: 'receipt', label: 'Receipt', kind: 'transactional', sent: 21400, openRate: 0.71, clickRate: 0.52 },
+    {
+        key: 'webinar',
+        label: 'Webinar invite: funnels in practice',
+        kind: 'broadcast',
+        sent: 3210,
+        openRate: 0.48,
+        clickRate: 0.11,
+    },
+    { key: 'trial', label: 'Trial ending reminder', kind: 'workflow', sent: 4180, openRate: 0.44, clickRate: 0.094 },
+    {
+        key: 'october',
+        label: 'October product update',
+        kind: 'broadcast',
+        sent: 12480,
+        openRate: 0.39,
+        clickRate: 0.08,
+    },
+    { key: 'digest', label: 'Weekly digest', kind: 'workflow', sent: 16800, openRate: 0.33, clickRate: 0.061 },
 ]
 
 export interface Suggestion {

@@ -70,8 +70,8 @@ export function DeliverabilityCard({ noDomain }: { noDomain: boolean }): JSX.Ele
             title="Deliverability"
             description="Email, last 7 days"
             action={
-                <Button variant="link" onClick={() => prototypeToast('the sending domains')}>
-                    Sending domains
+                <Button variant="link" onClick={() => prototypeToast('the reputation page')}>
+                    Reputation
                 </Button>
             }
         >
@@ -131,6 +131,14 @@ export function DeliverabilityCard({ noDomain }: { noDomain: boolean }): JSX.Ele
                             <span className="text-xs text-muted-foreground">
                                 {formatCount(DAILY_LIMIT.used)} of {formatCount(DAILY_LIMIT.limit)} used
                             </span>
+                            <Button
+                                variant="link"
+                                size="inline"
+                                className="self-start"
+                                onClick={() => prototypeToast('the request for a higher sending limit')}
+                            >
+                                Request a higher limit
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -146,7 +154,15 @@ export function DeliverabilityCard({ noDomain }: { noDomain: boolean }): JSX.Ele
                     <TableBody>
                         {MAILBOX_PROVIDERS.map((m) => (
                             <TableRow key={m.key}>
-                                <TableCell>{m.label}</TableCell>
+                                <TableCell>
+                                    <Button
+                                        variant="link"
+                                        size="inline"
+                                        onClick={() => prototypeToast(`${m.label} on the reputation page`)}
+                                    >
+                                        {m.label}
+                                    </Button>
+                                </TableCell>
                                 <TableCell className="text-right tabular-nums">{percent(m.share)}</TableCell>
                                 <TableCell
                                     className={

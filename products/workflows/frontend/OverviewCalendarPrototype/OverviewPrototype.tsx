@@ -6,7 +6,7 @@ import { OverviewInsights } from './OverviewInsights'
 import { PrototypeSwitcher, PrototypeVariant, usePrototypeVariant } from './PrototypeSwitcher'
 
 export const OVERVIEW_VARIANTS: PrototypeVariant[] = [
-    { key: 'B3', name: 'Performance with insights', flags: 'agent contract: workflow stats' },
+    { key: 'B3', name: 'Performance with insights', flags: 'agent contract, channel shift: workflow stats' },
     { key: 'B3-new', name: 'New account' },
 ]
 
