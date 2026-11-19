@@ -592,6 +592,10 @@ allow         = "dst.exported or (src.settings == true and edge.kind == 'dotted-
 on_unresolved = "finding"
 identity      = ["dst.symbol", "src.module", "edge.kind"]
 growth_key    = ["dst.symbol", "edge.kind", "src.package"]
+# A crossing reports and never blocks: the fix usually needs the target team's facade work,
+# so CI shows each one and no ledger line holds it.
+report        = "advisory"
+ledger        = false
 
 [rules.export-shape]
 primitive  = "export"
@@ -816,6 +820,9 @@ requires     = ["django.uses"]
 identity     = "crossing"
 counted      = true
 growth_key   = ["dst.symbol", "edge.label", "src.package"]
+# Reports and never blocks, as public-surface does.
+report       = "advisory"
+ledger       = false
 
 [rules.get-model]
 primitive  = "edge"
@@ -834,6 +841,9 @@ on_unresolved = "incomplete"
 identity   = "crossing"
 counted    = true
 growth_key = ["dst.symbol", "edge.label", "src.package"]
+# Reports and never blocks, as public-surface does.
+report     = "advisory"
+ledger     = false
 
 [rules.reverse-accessor]
 primitive     = "edge"
