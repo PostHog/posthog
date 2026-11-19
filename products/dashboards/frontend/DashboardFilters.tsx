@@ -66,7 +66,8 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                                 ? '@3xl/dashboard-filters:flex-row @3xl/dashboard-filters:items-center @max-3xl/dashboard-filters:basis-full @max-3xl/dashboard-filters:w-full @max-3xl/dashboard-filters:ml-0 @3xl/dashboard-filters:ml-auto'
                                 : '@4xl/dashboard-filters:flex-row @4xl/dashboard-filters:items-center @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 @4xl/dashboard-filters:ml-auto',
                             {
-                                'mt-7': hasVariables,
+                                'mt-7': hasVariables && !todayRailNav,
+                                'mt-4': hasVariables && todayRailNav,
                             }
                         )}
                     >
