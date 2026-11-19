@@ -15,6 +15,7 @@ interface ReleaseImportLogicValues {
     dataLoading: boolean
     loadFailed: boolean
     canEditReleases: boolean
+    releasesEnabled: boolean
     autoImportedProjects: Record<string, true>
     autoImportState: AutoImportState
     showAutoImport: boolean
@@ -33,7 +34,10 @@ type releaseImportLogicType = MakeLogicType<ReleaseImportLogicValues, ReleaseImp
 export const releaseImportLogic = kea<releaseImportLogicType>([
     path(['products', 'release', 'frontend', 'releaseImportLogic']),
     connect(() => ({
-        values: [releaseLogic, ['currentProjectId', 'releases', 'dataLoading', 'loadFailed', 'canEditReleases']],
+        values: [
+            releaseLogic,
+            ['currentProjectId', 'releases', 'dataLoading', 'loadFailed', 'canEditReleases', 'releasesEnabled'],
+        ],
         actions: [releaseLogic, ['reload', 'loadReleasesSuccess']],
     })),
     actions({
@@ -58,6 +62,7 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
                 s.canEditReleases,
                 s.autoImportedProjects,
                 s.currentProjectId,
+                s.releasesEnabled,
             ],
             (
                 releases: ReleaseDTOApi[],
@@ -65,8 +70,10 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
                 loadFailed: boolean,
                 canEditReleases: boolean,
                 autoImportedProjects: Record<string, true>,
-                currentProjectId: number | null
+                currentProjectId: number | null,
+                releasesEnabled: boolean
             ) =>
+                releasesEnabled &&
                 !dataLoading &&
                 !loadFailed &&
                 canEditReleases &&
@@ -85,6 +92,9 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
             }
         },
         runAutoImport: async () => {
+            if (!values.releasesEnabled) {
+                return
+            }
             const projectId = String(values.currentProjectId)
             actions.setAutoImportState('running')
             posthog.capture('release import started')

@@ -45,6 +45,8 @@ export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element 
             render: (_, row) => (
                 <HealthTableLink
                     to={endpointOperationUrl(row, { date_from: timeRange, date_to: null })}
+                    className="block max-w-44 truncate"
+                    title={row.endpoint}
                     data-attr="apm-endpoint-operation"
                 >
                     {row.endpoint}
@@ -55,14 +57,18 @@ export function EndpointsTab({ onCreateAlert }: EndpointsTabProps): JSX.Element 
             title: 'Service',
             key: 'service_name',
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
-            render: (_, row) => row.service_name,
+            render: (_, row) => (
+                <span className="block max-w-32 truncate" title={row.service_name}>
+                    {row.service_name}
+                </span>
+            ),
         },
         ...healthColumns<EndpointHealthApi>(filteredEndpoints),
         {
             title: 'Open in',
             key: 'links',
             render: (_, row) => (
-                <span className="flex gap-2">
+                <span className="flex gap-2 whitespace-nowrap">
                     <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
                 </span>
             ),

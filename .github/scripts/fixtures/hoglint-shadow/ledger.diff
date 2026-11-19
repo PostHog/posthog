@@ -1,0 +1,13 @@
+diff --git a/hoglint.ledger b/hoglint.ledger
+index 21890593eec0..dab97a20dcbc 100644
+--- a/hoglint.ledger
++++ b/hoglint.ledger
+@@ -125,0 +126 @@ contracts-no-django	products.alerts.backend.facade.contracts	django.views.generi
++contracts-no-django	products.visual_review.backend.facade.contracts	django.db.models	1
+diff --git a/products/visual_review/backend/facade/contracts.py b/products/visual_review/backend/facade/contracts.py
+index 97a6cd66f48e..a011cfc00424 100644
+--- a/products/visual_review/backend/facade/contracts.py
++++ b/products/visual_review/backend/facade/contracts.py
+@@ -861,0 +862,2 @@ class TolerationPileups:
++
++from django.db import models  # noqa: E402

@@ -1,7 +1,7 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
@@ -61,7 +61,6 @@ interface SectionListState {
     hasMore: boolean
     loadedRankingPill: boolean
     loadedPersonalOrder: boolean
-    loadedPersonalFallback: boolean
     loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
     loadedContext: ReportListRequestContext | null
     loadedRanker: string | null
@@ -85,7 +84,6 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         hasMore,
         loadedRankingPill,
         loadedPersonalOrder,
-        loadedPersonalFallback,
         loadedPersonalRankingStatus,
         loadedContext,
         loadedRanker,
@@ -102,7 +100,6 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         hasMore,
         loadedRankingPill,
         loadedPersonalOrder,
-        loadedPersonalFallback,
         loadedPersonalRankingStatus,
         loadedContext,
         loadedRanker,
@@ -212,6 +209,7 @@ const ReportRow = memo(function ReportRow({
     personalSort,
     timestampField,
     hideOwnClaim,
+    showTags,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
@@ -220,6 +218,7 @@ const ReportRow = memo(function ReportRow({
     personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
+    showTags: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -231,6 +230,7 @@ const ReportRow = memo(function ReportRow({
                 personalSort={personalSort}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
+                showTags={showTags}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -275,6 +275,7 @@ export function ReportsTab(): JSX.Element {
         activeScope: scope,
         activeSortField,
         activeSortDirection,
+        tagFilterAvailable,
     } = useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
@@ -310,13 +311,9 @@ export function ReportsTab(): JSX.Element {
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
-    const personalSort = activeSortField === 'personal'
     // The Recommended sort shows the personal order to the users of one flag arm.
     const personalOrder =
-        personalSort ||
-        (isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder))
-    // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
-    const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
@@ -444,12 +441,6 @@ export function ReportsTab(): JSX.Element {
                 </div>
             )}
 
-            {personalFallback && !inboxIsEmpty && (
-                <LemonBanner type="info">
-                    Your personalized list isn't ready yet, so this is the Recommended order.
-                </LemonBanner>
-            )}
-
             {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (
                     <InboxWaitingForWork />
@@ -492,6 +483,7 @@ export function ReportsTab(): JSX.Element {
                                 personalSort={personalOrder}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
+                                showTags={tagFilterAvailable}
                             />
                         </Fragment>
                     ))}

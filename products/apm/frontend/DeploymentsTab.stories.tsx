@@ -63,6 +63,7 @@ const deployments: DeploymentsResponseApi = {
             active: true,
         },
     ],
+    version_source: 'service.version',
     service: 'checkout',
     environment: 'production',
     ...WINDOW,
@@ -94,11 +95,29 @@ type Story = StoryObj<{}>
 
 export const VersionsComparedWithTheirPredecessor: Story = {}
 
+export const VersionsFromReplicaSets: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/apm/deployments/': {
+                    ...deployments,
+                    version_source: 'k8s.replicaset.name',
+                    results: deployments.results.map((row, index) => ({
+                        ...row,
+                        version: `checkout-${['6d4f9c', '7b9c2e', '8f1a3d'][index]}`,
+                        previous_version: index > 0 ? `checkout-${['6d4f9c', '7b9c2e'][index - 1]}` : null,
+                    })),
+                },
+            },
+        }),
+    ],
+}
+
 export const NoVersions: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/apm/deployments/': { ...deployments, results: [] },
+                '/api/projects/:team_id/apm/deployments/': { ...deployments, version_source: null, results: [] },
             },
         }),
     ],

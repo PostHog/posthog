@@ -21,6 +21,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     capture_exception,
+    flatten_jsonapi,
     make_tracked_session,
     retry_with_deadline,
     validate_via_probe,
@@ -209,10 +210,7 @@ def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_20
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     """Flatten the 'attributes' object into the root level for a single item."""
-    if "attributes" in item and isinstance(item["attributes"], dict):
-        attributes = item.pop("attributes")
-        item.update(attributes)
-    return item
+    return flatten_jsonapi(item, relationships_as_ids=False, on_clash="nested")
 
 
 def _build_initial_params(

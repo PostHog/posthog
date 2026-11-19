@@ -3,7 +3,13 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from products.apm.backend.facade.api import DependencyKind, HealthStatus, TimeSpentComponentKind, UsageSignal
+from products.apm.backend.facade.api import (
+    DependencyKind,
+    HealthStatus,
+    TimeSpentComponentKind,
+    UsageSignal,
+    VersionSource,
+)
 
 
 class WindowRequestSerializer(serializers.Serializer):
@@ -84,7 +90,7 @@ class EndpointHealthSerializer(serializers.Serializer):
     span_name = serializers.CharField(help_text="The raw entry span name the row counts, for tracing filters.")
     route_attribute = serializers.CharField(
         allow_null=True,
-        help_text="The span attribute the route came from (http.route or url.template), or null when the label is the span name.",
+        help_text="The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.",
     )
     route = serializers.CharField(allow_null=True, help_text="The route appended to the span name, or null.")
     environment = serializers.CharField(
@@ -180,7 +186,7 @@ class DeploymentsRequestSerializer(ServicesHealthRequestSerializer):
 
 
 class DeploymentVersionSerializer(serializers.Serializer):
-    version = serializers.CharField(help_text="The service.version resource attribute.")
+    version = serializers.CharField(help_text="The version, read from the attribute named by version_source.")
     first_seen = serializers.DateTimeField(help_text="First span of this version in the window.")
     last_seen = serializers.DateTimeField(help_text="Last span of this version in the window.")
     requests = serializers.IntegerField(help_text="Requests counted in the window.")
@@ -202,6 +208,11 @@ class DeploymentVersionSerializer(serializers.Serializer):
 @extend_schema_serializer(many=False)
 class DeploymentsResponseSerializer(serializers.Serializer):
     results = DeploymentVersionSerializer(many=True, help_text="One row per version, oldest first.")
+    version_source = serializers.ChoiceField(
+        choices=VersionSource.choices,
+        allow_null=True,
+        help_text="The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.",
+    )
     service = serializers.CharField(help_text="The service the versions belong to.")
     environment = serializers.CharField(
         allow_null=True,

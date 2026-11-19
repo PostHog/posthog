@@ -73,7 +73,7 @@ export interface DependenciesResponseApi {
 }
 
 export interface DeploymentVersionApi {
-    /** The service.version resource attribute. */
+    /** The version, read from the attribute named by version_source. */
     version: string
     /** First span of this version in the window. */
     first_seen: string
@@ -112,9 +112,25 @@ export interface DeploymentVersionApi {
     active: boolean
 }
 
+/**
+ * * `service.version` - Service Version
+ * * `k8s.replicaset.name` - K8S Replicaset Name
+ */
+export type VersionSourceEnumApi = (typeof VersionSourceEnumApi)[keyof typeof VersionSourceEnumApi]
+
+export const VersionSourceEnumApi = {
+    Serviceversion: 'service.version',
+    K8sreplicasetname: 'k8s.replicaset.name',
+} as const
+
 export interface DeploymentsResponseApi {
     /** One row per version, oldest first. */
     results: DeploymentVersionApi[]
+    /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
+     *
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name */
+    version_source: VersionSourceEnumApi | null
     /** The service the versions belong to. */
     service: string
     /**
@@ -234,7 +250,7 @@ export interface EndpointHealthApi {
     /** The raw entry span name the row counts, for tracing filters. */
     span_name: string
     /**
-     * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+     * The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.
      * @nullable
      */
     route_attribute: string | null
