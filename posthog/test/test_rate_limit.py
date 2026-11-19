@@ -1331,19 +1331,22 @@ class TestReserveUnits(BaseTest):
 
     @parameterized.expand([("single", 1), ("batch", 3)])
     def test_a_send_passes_when_the_primary_read_fails(self, _name, recipients):
-        with (
-            override_settings(CACHES=self._lagging_reader_caches(primary_location="redis://127.0.0.1:1/0")),
-            patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
-        ):
-            redis_cache = caches["default"]
-            assert isinstance(redis_cache, RedisCache)
-            key = TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
-            reader_client = redis_cache.client.get_client(write=False)
+        reader_only = self._lagging_reader_caches(
+            primary_location=self._lagging_reader_caches()["default"]["LOCATION"][1]
+        )
+        with patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"):
             try:
-                redis_cache.set(key, [time.time()] * 3, 60, client=reader_client)
-                outcome = self._send([TransactionalEmailBurstThrottle], recipients)
+                with override_settings(CACHES=reader_only):
+                    self.assertEqual(
+                        self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True, True, True, False]
+                    )
+                with override_settings(CACHES=self._lagging_reader_caches(primary_location="redis://127.0.0.1:1/0")):
+                    outcome = self._send([TransactionalEmailBurstThrottle], recipients)
             finally:
-                redis_cache.delete(key, client=reader_client)
+                with override_settings(CACHES=reader_only):
+                    caches["default"].delete(
+                        TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
+                    )
 
         self.assertIsNone(outcome)
 
