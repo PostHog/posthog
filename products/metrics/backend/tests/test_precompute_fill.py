@@ -13,7 +13,7 @@ from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fi
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import LabelRef, Leaf, get_or_create_precomputed_metric
 from products.metrics.backend.precompute.fill import LATENESS_CAP, RETENTION, fill_precomputed_metrics, fill_step
-from products.metrics.backend.precompute.store import Entry, read_entries, write_entries
+from products.metrics.backend.precompute.store import Entry, UnstorableLabelError, read_entries, write_entries
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 NOW = dt.datetime(2026, 11, 12, 12, 7, tzinfo=dt.UTC)
@@ -202,15 +202,29 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert precomputed.covered_to == start + dt.timedelta(days=1)
         assert self._stored(precomputed) == {("checkout",): dict.fromkeys(_hours(start, 24), 6.0)}
 
-    def test_stores_a_bounded_sample_of_fingerprints_per_entry(self):
+    @parameterized.expand(
+        [("under_the_cap", {10, 20}, {10, 20}, False), ("over_the_cap", {30, 10, 20}, {10, 20}, True)]
+    )
+    def test_stores_a_bounded_sample_of_fingerprints_per_entry(
+        self, _name: str, fingerprints: set[int], kept: set[int], truncated: bool
+    ):
         precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
-        entry = Entry(labels=(), fingerprints={30, 10, 20}, points={SETTLED: 1.0})
+        entry = Entry(labels=(), fingerprints=fingerprints, points={SETTLED: 1.0})
 
         with patch("products.metrics.backend.precompute.store.MAX_FINGERPRINTS_PER_ENTRY", 2):
             write_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1), {entry.key: entry})
 
         stored = read_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1))
-        assert [stored_entry.fingerprints for stored_entry in stored.values()] == [{10, 20}]
+        assert [
+            (stored_entry.fingerprints, stored_entry.fingerprints_truncated) for stored_entry in stored.values()
+        ] == [(kept, truncated)]
+
+    def test_refuses_a_label_value_postgres_cannot_store(self):
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        entry = Entry(labels=("check\x00out",), points={SETTLED: 1.0})
+
+        with self.assertRaises(UnstorableLabelError):
+            write_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1), {entry.key: entry})
 
     def test_stores_non_finite_histogram_bounds(self):
         precomputed = self._create(PrecomputedMetricKind.HISTOGRAM, "latency")

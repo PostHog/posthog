@@ -34,6 +34,7 @@ from products.metrics.backend.precompute.store import (
     Entry,
     EntryKey,
     TooManySeriesError,
+    UnstorableLabelError,
     bucket_width,
     first_open_bucket,
     floor_to_bucket,
@@ -315,7 +316,7 @@ def fill_precomputed_metrics(
             for precomputed_metric in list(pending):
                 try:
                     did_work = fill_step(team, precomputed_metric, now, deadline=deadline)
-                except TooManySeriesError as error:
+                except (TooManySeriesError, UnstorableLabelError) as error:
                     _record_failure(precomputed_metric, error, pause=True)
                     did_work = False
                 except Exception as error:

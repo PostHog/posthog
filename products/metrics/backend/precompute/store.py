@@ -23,14 +23,17 @@ HourValue = float | list[float]
 
 # One chunk is one JSONB value that a read decodes whole, so a bucket keeps at most this many label sets.
 MAX_ENTRIES_PER_CHUNK = 10_000
-# Fingerprints only resolve a series' unit, so a sample of them is enough. Without a cap, an entry with no
-# kept labels collects every physical series of the bucket.
+# Without a cap, an entry with no kept labels collects every physical series of the bucket.
 MAX_FINGERPRINTS_PER_ENTRY = 100
 _RELATIVE_TOLERANCE = 1e-9
 
 
 class TooManySeriesError(Exception):
     pass
+
+
+class UnstorableLabelError(Exception):
+    """A kept label value holds a NUL character, which Postgres JSONB cannot store."""
 
 
 class TooManyStoredPointsError(Exception):
@@ -45,6 +48,8 @@ class Entry:
     metric_type: str = ""
     bounds: tuple[float, ...] = ()
     fingerprints: set[int] = field(default_factory=set)
+    # Set when `fingerprints` is a sample. A dropped series can carry another unit, so the unit is unknown.
+    fingerprints_truncated: bool = False
     points: dict[dt.datetime, HourValue] = field(default_factory=dict)
 
     @property
@@ -58,6 +63,7 @@ def merge_entries(target: dict[EntryKey, Entry], source: dict[EntryKey, Entry]) 
             key, Entry(labels=entry.labels, metric_type=entry.metric_type, bounds=entry.bounds)
         )
         existing.fingerprints |= entry.fingerprints
+        existing.fingerprints_truncated |= entry.fingerprints_truncated
         existing.points.update(entry.points)
 
 
@@ -98,6 +104,7 @@ def _decode(start: dt.datetime, series: list[dict]) -> dict[EntryKey, Entry]:
             metric_type=item.get("metric_type", ""),
             bounds=tuple(float(bound) for bound in item.get("bounds", ())),
             fingerprints=set(item.get("fingerprints", ())),
+            fingerprints_truncated=item.get("fingerprints_truncated", False),
             points={start: item["value"]},
         )
         entries[entry.key] = entry
@@ -110,11 +117,15 @@ def _encode(start: dt.datetime, entries: dict[EntryKey, Entry]) -> list[dict]:
         entry = entries[key]
         if start not in entry.points:
             continue
+        if any("\x00" in label for label in entry.labels):
+            raise UnstorableLabelError("a kept label value contains a NUL character; keep fewer labels")
         item: dict = {
             "labels": list(entry.labels),
             "fingerprints": sorted(entry.fingerprints)[:MAX_FINGERPRINTS_PER_ENTRY],
             "value": entry.points[start],
         }
+        if entry.fingerprints_truncated or len(entry.fingerprints) > MAX_FINGERPRINTS_PER_ENTRY:
+            item["fingerprints_truncated"] = True
         if entry.metric_type or entry.bounds:
             item["metric_type"] = entry.metric_type
             # JSONB has no NaN or Infinity, so those bounds are stored as the strings `float()` reads back.
@@ -134,7 +145,9 @@ def _series_changed(before: list[dict], after: list[dict]) -> bool:
 
     old, new = keyed(before), keyed(after)
     return old.keys() != new.keys() or any(
-        value_changed(old[key]["value"], new[key]["value"]) or old[key]["fingerprints"] != new[key]["fingerprints"]
+        value_changed(old[key]["value"], new[key]["value"])
+        or old[key]["fingerprints"] != new[key]["fingerprints"]
+        or old[key].get("fingerprints_truncated") != new[key].get("fingerprints_truncated")
         for key in old
     )
 
