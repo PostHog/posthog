@@ -59,6 +59,9 @@ finish() {
     local uploaded=true
     upload_evidence || uploaded=false
     mark 'done' "{\"exitCode\":$code,\"uploaded\":$uploaded,\"at\":\"$(now)\"}"
+    if [ -n "${live:-}" ]; then
+        wait "$live" 2>/dev/null || true
+    fi
 }
 
 stop() {
@@ -76,8 +79,11 @@ SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
 export SCENARIO_POOLER_URLS
 (cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
 card=$!
+bash "$repo/nodejs/tests/scenarios/cloud/host-live-copy.sh" "$XDG_CACHE_HOME/posthog-scenarios/$SCENARIO_RUN_ID/live.jsonl" "$prefix/live.jsonl" "$card" "$$" &
+live=$!
 while kill -0 "$card" 2>/dev/null; do
     wait "$card"
 done
 wait "$card"
 code=$?
+kill -TERM "$live" 2>/dev/null || true

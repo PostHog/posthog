@@ -113,6 +113,11 @@ class PersonalRankingTickConfig:
     max_error_rate: float = 0.5
     # The tick starts no pair after this share of its schedule interval, so the last pairs end before the next tick.
     time_budget_share: float = 0.6
+    # A pair whose fingerprint (`precheck.py`) is the same as at its last full check skips the full gather for this
+    # many hours after that check. 0 turns the pre-check off.
+    precheck_hours: int = 0
+    # The share of pre-check hits that run the full check too, to count the hits that the full check disagrees with.
+    precheck_sample_share: float = 0.1
 
 
 @frozen
@@ -138,6 +143,7 @@ _TICK_MAXIMUMS: dict[str, int] = {
     "max_pairs_per_tick": 2000,
     "max_concurrency": 100,
     "max_tick_builds_per_day": 50000,
+    "precheck_hours": 48,
 }
 _MAX_OVERDUE_AFTER_MINUTES = 2 * _TICK_MAXIMUMS["target_interval_minutes"]
 # A larger share lets the pairs started at the end of a tick run into the next tick.
@@ -292,6 +298,13 @@ def _fraction(value: Any, default: float) -> float:
     return float(value)
 
 
+def _share(value: Any, default: float) -> float:
+    """A share from 0 to 1. Unlike `_fraction`, 0 is valid."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
+        return default
+    return float(value)
+
+
 def _percentage(value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
         return TICK_DISABLED.self_driving_organization_percentage
@@ -329,6 +342,7 @@ def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
         time_budget_share=_bounded_number(
             payload.get("time_budget_share"), TICK_DISABLED.time_budget_share, _MAX_TIME_BUDGET_SHARE
         ),
+        precheck_sample_share=_share(payload.get("precheck_sample_share"), TICK_DISABLED.precheck_sample_share),
         **ints,
     )
 

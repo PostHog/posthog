@@ -129,6 +129,135 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+        jest.useRealTimers()
+    })
+
+    it.each([
+        { description: '', repository: undefined },
+        { description: 'Explain this funnel', repository: undefined },
+        { description: '', repository: 'example/project' },
+        { description: 'Explain this funnel', repository: 'example/project' },
+    ])(
+        'warms only without a repository (draft: $description, repository: $repository)',
+        async ({ description, repository }) => {
+            const warmBodies: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                        warmBodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { task_id: 'warm-task', run_id: 'warm-run' }]
+                    },
+                },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewTaskData({
+                repositoryConfig: {
+                    repository,
+                    integrationId: repository ? 1 : undefined,
+                    branch: repository ? 'main' : undefined,
+                },
+            })
+            const warm = taskWarmLogic({ panelId: undefined })
+            expect(warm.values.warmLease).toBeNull()
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            jest.advanceTimersByTime(700)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+
+            expect(warmBodies).toEqual(
+                repository
+                    ? []
+                    : [expect.objectContaining({ repository: null, github_integration: null, branch: null })]
+            )
+            expect(warm.values.warmLease).toEqual(
+                repository ? null : expect.objectContaining({ taskId: 'warm-task', runId: 'warm-run' })
+            )
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            logic.actions.setNewTaskData({ description })
+            jest.advanceTimersByTime(5000)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(warmBodies).toHaveLength(repository ? 0 : 1)
+            expect(cancelledWarmRuns).toEqual([])
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(false)
+            jest.advanceTimersByTime(5000)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(cancelledWarmRuns).toEqual(repository || description ? [] : ['warm-run'])
+        }
+    )
+
+    it.each([
+        { target: 'environment:env-1', expected: { sandbox_environment_id: 'env-1' } },
+        { target: 'image:img-1', expected: { custom_image_id: 'img-1' } },
+    ])('waits for the saved cloud target before warming on focus ($target)', async ({ target, expected }) => {
+        let finishConfig!: (response: [number, Record<string, unknown>]) => void
+        const config = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishConfig = resolve
+        })
+        const warmBodies: Record<string, unknown>[] = []
+        useMocks({
+            get: { '/api/projects/:team/tasks/@me/config/': () => config },
+            post: {
+                '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                    warmBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, { task_id: 'warm-task', run_id: 'warm-run' }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        logic.mount()
+        logic.actions.setCloudTargets(
+            [{ id: 'env-1', name: 'Example environment' } as SandboxEnvironmentDTOApi],
+            [{ id: 'img-1', name: 'Example image', status: 'ready' } as SandboxCustomImageDTOApi]
+        )
+        const warm = taskWarmLogic({ panelId: undefined })
+
+        jest.useFakeTimers()
+        logic.actions.setComposerFocused(true)
+        await jest.advanceTimersByTimeAsync(700)
+        jest.useRealTimers()
+        const beforeConfig = [...warmBodies]
+
+        finishConfig([200, { ...myConfigResponse(null), task_defaults: { default_cloud_target: target } }])
+        await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        expect(beforeConfig).toEqual([])
+        await waitFor(() => expect(warmBodies).toEqual([expect.objectContaining(expected)]), { timeout: 5000 })
+        await expectLogic(warm).toFinishAllListeners()
+        expect(warm.values.warmLease).toMatchObject({ taskId: 'warm-task', runId: 'warm-run' })
+    })
+
+    it('releases an unused warm run when a repository is attached', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => [200, { task_id: 'warm-task', run_id: 'warm-run' }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const warm = taskWarmLogic({ panelId: undefined })
+
+        jest.useFakeTimers()
+        logic.actions.setComposerFocused(true)
+        jest.advanceTimersByTime(700)
+        jest.useRealTimers()
+        await expectLogic(warm).toFinishAllListeners()
+        expect(warm.values.warmLease).not.toBeNull()
+
+        await expectLogic(logic, () =>
+            logic.actions.setNewTaskData({ repositoryConfig: { repository: 'example/project', integrationId: 1 } })
+        ).toFinishAllListeners()
+        await expectLogic(warm).toFinishAllListeners()
+
+        expect(warm.values.warmLease).toBeNull()
+        expect(cancelledWarmRuns).toEqual(['warm-run'])
     })
 
     it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
@@ -921,6 +1050,7 @@ describe('taskTrackerSceneLogic', () => {
         blockedLogic.mount()
 
         await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.setComposerFocused(true)
             blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
             blockedLogic.actions.submitNewTask()
         })
