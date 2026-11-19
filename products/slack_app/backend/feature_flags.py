@@ -50,7 +50,6 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
@@ -158,21 +157,14 @@ def is_slack_app_byos_enabled(
 ) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
-    Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
-    marked for a plan whose rollout is off fails when it starts, so Slack must never mark one.
+    Follows the tasks rollout for that plan. A Slack run marked for a plan whose rollout
+    is off fails when it starts, so Slack must never mark one.
     ``distinct_id`` is the PostHog user whose plan the run would use.
     """
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
-    if not tasks_facade.own_subscription_cloud_enabled(
+    return tasks_facade.own_subscription_cloud_enabled(
         adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
-    ):
-        return False
-    return _workspace_flag_enabled(
-        SLACK_APP_BYOS_FLAG,
-        integration,
-        failure_log_key="slack_app_byos_feature_flag_check_failed",
-        distinct_id=distinct_id,
     )
 
 
