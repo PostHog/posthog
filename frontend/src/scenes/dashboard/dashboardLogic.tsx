@@ -233,11 +233,9 @@ import {
     deferOffscreenTiles,
     isTelemetryInsight,
     dashboardV2Logic,
-    loadThroughBoardStream,
+    refreshThroughBoardStream,
     telemetryTileLoadQueue,
-    usesBoardStream,
 } from './dashboardV2Logic'
-import type { BoardStreamResult } from './dashboardV2Logic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
@@ -273,7 +271,7 @@ function reportDashboardTileRefreshed(
     loadTiming: TileLoadTiming,
     filterChange?: PendingFilterChange,
     isAutomatic = false,
-    streamFallback?: boolean
+    eventProperties?: Record<string, unknown>
 ): void {
     const insight = tile.insight
     const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
@@ -306,7 +304,7 @@ function reportDashboardTileRefreshed(
                   all_insights_succeeded: filterChange.remainingInsightIds.size === 0,
               }
             : {}),
-        ...(streamFallback !== undefined ? { stream_fallback: streamFallback } : {}),
+        ...eventProperties,
     })
 }
 
@@ -342,8 +340,7 @@ interface InsightTileRefresh {
     telemetryQueue: TaskQueue
     tileLoads: TileLoads<TileLoadRefresh>
     dashboardV2Ui: boolean
-    /** Set when a board stream left this tile to the per-tile path. */
-    streamFallback?: boolean
+    eventProperties?: Record<string, unknown>
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
@@ -404,7 +401,7 @@ async function refreshInsightTile(
         telemetryQueue,
         tileLoads,
         dashboardV2Ui,
-        streamFallback,
+        eventProperties,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
@@ -460,7 +457,7 @@ async function refreshInsightTile(
             },
             undefined,
             isAutomatic,
-            streamFallback
+            eventProperties
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -6152,50 +6149,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const streamedTiles = new Set<number>()
-                let boardStream: BoardStreamResult | null = null
-                if (
-                    currentTeamId &&
-                    usesBoardStream(
-                        values.dashboardV2Enabled,
-                        values.placement === DashboardPlacement.Dashboard && !isSharedView(),
-                        sortedTilesToRefresh.length
-                    )
-                ) {
-                    const boardController = cache.abortController
-                    cache.disposables.add(() => () => boardController.abort(), 'dashboard-board-stream', {
-                        pauseOnPageHidden: false,
-                    })
-                    boardStream = await loadThroughBoardStream(sortedTilesToRefresh, {
-                        actions,
-                        teamId: currentTeamId,
-                        dashboardId,
-                        forceRefresh: !!forceRefresh,
-                        filters: refreshFilters,
-                        variables: urlVariables,
-                        signal: boardController.signal,
-                        reportTile: (tile, isCached, durationMs) =>
-                            reportDashboardTileRefreshed(
-                                dashboardId,
-                                tile,
-                                isCached,
-                                urlFilters,
-                                urlVariables,
-                                durationMs,
-                                false,
-                                undefined,
-                                undefined,
-                                isAutomatic,
-                                false
-                            ),
-                        settle: settleTile,
-                    })
-                    if (boardController.signal.aborted) {
-                        loadingHere.clear()
-                        return
-                    }
-                    breakpoint()
-                    boardStream.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
+                const boardStream = values.dashboardV2Enabled
+                    ? await refreshThroughBoardStream(cache, sortedTilesToRefresh, tileRefresh, {
+                          placement: values.placement,
+                          report: reportDashboardTileRefreshed,
+                          settle: settleTile,
+                      })
+                    : null
+                if (boardStream?.aborted) {
+                    loadingHere.clear()
+                    return
                 }
+                boardStream?.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
                 if (
                     !boardStream &&
                     values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
@@ -6391,7 +6356,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const fallbackRefresh: InsightTileRefresh = boardStream
-                    ? { ...tileRefresh, streamFallback: true }
+                    ? { ...tileRefresh, eventProperties: boardStream.fallbackEventProperties }
                     : tileRefresh
                 const fetchSyncInsightFunctions = sortedTilesToRefresh
                     .filter((tile) => !streamedTiles.has(tile.id))
@@ -6433,13 +6398,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
-                    ...(boardStream
-                        ? {
-                              board_stream: true,
-                              stream_fallback: fetchSyncInsightFunctions.length > 0,
-                              stream_failed: boardStream.failed,
-                          }
-                        : {}),
+                    ...boardStream?.refreshEventProperties,
                     ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {

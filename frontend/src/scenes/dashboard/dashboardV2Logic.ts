@@ -6,9 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DashboardPlacement } from '~/types'
 import type { DashboardTile, InsightModel } from '~/types'
 
 import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
@@ -117,31 +119,65 @@ export function deferOffscreenTiles<T extends DashboardTile>(
 
 type InsightTile = DashboardTile & { insight: InsightModel }
 
-/** With dashboard-v2, a refresh on the dashboard page loads its tiles through one board stream. */
-export function usesBoardStream(dashboardV2Enabled: boolean, onDashboardPage: boolean, tileCount: number): boolean {
-    return dashboardV2Enabled && onDashboardPage && tileCount > 0 && tileCount <= BOARD_STREAM_MAX_TILES
+function usesBoardStream(placement: DashboardPlacement, tileCount: number): boolean {
+    return (
+        placement === DashboardPlacement.Dashboard &&
+        !isSharedView() &&
+        tileCount > 0 &&
+        tileCount <= BOARD_STREAM_MAX_TILES
+    )
 }
 
-export interface BoardStreamLoad<T extends InsightTile> {
+/** The refresh a board stream runs for, as the per-tile path receives it. */
+export interface BoardStreamRefresh {
     actions: {
         setRefreshStatus: (shortId: InsightModel['short_id'], loading?: boolean, queued?: boolean) => void
         setRefreshError: (shortId: InsightModel['short_id'], error?: any) => void
     }
-    teamId: number
     dashboardId: number
-    forceRefresh: boolean
+    currentTeamId: number | null
     filters: DashboardFilter
     variables: Record<string, HogQLVariable>
+    urlFilters: DashboardFilter
+    forceRefresh: boolean
+    isAutomatic?: boolean
     signal: AbortSignal
-    /** Records a tile the stream delivered, as the per-tile path records each tile it loads. */
-    reportTile: (tile: T, isCached: boolean, durationMs: number) => void
-    settle: (tile: T, outcome: 'refreshed' | 'cached' | 'errored') => void
 }
 
-export interface BoardStreamResult {
-    /** The tiles the stream settled. The caller loads every other tile through the per-tile path. */
+/** Records a delivered tile with the same event the per-tile path sends. */
+export type TileRefreshReporter = (
+    dashboardId: number,
+    tile: DashboardTile,
+    servedFromCache: boolean | undefined,
+    filters: Record<string, any>,
+    variables: Record<string, any>,
+    refreshDurationMs: number,
+    individualRefresh: boolean,
+    requestTiming: undefined,
+    filterChange: undefined,
+    isAutomatic: boolean | undefined,
+    eventProperties: Record<string, unknown>
+) => void
+
+type TileOutcome = 'refreshed' | 'cached' | 'errored'
+
+export interface BoardStreamOutcome<T extends InsightTile> {
     settledTileIds: Set<number>
-    failed: boolean
+    /** The tiles the stream did not settle. The caller loads them through the per-tile path. */
+    leftTiles: T[]
+    /** The refresh was cancelled while the stream ran. */
+    aborted: boolean
+    /** For the per-tile events of `leftTiles`. */
+    fallbackEventProperties: Record<string, unknown>
+    /** For the `dashboard refreshed` event. */
+    refreshEventProperties: Record<string, unknown>
+}
+
+interface BoardStreamLoad<T extends InsightTile> {
+    refresh: BoardStreamRefresh
+    teamId: number
+    report: TileRefreshReporter
+    settle: (tile: T, outcome: TileOutcome) => void
 }
 
 function rejectedForCapacity(insight: InsightModel): boolean {
@@ -156,11 +192,12 @@ function rejectedForCapacity(insight: InsightModel): boolean {
  * then delivers each tile it computes. A stale tile stays loading until its computed result replaces it.
  * A tile the server had no capacity for, and every tile a failed stream did not deliver, stays unsettled.
  */
-export async function loadThroughBoardStream<T extends InsightTile>(
+async function loadThroughBoardStream<T extends InsightTile>(
     tiles: T[],
     load: BoardStreamLoad<T>
-): Promise<BoardStreamResult> {
-    const { actions, dashboardId, signal } = load
+): Promise<BoardStreamOutcome<T>> {
+    const { refresh } = load
+    const { actions, dashboardId, signal } = refresh
     const tilesById = new Map(tiles.map((tile) => [tile.id, tile]))
     const settledTileIds = new Set<number>()
     const startedAt = performance.now()
@@ -168,7 +205,19 @@ export async function loadThroughBoardStream<T extends InsightTile>(
         settledTileIds.add(tile.id)
         dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
         actions.setRefreshStatus(tile.insight.short_id)
-        load.reportTile(tile, isCached, Math.floor(performance.now() - startedAt))
+        load.report(
+            dashboardId,
+            tile,
+            isCached,
+            refresh.urlFilters,
+            refresh.variables,
+            Math.floor(performance.now() - startedAt),
+            false,
+            undefined,
+            undefined,
+            refresh.isAutomatic,
+            { stream_fallback: false }
+        )
         load.settle(tile, isCached ? 'cached' : 'refreshed')
     }
     const settleErrored = (tile: T, error?: any): void => {
@@ -183,10 +232,10 @@ export async function loadThroughBoardStream<T extends InsightTile>(
             {
                 tile_ids: tiles.map((tile) => tile.id).join(','),
                 client_query_id: uuid(),
-                refresh: load.forceRefresh ? 'force_blocking' : 'blocking',
+                refresh: refresh.forceRefresh ? 'force_blocking' : 'blocking',
                 cached_first: true,
-                filters_override: JSON.stringify(load.filters),
-                variables_override: JSON.stringify(load.variables),
+                filters_override: JSON.stringify(refresh.filters),
+                variables_override: JSON.stringify(refresh.variables),
             },
             signal,
             (result) => {
@@ -235,10 +284,54 @@ export async function loadThroughBoardStream<T extends InsightTile>(
                 }
             }
         )
-        return { settledTileIds, failed: false }
+        return boardStreamOutcome(tiles, settledTileIds, false, signal.aborted)
     } catch {
-        return { settledTileIds, failed: !signal.aborted }
+        return boardStreamOutcome(tiles, settledTileIds, !signal.aborted, signal.aborted)
     }
+}
+
+function boardStreamOutcome<T extends InsightTile>(
+    tiles: T[],
+    settledTileIds: Set<number>,
+    failed: boolean,
+    aborted: boolean
+): BoardStreamOutcome<T> {
+    const leftTiles = tiles.filter((tile) => !settledTileIds.has(tile.id))
+    return {
+        settledTileIds,
+        leftTiles,
+        aborted,
+        fallbackEventProperties: { stream_fallback: true },
+        refreshEventProperties: { board_stream: true, stream_fallback: leftTiles.length > 0, stream_failed: failed },
+    }
+}
+
+/**
+ * With dashboard-v2, a refresh on the dashboard page loads its tiles through one board stream.
+ * Null when the stream does not apply, and the refresh loads every tile through the per-tile path.
+ */
+export async function refreshThroughBoardStream<T extends InsightTile>(
+    cache: Record<string, any>,
+    tiles: T[],
+    refresh: BoardStreamRefresh,
+    {
+        placement,
+        report,
+        settle,
+    }: { placement: DashboardPlacement; report: TileRefreshReporter; settle: (tile: T, outcome: TileOutcome) => void }
+): Promise<BoardStreamOutcome<T> | null> {
+    if (!refresh.currentTeamId || !usesBoardStream(placement, tiles.length)) {
+        return null
+    }
+    const controller = new AbortController()
+    refresh.signal.addEventListener('abort', () => controller.abort(), { once: true })
+    cache.disposables.add(() => () => controller.abort(), 'dashboard-board-stream', { pauseOnPageHidden: false })
+    return await loadThroughBoardStream(tiles, {
+        refresh: { ...refresh, signal: controller.signal },
+        teamId: refresh.currentTeamId,
+        report,
+        settle,
+    })
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
