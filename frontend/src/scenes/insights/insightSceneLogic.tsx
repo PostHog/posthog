@@ -293,7 +293,7 @@ export interface insightSceneLogicMeta {
         reloadingForDashboardEdit: (
             insightLoading: boolean,
             insightMode: ItemMode,
-            dashboardId: DashboardType['id'] | null
+            dashboardId: number | null
         ) => boolean
         insightSelector: (
             insightLogicRef: {
