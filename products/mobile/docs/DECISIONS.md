@@ -187,7 +187,7 @@ Choices the build contract left open, with the reason for each.
   no OAuth scopes, so an app token gets 403 there. The tasks endpoints accept `task:read` and `task:write`,
   which the app already has for the hand-off, and the web's `TaskRunChat` reads the same runs.
 - **Logs for an ended run, the stream for a live one.** An ended run has nothing left to stream, so one
-  `logs/` request reads the whole log without holding a connection open. A live run's stream replays the stored log
+  `log_entries/` request reads the whole log without holding a connection open. A live run's stream replays the stored log
   before the new frames, so one connection gives both the history and the live turn without a gap between them.
 - **A successor run rebuilds the thread.** The first replayed frame of a resume run starts the thread
   again, because the server replays the whole resume chain. Appending would draw every earlier turn twice.
