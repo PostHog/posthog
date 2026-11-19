@@ -1,3 +1,4 @@
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -28,8 +29,10 @@ class EntryFreshness:
     last_refresh: Optional[str]
 
 
-# Values read by `prefetched_entries`, by cache key. None outside it, so every entry is read on its own.
-_prefetched_values: ContextVar[dict[str, Optional[bytes]] | None] = ContextVar(
+# Values read by `prefetched_entries`, by cache key, one per lookup still to come. A key's value is dropped after its
+# last lookup, so a board's decompressed blobs don't stay in memory next to the results copied out of them. None
+# outside the block, so every entry is read on its own.
+_prefetched_values: ContextVar[dict[str, list[Optional[bytes]]] | None] = ContextVar(
     "query_cache_prefetched_values", default=None
 )
 
@@ -42,8 +45,9 @@ def prefetched_entries(cache_keys: Sequence[str], *, team_id: int) -> Iterator[N
     """Read the entries of `cache_keys` in one round trip, so the lookups of those keys inside the block don't read
     them one by one. The S3 blobs behind pointer entries are fetched at the same time.
 
-    Lookups see the values as they were when the block started. A key not in `cache_keys` is read as usual, and so
-    is every key when the batched read fails.
+    Lookups see the values as they were when the block started. Each occurrence of a key in `cache_keys` serves one
+    lookup. A key not in `cache_keys` is read as usual, and so is a lookup past those occurrences and every key when
+    the batched read fails.
     """
     token = _prefetched_values.set(_read_values(cache_keys, team_id=team_id))
     try:
@@ -52,8 +56,9 @@ def prefetched_entries(cache_keys: Sequence[str], *, team_id: int) -> Iterator[N
         _prefetched_values.reset(token)
 
 
-def _read_values(cache_keys: Sequence[str], *, team_id: int) -> dict[str, Optional[bytes]]:
-    unique_keys = list(dict.fromkeys(cache_keys))
+def _read_values(cache_keys: Sequence[str], *, team_id: int) -> dict[str, list[Optional[bytes]]]:
+    lookups = Counter(cache_keys)
+    unique_keys = list(lookups)
     if not unique_keys:
         return {}
     try:
@@ -69,13 +74,17 @@ def _read_values(cache_keys: Sequence[str], *, team_id: int) -> dict[str, Option
                 lambda pointer: decode_stored_value(pointer[1], team_id=team_id, cache_key=pointer[0]), pointers
             )
             values.update(zip((key for key, _ in pointers), payloads))
-    return values
+    return {key: [value] * lookups[key] for key, value in values.items()}
 
 
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
     prefetched = _prefetched_values.get()
     if prefetched is not None and cache_key in prefetched:
-        return _entry_from_prefetched_value(prefetched[cache_key], cache_key=cache_key, team_id=team_id)
+        remaining = prefetched[cache_key]
+        stored_value = remaining.pop()
+        if not remaining:
+            del prefetched[cache_key]
+        return _entry_from_prefetched_value(stored_value, cache_key=cache_key, team_id=team_id)
     try:
         stored_value = load_entry_value(cache_key)
     except Exception:

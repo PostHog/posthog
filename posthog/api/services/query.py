@@ -319,6 +319,9 @@ def plan_query_dict(
     query_runner.is_query_service = False
     if allow_raw_results:
         query_runner.serve_raw_cached_results = True
+    # run() applies the user before it builds the key. Some runners are built without the user, so apply it here too.
+    if user is not None:
+        query_runner.set_user(user)
     return PlannedQuery(
         query_runner=query_runner, upgraded_query=upgraded_query, cache_key=query_runner.plan_cache_key()
     )

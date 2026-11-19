@@ -1216,6 +1216,32 @@ class TestQueryRunner(BaseTest):
         assert response.is_cached is False
         assert response.results[0] == ["row", 1, 2, 3]
 
+    @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
+    def test_key_planned_before_the_user_is_set_does_not_serve_unrestricted_results(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        TestQueryRunner = self.setup_test_query_runner_class()
+        TestQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.plan_cache_key()
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+
+        assert isinstance(response, CacheMissResponse)
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()

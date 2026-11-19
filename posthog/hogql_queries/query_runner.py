@@ -2124,6 +2124,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if user is self.user:
             return
         self.user = user
+        # The key reads the user's access restrictions, so a key planned for the previous user no longer applies.
+        self.planned_cache_key = None
         self._on_user_changed()
 
     def _child_runners(self) -> Iterable["QueryRunner"]:
