@@ -205,7 +205,7 @@ jobs:
 
             # createCommitOnBranch signs the commit and refuses it when the branch no longer points
             # at expectedHeadOid, so a push that lands after the check above can't be overwritten.
-            # release-hog.yml holds pr-<number>.md changesets for its weekly run, so keep the prefix.
+            # The weekly- prefix makes release-hog.yml hold the changeset for its weekly run.
             - name: Commit the changeset via GitHub API (signed)
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -223,7 +223,7 @@ jobs:
                       --arg repo "$GITHUB_REPOSITORY" \
                       --arg branch "$BRANCH" \
                       --arg head "$HEAD_SHA" \
-                      --arg path "hog/.sampo/changesets/pr-$PR_NUMBER.md" \
+                      --arg path "hog/.sampo/changesets/weekly-pr-$PR_NUMBER.md" \
                       --arg contents "$contents" \
                       '{
                           query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",

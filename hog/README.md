@@ -462,13 +462,12 @@ Use `minor` or `major` instead of `patch` when it fits. sampo gives the file a r
 
 The file name says when the changeset releases:
 
-| File name          | Releases                                                             |
-| ------------------ | -------------------------------------------------------------------- |
-| `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC                          |
-| `pr-<number>.md`   | In the weekly run. The `hog changeset` workflow adds these by itself |
-| Any other name     | When its pull request merges                                         |
+| File name          | Releases                                    |
+| ------------------ | ------------------------------------------- |
+| `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC |
+| Any other name     | When its pull request merges                |
 
-Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. Keep the `pr-<number>.md` changesets CI adds for MCP and catalog changes as they are. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. The `hog changeset` workflow names the changesets it adds for MCP and catalog changes `weekly-pr-<number>.md`, so they wait too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
 When a release starts, the workflow:
 
