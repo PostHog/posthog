@@ -790,6 +790,7 @@ class TestOAuthAPI(APIBaseTest):
             ("first_party", "organization", True, 403, "first_party"),
         ]
     )
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_authorize_checks_grant_two_factor_policy(
         self,
         _name: str,
