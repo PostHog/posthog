@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from typing import Any, Optional, cast
 from urllib.parse import quote
@@ -130,6 +131,14 @@ def can_use_integration(view: Any, integration: IntegrationRecord) -> bool:
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
+
+# The prefix is filled with batch exports' `str.format` renderer, which also reads format specs and indexing,
+# and a prefix cannot change after creation. Only the documented names are let through.
+PREFIX_TEMPLATE = re.compile(r"(?:[^{}]|\{(?:year|month|day|hour|minute|second|table)\})*")
+INVALID_PREFIX_DETAIL = (
+    "The prefix can only use {year}, {month}, {day}, {hour}, {minute}, {second} and {table}. "
+    "Remove any other braces, then try again."
+)
 ALL_DESTINATION_INTEGRATION_KINDS = sorted({kind for kinds in DESTINATION_INTEGRATION_KINDS.values() for kind in kinds})
 
 # Target config a migrated destination carries over: PostHog config key -> vendor config key.
@@ -577,6 +586,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     def validate_config(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise ValidationError('Config must be an object of settings, such as {"database": "analytics"}.')
+        prefix = value.get("prefix")
+        if isinstance(prefix, str) and not PREFIX_TEMPLATE.fullmatch(prefix):
+            raise ValidationError(INVALID_PREFIX_DETAIL)
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
