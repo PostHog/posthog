@@ -30,6 +30,11 @@ Every number is a `WORKFLOW_EMAIL_AUTO_PAUSE_*` or `WORKFLOW_EMAIL_WARN_*` setti
 Warnings repeat at most once per `WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS` (default 7) per workflow.
 Batch job metrics count toward their parent workflow, and discovery gates sum at the team level so a breach split across many small batch jobs still surfaces.
 
+The detector also judges the whole project.
+When the project's unpaused workflows together pass both volume gates and a rate, it pauses (or warns) each of them whose own rate is at that rate, even when that workflow is under the volume gates alone.
+A workflow under the rate keeps sending.
+The reason then names the project's rate and the workflow's own, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
+
 ## Who pauses, who resumes
 
 - The detector pauses with `paused_by="auto"`. The customer resumes from the workflow page; project admins get an email naming the reason.

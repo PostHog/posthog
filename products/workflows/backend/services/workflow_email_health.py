@@ -60,14 +60,14 @@ workflow_email_auto_pause_total = Counter(
     "workflow_email_auto_pause_total",
     "Workflows whose email the deliverability detector paused, or would have paused while it runs "
     "with enforcement off.",
-    labelnames=["signal", "window", "mode"],
+    labelnames=["signal", "window", "mode", "scope"],
 )
 
 workflow_email_warning_total = Counter(
     "workflow_email_warning_total",
     "Workflows whose admins the deliverability detector warned about rates approaching the pause "
     "thresholds, or would have warned while it runs with enforcement off.",
-    labelnames=["signal", "window", "mode"],
+    labelnames=["signal", "window", "mode", "scope"],
 )
 
 
@@ -149,6 +149,13 @@ def build_warn_thresholds() -> list[DetectorThreshold]:
 
 
 @frozen
+class ProjectBreach:
+    sent: int
+    events: int
+    rate: float
+
+
+@frozen
 class PauseDecision:
     team_id: int
     hog_flow_id: str
@@ -157,6 +164,7 @@ class PauseDecision:
     sent: int
     events: int
     rate: float
+    project: ProjectBreach | None = None
 
     @property
     def reason(self) -> str:
@@ -164,6 +172,12 @@ class PauseDecision:
         signal_text = (
             "Spam complaints" if self.threshold.signal == "complaint" else "Emails to addresses that do not exist"
         )
+        if self.project is not None:
+            return (
+                f"{signal_text} reached {_format_rate(self.project.rate)} of the {self.project.sent:,} emails "
+                f"this project's workflows sent in {self.threshold.window_description}. This workflow's rate was "
+                f"{_format_rate(self.rate)} of its {self.sent:,} emails."
+            )
         return (
             f"{signal_text} reached {_format_rate(self.rate)} of the {self.sent:,} emails this workflow "
             f"sent in {self.threshold.window_description}."
@@ -303,6 +317,65 @@ def _breach(
     )
 
 
+def _project_breach(
+    *,
+    flow: HogFlow,
+    flow_name: str,
+    counts: EmailSendingCounts,
+    project_counts: EmailSendingCounts,
+    threshold: DetectorThreshold,
+) -> PauseDecision | None:
+    project_events = _events_for_signal(project_counts, threshold.signal)
+    if project_counts.sent < threshold.min_sent or project_events < threshold.min_events:
+        return None
+    project_rate = _rate(project_events, project_counts.sent)
+    if project_rate < threshold.rate:
+        return None
+    events = _events_for_signal(counts, threshold.signal)
+    rate = _rate(events, counts.sent)
+    if events == 0 or rate < threshold.rate:
+        return None
+    return PauseDecision(
+        team_id=flow.team_id,
+        hog_flow_id=str(flow.id),
+        hog_flow_name=flow_name,
+        threshold=threshold,
+        sent=counts.sent,
+        events=events,
+        rate=rate,
+        project=ProjectBreach(sent=project_counts.sent, events=project_events, rate=project_rate),
+    )
+
+
+def _first_breach(
+    *,
+    flow: HogFlow,
+    flow_name: str,
+    counts: EmailSendingCounts,
+    project_counts: EmailSendingCounts,
+    thresholds: list[DetectorThreshold],
+) -> PauseDecision | None:
+    for threshold in thresholds:
+        decision = _breach(flow=flow, flow_name=flow_name, counts=counts, threshold=threshold)
+        if decision is not None:
+            return decision
+    for threshold in thresholds:
+        decision = _project_breach(
+            flow=flow, flow_name=flow_name, counts=counts, project_counts=project_counts, threshold=threshold
+        )
+        if decision is not None:
+            return decision
+    return None
+
+
+def _summed(counts: list[EmailSendingCounts]) -> EmailSendingCounts:
+    return EmailSendingCounts(
+        sent=sum(item.sent for item in counts),
+        bounced_hard=sum(item.bounced_hard for item in counts),
+        complained=sum(item.complained for item in counts),
+    )
+
+
 @frozen
 class DetectorDecisions:
     pauses: list[PauseDecision]
@@ -353,11 +426,10 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
         warn_group = [threshold for threshold in warn_thresholds if threshold.window == window]
         counts_by_team = _counts_by_flow(team_ids=sorted(candidate_team_ids), after=window_start, before=window_end)
         for team_id, (counts_by_flow, names_by_flow_id) in counts_by_team.items():
+            judged: dict[str, tuple[HogFlow, EmailSendingCounts]] = {}
             for flow_id, counts in counts_by_flow.items():
                 flow = flows_by_id.get(flow_id)
-                # One pause per workflow per sweep. The first breach is the one reported, and the
-                # windows are walked shortest first so the reason names the tightest signal.
-                if flow is None or flow.team_id != team_id or flow_id in paused_flow_ids:
+                if flow is None or flow.team_id != team_id:
                     continue
                 effective_counts = counts
                 resumed_at = flow.email_sending_resumed_at
@@ -370,23 +442,41 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     effective_counts = _clamped_counts_for_flow(
                         flow=flow, after=_hour_ceil(resumed_at), before=window_end
                     )
+                judged[flow_id] = (flow, effective_counts)
+            # Paused workflows are out of scope, so a project's totals hold only the workflows
+            # that still send: the feedback that paused one cannot pause its siblings again.
+            project_counts = _summed([counts for _, counts in judged.values()])
+            for flow_id, (flow, effective_counts) in judged.items():
+                # One pause per workflow per sweep. The first breach is the one reported, and the
+                # windows are walked shortest first so the reason names the tightest signal.
+                if flow_id in paused_flow_ids:
+                    continue
                 flow_name = names_by_flow_id.get(flow_id, "")
-                for threshold in group:
-                    decision = _breach(flow=flow, flow_name=flow_name, counts=effective_counts, threshold=threshold)
-                    if decision is not None:
-                        pauses.append(decision)
-                        paused_flow_ids.add(flow_id)
-                        break
-                if flow_id in paused_flow_ids or flow_id in warnings_by_flow:
+                decision = _first_breach(
+                    flow=flow,
+                    flow_name=flow_name,
+                    counts=effective_counts,
+                    project_counts=project_counts,
+                    thresholds=group,
+                )
+                if decision is not None:
+                    pauses.append(decision)
+                    paused_flow_ids.add(flow_id)
+                    continue
+                if flow_id in warnings_by_flow:
                     continue
                 warned_at = flow.email_sending_warned_at
                 if warned_at is not None and warned_at > warn_cutoff:
                     continue
-                for threshold in warn_group:
-                    decision = _breach(flow=flow, flow_name=flow_name, counts=effective_counts, threshold=threshold)
-                    if decision is not None:
-                        warnings_by_flow[flow_id] = decision
-                        break
+                warning = _first_breach(
+                    flow=flow,
+                    flow_name=flow_name,
+                    counts=effective_counts,
+                    project_counts=project_counts,
+                    thresholds=warn_group,
+                )
+                if warning is not None:
+                    warnings_by_flow[flow_id] = warning
     # A pause found in a longer window outranks a warning found in a shorter one, so the warning
     # list is settled only after every window ran.
     warnings = [decision for flow_id, decision in warnings_by_flow.items() if flow_id not in paused_flow_ids]
@@ -521,7 +611,10 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     for decision in decisions.pauses:
         if not enabled:
             workflow_email_auto_pause_total.labels(
-                signal=decision.threshold.signal, window=decision.threshold.window_label, mode="dry_run"
+                signal=decision.threshold.signal,
+                window=decision.threshold.window_label,
+                mode="dry_run",
+                scope=_scope(decision),
             ).inc()
             logger.info("would_pause_workflow_email_sending", **_decision_log_fields(decision))
             continue
@@ -538,13 +631,19 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
             continue
         applied.append(decision)
         workflow_email_auto_pause_total.labels(
-            signal=decision.threshold.signal, window=decision.threshold.window_label, mode="applied"
+            signal=decision.threshold.signal,
+            window=decision.threshold.window_label,
+            mode="applied",
+            scope=_scope(decision),
         ).inc()
         logger.warning("paused_workflow_email_sending", **_decision_log_fields(decision))
     for decision in decisions.warnings:
         if not enabled:
             workflow_email_warning_total.labels(
-                signal=decision.threshold.signal, window=decision.threshold.window_label, mode="dry_run"
+                signal=decision.threshold.signal,
+                window=decision.threshold.window_label,
+                mode="dry_run",
+                scope=_scope(decision),
             ).inc()
             logger.info("would_warn_workflow_email_sending", **_decision_log_fields(decision))
             continue
@@ -557,12 +656,19 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
         if not warned:
             continue
         workflow_email_warning_total.labels(
-            signal=decision.threshold.signal, window=decision.threshold.window_label, mode="applied"
+            signal=decision.threshold.signal,
+            window=decision.threshold.window_label,
+            mode="applied",
+            scope=_scope(decision),
         ).inc()
         logger.warning("warned_workflow_email_sending", **_decision_log_fields(decision))
     if failed:
         logger.warning("workflow_email_health_sweep_partial_failure", failed=failed)
     return applied
+
+
+def _scope(decision: PauseDecision) -> str:
+    return "workflow" if decision.project is None else "project"
 
 
 def _decision_log_fields(decision: PauseDecision) -> dict[str, str | int | float]:
@@ -576,6 +682,9 @@ def _decision_log_fields(decision: PauseDecision) -> dict[str, str | int | float
         "events": decision.events,
         "rate": decision.rate,
         "threshold_rate": decision.threshold.rate,
+        "scope": _scope(decision),
+        "project_emails_sent": decision.project.sent if decision.project else decision.sent,
+        "project_rate": decision.project.rate if decision.project else decision.rate,
     }
 
 

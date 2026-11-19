@@ -258,6 +258,40 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_paused_at is None
         assert self.flow.email_sending_warned_at is not None
 
+    def test_a_breach_spread_across_workflows_pauses_each_workflow_at_the_rate(self):
+        # Each workflow sends under the 200-email gate of the 1h window, so none trips alone.
+        # Together they send 450 emails with 65 hard bounces (14%), over the 10% pause rate.
+        spreading = HogFlow.objects.create(name="Second blast", team=self.team)
+        under_the_rate = HogFlow.objects.create(name="Onboarding", team=self.team)
+        self._seed(sent=150, hard_bounces=30)
+        self._seed(source_id=str(spreading.id), sent=150, hard_bounces=30)
+        self._seed(source_id=str(under_the_rate.id), sent=150, hard_bounces=5)
+
+        applied, paused_email = self._sweep()
+
+        assert sorted(decision.hog_flow_id for decision in applied) == sorted([str(self.flow.id), str(spreading.id)])
+        assert paused_email.call_count == 2
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_reason == (
+            "Emails to addresses that do not exist reached 14.44% of the 450 emails this project's workflows "
+            "sent in the last hour. This workflow's rate was 20% of its 150 emails."
+        )
+        under_the_rate.refresh_from_db()
+        assert under_the_rate.email_sending_paused_at is None
+        assert self.warning_email.call_count == 0
+
+    def test_a_warn_band_spread_across_workflows_warns_each_workflow(self):
+        spreading = HogFlow.objects.create(name="Second blast", team=self.team)
+        self._seed(sent=150, hard_bounces=12)
+        self._seed(source_id=str(spreading.id), sent=150, hard_bounces=12)
+
+        applied, paused_email = self._sweep()
+
+        assert applied == []
+        assert paused_email.call_count == 0
+        warned = sorted(call.kwargs["hog_flow_id"] for call in self.warning_email.call_args_list)
+        assert warned == sorted([str(self.flow.id), str(spreading.id)])
+
     def test_warning_is_not_repeated_within_the_cooldown(self):
         self._seed(sent=10000, complaints=20)
         self.flow.email_sending_warned_at = self.now - timedelta(days=1)
