@@ -4897,7 +4897,10 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
                 // An edit from elsewhere waited for the preview, and a failed or canceled preview has no reload.
-                actions.replayDeferredResourceEdited()
+                // With unsaved edits it waits for their save instead, so applying it can't drop them.
+                if (!values.hasUnsavedChanges) {
+                    actions.replayDeferredResourceEdited()
+                }
             }
             // The token covers the server's draft. When that is not the draft this editor shows, the
             // dialog would describe the wrong changes, so the user reviews the newer draft first.
@@ -4974,9 +4977,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
             } finally {
                 actions.setDraftActionPending(null)
-                // An edit from elsewhere that arrived during the request waited for it. Without a reload to
-                // replay it, it would wait until the next save.
-                actions.replayDeferredResourceEdited()
+                // An edit from elsewhere that arrived during the request waited for it. With unsaved edits it
+                // waits for their save instead, so applying it can't drop them.
+                if (!values.hasUnsavedChanges) {
+                    actions.replayDeferredResourceEdited()
+                }
             }
         },
         resumeEmailSending: () => {

@@ -1675,7 +1675,7 @@ describe('workflowLogic auto-save', () => {
                 }
             )
 
-            it('applies an edit from elsewhere that arrived while an invalid publish confirm ran', async () => {
+            it('keeps edits typed while an invalid publish confirm ran when an edit from elsewhere arrives', async () => {
                 resourceEditedLogic.mount()
                 let release: () => void = () => {}
                 const held = new Promise<void>((resolve) => {
@@ -1724,61 +1724,75 @@ describe('workflowLogic auto-save', () => {
                 release()
                 await expectLogic(logic).toFinishAllListeners()
 
-                // The edit from elsewhere waited for the confirm, and shows once it settles.
+                // The edit from elsewhere waits for the save of the typed edits, so it can't drop them.
                 expect({
                     reloads: reloads - reloadsBefore,
-                    name: logic.values.workflow.name,
+                    description: logic.values.workflow.description,
                     banner: logic.values.externallyEdited,
-                }).toEqual({ reloads: 1, name: 'Renamed elsewhere', banner: false })
+                }).toEqual({ reloads: 0, description: 'Edited while publishing', banner: false })
             })
 
-            it('applies an edit from elsewhere that arrived while a failed publish preview ran', async () => {
-                resourceEditedLogic.mount()
-                let release: () => void = () => {}
-                const held = new Promise<void>((resolve) => {
-                    release = resolve
-                })
-                let markPreviewing: () => void = () => {}
-                const previewing = new Promise<void>((resolve) => {
-                    markPreviewing = resolve
-                })
-                let served = staged
-                useMocks({
-                    ...serverMocks({
-                        [PUBLISH_URL]: recordPublish(async () => {
-                            markPreviewing()
-                            await held
-                            return [500, { detail: 'boom' }]
+            it.each([
+                ['applies', null, { reloads: 1, name: 'Renamed elsewhere', description: undefined }],
+                [
+                    'waits with typed edits for',
+                    'Edited while previewing',
+                    { reloads: 0, name: 'Autosave test', description: 'Edited while previewing' },
+                ],
+            ])(
+                '%s an edit from elsewhere that arrived while a failed publish preview ran',
+                async (_, typed, expected) => {
+                    resourceEditedLogic.mount()
+                    let release: () => void = () => {}
+                    const held = new Promise<void>((resolve) => {
+                        release = resolve
+                    })
+                    let markPreviewing: () => void = () => {}
+                    const previewing = new Promise<void>((resolve) => {
+                        markPreviewing = resolve
+                    })
+                    let served = staged
+                    useMocks({
+                        ...serverMocks({
+                            [PUBLISH_URL]: recordPublish(async () => {
+                                markPreviewing()
+                                await held
+                                return [500, { detail: 'boom' }]
+                            }),
                         }),
-                    }),
-                    get: {
-                        '/api/environments/:team_id/hog_flows/:id/': () => {
-                            reloads += 1
-                            return [200, served]
+                        get: {
+                            '/api/environments/:team_id/hog_flows/:id/': () => {
+                                reloads += 1
+                                return [200, served]
+                            },
                         },
-                    },
-                })
+                    })
 
-                logic.actions.publishDraft()
-                await previewing
-                served = { ...staged, draft: { ...staged.draft!, name: 'Renamed elsewhere' } }
-                resourceEditedLogic.actions.resourceEdited({
-                    notification_type: 'resource_edited',
-                    team_id: 1,
-                    resource_type: 'HogFlow',
-                    resource_id: WORKFLOW_ID,
-                    updated_at: '2027-01-01T00:00:00.000Z',
-                    actor_user_id: 2,
-                })
-                release()
-                await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.publishDraft()
+                    await previewing
+                    if (typed) {
+                        logic.actions.setWorkflowValues({ description: typed })
+                    }
+                    served = { ...staged, draft: { ...staged.draft!, name: 'Renamed elsewhere' } }
+                    resourceEditedLogic.actions.resourceEdited({
+                        notification_type: 'resource_edited',
+                        team_id: 1,
+                        resource_type: 'HogFlow',
+                        resource_id: WORKFLOW_ID,
+                        updated_at: '2027-01-01T00:00:00.000Z',
+                        actor_user_id: 2,
+                    })
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
 
-                expect({ reloads, name: logic.values.workflow.name, dialogs }).toEqual({
-                    reloads: 1,
-                    name: 'Renamed elsewhere',
-                    dialogs: [],
-                })
-            })
+                    expect({
+                        reloads,
+                        name: logic.values.workflow.name,
+                        description: logic.values.workflow.description,
+                        dialogs,
+                    }).toEqual({ ...expected, dialogs: [] })
+                }
+            )
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))
