@@ -341,6 +341,9 @@ CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "a
 # registry can say where a storage table lives; whether a given deployment can reach it is
 # decided by probing the hosts, not by comparing this against the handle's cluster.
 CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
+# The cluster that stores sharded_flag_evaluations. The deletion registry builds a handle for it, like the events
+# cluster above. Probing the hosts decides whether a deployment can reach it.
+CLICKHOUSE_FLAGS_CLUSTER: str = os.getenv("CLICKHOUSE_FLAGS_CLUSTER", "flags")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
@@ -872,6 +875,13 @@ CACHES["admin_console_results"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The Distinct ID usage report caches ClickHouse rows that staff reload during incidents. JSON, so a read never
+# unpickles a value someone with Redis write access placed under the key.
+CACHES["distinct_id_usage_report"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 # A data deletion stats fetch holds a lease with an owner token. The worker must read the lease the console just
 # wrote, and a lagging replica would make it skip a valid fetch as superseded.
 CACHES["data_deletion_stats"] = {
@@ -975,6 +985,7 @@ if TEST:
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
     CACHES["radar_login_attempt"] = CACHES["default"]

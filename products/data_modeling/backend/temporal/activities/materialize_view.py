@@ -31,9 +31,11 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
+from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
@@ -65,13 +67,14 @@ from products.data_modeling.backend.facade.api import (
     duplicate_output_columns,
     duplicate_output_columns_message,
     get_incremental_state,
-    inject_incremental_filter,
+    narrow_to_incremental_window,
     parse_model_query,
     print_describe_variant,
     record_incremental_history,
     rename_described_columns,
     resolve_write_plan,
     set_incremental_state,
+    wrap_with_incremental_guard,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -633,11 +636,14 @@ async def hogql_table(
     """Execute a HogQL query and yield batches of results.
 
     With a ``window``, the query is narrowed to rows at or after its lower bound before anything
-    else happens — in particular before the arrow type-conversion wrapper below re-wraps the node,
-    so the guard's column reference still resolves against the user's own output.
+    else happens. Its guard goes on after DESCRIBE, once the columns carry the names ClickHouse
+    gives them, and before the arrow type-conversion wrapper below re-wraps the node, so the
+    guard's column reference still resolves against the user's own output.
     """
     if window is not None:
-        query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
+        query_node = narrow_to_incremental_window(
+            parse_select(query), incremental_key=window.incremental_key, since=window.since
+        )
     else:
         query_node = parse_model_query(query)
     if query_node is None:
@@ -760,8 +766,20 @@ async def hogql_table(
             query_typings.append((column.name, column.ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    # The guard and the type wrapper both re-select the output by name through HogQL, which keeps one
+    # column per name. ClickHouse keeps a bare column's qualifier when another column takes its plain
+    # name, so it can name columns `a.event` and `event` where HogQL names both `event`. Each item
+    # carries its described name as its alias, so every column reaches the re-select.
+    if window is not None or has_type_to_convert:
+        alias_output_columns(query_node, [column.name for column in described_columns])
+    if window is not None:
+        query_node = wrap_with_incremental_guard(query_node, incremental_key=window.incremental_key, since=window.since)
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
+        # ClickHouse keeps a bare column's qualifier when another column takes its plain name, so it
+        # can name columns `a.event` and `event` where HogQL names both `event`. The wrapper reads the
+        # columns by their described names, so each item carries that name as its alias.
+        alias_output_columns(query_node, [column.name for column in described_columns])
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple is not None:
@@ -1030,6 +1048,10 @@ def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextM
     return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
 
 
+async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable:
+    return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1097,7 +1119,7 @@ async def _materialize_fully(
                         schema_mode="overwrite",
                         storage_options=storage_options,
                     )
-                    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+                    delta_table = await _open_delta_table(table_uri, storage_options)
                 else:
                     await asyncio.to_thread(
                         deltalake.write_deltalake,
@@ -1166,7 +1188,7 @@ async def _materialize_incrementally(
     config = plan.config
     assert config is not None  # resolve_write_plan only sets incremental with a config
 
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    delta_table = await _open_delta_table(table_uri, storage_options)
     # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
@@ -1242,7 +1264,7 @@ async def _materialize_incrementally(
     # Reopened because deltalite commits through its own handle, leaving this one pinned to the
     # snapshot from before the upserts. Maintaining or listing files off the stale handle would
     # publish the pre-run file set and lose everything this run wrote.
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    delta_table = await _open_delta_table(table_uri, storage_options)
 
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
@@ -1434,11 +1456,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable,
-                    table_uri,
-                    storage_options=storage_options,
-                )
+                delta_table = await _open_delta_table(table_uri, storage_options)
                 delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
