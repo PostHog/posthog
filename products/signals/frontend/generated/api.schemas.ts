@@ -612,6 +612,69 @@ export interface AnomalyInsightResponseApi {
     message: string | null
 }
 
+export interface AnomalySeriesRefApi {
+    /** The numeric id of the insight, from an anomaly search row. */
+    insight_id: number
+    /**
+     * The `series_key` of an anomaly search row.
+     * @maxLength 64
+     */
+    series_key: string
+    /** The `interval` of the anomaly search row. It sets the length of the chart window.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi
+}
+
+export interface AnomalyPointsRequestApi {
+    /**
+     * The series to read points for, usually one page of anomaly search rows. At most 100.
+     * @minItems 1
+     * @maxItems 100
+     */
+    series: AnomalySeriesRefApi[]
+}
+
+export interface AnomalySeriesPointApi {
+    /** The start of the scored bucket, in the project timezone. */
+    bucket_start: string
+    /**
+     * The series value of the bucket at scoring time.
+     * @nullable
+     */
+    value: number | null
+    /** Whether the detector flagged the bucket. */
+    flag: boolean
+}
+
+export interface AnomalySeriesPointsApi {
+    /** The numeric id of the insight. */
+    insight_id: number
+    /** Identifies the series. */
+    series_key: string
+    /** The interval the chart window uses.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi
+    /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. */
+    date_from: string
+    /** The scored buckets of the series in the chart window, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. */
+    points: AnomalySeriesPointApi[]
+}
+
+export interface AnomalyPointsResponseApi {
+    /** The end of every chart window: the time of the request, in the project timezone. */
+    date_to: string
+    /** One entry per requested series, in request order. A series whose insight does not exist, or that the caller cannot read, is left out. A series with no scored bucket in its chart window has no points. */
+    series: AnomalySeriesPointsApi[]
+}
+
 /**
  * * `series` - Series
  * * `insight` - Insight
@@ -659,18 +722,6 @@ export interface AnomalyDashboardApi {
      * @nullable
      */
     name: string | null
-}
-
-export interface AnomalySeriesPointApi {
-    /** The start of the scored bucket, in the project timezone. */
-    bucket_start: string
-    /**
-     * The series value of the bucket at scoring time.
-     * @nullable
-     */
-    value: number | null
-    /** Whether the detector flagged the bucket. */
-    flag: boolean
 }
 
 export interface AnomalySeriesApi {
@@ -742,7 +793,7 @@ export interface AnomalySeriesApi {
     flagged_points: AnomalyFlaggedPointApi[]
     /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
     dashboards: AnomalyDashboardApi[]
-    /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+    /** Only with `include_points`. The scored buckets of the series in the chart window of its interval, oldest first. The chart window can start before `date_from`, so the points do not match `scored_buckets`. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. */
     points?: AnomalySeriesPointApi[]
 }
 
@@ -13333,7 +13384,7 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy
     /**
-     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
      */
     include_points?: boolean
     /**

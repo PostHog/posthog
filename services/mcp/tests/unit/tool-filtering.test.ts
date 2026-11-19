@@ -1121,6 +1121,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'workflows-email-activity',
             'workflows-supabase-auth-emails',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
