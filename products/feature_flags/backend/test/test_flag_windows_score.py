@@ -152,6 +152,14 @@ class TestScoreWindow(SimpleTestCase):
                 False,
             ),
             (
+                "a_weak_rise_with_the_exposure_rise_and_a_strong_one_three_hours_later",
+                {0: 0.027, 3: RISE_RATE},
+                PARAMETERS,
+                1.0,
+                False,
+            ),
+            ("a_rise_that_grows_after_its_first_hour", {0: 0.027, 1: RISE_RATE}, PARAMETERS, 1.0, True),
+            (
                 "with_the_exposure_rise_below_the_minimum_volume",
                 {0: RISE_RATE},
                 dataclasses.replace(PARAMETERS, min_exposed=5 * PEOPLE),
@@ -171,15 +179,16 @@ class TestScoreWindow(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("traffic_arrives_late", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], 3, 1.0),
-            ("a_step_after_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7, 0.7, 0.7], 3, 1.0),
-            ("small_moves_after_an_edit_that_doesnt_enable", False, [0.5, 0.49, 0.5, 0.52], 0, 1.0),
-            ("no_exposure_rise_after_an_edit_mid_hour", False, [0.5, 0.5], 0, 1.0, EDITED_AT + timedelta(minutes=30)),
-            ("errors_rise_an_hour_before_the_exposure_rise", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], 2, 0.0),
-            ("errors_rise_at_a_small_step_before_a_larger_one", True, [0.1, 0.1, 0.1, 0.7, 0.7, 0.7], 0, 1.0),
-            ("errors_rise_at_a_small_step_after_a_larger_one", True, [0.0, 0.6, 0.6, 0.7, 0.7, 0.7], 3, 1.0),
-            ("errors_rise_in_the_hour_of_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7], 0, 1.0),
-            ("errors_rise_when_the_share_recovers_from_a_dip", True, [0.5, 0.5, 0.5, 0.4, 0.5], 4, math.exp(-4 / 6)),
+            ("traffic_arrives_late", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], [3], 1.0),
+            ("a_step_after_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7, 0.7, 0.7], [3], 1.0),
+            ("small_moves_after_an_edit_that_doesnt_enable", False, [0.5, 0.49, 0.5, 0.52], [0], 1.0),
+            ("no_exposure_rise_after_an_edit_mid_hour", False, [0.5, 0.5], [0], 1.0, EDITED_AT + timedelta(minutes=30)),
+            ("errors_rise_an_hour_before_the_exposure_rise", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], [2], 0.0),
+            ("errors_rise_at_a_small_step_before_a_larger_one", True, [0.1, 0.1, 0.1, 0.7, 0.7, 0.7], [0], 1.0),
+            ("errors_rise_at_a_small_step_after_a_larger_one", True, [0.0, 0.6, 0.6, 0.7, 0.7, 0.7], [3], 1.0),
+            ("errors_rise_in_the_hour_of_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7], [0], 1.0),
+            ("errors_rise_before_the_exposure_rise_and_stay_up", True, [0.0, 0.0, 0.0, 1.0], [2, 3], 0.0),
+            ("errors_rise_when_the_share_recovers_from_a_dip", True, [0.5, 0.5, 0.5, 0.4, 0.5], [4], math.exp(-4 / 6)),
         ]
     )
     def test_the_proximity_counts_from_the_latest_exposure_step_before_the_error_rise(
@@ -187,13 +196,15 @@ class TestScoreWindow(SimpleTestCase):
         _name: str,
         enables: bool,
         shares: list[float],
-        rise_hour: int,
+        rise_hours: list[int],
         proximity: float,
         edited_at: datetime = EDITED_AT,
     ) -> None:
         edit = dataclasses.replace(EDIT, enables=enables, edited_at=edited_at)
 
-        result = _score(_exposure(shares), _errors(40, 40), _rates(len(shares), {rise_hour: RISE_RATE}), edit=edit)
+        result = _score(
+            _exposure(shares), _errors(40, 40), _rates(len(shares), dict.fromkeys(rise_hours, RISE_RATE)), edit=edit
+        )
 
         assert result.proximity == proximity
         assert result.suspicious is (proximity == 1.0)
@@ -294,6 +305,31 @@ class TestScoreWindow(SimpleTestCase):
         result = _score(_exposure(shares), _errors(40, 40), rates)
 
         assert result.level_4 == pytest.approx(expected)
+
+    @parameterized.expand(
+        [
+            (
+                "level_2",
+                [0.5] * 4,
+                [0.027, BASELINE_RATE, BASELINE_RATE, RISE_RATE],
+                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                0.72,
+            ),
+            (
+                "level_4",
+                [0.2, 0.5, 0.8, 0.8, 0.8, 0.8],
+                [0.015, 0.021, 0.027, BASELINE_RATE, BASELINE_RATE, RISE_RATE],
+                None,
+                0.7,
+            ),
+        ]
+    )
+    def test_a_later_error_spike_doesnt_weaken_a_level_with_an_error_rise_at_an_exposure_step(
+        self, _name: str, shares: list[float], rates: list[float], by_last_value: ErrorsByLastValue | None, score: float
+    ) -> None:
+        result = _score(_exposure(shares), _errors(40, 40, by_last_value), rates)
+
+        assert result.score == pytest.approx(score)
 
     @parameterized.expand(
         [

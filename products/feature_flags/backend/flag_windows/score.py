@@ -88,7 +88,9 @@ class WindowScore:
     exposed or everyone with the flag exposed, fewer than 5 people in a group, or an edit with watched conditions when
     `condition_match` is None or this source doesn't find it. Level 2 is None without exposure, when nobody or everyone
     with the flag is exposed, without the counts by last value, below the minimum volume, or for an edit with watched
-    conditions. Level 4 is None without an error rise or with fewer than two exposure steps.
+    conditions. Level 4 is None without an error rise or with fewer than two exposure steps. `proximity` is that of the
+    error rise closest after an exposure step, and weighs levels 2 and 4. Level 5 is weighed by the proximity of its
+    own error rise.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -154,28 +156,31 @@ def score_window(
     level_2 = _level_2(edit, exposure_since_edit, errors_since_edit, parameters)
 
     exposure_steps = _exposure_steps(edit, exposure, parameters.min_share_step)
-    error_rises = {start: hour_excess for start, hour_excess in excess.items() if hour_excess.z >= parameters.rise_z}
+    error_rises = _error_rises(excess, parameters.rise_z)
     # Without an error rise, the steps of the error rate are noise, and equal noise steps would look like a dose.
     level_4 = _level_4(shares, excess, parameters.min_share_step) if error_rises else None
     if error_rises:
+        proximities = {start: _proximity(start, exposure_steps, parameters) for start in error_rises}
         # Each rise counts by its own distance, so that a strong rise days later can't lend strength to an early one.
-        error_rise = max(
-            error_rises,
-            key=lambda start: _strength(error_rises[start], parameters) * _proximity(start, exposure_steps, parameters),
+        level_5_rise = max(
+            error_rises, key=lambda start: _strength(error_rises[start], parameters) * proximities[start]
         )
-        level_5 = _strength(error_rises[error_rise], parameters)
+        level_5 = _strength(error_rises[level_5_rise], parameters)
+        level_5_proximity = proximities[level_5_rise]
+        # Levels 2 and 4 don't come from one hour, so a later rise that the flag didn't cause can't weaken them.
+        proximity = max(proximities.values())
     else:
         # Without an error rise, the latest hour stands in for it, so weak evidence counts less as the window ages.
-        error_rise = max([*shares, *hours], default=edit.edited_at)
+        latest_hour = max([*shares, *hours], default=edit.edited_at)
         level_5 = max([0.0, *(_strength(hour_excess, parameters) for hour_excess in excess.values())])
-    proximity = _proximity(error_rise, exposure_steps, parameters)
+        proximity = level_5_proximity = _proximity(latest_hour, exposure_steps, parameters)
 
-    strengths = [parameters.weight_level_5 * level_5]
+    weighted = [parameters.weight_level_5 * level_5 * level_5_proximity]
     if level_2 is not None:
-        strengths.append(parameters.weight_level_2 * level_2)
+        weighted.append(parameters.weight_level_2 * level_2 * proximity)
     if level_4 is not None:
-        strengths.append(parameters.weight_level_4 * level_4)
-    score = max(strengths) * proximity
+        weighted.append(parameters.weight_level_4 * level_4 * proximity)
+    score = max(weighted)
 
     enough_volume = (
         exposure_since_edit is not None
@@ -207,6 +212,20 @@ def _split_has_volume(split: _Split, parameters: ScoreParameters) -> bool:
 
 def _strength(hour_excess: _Excess, parameters: ScoreParameters) -> float:
     return min(1.0, max(0.0, hour_excess.z) / parameters.full_strength_z)
+
+
+def _error_rises(excess: Mapping[datetime, _Excess], rise_z: float) -> dict[datetime, _Excess]:
+    """A run of consecutive hours at least `rise_z` over the baseline is one error rise. It starts in the first hour of
+    the run, so errors that rose before an exposure step stay before it, and it has the excess of the strongest hour."""
+    runs: list[list[datetime]] = []
+    for start, hour_excess in excess.items():
+        if hour_excess.z < rise_z:
+            continue
+        if runs and start - runs[-1][-1] == HOUR:
+            runs[-1].append(start)
+        else:
+            runs.append([start])
+    return {run[0]: max((excess[start] for start in run), key=lambda hour_excess: hour_excess.z) for run in runs}
 
 
 def _proximity(error_rise: datetime, exposure_steps: Sequence[datetime], parameters: ScoreParameters) -> float:
