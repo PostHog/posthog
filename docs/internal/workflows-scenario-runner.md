@@ -319,7 +319,6 @@ sequenceDiagram
 ```
 
 The janitor puts a stalled job back as `available` with a future `scheduled` time, so convergence waits for every unfinished job, not only the due ones.
-That is why `load` rejects a kill, freeze or connection-drop card whose `convergeWithin` cannot cover the janitor's stall recovery.
 
 ### SES feedback: a bounce reaches suppression
 
@@ -478,7 +477,6 @@ It rejects:
 
 - unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
 - ramp steps that do not add up to `drive.for`, or a step that does not scale higher than the one before;
-- a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
