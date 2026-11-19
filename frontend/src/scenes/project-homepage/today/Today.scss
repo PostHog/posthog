@@ -213,11 +213,15 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 .TodayPulse__name {
+    display: -webkit-box;
+    flex-grow: 1;
     overflow: hidden;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     font-size: 13px;
     color: var(--today-muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
 
     @container main-content (max-width: 600px) {
         contain: inline-size;
@@ -274,9 +278,7 @@ html[data-today-transition]::view-transition-new(root) {
 
 .TodayPulse__trigger,
 .TodayPulse__link {
-    @container main-content (max-width: 600px) {
-        flex: 1;
-    }
+    flex: 1;
 }
 
 .TodayPulse__row {

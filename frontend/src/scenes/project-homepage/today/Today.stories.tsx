@@ -1121,6 +1121,30 @@ export const HomeWithKeptNumbers: Story = {
     ],
 }
 
+const LONG_NUMBER_NAMES = [
+    'Weekly file uploads on paid plans',
+    'Sign-ups',
+    'Successful card payments this week',
+    'Active users',
+]
+
+export const HomeWithLongNumberNames: Story = {
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': withReadySlots({
+                    ...HIGHLIGHTS,
+                    pulse: HIGHLIGHTS.pulse.map((metric, index) => ({
+                        ...metric,
+                        name: LONG_NUMBER_NAMES[index] ?? metric.name,
+                    })),
+                }),
+            },
+        }),
+    ],
+}
+
 export const HomeWithIgnoredNumbers: Story = {
     decorators: [
         keepNumbers(
