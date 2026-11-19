@@ -135,6 +135,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge/usage': ['BusinessKnowledgeUsage', 'businessKnowledgeUsage'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
+    '/business-knowledge/libraries': ['BusinessKnowledgeLibraries', 'businessKnowledgeLibraries'],
+    '/business-knowledge/libraries/:id': ['BusinessKnowledgeLibrary', 'businessKnowledgeLibrary'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     '/canvases': ['Canvases', 'canvases'],
     '/canvases/new': ['CanvasNew', 'canvasNew'],
@@ -851,6 +853,12 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         iconType: 'business_knowledge',
     },
+    BusinessKnowledgeLibraries: {
+        name: 'Business knowledge libraries',
+        projectBased: true,
+        iconType: 'business_knowledge',
+    },
+    BusinessKnowledgeLibrary: { name: 'Knowledge library', projectBased: true, iconType: 'business_knowledge' },
     BusinessKnowledgeSource: {
         name: 'Knowledge source',
         projectBased: true,
@@ -1571,6 +1579,8 @@ export const productUrls = {
     businessKnowledgeUsage: (): string => '/business-knowledge/usage',
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
+    businessKnowledgeLibraries: (): string => '/business-knowledge/libraries',
+    businessKnowledgeLibrary: (id: string): string => `/business-knowledge/libraries/${id}`,
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     canvases: (): string => '/canvases',
     canvasNew: (spaceId?: string | null): string =>
@@ -2653,6 +2663,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'BusinessKnowledgePlayground',
             'BusinessKnowledgeUsage',
             'BusinessKnowledgeSettings',
+            'BusinessKnowledgeLibraries',
+            'BusinessKnowledgeLibrary',
             'BusinessKnowledgeSource',
         ],
     },
