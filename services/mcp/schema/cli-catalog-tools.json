@@ -28093,6 +28093,11 @@
                     "csv": false
                 },
                 {
+                    "param": "tags",
+                    "key": "tags",
+                    "csv": false
+                },
+                {
                     "param": "task_id",
                     "key": "task_id",
                     "csv": false
@@ -28137,6 +28142,7 @@
                     "title",
                     "summary",
                     "metrics",
+                    "tags",
                     "status",
                     "priority",
                     "actionability",

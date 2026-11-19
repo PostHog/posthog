@@ -2320,6 +2320,7 @@ class SignalReportViewSet(
         excluded = request.validated_query_data["exclude"]
         if excluded:
             queryset = queryset.exclude(id__in=excluded)
+        queryset = self._apply_signal_report_tags_filter(queryset, request.validated_query_data["tags"])
         has_pr = self._implementation_pr_report_filter()
         counts = queryset.order_by().aggregate(
             pull_requests=Count("id", filter=has_pr),
@@ -2629,6 +2630,15 @@ class SignalReportViewSet(
         if not search:
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+
+    @staticmethod
+    def _apply_signal_report_tags_filter(queryset, tags: list[str]):
+        # Any-of, like the scout fleet's tag filter. `&&` runs as a row filter on the team's
+        # already-scoped reports rather than through a GIN index, which every report write would
+        # have to maintain.
+        if not tags:
+            return queryset
+        return queryset.filter(tags__overlap=tags)
 
     def _datetime_query_param(self, name: str) -> datetime | None:
         raw = self.request.query_params.get(name)
@@ -3772,6 +3782,7 @@ class SignalReportViewSet(
             queryset = self.filter_queryset(self.get_queryset())
             if excluded:
                 queryset = queryset.exclude(id__in=excluded)
+            queryset = self._apply_signal_report_tags_filter(queryset, request.validated_query_data["tags"])
             if count_only:
                 total_count = queryset.count()
             else:

@@ -96,6 +96,7 @@ from products.signals.backend.report_search import (
     ReportMatchKind,
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
@@ -3589,6 +3590,17 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
             "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
         ),
     )
+    tags = RepeatedOrCommaSeparatedListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            "Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, "
+            "for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` "
+            f"matches `on-call`. At most {SignalReport.MAX_TAGS}. Omit for reports with any tags or none."
+        ),
+    )
     include_unlisted = serializers.BooleanField(
         required=False,
         default=False,
@@ -3598,6 +3610,14 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
             "by id always works, whatever this value is."
         ),
     )
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        if not value:
+            return []
+        tags = sorted({slug for raw in value if (slug := slugify_tag(raw))})
+        if not tags:
+            raise serializers.ValidationError("No usable tags in the filter once normalized to lowercase slugs.")
+        return tags
 
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
