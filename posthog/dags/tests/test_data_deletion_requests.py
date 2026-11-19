@@ -3207,14 +3207,40 @@ def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("execution_mode", [ExecutionMode.DEFERRED, ExecutionMode.IMMEDIATE])
-def test_event_removal_with_a_hogql_predicate_refuses_when_flag_evaluations_is_on_another_cluster(
-    cluster: ClickhouseCluster, execution_mode: ExecutionMode
+@pytest.mark.parametrize(
+    "execution_mode, hogql_predicate, refusal",
+    [
+        # The check for flag rows without an events copy reads both tables on one shard. It cannot run when the
+        # tables are on different clusters. The flag row here has an events copy. Without the refusal, an
+        # immediate request completes without knowing whether the predicate matched that copy.
+        pytest.param(
+            ExecutionMode.DEFERRED,
+            "properties.$browser = 'Chrome'",
+            "different cluster from its events copies",
+            id="deferred_with_predicate",
+        ),
+        pytest.param(
+            ExecutionMode.IMMEDIATE,
+            "properties.$browser = 'Chrome'",
+            "different cluster from its events copies",
+            id="immediate_with_predicate",
+        ),
+        # The queue fill's INSERT reads its source on the queue's own host, so it cannot read a table on
+        # another cluster.
+        pytest.param(
+            ExecutionMode.DEFERRED,
+            "",
+            "cannot queue uuids from sharded_flag_evaluations",
+            id="deferred_without_predicate",
+        ),
+    ],
+)
+def test_event_removal_refuses_when_flag_evaluations_is_on_another_cluster(
+    cluster: ClickhouseCluster, execution_mode: ExecutionMode, hogql_predicate: str, refusal: str
 ) -> None:
-    # The check for flag rows without an events copy reads both tables on one shard. It cannot run when the
-    # tables are on different clusters. The flag row here has an events copy. Without the refusal, an immediate
-    # request completes without knowing whether the predicate matched that copy.
-    request, _ = _deferred_hogql_flag_request(f"test-hogql-flag-other-cluster-{execution_mode.value}")
+    request, _ = _deferred_hogql_flag_request(
+        f"test-flag-other-cluster-{execution_mode.value}-{bool(hogql_predicate)}", hogql_predicate
+    )
     request.execution_mode = execution_mode.value
     request.save()
     ctx = _request_context(request)
@@ -3247,7 +3273,7 @@ def test_event_removal_with_a_hogql_predicate_refuses_when_flag_evaluations_is_o
     try:
         with (
             patch("posthog.dags.data_deletion_requests.resolve_placements", side_effect=placements),
-            pytest.raises(dagster.Failure, match="different cluster from its events copies"),
+            pytest.raises(dagster.Failure, match=refusal),
         ):
             _run_event_deletion(cluster, ctx)
         assert cluster.any_host(partial(_adhoc_pending_uuids, ctx.team_id)).result() == set()

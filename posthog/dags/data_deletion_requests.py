@@ -556,7 +556,8 @@ _IMMEDIATE_HOGQL_RETRY_HINT = (
 _HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON = (
     "the request carries a HogQL predicate, and this table is stored on a different cluster from its events "
     "copies. The check for rows without an events copy reads both tables on one shard, so it cannot run here, "
-    f"and this job cannot tell which of these rows the predicate may reach. See {COVERAGE_DOC}."
+    "and this job cannot tell which of these rows the predicate may reach. To proceed, narrow the request's "
+    f"events to ones this table never stores. See {COVERAGE_DOC}."
 )
 
 
