@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 from django.db import transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -190,6 +191,39 @@ def import_opt_outs_changed(team_id: int, opt_outs: Mapping[str, Iterable[str]],
             merged.append(row)
         MessageRecipientPreference.objects.bulk_update(merged, ["preferences", "updated_at"], batch_size=500)
     return inserted | {row.identifier for row in merged}
+
+
+def carry_opt_outs(team_id: int, addresses: Iterable[str], created_by_id: int | None) -> int:
+    """Give every spelling of each address the opt-outs stored under any of its spellings, because a send matches the
+    exact address it names.
+
+    `addresses` holds each spelling the import saw, from the provider or from the person it matched. A spelling an
+    opt-out was stored under counts too.
+    """
+    spellings: dict[str, set[str]] = {}
+    for address in addresses:
+        spellings.setdefault(address.lower(), set()).add(address)
+    if not spellings:
+        return 0
+    opted_out: dict[str, set[str]] = {}
+    stored = (
+        MessageRecipientPreference.objects.filter(team_id=team_id, deleted=False)
+        .annotate(lowered=Lower("identifier"))
+        .filter(lowered__in=list(spellings))
+        .values_list("lowered", "identifier", "preferences")
+    )
+    for lowered, identifier, preferences in stored.iterator(chunk_size=2000):
+        spellings[lowered].add(identifier)
+        opted_out.setdefault(lowered, set()).update(
+            category_id
+            for category_id, status in (preferences or {}).items()
+            if status == PreferenceStatus.OPTED_OUT.value
+        )
+    return import_opt_outs(
+        team_id,
+        {spelling: categories for lowered, categories in opted_out.items() for spelling in spellings[lowered]},
+        created_by_id,
+    )
 
 
 def import_categories(

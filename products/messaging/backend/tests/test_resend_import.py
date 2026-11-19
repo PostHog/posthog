@@ -6,7 +6,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -31,9 +31,14 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import resend, runs
-from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.base import (
+    ImportCredentialsInvalid,
+    ImportProviderUnavailable,
+    ImportStepBlocked,
+)
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 from products.workflows.backend.facade.workflows import get_workflow
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
@@ -73,6 +78,11 @@ class FakeResend:
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
+        if match := re.fullmatch(r"/contacts/([^/]+)", path):
+            for row in self.data["contacts"]:
+                if row["id"] == match.group(1):
+                    return self._response(200, {**row, "properties": self.data["contact_properties"].get(row["id"])})
+            return self._response(404, {"name": "not_found", "message": "Not found"})
         if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
                 if match.group(2) in (row["id"], row.get("alias")):
@@ -216,6 +226,26 @@ class TestResendImport(BaseTest):
                 runs.start_run(self.team.id, "resend", ["suppressions"], API_KEY, self.user.id)
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand([("new_people", "New people from contacts"), ("contact_properties", "Contact properties")])
+    def test_a_step_that_only_adds_to_contacts_needs_contacts_selected(self, step: str, label: str) -> None:
+        with self.assertRaisesRegex(runs.InvalidImportSteps, f"{label} needs Contacts selected too"):
+            runs.start_run(self.team.id, "resend", ["opt_outs", step], API_KEY, self.user.id)
+
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
+        self.resend.failures["/contacts"] = [(500, {})] * 10
+        run = runs.start_run(self.team.id, "resend", ["opt_outs", "contacts"], API_KEY, self.user.id)
+
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+        with self.assertRaises(ImportStepBlocked):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self.resend.calls.count("/contacts") == 4
+        run.refresh_from_db()
+        assert "Unsubscribed contacts" in run.progress["contacts"]["last_error"]
 
     @parameterized.expand([("rate_limit", 429, {"retry-after": "7"}, 7.0), ("server_error", 503, {}, 2.0)])
     def test_a_passing_failure_waits_and_the_step_completes(
@@ -549,6 +579,121 @@ class TestResendImport(BaseTest):
         assert [item.label for item in domains.items] == [domain["name"] for domain in FIXTURES["domains"]]
         org_domain = next(item for item in domains.items if item.label == "mail.example.org")
         assert any("feedback" in note for note in org_domain.notes)
+
+
+class TestResendContacts(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.resend = FakeResend()
+        _sync_email_template()
+        client = "products.messaging.backend.services.resend_client"
+        for target, kwargs in (
+            (f"{client}.requests.get", {"side_effect": self.resend.get}),
+            (f"{client}.REQUESTS_PER_SECOND", {"new": 100000}),
+            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
+        ):
+            patcher = patch(target, **kwargs)
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.people = PeopleImportRecorder(self)
+
+    def test_an_opt_out_reaches_the_spelling_the_matched_person_has(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+        # Stored by an earlier import under the provider's spelling.
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="happy@example.com", preferences={"$all": "OPTED_OUT"}
+        )
+
+        run = runs.start_run(self.team.id, "resend", ["contacts"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
+        )
+        assert preferences["Happy@Example.com"] == {"$all": "OPTED_OUT"}
+
+    @parameterized.expand([("properties_defined", True), ("no_properties_defined", False)])
+    def test_contact_properties_fill_only_what_the_person_lacks(self, _name: str, defined: bool) -> None:
+        if not defined:
+            self.resend.data["contact-properties"] = []
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(self.team.id, "resend", ["contacts", "contact_properties"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+
+        sent = [json.loads(rows) for rows in self.people.stored.values()]
+        assert all(person["fill_only"] for rows in sent for person in rows)
+        if defined:
+            # The identity and $ names stay out, and a property with no value adds nothing.
+            assert sent[-1] == [
+                {
+                    "distinct_id": "user-hal",
+                    "properties": {"email": "happy@example.com", "plan": "pro", "seats": "3"},
+                    "fill_only": True,
+                }
+            ]
+            assert run.progress["contact_properties"]["counts"] == {"people": 1, "contacts": 4}
+        else:
+            assert run.progress["contact_properties"]["status"] == "completed"
+            assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
+
+    @parameterized.expand(
+        [
+            (
+                "with_new_people",
+                ["contacts", "new_people", "automations"],
+                [("send Resend contacts", ["unsubscribed@example.com", "left-a-topic@example.com", "user-hal"])],
+                # The people import only takes addresses Django validates, which leaves out Björk's.
+                {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
+            ),
+            (
+                "matching_people_only",
+                ["contacts", "automations"],
+                [("send Resend contacts", ["user-hal"])],
+                {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
+            ),
+        ]
+    )
+    def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
+        self, _name: str, steps: list[str], sent: list[tuple[str, list[str]]], counts: dict[str, int]
+    ) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        runs.finish_run(self.team.id, run.id)
+        run.refresh_from_db()
+
+        assert self.people.imports == sent
+        assert self.people.properties["user-hal"] == {
+            "email": "happy@example.com",
+            "first_name": "Hal",
+            "last_name": "Happy",
+        }
+        assert run.progress["contacts"]["counts"] == counts
+        segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
+        assert segment_cohorts.count() == 1
+        workflow = get_workflow(
+            team_id=self.team.id,
+            workflow_id=next(
+                item["url"].split("/")[2]
+                for item in run.progress["automations"]["items"]
+                if item["label"] == "Welcome series"
+            ),
+            user_access_control=None,
+            required_level=None,
+        )
+        tag = next(action for action in cast(list[dict[str, Any]], workflow.actions) if action["id"] == "tag")
+        assert tag["config"]["inputs"]["cohort_id"]["value"] == segment_cohorts.get().id
 
 
 class TestResendTemplateConversion(SimpleTestCase):
