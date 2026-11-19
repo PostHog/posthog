@@ -247,6 +247,14 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     depotBackend(
+        { name: 'ready PR with Trunk uploads', vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { runs: ['trunk-ownership-map', 'turbo-tests', 'django'] }
+    ),
+    depotBackend(
+        { name: 'master push with Trunk uploads', github: push(), vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { skipped: ['trunk-ownership-map'] }
+    ),
+    depotBackend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
