@@ -88,40 +88,50 @@ describe('setupExpressApp JSON body limit', () => {
         expect(res.body).toEqual({ ok: true })
     })
 
-    it.each([
+    const atLimit = JSON.stringify({ data: 'x'.repeat(1024 - JSON.stringify({ data: '' }).length) })
+    const encoders = [
         ['gzip', gzipSync],
         ['deflate', deflateSync],
         ['br', brotliCompressSync],
-    ] as const)(
-        'parses a %s JSON body at the limit, answers one byte over with 413 and a malformed one with 400',
-        async (encoding, compress) => {
-            const post = (body: Buffer) => {
-                const req = supertest(app)
-                    .post('/body')
-                    .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-                req.write(body)
-                return req
-            }
+    ] as const
 
-            const atLimit = JSON.stringify({ data: 'x'.repeat(1024 - JSON.stringify({ data: '' }).length) })
-            const valid = await post(compress(atLimit))
-            const overByOne = await post(compress(atLimit.replace('"data":"', '"data":"x')))
-            const malformed = await post(Buffer.from('this is not compressed data'))
-            const next = await supertest(app).post('/echo').send({ data: 'x' })
+    it.each(
+        encoders.flatMap(([encoding, compress]) => [
+            [
+                `a ${encoding} JSON body at the limit`,
+                encoding,
+                compress(atLimit),
+                200,
+                { parsed: parseJSON(atLimit), raw: atLimit },
+            ],
+            [
+                `a ${encoding} JSON body one byte over the limit`,
+                encoding,
+                compress(atLimit.replace('"data":"', '"data":"x')),
+                413,
+                { status: 'error', error: 'Request entity too large' },
+            ],
+            [
+                `a malformed ${encoding} body`,
+                encoding,
+                Buffer.from('this is not compressed data'),
+                400,
+                { status: 'error', error: 'Malformed compressed body' },
+            ],
+        ])
+    )('answers %s, then keeps serving', async (_case, encoding, body, status, responseBody) => {
+        const req = supertest(app)
+            .post('/body')
+            .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+        req.write(body)
+        const res = await req
+        const next = await supertest(app).post('/echo').send({ data: 'x' })
 
-            expect({
-                valid: [valid.status, valid.body],
-                overByOne: [overByOne.status, overByOne.body],
-                malformed: [malformed.status, malformed.body],
-                next: next.status,
-            }).toEqual({
-                valid: [200, { parsed: parseJSON(atLimit), raw: atLimit }],
-                overByOne: [413, { status: 'error', error: 'Request entity too large' }],
-                malformed: [400, { status: 'error', error: 'Malformed compressed body' }],
-                next: 200,
-            })
-        }
-    )
+        expect({ response: [res.status, res.body], next: next.status }).toEqual({
+            response: [status, responseBody],
+            next: 200,
+        })
+    })
 
     it.each(['gzip', 'deflate', 'br'] as const)(
         'answers a %s JSON body that decodes past the limit with 413 before it reaches an invalid end',

@@ -403,29 +403,32 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             }
         )
 
-        it('answers a malformed or check-failed gzip notification with 400, then records a valid one like a plain one', async () => {
-            const postGzip = (body: Buffer) => {
-                const req = supertest(app)
-                    .post('/public/m/ses_sandbox_webhook')
-                    .set({ 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip' })
-                req.write(body)
-                return req
-            }
+        const postGzip = (body: Buffer) => {
+            const req = supertest(app)
+                .post('/public/m/ses_sandbox_webhook')
+                .set({ 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip' })
+            req.write(body)
+            return req
+        }
 
-            const failedCheck = gzipSync(notification(sesRecord(team.id, complaint())))
-            failedCheck[failedCheck.length - 1] ^= 0xff
+        it.each([
+            ['a malformed gzip notification', () => Buffer.from('this is not compressed data')],
+            [
+                'a gzip notification that fails its check',
+                () => {
+                    const failedCheck = gzipSync(notification(sesRecord(team.id, complaint())))
+                    failedCheck[failedCheck.length - 1] ^= 0xff
+                    return failedCheck
+                },
+            ],
+        ])('answers %s with 400 and records nothing', async (_case, makeBody) => {
+            const rejected = await postGzip(makeBody())
 
-            const malformed = await postGzip(Buffer.from('this is not compressed data'))
-            const checkFailed = await postGzip(failedCheck)
-            const rowsAfterFailures = await suppressionRows()
-            const valid = await postGzip(gzipSync(notification(sesRecord(team.id, complaint()))))
+            expect({ status: rejected.status, rows: await suppressionRows() }).toEqual({ status: 400, rows: [] })
+        })
 
-            expect({
-                malformed: malformed.status,
-                checkFailed: checkFailed.status,
-                rowsAfterFailures,
-                valid: valid.status,
-            }).toEqual({ malformed: 400, checkFailed: 400, rowsAfterFailures: [], valid: 200 })
+        it('records a gzip notification like a plain one', async () => {
+            expect((await postGzip(gzipSync(notification(sesRecord(team.id, complaint()))))).status).toBe(200)
             expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
         })
 
