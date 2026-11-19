@@ -25,7 +25,8 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { short } from '../charts/format'
+import { compactNumber } from 'lib/utils/numbers'
+
 import { FieldRow, OptionSelect, Segmented } from '../editor/OptionsForm'
 import {
     EVENT_OPTIONS,
@@ -140,7 +141,10 @@ export function EventsBuilder({
         actions.actions.filter((a) => a.description).map((a) => [a.pick, `Action · ${a.description}`])
     )
     const pickValues = Object.fromEntries(
-        Object.entries(events.details ?? {}).map(([e, n]) => [e, Number.isFinite(Number(n)) ? short(Number(n)) : n])
+        Object.entries(events.details ?? {}).map(([e, n]) => [
+            e,
+            Number.isFinite(Number(n)) ? compactNumber(Number(n)) : n,
+        ])
     )
     const eventPicker = (i: number, label: string): React.JSX.Element => (
         <Picker

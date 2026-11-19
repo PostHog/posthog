@@ -3498,9 +3498,6 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
-      zod:
-        specifier: '*'
-        version: 4.6.7
 
   products/data_catalog:
     dependencies:
@@ -24534,8 +24531,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.537.0:
-    resolution: {integrity: sha512-50B9H7Pk0O9HZPyv8PsYxU+1dyNMJ5sWq271zAgUlRQ5ND+j4E6WytseO2EeXqJdEhSCwVTEX7OTDoCMQjakfw==}
+  unlayer-types@1.535.0:
+    resolution: {integrity: sha512-dyecz94Tbm62UZDbdotYOONS2OeEpl2m3NuhJqvK7us3uh53Sfu6BdN+IRPJhNDU+e7elyfAjfPwS9e1OgytQA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30040,11 +30037,11 @@ snapshots:
       eventsource-parser: 3.1.1
       jose: 6.2.3
       pkce-challenge: 5.0.0
-      zod: 4.6.7
+      zod: 4.3.6
 
   '@modelcontextprotocol/core@2.4.0':
     dependencies:
-      zod: 4.6.7
+      zod: 4.3.6
 
   '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.3.6)':
     dependencies:
@@ -45179,7 +45176,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.537.0
+      unlayer-types: 1.535.0
 
   react-grid-layout@2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -47577,7 +47574,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.537.0: {}
+  unlayer-types@1.535.0: {}
 
   unpipe@1.0.0: {}
 

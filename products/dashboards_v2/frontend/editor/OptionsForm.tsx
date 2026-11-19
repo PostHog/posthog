@@ -1,207 +1,18 @@
-import { z } from 'zod'
-
 import {
     Collapsible,
     CollapsibleContent,
     CollapsibleTrigger,
-    Input,
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
     SelectValue,
-    Slider,
     Switch,
     Tabs,
     TabsList,
     TabsTrigger,
-    Textarea,
-    ToggleGroup,
-    ToggleGroupItem,
     cn,
 } from '@posthog/quill'
-
-export function OptionsForm({
-    schema,
-    value,
-    onChange,
-}: {
-    schema: z.ZodObject<any>
-    value: Record<string, unknown>
-    onChange: (v: Record<string, unknown>) => void
-}): React.JSX.Element {
-    const set = (k: string, v: unknown): void => onChange({ ...value, [k]: v })
-    const groups = new Map<string, [string, z.ZodTypeAny][]>()
-    for (const [key, t] of Object.entries(schema.shape as Record<string, z.ZodTypeAny>)) {
-        const m = t.meta() ?? {}
-        if (m.showIf && !m.showIf(value)) {
-            continue
-        }
-        const g = m.group ?? 'Options'
-        groups.set(g, [...(groups.get(g) ?? []), [key, t]])
-    }
-    return (
-        <div className="flex flex-col gap-2">
-            {[...groups].map(([g, fields]) => (
-                <Section key={g} title={g}>
-                    {fields.map(([key, t]) => (
-                        <OptionField key={key} name={key} type={t} value={value[key]} onChange={(v) => set(key, v)} />
-                    ))}
-                </Section>
-            ))}
-        </div>
-    )
-}
-
-function OptionField({
-    name,
-    type,
-    value: v,
-    onChange,
-}: {
-    name: string
-    type: z.ZodTypeAny
-    value: unknown
-    onChange: (v: unknown) => void
-}): React.JSX.Element {
-    const m = type.meta() ?? {}
-    const inner = unwrap(type)
-    const title = m.title ?? humanize(name)
-    const label = (o: string): string => m.labels?.[o] ?? humanize(o)
-    const optional = type instanceof z.ZodOptional
-    if (inner instanceof z.ZodBoolean) {
-        return (
-            <FieldRow label={title} description={m.description} inline>
-                <Switch checked={!!v} onCheckedChange={(c: boolean) => onChange(c)} />
-            </FieldRow>
-        )
-    }
-    if (inner instanceof z.ZodEnum) {
-        const opts = (inner as any).options as string[]
-        const all = optional ? [OFF, ...opts] : opts
-        const lbl = (o: string): string => (o === OFF ? 'Off' : label(o))
-        const pick = (x: string): void => onChange(x === OFF ? undefined : x)
-        if (all.length <= 4 && all.reduce((n, o) => n + lbl(o).length, 0) <= 30) {
-            return (
-                <FieldRow label={title} description={m.description}>
-                    <Segmented options={all.map((o) => [o, lbl(o)])} value={String(v ?? OFF)} onChange={pick} />
-                </FieldRow>
-            )
-        }
-        return (
-            <FieldRow label={title} description={m.description}>
-                <OptionSelect
-                    className="h-8 w-full text-xs"
-                    options={all.map((o) => [o, lbl(o)] as const)}
-                    value={String(v ?? OFF)}
-                    onChange={pick}
-                />
-            </FieldRow>
-        )
-    }
-    if (inner instanceof z.ZodArray && unwrap((inner as any).element) instanceof z.ZodEnum) {
-        const opts = (unwrap((inner as any).element) as any).options as string[]
-        const cur = Array.isArray(v) ? (v as string[]) : []
-        return (
-            <FieldRow label={title} description={m.description}>
-                <ToggleGroup
-                    multiple
-                    variant="outline"
-                    size="sm"
-                    spacing={4}
-                    className="dash-segmented flex-wrap"
-                    value={cur}
-                    onValueChange={(x: string[]) => onChange(x.length ? opts.filter((o) => x.includes(o)) : undefined)}
-                >
-                    {opts.map((o) => (
-                        <ToggleGroupItem key={o} value={o} className="h-7 px-2 text-xs">
-                            {label(o)}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
-            </FieldRow>
-        )
-    }
-    if (inner instanceof z.ZodArray) {
-        return (
-            <FieldRow label={title} description={m.description}>
-                <Input
-                    className="h-8 text-xs"
-                    defaultValue={Array.isArray(v) ? v.join(', ') : ''}
-                    key={Array.isArray(v) ? v.join(',') : ''}
-                    onBlur={(e) => {
-                        const list = e.target.value
-                            .split(',')
-                            .map((x) => x.trim())
-                            .filter(Boolean)
-                        onChange(list.length ? list : undefined)
-                    }}
-                />
-            </FieldRow>
-        )
-    }
-    if (inner instanceof z.ZodNumber && m.range) {
-        const [min, max] = m.range
-        return (
-            <FieldRow label={title} description={m.description}>
-                <div className="flex items-center gap-3">
-                    <Slider
-                        className={`flex-1 ${typeof v === 'number' ? '' : 'opacity-40'}`}
-                        min={min}
-                        max={max}
-                        value={typeof v === 'number' ? v : max}
-                        onValueChange={(x: number | readonly number[]) => onChange(Array.isArray(x) ? x[0] : x)}
-                    />
-                    <span className="w-12 text-right text-xs tabular-nums text-muted-foreground">
-                        {typeof v === 'number' ? v : 'auto'}
-                    </span>
-                    {optional && typeof v === 'number' && (
-                        <button
-                            type="button"
-                            className="text-xs text-muted-foreground hover:text-foreground"
-                            onClick={() => onChange(undefined)}
-                        >
-                            Reset
-                        </button>
-                    )}
-                </div>
-            </FieldRow>
-        )
-    }
-    if (inner instanceof z.ZodNumber) {
-        return (
-            <FieldRow label={title} description={m.description}>
-                <Input
-                    type="number"
-                    className="h-8 text-xs"
-                    value={String(v ?? '')}
-                    onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-                />
-            </FieldRow>
-        )
-    }
-    if (name === 'markdown') {
-        return (
-            <FieldRow label={title} description={m.description}>
-                <Textarea
-                    rows={10}
-                    className="font-mono text-xs"
-                    value={String(v ?? '')}
-                    onChange={(e) => onChange(e.target.value)}
-                />
-            </FieldRow>
-        )
-    }
-    return (
-        <FieldRow label={title} description={m.description}>
-            <Input
-                className="h-8 text-xs"
-                value={String(v ?? '')}
-                onChange={(e) => onChange(e.target.value || undefined)}
-            />
-        </FieldRow>
-    )
-}
 
 export function Section({
     title,
@@ -365,26 +176,4 @@ export function OptionSelect<T extends string>({
             </SelectContent>
         </Select>
     )
-}
-
-const OFF = '__off'
-const humanize = (k: string): string =>
-    k
-        .replace(/_/g, ' ')
-        .replace(/([a-z])([A-Z])/g, '$1 $2')
-        .replace(/^./, (c) => c.toUpperCase())
-        .replace(/ ([A-Z])/g, (_, c: string) => ` ${c.toLowerCase()}`)
-
-function unwrap(t: z.ZodTypeAny): z.ZodTypeAny {
-    let cur: any = t
-    while (
-        cur &&
-        (cur instanceof z.ZodDefault ||
-            cur instanceof z.ZodOptional ||
-            cur instanceof z.ZodNullable ||
-            cur instanceof z.ZodPipe)
-    ) {
-        cur = cur instanceof z.ZodPipe ? cur.def.out : (cur.def?.innerType ?? cur._def?.innerType ?? cur.unwrap?.())
-    }
-    return cur
 }

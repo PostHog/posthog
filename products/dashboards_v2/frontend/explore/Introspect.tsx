@@ -29,8 +29,8 @@ import {
 } from '@posthog/quill'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { compactNumber } from 'lib/utils/numbers'
 
-import { short } from '../charts/format'
 import { Segmented } from '../editor/OptionsForm'
 import { runQuery } from '../lib/api'
 import { useDebounced } from '../lib/hooks'
@@ -431,7 +431,7 @@ function ListWithDetails({
 
 const Count = ({ n, unit }: { n: number; unit: string }): React.JSX.Element => (
     <span className="shrink-0 tabular-nums text-muted-foreground" title={`${n.toLocaleString()} ${unit}`}>
-        {short(n)} <span className="opacity-70">{unit}</span>
+        {compactNumber(n)} <span className="opacity-70">{unit}</span>
     </span>
 )
 const Loading = ({ what }: { what: string }): React.JSX.Element => (
@@ -470,7 +470,7 @@ function Entities({
             <ListWithDetails
                 sections={[
                     {
-                        title: metrics.total ? `${short(metrics.total)} metrics` : undefined,
+                        title: metrics.total ? `${compactNumber(metrics.total)} metrics` : undefined,
                         rows,
                         status: metrics.isLoading ? (
                             <Loading what="Finding metrics" />
@@ -520,7 +520,7 @@ function Entities({
             sections={[
                 {
                     title: all.length
-                        ? `${short(all.length)} ${nav.source === 'events' ? 'events · last 7 days' : 'services · last hour'}`
+                        ? `${compactNumber(all.length)} ${nav.source === 'events' ? 'events · last 7 days' : 'services · last hour'}`
                         : undefined,
                     rows: [...allServices, ...rows],
                     status: t.isLoading ? <Loading what={`Counting ${nav.source}`} /> : <Failed error={t.error} />,
@@ -735,7 +735,7 @@ function useAttributeSections(
 const SectionTitle = ({ text, n }: { text: string; n: number }): React.JSX.Element => (
     <span className="flex items-center gap-1.5">
         {text}
-        {n > 0 && <span className="font-normal normal-case tabular-nums">{short(n)}</span>}
+        {n > 0 && <span className="font-normal normal-case tabular-nums">{compactNumber(n)}</span>}
     </span>
 )
 const metricFilters = (nav: Nav): Filter[] =>
@@ -780,7 +780,7 @@ function Attributes({
                             <span key={t.id} className="flex items-center gap-1.5">
                                 {TAB_LABEL[t.id]}
                                 <span className="tabular-nums text-muted-foreground">
-                                    {t.loading && !t.n ? '…' : short(t.n)}
+                                    {t.loading && !t.n ? '…' : compactNumber(t.n)}
                                 </span>
                             </span>,
                         ])}

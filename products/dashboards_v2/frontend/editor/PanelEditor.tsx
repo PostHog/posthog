@@ -24,14 +24,6 @@ import {
     ResizableHandle,
     ResizablePanel,
     ResizablePanelGroup,
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectGroupLabel,
-    SelectItem,
-    SelectSeparator,
-    SelectTrigger,
-    SelectValue,
     Switch,
     Tabs,
     TabsContent,
@@ -42,10 +34,7 @@ import {
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { formatValue } from '../charts/format'
-import type { DataFrame } from '../charts/frame'
-import { toXSeries } from '../charts/frames'
-import { vizRegistry } from '../charts/registry'
+import { CHART_UNITS, THRESHOLD_COLORS, chartType } from '../charts/chartTypes'
 import { dashboardV2Logic } from '../dashboard/dashboardV2Logic'
 import {
     defaultQuery,
@@ -63,11 +52,10 @@ import {
 import { BuilderTime, QueryBuilder } from '../explore/Builders'
 import { useUsage } from '../lib/api'
 import { useLocalCopy } from '../lib/useLocalCopy'
-import { DashboardV2SamplePanel, useSampleFrames } from '../panel/DashboardV2SamplePanel'
-import type { Panel as PanelSpec, Target } from '../spec'
-import { ColorSwatch, SWATCHES } from './ColorScheme'
+import { DashboardV2SamplePanel } from '../panel/DashboardV2SamplePanel'
+import type { Panel as PanelSpec, Target, Threshold } from '../spec'
 import { confirmDialog } from './Confirm'
-import { FieldRow, OptionSelect, Section, Segmented, Toggle } from './OptionsForm'
+import { FieldRow, OptionSelect, Section, Segmented } from './OptionsForm'
 import type { PanelEditorLayout, PanelEditorMode } from './panelEditorLogic'
 import { VizOptions } from './VizPicker'
 
@@ -336,13 +324,11 @@ function EditBody({
             flushRef.current = undefined
         }
     }, [flush, flushRef])
-    const frames = useSampleFrames(id, local)
     const preview = <DashboardV2SamplePanel id={id} panel={local} onEditPanel={setLocal} />
     const form = (tabs?: Tab[]): JSX.Element => (
         <PanelForm
             panel={local}
             projectId={String(currentProjectId ?? '')}
-            frames={frames}
             tabs={tabs}
             time={timeRange}
             onChange={setLocal}
@@ -432,18 +418,19 @@ const SOURCES: [PanelSource, React.ReactNode][] = [
     ],
 ]
 
+const NO_UNIT = 'none'
+const UNITS = CHART_UNITS.map(([unit, label]) => [unit || NO_UNIT, label] as const)
+
 const DEFAULT_TIME = { from: 'now-1h', to: 'now' }
 export function PanelForm({
     panel,
     projectId,
-    frames = [],
     tabs = TABS.map(([t]) => t),
     time = DEFAULT_TIME,
     onChange,
 }: {
     panel: PanelSpec
     projectId: string
-    frames?: DataFrame[]
     tabs?: Tab[]
     time?: { from: string; to: string }
     onChange: (p: PanelSpec) => void
@@ -469,7 +456,7 @@ export function PanelForm({
     }
     const fc = local.fieldConfig ?? {}
     const source = panelSource(local)
-    const sources = SOURCES.filter(([value]) => value === 'series' || value === source || value in vizRegistry)
+    const sources = SOURCES.filter(([value]) => value === 'series' || value === source || !!chartType(value))
     const stash = useRef<Partial<Record<PanelSource, PanelSpec>>>({})
     const pickSource = (v: string): void => {
         if (v === source) {
@@ -522,14 +509,6 @@ export function PanelForm({
                             />
                         </div>
                     </FieldRow>
-                    {local.viz?.type !== 'text' && (
-                        <Toggle
-                            label="Hide when empty"
-                            hint="When viewing, leave this panel out while its queries return nothing"
-                            checked={!!local.hideWhenEmpty}
-                            onChange={(c) => set({ hideWhenEmpty: c || undefined })}
-                        />
-                    )}
                     {source !== 'series' ? (
                         <BuiltQuery panel={local} target={targets[0]!} projectId={projectId} onChange={onChange} />
                     ) : (
@@ -548,7 +527,6 @@ export function PanelForm({
                             <Button variant="outline" size="sm" onClick={addQuery} data-attr="dashboard-v2-add-query">
                                 <IconPlus /> Add query
                             </Button>
-                            <Formulas panel={local} onChange={set} />
                             <div className="text-[11px] text-muted-foreground">
                                 Variables: <code>$name</code>, <code>${'{name:regex}'}</code>, <code>$__interval</code>,{' '}
                                 <code>$__range</code>. HogQL also takes <code>{'{date_from}'}</code> and{' '}
@@ -654,35 +632,26 @@ export function PanelForm({
                                     </FieldRow>
                                 </div>
                             </Section>
-                            <Section title="Drilldowns" defaultOpen={!!local.drilldowns?.length}>
-                                <DrilldownsEditor panel={local} onChange={(drilldowns) => set({ drilldowns })} />
-                            </Section>
                         </>
                     )}
                 </TabsContent>
                 <TabsContent value="viz" className="pt-3">
-                    <VizOptions
-                        panel={local}
-                        frames={frames}
-                        onChange={(viz) => onChange(withViz(local, viz))}
-                        onFieldConfig={(fieldConfig) => set({ fieldConfig })}
-                    />
+                    <VizOptions panel={local} onChange={(viz) => onChange(withViz(local, viz))} />
                 </TabsContent>
                 <TabsContent value="field" className="flex flex-col gap-2 pt-3">
                     <Section title="Standard options">
-                        <UnitPicker
-                            unit={fc.unit}
-                            decimals={fc.decimals}
-                            onChange={(unit) => set({ fieldConfig: { ...fc, unit } })}
-                        />
-                        <div className="grid grid-cols-3 gap-2">
-                            <FieldRow label="Decimals">
-                                <NumberInput
-                                    value={fc.decimals}
-                                    placeholder="Auto"
-                                    onChange={(decimals) => set({ fieldConfig: { ...fc, decimals } })}
-                                />
-                            </FieldRow>
+                        <FieldRow label="Unit" description="How values are formatted">
+                            <OptionSelect
+                                className="h-8 w-full text-xs"
+                                aria-label="Unit"
+                                options={UNITS}
+                                value={fc.unit || NO_UNIT}
+                                onChange={(unit) =>
+                                    set({ fieldConfig: { ...fc, unit: unit === NO_UNIT ? undefined : unit } })
+                                }
+                            />
+                        </FieldRow>
+                        <div className="grid grid-cols-2 gap-2">
                             <FieldRow label="Min">
                                 <NumberInput
                                     value={fc.min}
@@ -704,26 +673,6 @@ export function PanelForm({
                             value={fc.thresholds}
                             onChange={(thresholds) => set({ fieldConfig: { ...fc, thresholds } })}
                         />
-                    </Section>
-                    <Section title="Value rules" defaultOpen={!!fc.mappings?.length}>
-                        <RulesEditor
-                            value={fc.mappings}
-                            onChange={(mappings) => set({ fieldConfig: { ...fc, mappings } })}
-                        />
-                    </Section>
-                    <SeriesFields panel={local} frames={frames} onChange={set} />
-                    <Section title="Caching" defaultOpen={!!local.cache?.ttl}>
-                        <FieldRow
-                            label="Cache TTL"
-                            description="How long a result is served before it is refreshed, for example 60s or 5m"
-                        >
-                            <Input
-                                className="h-8 text-xs"
-                                placeholder="Default"
-                                value={local.cache?.ttl ?? ''}
-                                onChange={(e) => set({ cache: e.target.value ? { ttl: e.target.value } : undefined })}
-                            />
-                        </FieldRow>
                     </Section>
                 </TabsContent>
                 <TabsContent value="json" className="flex flex-col gap-2 pt-3">
@@ -1002,150 +951,6 @@ function QueryCard({
     )
 }
 
-const UNIT_GROUPS: [string, [unit: string, label: string, sample: number][]][] = [
-    [
-        'Number',
-        [
-            ['short', 'Short', 1234567],
-            ['locale', 'Full number', 1234567],
-            ['%', 'Percent (0 to 100)', 42.5],
-            ['percentunit', 'Percent (0 to 1)', 0.425],
-        ],
-    ],
-    ['Currency', [['currencyUSD', 'US dollars', 1234567]]],
-    [
-        'Data',
-        [
-            ['bytes', 'Bytes', 1234567],
-            ['Bps', 'Bytes/s', 1234567],
-        ],
-    ],
-    [
-        'Time',
-        [
-            ['ms', 'Milliseconds', 450],
-            ['s', 'Seconds', 93],
-        ],
-    ],
-    [
-        'Rate',
-        [
-            ['req/s', 'Requests/s', 1234],
-            ['ops', 'Ops/s', 1234],
-            ['cores', 'CPU cores', 2.5],
-        ],
-    ],
-]
-const AUTO = '__auto',
-    CUSTOM = '__custom'
-const KNOWN_UNITS = new Map(
-    UNIT_GROUPS.flatMap(([, us]) => us.map(([u, l, x]) => [u, { label: l, sample: x }] as const))
-)
-function splitAffix(unit?: string): [string, string] | undefined {
-    if (unit?.startsWith('prefix:')) {
-        const [pre = '', suf = ''] = unit.slice(7).split('|suffix:')
-        return [pre, suf]
-    }
-    if (unit?.startsWith('suffix:')) {
-        return ['', unit.slice(7)]
-    }
-}
-const joinAffix = (pre: string, suf: string): string | undefined =>
-    pre ? `prefix:${pre}${suf ? `|suffix:${suf}` : ''}` : suf ? `suffix:${suf}` : undefined
-
-function UnitPicker({
-    unit,
-    decimals,
-    auto = 'Auto',
-    onChange,
-}: {
-    unit?: string
-    decimals?: number
-    auto?: string
-    onChange: (u: string | undefined) => void
-}): React.JSX.Element {
-    const affix = splitAffix(unit)
-    const [picked, setCustom] = useState(false)
-    const custom = picked || !!affix
-    const [pre, suf] = affix ?? ['', '']
-    const value = custom ? CUSTOM : !unit ? AUTO : unit
-    const label = (v: string): string =>
-        v === AUTO ? auto : v === CUSTOM ? 'Custom prefix or suffix' : (KNOWN_UNITS.get(v)?.label ?? v)
-    const example = (u: string): React.JSX.Element => (
-        <span className="ml-auto pl-4 text-muted-foreground tabular-nums">
-            {formatValue(KNOWN_UNITS.get(u)?.sample ?? 1234567, u)}
-        </span>
-    )
-    return (
-        <FieldRow label="Unit" description="How values are formatted">
-            <Select
-                value={value}
-                onValueChange={(v: any) => {
-                    setCustom(v === CUSTOM)
-                    if (v !== CUSTOM) {
-                        onChange(v === AUTO ? undefined : v)
-                    }
-                }}
-            >
-                <SelectTrigger className="h-8 w-full text-xs" aria-label="Unit">
-                    <SelectValue>{(v: any) => label(v)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value={AUTO}>{auto}</SelectItem>
-                    {UNIT_GROUPS.map(([g, us]) => (
-                        <SelectGroup key={g}>
-                            <SelectGroupLabel>{g}</SelectGroupLabel>
-                            {us.map(([u, l]) => (
-                                <SelectItem key={u} value={u}>
-                                    <span className="flex w-full">
-                                        {l}
-                                        {example(u)}
-                                    </span>
-                                </SelectItem>
-                            ))}
-                        </SelectGroup>
-                    ))}
-                    {unit && !custom && !KNOWN_UNITS.has(unit) && (
-                        <SelectItem value={unit}>
-                            <span className="flex w-full">
-                                {unit}
-                                {example(unit)}
-                            </span>
-                        </SelectItem>
-                    )}
-                    <SelectSeparator />
-                    <SelectItem value={CUSTOM}>Custom prefix or suffix</SelectItem>
-                </SelectContent>
-            </Select>
-            {custom && (
-                <div className="flex items-end gap-2">
-                    <label className="flex min-w-0 flex-1 flex-col gap-1 text-[11px] text-muted-foreground">
-                        Before the number
-                        <Input
-                            className="h-8 text-xs"
-                            placeholder="For example $"
-                            value={pre}
-                            onChange={(e) => onChange(joinAffix(e.target.value, suf))}
-                        />
-                    </label>
-                    <label className="flex min-w-0 flex-1 flex-col gap-1 text-[11px] text-muted-foreground">
-                        After the number
-                        <Input
-                            className="h-8 text-xs"
-                            placeholder="For example M or ' users'"
-                            value={suf}
-                            onChange={(e) => onChange(joinAffix(pre, e.target.value))}
-                        />
-                    </label>
-                    <span className="flex h-8 shrink-0 items-center text-xs tabular-nums" title="Preview">
-                        {formatValue(1234.5, joinAffix(pre, suf) ?? 'locale', decimals)}
-                    </span>
-                </div>
-            )}
-        </FieldRow>
-    )
-}
-
 function NumberInput({
     value,
     placeholder,
@@ -1178,7 +983,6 @@ function NumberInput({
     )
 }
 
-type Threshold = { value: number; color: string; label?: string }
 function ThresholdsEditor({
     value = [],
     onChange,
@@ -1193,30 +997,31 @@ function ThresholdsEditor({
         const top = Math.max(0, ...value.map((t) => t.value))
         onChange([
             ...value,
-            { value: value.length ? top + 10 : 0, color: SWATCHES[[0, 1, 3, 2, 4, 5][value.length % 6]!]! },
+            {
+                value: value.length ? top + 10 : 0,
+                color: THRESHOLD_COLORS[value.length % THRESHOLD_COLORS.length]![0],
+            },
         ])
     }
     return (
         <div className="flex flex-col gap-1.5">
             {rows.length === 0 && (
                 <div className="text-xs text-muted-foreground">
-                    No thresholds yet, so values use the series colors. Add steps to color stats, gauges and table
-                    cells, and to draw lines on charts.
+                    No thresholds yet. Add steps to color a value by how high it is.
                 </div>
             )}
             {rows.map((t) => (
                 <div key={t.i} className="flex items-center gap-2">
-                    <ColorSwatch color={t.color} onChange={(color) => update(t.i, { color })} />
                     <span className="w-8 shrink-0 text-[11px] text-muted-foreground">
                         {t.i === rows.at(-1)!.i ? 'Base' : '≥'}
                     </span>
                     <NumberInput value={t.value} onChange={(v) => v !== undefined && update(t.i, { value: v })} />
-                    <Input
-                        className="h-7 min-w-0 flex-1 text-xs"
-                        placeholder="Label (charts)"
-                        aria-label="Threshold label"
-                        value={t.label ?? ''}
-                        onChange={(e) => update(t.i, { label: e.target.value || undefined })}
+                    <OptionSelect
+                        className="h-8 w-28 shrink-0 text-xs"
+                        aria-label="Threshold color"
+                        options={THRESHOLD_COLORS}
+                        value={t.color}
+                        onChange={(color) => update(t.i, { color })}
                     />
                     <Button
                         variant="default"
@@ -1233,619 +1038,5 @@ function ThresholdsEditor({
                 <IconPlus /> Add threshold
             </Button>
         </div>
-    )
-}
-
-type Drill = NonNullable<PanelSpec['drilldowns']>[number]
-const DRILL_PRESETS: [string, string, Drill][] = [
-    ['people', 'People', { title: 'People', action: { type: 'people' } }],
-    ['events', 'Events', { title: 'Events', action: { type: 'events' } }],
-    [
-        'panel',
-        'Detail panel',
-        {
-            title: 'Details',
-            action: {
-                type: 'panel',
-                panel: {
-                    title: '${__series.name}',
-                    viz: { type: 'table' },
-                    targets: [
-                        {
-                            refId: 'A',
-                            language: 'hogql',
-                            query: 'SELECT timestamp, event, distinct_id FROM events WHERE timestamp >= {date_from} AND timestamp < {date_to} ORDER BY timestamp DESC LIMIT 100',
-                        },
-                    ],
-                },
-            },
-        },
-    ],
-    ['dashboard', 'Dashboard', { title: 'Open dashboard', action: { type: 'dashboard', uid: '', time: 'keep' } }],
-    [
-        'variable',
-        'Filter this dashboard',
-        { title: 'Filter by ${__category}', action: { type: 'variable', name: '', value: '${__category}' } },
-    ],
-    ['url', 'Link', { title: 'Open link', action: { type: 'url', url: 'https://', newTab: true } }],
-    ['zoom', 'Zoom', { title: 'Zoom to this bucket', action: { type: 'zoom' } }],
-]
-function DrilldownsEditor({
-    panel,
-    onChange,
-}: {
-    panel: PanelSpec
-    onChange: (d: Drill[] | undefined) => void
-}): React.JSX.Element {
-    const all = panel.drilldowns ?? []
-    const update = (i: number, d: Drill | undefined): void => {
-        const next = d ? all.map((x, j) => (j === i ? d : x)) : all.filter((_, j) => j !== i)
-        onChange(next.length ? next : undefined)
-    }
-    const act = (i: number, d: Drill, patch: Record<string, unknown>): void =>
-        update(i, { ...d, action: { ...d.action, ...patch } as Drill['action'] })
-    const [kind, setKind] = useState('people')
-    return (
-        <div className="flex flex-col gap-1.5">
-            {!all.length && (
-                <div className="text-xs text-muted-foreground">
-                    Nothing yet, so a click on the data does nothing. Add what a click should offer: the people behind a
-                    point, a detail panel, another dashboard or a filter on this one.
-                </div>
-            )}
-            {all.map((d, i) => {
-                const a = d.action as any
-                return (
-                    <div
-                        key={i}
-                        className="flex flex-col gap-1.5 rounded-md border bg-background p-2"
-                        data-attr="dashboard-v2-drilldown"
-                    >
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-24 shrink-0 text-[11px] text-muted-foreground">
-                                {DRILL_PRESETS.find(([k]) => k === a.type)?.[1] ?? a.type}
-                            </span>
-                            <Input
-                                className="h-7 min-w-0 flex-1 text-xs"
-                                aria-label="Drilldown title"
-                                defaultValue={d.title}
-                                onBlur={(e) => update(i, { ...d, title: e.target.value || d.title })}
-                            />
-                            <Button
-                                variant="default"
-                                size="icon-xs"
-                                tooltip="Remove"
-                                aria-label="Remove drilldown"
-                                onClick={() => update(i, undefined)}
-                            >
-                                <IconTrash />
-                            </Button>
-                        </div>
-                        {a.type === 'url' && (
-                            <Input
-                                className="h-7 font-mono text-xs"
-                                placeholder="https://…/${__data.fields.id}"
-                                defaultValue={a.url}
-                                onBlur={(e) => act(i, d, { url: e.target.value })}
-                            />
-                        )}
-                        {a.type === 'dashboard' && (
-                            <div className="flex items-center gap-1.5">
-                                <Input
-                                    className="h-7 w-40 font-mono text-xs"
-                                    placeholder="Dashboard uid"
-                                    defaultValue={a.uid}
-                                    onBlur={(e) => act(i, d, { uid: e.target.value.trim() })}
-                                />
-                                <Input
-                                    className="h-7 min-w-0 flex-1 font-mono text-xs"
-                                    placeholder="Variables: service=${__field.labels.service}"
-                                    defaultValue={Object.entries(a.vars ?? {})
-                                        .map(([k, v]) => `${k}=${v}`)
-                                        .join(', ')}
-                                    onBlur={(e) =>
-                                        act(i, d, {
-                                            vars: Object.fromEntries(
-                                                e.target.value
-                                                    .split(',')
-                                                    .map((x) => x.split('=').map((y) => y.trim()))
-                                                    .filter((x) => x[0] && x[1])
-                                            ),
-                                        })
-                                    }
-                                />
-                                <OptionSelect
-                                    className="h-7 w-28 text-xs"
-                                    options={[
-                                        ['keep', 'This range'],
-                                        ['clicked', 'Clicked bucket'],
-                                        ['none', 'Its own range'],
-                                    ]}
-                                    value={a.time ?? 'none'}
-                                    onChange={(v) => act(i, d, { time: v === 'none' ? undefined : v })}
-                                />
-                            </div>
-                        )}
-                        {a.type === 'variable' && (
-                            <div className="flex items-center gap-1.5">
-                                <Input
-                                    className="h-7 w-32 font-mono text-xs"
-                                    placeholder="Variable"
-                                    defaultValue={a.name}
-                                    onBlur={(e) => act(i, d, { name: e.target.value.trim() })}
-                                />
-                                <span className="text-xs text-muted-foreground">=</span>
-                                <Input
-                                    className="h-7 min-w-0 flex-1 font-mono text-xs"
-                                    placeholder="${__category}"
-                                    defaultValue={a.value}
-                                    onBlur={(e) => act(i, d, { value: e.target.value })}
-                                />
-                            </div>
-                        )}
-                        {a.type === 'panel' && (
-                            <>
-                                <Textarea
-                                    className="min-h-24 font-mono text-[11px]"
-                                    aria-label="Detail panel JSON"
-                                    defaultValue={JSON.stringify(a.panel, null, 2)}
-                                    onBlur={(e) => {
-                                        try {
-                                            act(i, d, { panel: JSON.parse(e.target.value) })
-                                        } catch {}
-                                    }}
-                                />
-                                <Segmented
-                                    options={[
-                                        ['clicked', 'Over the clicked bucket'],
-                                        ['dashboard', "Over the dashboard's range"],
-                                    ]}
-                                    value={a.time ?? 'clicked'}
-                                    onChange={(v) => act(i, d, { time: v === 'clicked' ? undefined : v })}
-                                />
-                            </>
-                        )}
-                        {(a.type === 'people' || a.type === 'events') && (
-                            <div className="text-[11px] text-muted-foreground">
-                                PostHog insights only:{' '}
-                                {a.type === 'people'
-                                    ? "a trend's day and series, a funnel step or its drop-off, a retention cohort, a lifecycle status"
-                                    : "the series' or step's event, newest first"}
-                                .
-                            </div>
-                        )}
-                    </div>
-                )
-            })}
-            <div className="flex items-center gap-1.5">
-                <OptionSelect
-                    className="h-8 w-40 text-xs"
-                    aria-label="Drilldown kind"
-                    options={DRILL_PRESETS}
-                    value={kind}
-                    onChange={setKind}
-                />
-                <Button
-                    variant="outline"
-                    size="sm"
-                    data-attr="dashboard-v2-add-drilldown"
-                    onClick={() => onChange([...all, structuredClone(DRILL_PRESETS.find(([k]) => k === kind)![2])])}
-                >
-                    <IconPlus /> Add drilldown
-                </Button>
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-                Use the click in any text: <code>{'${__value}'}</code>, <code>{'${__series.name}'}</code>,{' '}
-                <code>{'${__field.labels.pod}'}</code>, <code>{'${__data.fields.col}'}</code>,{' '}
-                <code>{'${__category}'}</code>, <code>{'${__from}'}</code>. Add <code>:sqlstring</code> to escape a
-                value for HogQL.
-            </div>
-        </div>
-    )
-}
-
-type MathT = Extract<NonNullable<PanelSpec['transforms']>[number], { type: 'math' }>
-function Formulas({
-    panel,
-    onChange,
-}: {
-    panel: PanelSpec
-    onChange: (p: Partial<PanelSpec>) => void
-}): React.JSX.Element {
-    const all = panel.transforms ?? []
-    const refs = (panel.targets ?? []).map((t) => t.refId)
-    const update = (i: number, m: MathT | undefined): void => {
-        const next = m ? all.map((t, j) => (j === i ? m : t)) : all.filter((_, j) => j !== i)
-        onChange({ transforms: next.length ? next : undefined })
-    }
-    const add = (): void => {
-        const taken = new Set([...refs, ...all.flatMap((t) => (t.type === 'math' ? [t.as] : []))])
-        const as = ['F', 'G', 'H', 'R', 'X', 'Y', 'Z'].find((x) => !taken.has(x)) ?? `F${all.length}`
-        onChange({
-            transforms: [
-                ...all,
-                {
-                    type: 'math',
-                    as,
-                    expression: refs.length > 1 ? `$${refs[0]} / $${refs[1]} * 100` : `$${refs[0] ?? 'A'} * 1`,
-                    mode: 'series',
-                },
-            ],
-        })
-    }
-    return (
-        <div className="flex flex-col gap-1.5">
-            {all.map((t, i) =>
-                t.type !== 'math' ? null : (
-                    <div
-                        key={i}
-                        className="flex flex-col gap-1.5 rounded-md border bg-background p-2"
-                        data-attr="dashboard-v2-formula"
-                    >
-                        <div className="flex items-center gap-1.5">
-                            <Input
-                                className="h-7 w-16 font-mono text-xs"
-                                aria-label="Formula name"
-                                defaultValue={t.as}
-                                onBlur={(e) => e.target.value.trim() && update(i, { ...t, as: e.target.value.trim() })}
-                            />
-                            <span className="text-xs text-muted-foreground">=</span>
-                            <Input
-                                className="h-7 min-w-0 flex-1 font-mono text-xs"
-                                aria-label="Formula"
-                                placeholder="$A / $B * 100"
-                                defaultValue={t.expression}
-                                onBlur={(e) => update(i, { ...t, expression: e.target.value })}
-                            />
-                            <Button
-                                variant="default"
-                                size="icon-xs"
-                                tooltip="Remove"
-                                aria-label="Remove formula"
-                                onClick={() => update(i, undefined)}
-                            >
-                                <IconTrash />
-                            </Button>
-                        </div>
-                        <Segmented
-                            options={[
-                                ['series', 'At every point'],
-                                ['value', 'One value'],
-                            ]}
-                            value={t.mode ?? 'value'}
-                            onChange={(v) => update(i, { ...t, mode: v === 'series' ? 'series' : undefined })}
-                        />
-                    </div>
-                )
-            )}
-            <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={add} data-attr="dashboard-v2-add-formula">
-                    <IconPlus /> Add formula
-                </Button>
-                {all.some((t) => t.type === 'math') && (
-                    <span className="text-[11px] text-muted-foreground">
-                        Use + - * / and ( ) over $A, $B. Hide a query to draw only the result.
-                    </span>
-                )}
-            </div>
-        </div>
-    )
-}
-
-type Rule = NonNullable<NonNullable<PanelSpec['fieldConfig']>['mappings']>[number]
-const ruleOp = (r: Rule): 'null' | '=' | '≤' | '≥' =>
-    r.null ? 'null' : r.value !== undefined ? '=' : r.to !== undefined && r.from === undefined ? '≤' : '≥'
-function RulesEditor({
-    value = [],
-    onChange,
-    compact,
-}: {
-    value?: Rule[]
-    onChange: (r: Rule[] | undefined) => void
-    compact?: boolean
-}): React.JSX.Element {
-    const update = (i: number, r: Rule): void => onChange(value.map((x, j) => (j === i ? r : x)))
-    const withOp = (r: Rule, op: string, v?: string): Rule => {
-        const { value: _v, from: _f, to: _t, null: _n, ...rest } = r
-        const raw = v ?? r.value ?? String(r.from ?? r.to ?? '')
-        const n = raw.trim() === '' ? undefined : Number(raw)
-        return op === 'null'
-            ? { ...rest, null: true }
-            : op === '='
-              ? { ...rest, value: raw }
-              : op === '≤'
-                ? { ...rest, ...(n !== undefined && Number.isFinite(n) ? { to: n } : {}) }
-                : { ...rest, ...(n !== undefined && Number.isFinite(n) ? { from: n } : {}) }
-    }
-    return (
-        <div className="flex flex-col gap-1.5">
-            {!compact && value.length === 0 && (
-                <div className="text-xs text-muted-foreground">
-                    No rules yet, so values show as they are. Add one to color or relabel values, for example ≥ 0 green
-                    or = 1 "up".
-                </div>
-            )}
-            {value.map((r, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                    <ColorSwatch color={r.color} onChange={(color) => update(i, { ...r, color })} />
-                    <OptionSelect
-                        className="h-7 w-16 text-xs"
-                        options={[
-                            ['≥', '≥'],
-                            ['≤', '≤'],
-                            ['=', '='],
-                            ['null', 'empty'],
-                        ]}
-                        value={ruleOp(r)}
-                        onChange={(op) => update(i, withOp(r, op))}
-                    />
-                    {ruleOp(r) !== 'null' && (
-                        <Input
-                            className="h-7 w-20 text-xs"
-                            aria-label="Rule value"
-                            placeholder="Value"
-                            defaultValue={r.value ?? String(r.from ?? r.to ?? '')}
-                            onBlur={(e) => update(i, withOp(r, ruleOp(r), e.target.value))}
-                        />
-                    )}
-                    <Input
-                        className="h-7 min-w-0 flex-1 text-xs"
-                        aria-label="Rule text"
-                        placeholder="Text (optional)"
-                        defaultValue={r.text ?? ''}
-                        onBlur={(e) => update(i, { ...r, text: e.target.value || undefined })}
-                    />
-                    <Button
-                        variant="default"
-                        size="icon-xs"
-                        tooltip="Remove"
-                        aria-label="Remove rule"
-                        onClick={() => onChange(value.length > 1 ? value.filter((_, j) => j !== i) : undefined)}
-                    >
-                        <IconTrash />
-                    </Button>
-                </div>
-            ))}
-            <Button
-                variant="outline"
-                size="sm"
-                className="self-start"
-                onClick={() => onChange([...value, { from: 0, color: SWATCHES[0] }])}
-            >
-                <IconPlus /> {compact ? 'Color rule' : 'Add rule'}
-            </Button>
-        </div>
-    )
-}
-
-type Override = NonNullable<NonNullable<PanelSpec['fieldConfig']>['overrides']>[string]
-function SeriesFields({
-    panel,
-    frames,
-    onChange,
-}: {
-    panel: PanelSpec
-    frames: DataFrame[]
-    onChange: (p: Partial<PanelSpec>) => void
-}): React.JSX.Element {
-    const fc = panel.fieldConfig ?? {}
-    const transforms = panel.transforms ?? []
-    const organize = transforms.find((t) => t.type === 'organize')
-    const partition = transforms.find((t) => t.type === 'partition')
-    const setTransforms = (p?: string, cols?: string[]): void => {
-        const rest = transforms.filter((t) => t.type !== 'partition' && t.type !== 'organize')
-        const next = [
-            ...(p ? [{ type: 'partition' as const, by: p }] : []),
-            ...(cols?.length ? [{ type: 'organize' as const, fields: cols }] : []),
-            ...rest,
-        ]
-        onChange({ transforms: next.length ? next : undefined })
-    }
-    const overrides = fc.overrides ?? {}
-    const table = panel.viz?.type === 'table'
-    const setOverride = (name: string, o: Override | undefined): void => {
-        const next = { ...overrides }
-        if (o) {
-            next[name] = o
-        } else {
-            delete next[name]
-        }
-        onChange({ fieldConfig: { ...fc, overrides: Object.keys(next).length ? next : undefined } })
-    }
-    const [adding, setAdding] = useState('')
-    const field = (name: string, o: Override, key: keyof Override, v: unknown): void =>
-        setOverride(
-            name,
-            Object.fromEntries(
-                Object.entries({ ...o, [key]: v }).filter(([, x]) => x !== undefined && x !== '')
-            ) as Override
-        )
-    const names = [
-        ...new Set(
-            frames
-                .flatMap((f) => [f.name, ...f.fields.map((x) => x.name)])
-                .filter((n): n is string => !!n && !(n in overrides))
-        ),
-    ].slice(0, 200)
-    const seriesNames = table
-        ? []
-        : toXSeries(frames)
-              .series.map((x) => x.label)
-              .slice(0, 50)
-    const addOverride = (): void => {
-        if (adding.trim()) {
-            setOverride(adding.trim(), overrides[adding.trim()] ?? {})
-            setAdding('')
-        }
-    }
-    return (
-        <>
-            <Section title="Data" defaultOpen={!!organize || !!partition}>
-                <FieldRow
-                    label="Columns"
-                    description="Keep these, in this order. The first column that is not a number is a chart's x. Leave empty to keep all."
-                >
-                    <Input
-                        className="h-8 text-xs"
-                        placeholder="month, mrr, growth"
-                        defaultValue={organize?.fields.join(', ') ?? ''}
-                        onBlur={(e) =>
-                            setTransforms(
-                                partition?.by,
-                                e.target.value
-                                    .split(',')
-                                    .map((x) => x.trim())
-                                    .filter(Boolean)
-                            )
-                        }
-                    />
-                </FieldRow>
-                <FieldRow label="Series by" description="A column that gives one series per value">
-                    <Input
-                        className="h-8 text-xs"
-                        placeholder="For example product"
-                        defaultValue={partition?.by ?? ''}
-                        onBlur={(e) => setTransforms(e.target.value.trim() || undefined, organize?.fields)}
-                    />
-                </FieldRow>
-            </Section>
-            <Section title="Per series or column" defaultOpen={Object.keys(overrides).length > 0}>
-                {Object.entries(overrides).map(([name, o]) => (
-                    <div key={name} className="flex flex-col gap-2 rounded-md border bg-background p-2">
-                        <div className="flex items-center gap-2">
-                            <ColorSwatch color={o.color} onChange={(c) => field(name, o, 'color', c)} />
-                            <span className="min-w-0 flex-1 truncate font-mono text-xs" title={name}>
-                                {name}
-                                {/^#\d+$/.test(name) && seriesNames[Number(name.slice(1))] !== undefined && (
-                                    <span className="ml-1 font-sans text-muted-foreground">
-                                        ({seriesNames[Number(name.slice(1))]})
-                                    </span>
-                                )}
-                            </span>
-                            <Button
-                                variant="default"
-                                size="icon-xs"
-                                tooltip="Remove"
-                                aria-label={`Remove ${name}`}
-                                onClick={() => setOverride(name, undefined)}
-                            >
-                                <IconX />
-                            </Button>
-                        </div>
-                        <Input
-                            className="h-8 text-xs"
-                            placeholder="Label (display name)"
-                            defaultValue={o.displayName ?? ''}
-                            onBlur={(e) => field(name, o, 'displayName', e.target.value || undefined)}
-                        />
-                        {table ? (
-                            <>
-                                <Segmented
-                                    options={[
-                                        ['text', 'Text'],
-                                        ['bar', 'Bar'],
-                                        ['color-text', 'Colored text'],
-                                        ['color-background', 'Colored cell'],
-                                    ]}
-                                    value={o.cell ?? 'text'}
-                                    onChange={(v) => field(name, o, 'cell', v === 'text' ? undefined : v)}
-                                />
-                                <Input
-                                    className="h-8 font-mono text-xs"
-                                    placeholder="Link: https://…/${__data.fields.id}"
-                                    title="Each cell links here: ${__value} is the cell, ${__data.fields.<column>} any column of the row (hidden ones too)"
-                                    defaultValue={o.link ?? ''}
-                                    onBlur={(e) => field(name, o, 'link', e.target.value.trim() || undefined)}
-                                />
-                                <RulesEditor
-                                    value={o.mappings}
-                                    compact
-                                    onChange={(m) => field(name, o, 'mappings', m)}
-                                />
-                                <div className="grid grid-cols-2 items-center gap-2">
-                                    <label className="flex items-center gap-1 text-xs">
-                                        <Switch
-                                            checked={!!o.hidden}
-                                            onCheckedChange={(c: boolean) => field(name, o, 'hidden', c || undefined)}
-                                        />{' '}
-                                        Hide
-                                    </label>
-                                    <NumberInput
-                                        value={o.decimals}
-                                        placeholder="Decimals"
-                                        onChange={(v) => field(name, o, 'decimals', v)}
-                                    />
-                                </div>
-                                <UnitPicker
-                                    unit={o.unit}
-                                    decimals={o.decimals}
-                                    auto="Panel unit"
-                                    onChange={(u) => field(name, o, 'unit', u)}
-                                />
-                            </>
-                        ) : (
-                            <>
-                                <Segmented
-                                    options={[
-                                        ['auto', 'Panel style'],
-                                        ['line', 'Line'],
-                                        ['bars', 'Bars'],
-                                        ['points', 'Points'],
-                                    ]}
-                                    value={o.style ?? 'auto'}
-                                    onChange={(v) => field(name, o, 'style', v === 'auto' ? undefined : v)}
-                                />
-                                <div className="grid grid-cols-2 gap-2">
-                                    <Segmented
-                                        options={[
-                                            ['left', 'Left'],
-                                            ['right', 'Right'],
-                                        ]}
-                                        value={o.axis ?? 'left'}
-                                        onChange={(v) => field(name, o, 'axis', v === 'left' ? undefined : v)}
-                                    />
-                                    <NumberInput
-                                        value={o.decimals}
-                                        placeholder="Decimals"
-                                        onChange={(v) => field(name, o, 'decimals', v)}
-                                    />
-                                </div>
-                                <UnitPicker
-                                    unit={o.unit}
-                                    decimals={o.decimals}
-                                    auto="Panel unit"
-                                    onChange={(u) => field(name, o, 'unit', u)}
-                                />
-                            </>
-                        )}
-                    </div>
-                ))}
-                <div className="flex gap-1.5">
-                    <Input
-                        className="h-8 flex-1 text-xs"
-                        placeholder="Series or column name, /regex/, or #0 (the 1st series)"
-                        title="A name, a /regex/, or #0, #1… (a series by its place in the result: survives renames)"
-                        list="dashboard-v2-series"
-                        value={adding}
-                        onChange={(e) => setAdding(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addOverride()}
-                    />
-                    <datalist id="dashboard-v2-series">
-                        {names.map((n) => (
-                            <option key={n} value={n} />
-                        ))}
-                        {seriesNames.map(
-                            (n, i) =>
-                                !(`#${i}` in overrides) && (
-                                    <option key={`#${i}`} value={`#${i}`} label={`#${i}: ${n}`} />
-                                )
-                        )}
-                    </datalist>
-                    <Button variant="outline" size="sm" disabled={!adding.trim()} onClick={addOverride}>
-                        <IconPlus /> Style it
-                    </Button>
-                </div>
-            </Section>
-        </>
     )
 }

@@ -4,6 +4,7 @@ import { IconArrowLeft, IconChevronDown, IconChevronRight, IconCopy, IconMinus, 
 import { Badge, Button } from '@posthog/quill'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { compactNumber } from 'lib/utils/numbers'
 
 import {
     editTraces,
@@ -15,13 +16,10 @@ import {
     type Filter,
     type TracesState,
 } from '../explore/build'
-import type { Panel } from '../spec'
 import { EmptyData } from './EmptyData'
-import { short } from './format'
 import type { DataFrame, Field } from './frame'
-import { timeseries, type TracesOptions as O } from './options'
-import type { VizProps } from './registry'
-import { TimeseriesViz } from './TimeseriesViz'
+import type { TracesOptions as O, ViewerProps } from './viewerProps'
+import { VolumeChart } from './VolumeChart'
 
 export type Span = {
     t: number
@@ -125,7 +123,6 @@ export function spanTree(spans: Span[]): TreeRow[] {
 
 const SERVICE_COLORS = ['#3b82f6', '#8b5cf6', '#14b8a6', '#f59e0b', '#ec4899', '#0ea5e9', '#84cc16', '#64748b']
 const ERROR = '#ef4444'
-const HISTOGRAM = timeseries.parse({ stack: true, style: 'bars', legend: 'none', points: false })
 const TH = 'sticky top-0 z-[1] whitespace-nowrap bg-card px-2 py-1 text-left font-medium text-muted-foreground'
 
 export function fmtMs(ms: number): string {
@@ -140,14 +137,7 @@ export function fmtMs(ms: number): string {
 const fmtTime = (ms: number): string =>
     new Date(ms).toLocaleTimeString(undefined, { hour12: false }) + '.' + String(ms % 1000).padStart(3, '0')
 
-export function TracesViz({
-    frames,
-    panel,
-    options,
-    height,
-    onEditPanel,
-    onTimeRange,
-}: VizProps<O>): React.JSX.Element {
+export function TracesViz({ frames, panel, options, height, onEditPanel }: ViewerProps<O>): React.JSX.Element {
     const builder = tracesBuilderOf(panel)?.state
     const volume = useMemo(
         () =>
@@ -201,26 +191,11 @@ export function TracesViz({
         return <EmptyData message="No traces" />
     }
     const histH = Math.min(110, Math.max(60, Math.round(height * 0.2)))
-    const histPanel: Panel = {
-        ...panel,
-        fieldConfig: { ...panel.fieldConfig, overrides: { error: { color: ERROR }, ok: { color: SERVICE_COLORS[0] } } },
-    }
     const max = Math.max(1, ...spans.map((s) => s.ms))
     const onFilter = edit && ((f: Filter) => edit((b) => withSpanFilter(b, f)))
     return (
         <div className="flex h-full min-h-0 flex-col gap-1">
-            {options.histogram && volume.length > 0 && (
-                <div className="flex shrink-0 flex-col" style={{ height: histH }}>
-                    <TimeseriesViz
-                        frames={volume}
-                        panel={histPanel}
-                        options={HISTOGRAM}
-                        height={histH}
-                        width={0}
-                        onTimeRange={onTimeRange}
-                    />
-                </div>
-            )}
+            {options.histogram && volume.length > 0 && <VolumeChart frames={volume} height={histH} />}
             {ops ? (
                 <OperationsTable frame={ops} onOpen={openOperation} />
             ) : (
@@ -374,7 +349,7 @@ function OperationsTable({
                                     <td className="max-w-0 truncate px-2 py-1 font-mono" title={String(name![i])}>
                                         {String(name![i])}
                                     </td>
-                                    <td className="px-2 py-1 text-right tabular-nums">{short(n)}</td>
+                                    <td className="px-2 py-1 text-right tabular-nums">{compactNumber(n)}</td>
                                     <td
                                         className={`whitespace-nowrap px-2 py-1 text-right tabular-nums ${e ? 'text-destructive-foreground' : 'text-muted-foreground'}`}
                                         title={`${e} of ${n}`}
@@ -395,12 +370,12 @@ function OperationsTable({
                                     </td>
                                     {impact && (
                                         <td className="px-2 py-1 text-right tabular-nums">
-                                            {short(Number(sessions![i] ?? 0))}
+                                            {compactNumber(Number(sessions![i] ?? 0))}
                                         </td>
                                     )}
                                     {impact && (
                                         <td className="px-2 py-1 text-right tabular-nums">
-                                            {short(Number(people![i] ?? 0))}
+                                            {compactNumber(Number(people![i] ?? 0))}
                                         </td>
                                     )}
                                 </tr>

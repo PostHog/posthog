@@ -2,9 +2,6 @@ import { createContext, useContext, type ReactNode } from 'react'
 
 import { IconCheck, IconChevronDown, IconDashboard } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
-import type { ChartTheme } from '@posthog/quill-charts'
-
-import { useChartTheme } from 'lib/charts/hooks'
 
 import type { Display } from '../spec'
 
@@ -68,11 +65,3 @@ export function DisplayMenu({
         </DropdownMenu>
     )
 }
-
-const SPACIOUS_THEME: Partial<ChartTheme> = {
-    gridDashPattern: [2, 4],
-    axisLineColor: 'transparent',
-}
-
-export const useDisplayChartTheme = (): ChartTheme =>
-    useChartTheme(useDisplay() === 'spacious' ? SPACIOUS_THEME : undefined)

@@ -11,7 +11,8 @@ import {
     Input,
 } from '@posthog/quill'
 
-import { short } from '../charts/format'
+import { compactNumber } from 'lib/utils/numbers'
+
 import { FieldRow, OptionSelect, Segmented } from '../editor/OptionsForm'
 import { VariablePicker, type VariablePickerProps } from '../editor/VariablePicker'
 import { api, pj, runQuery, useMetricUsage, useUsage } from '../lib/api'
@@ -1045,7 +1046,7 @@ function FacetList({
                                     <IconMinus className="size-3" />
                                 </button>
                                 <span className="shrink-0 tabular-nums text-muted-foreground" title={nf.format(n)}>
-                                    {short(n)}
+                                    {compactNumber(n)}
                                 </span>
                             </div>
                         )

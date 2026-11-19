@@ -29,7 +29,8 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { short } from '../charts/format'
+import { compactNumber } from 'lib/utils/numbers'
+
 import type { DataFrame } from '../charts/frame'
 import { Segmented } from '../editor/OptionsForm'
 import { runQuery } from '../lib/api'
@@ -263,7 +264,7 @@ const KIND_LABEL: Record<FilterKind, string> = {
 const KIND_SHORT: Record<FilterKind, string> = { event: 'Event', person: 'Person', cohort: 'Cohort' }
 
 export const pct = (x: number): string => (x >= 0.995 ? '100%' : x < 0.01 ? '<1%' : `${Math.round(x * 100)}%`)
-export const num = (x: number): string => (Math.abs(x) >= 1000 ? short(x) : String(Math.round(x * 100) / 100))
+export const num = (x: number): string => (Math.abs(x) >= 1000 ? compactNumber(x) : String(Math.round(x * 100) / 100))
 
 type Op = { op: string; label: string; needs: 'list' | 'text' | 'number' | 'date' | 'none' | 'bool' }
 const OPS: Record<PropType, Op[]> = {
@@ -484,7 +485,9 @@ export function KeyStep({
     }
     const count = (kind: FilterKind): string | undefined => {
         const k = byKind[kind]
-        return k.loading && !k.keys.length ? undefined : `${short(k.total)}${k.capped && !k.searching ? '+' : ''}`
+        return k.loading && !k.keys.length
+            ? undefined
+            : `${compactNumber(k.total)}${k.capped && !k.searching ? '+' : ''}`
     }
     const tabLabel = (t: Tab): React.JSX.Element => {
         const busy =
@@ -494,7 +497,7 @@ export function KeyStep({
         const n =
             t === 'all'
                 ? kinds.every((k) => count(k) !== undefined)
-                    ? short(kinds.reduce((a, k) => a + byKind[k].total, 0))
+                    ? compactNumber(kinds.reduce((a, k) => a + byKind[k].total, 0))
                     : undefined
                 : count(t)
         return (
@@ -544,7 +547,7 @@ export function KeyStep({
                 {isSel && <IconCheck className="size-3.5 shrink-0" />}
                 {k.share !== undefined && <Coverage share={k.share} />}
                 {k.count !== undefined && (
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{short(k.count)} people</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">{compactNumber(k.count)} people</span>
                 )}
             </button>
         )
@@ -649,7 +652,8 @@ export function KeyStep({
                                         className="w-full cursor-pointer rounded px-2 py-1 text-left text-xs font-medium text-foreground hover:bg-fill-hover"
                                         onClick={() => setTab(g.kind)}
                                     >
-                                        Show all {short(g.items.length + g.more)} {KIND_LABEL[g.kind].toLowerCase()} →
+                                        Show all {compactNumber(g.items.length + g.more)}{' '}
+                                        {KIND_LABEL[g.kind].toLowerCase()} →
                                     </button>
                                 )}
                             </section>
@@ -1104,7 +1108,7 @@ function PropertyValueStep({
                                                 />
                                                 <span className="relative min-w-0 flex-1 truncate">{x.value}</span>
                                                 <span className="relative shrink-0 tabular-nums text-muted-foreground">
-                                                    {short(x.n)} · {pct(x.share)}
+                                                    {compactNumber(x.n)} · {pct(x.share)}
                                                 </span>
                                             </button>
                                         )

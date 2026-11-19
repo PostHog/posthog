@@ -12,16 +12,16 @@ import {
 } from '@posthog/icons'
 import { Badge, Button } from '@posthog/quill'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { compactNumber } from 'lib/utils/numbers'
 
 import { editLogs, logsBuilderOf, noId, withFilter, type Filter, type LogsMode, type LogsState } from '../explore/build'
 import type { Panel } from '../spec'
 import { EmptyData } from './EmptyData'
-import { dtf, relativeTime, short } from './format'
 import type { DataFrame, Field } from './frame'
-import { timeseries, type LogsOptions as O } from './options'
-import type { VizProps } from './registry'
-import { TimeseriesViz } from './TimeseriesViz'
+import type { LogsOptions as O, ViewerProps } from './viewerProps'
+import { VolumeChart } from './VolumeChart'
 
 type Size = 'small' | 'medium' | 'large'
 const FONT: Record<Size, number> = { small: 11, medium: 13, large: 15 }
@@ -100,23 +100,7 @@ type Row = {
 }
 type OnFilter = ((f: Filter) => void) | undefined
 
-const HISTOGRAM = timeseries.parse({
-    stack: true,
-    area: true,
-    legend: 'none',
-    points: false,
-    curve: 'linear',
-})
-
-export function LogsViz({
-    frames,
-    panel,
-    options,
-    height,
-    width,
-    onEditPanel,
-    onTimeRange,
-}: VizProps<O>): React.JSX.Element {
+export function LogsViz({ frames, panel, options, height, width, onEditPanel }: ViewerProps<O>): React.JSX.Element {
     const [openKey, setOpenKey] = useState<string>()
     const [wrap, setWrap] = useState(options.wrap)
     useEffect(() => setWrap(options.wrap), [options.wrap])
@@ -186,13 +170,6 @@ export function LogsViz({
     if (!rows.length && !volume.length && !patterns && !groups) {
         return <EmptyData message="No log lines" />
     }
-    const histPanel = {
-        ...panel,
-        fieldConfig: {
-            ...panel.fieldConfig,
-            overrides: Object.fromEntries(Object.entries(LEVEL_COLOR).map(([l, c]) => [l, { color: c }])),
-        },
-    }
     const showHist = options.histogram && volume.length > 0
     const histH = Math.min(120, Math.max(70, Math.round(height * 0.22)))
     const go = (i: number): void => {
@@ -217,18 +194,7 @@ export function LogsViz({
 
     return (
         <div className="flex h-full min-h-0 flex-col gap-1">
-            {showHist && (
-                <div className="flex shrink-0 flex-col" style={{ height: histH }}>
-                    <TimeseriesViz
-                        frames={volume}
-                        panel={histPanel}
-                        options={HISTOGRAM}
-                        height={histH}
-                        width={0}
-                        onTimeRange={onTimeRange}
-                    />
-                </div>
-            )}
+            {showHist && <VolumeChart frames={volume} height={histH} />}
             <div className="flex shrink-0 flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
                 {mode === 'lines' && rows.length > 0 && (
                     <>
@@ -648,7 +614,7 @@ function fmtTime(ms: number): string {
     }
     const d = new Date(ms)
     const time =
-        dtf('hms24', undefined, {
+        new Intl.DateTimeFormat(undefined, {
             hour: 'numeric',
             minute: '2-digit',
             second: '2-digit',
@@ -658,7 +624,7 @@ function fmtTime(ms: number): string {
         String(d.getMilliseconds()).padStart(3, '0')
     return d.toDateString() === new Date().toDateString()
         ? time
-        : `${dtf('md', undefined, { month: 'short', day: 'numeric' }).format(d)} ${time}`
+        : `${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d)} ${time}`
 }
 
 const FACET_LABEL: Record<string, string> = {
@@ -667,7 +633,7 @@ const FACET_LABEL: Record<string, string> = {
 }
 
 const col = (f: DataFrame, n: string): unknown[] => f.fields.find((x) => x.name === n)?.values ?? []
-const ago = (v: unknown): string => (v == null || v === '' ? '' : relativeTime(new Date(Number(v)).toISOString()))
+const ago = (v: unknown): string => (v == null || v === '' ? '' : dayjs(Number(v)).fromNow())
 const TH = 'sticky top-0 z-[1] whitespace-nowrap bg-card px-2 py-1 text-left font-medium text-muted-foreground'
 
 function PatternsTable({
@@ -719,7 +685,7 @@ function PatternsTable({
                                     </div>
                                 </td>
                                 <td className="px-2 py-1 text-right tabular-nums" title={nf.format(n)}>
-                                    {short(n)}
+                                    {compactNumber(n)}
                                 </td>
                                 <td className="relative min-w-20 px-2 py-1 text-right tabular-nums">
                                     <div
@@ -733,7 +699,7 @@ function PatternsTable({
                                 <td
                                     className={`px-2 py-1 text-right tabular-nums ${e ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}
                                 >
-                                    {e ? short(e) : '–'}
+                                    {e ? compactNumber(e) : '–'}
                                 </td>
                                 <td
                                     className="max-w-[24ch] truncate px-2 py-1 text-muted-foreground"
@@ -821,12 +787,12 @@ function GroupTable({
                                 )
                             })}
                             <td className="px-2 py-1 text-right tabular-nums" title={nf.format(Number(n))}>
-                                {short(Number(n ?? 0))}
+                                {compactNumber(Number(n ?? 0))}
                             </td>
                             <td
                                 className={`px-2 py-1 text-right tabular-nums ${Number(errors![i]) ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}
                             >
-                                {Number(errors![i]) ? short(Number(errors![i])) : '–'}
+                                {Number(errors![i]) ? compactNumber(Number(errors![i])) : '–'}
                             </td>
                             <td className="whitespace-nowrap px-2 py-1 text-muted-foreground">{ago(last![i])}</td>
                         </tr>

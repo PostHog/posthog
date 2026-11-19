@@ -13,7 +13,6 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "react": "^18.3.1",
-        "zod": "*"
+        "react": "^18.3.1"
     }
 }

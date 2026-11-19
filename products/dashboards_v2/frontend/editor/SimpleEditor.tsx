@@ -9,7 +9,6 @@ import {
     IconFunnels,
     IconGraph,
     IconPieChart,
-    IconRetention,
     IconStack,
     IconTrends,
 } from '@posthog/icons'
@@ -32,7 +31,7 @@ import {
 import { Icon123, IconTableChart } from 'lib/lemon-ui/icons'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { vizRegistry } from '../charts/registry'
+import { CHART_TYPES } from '../charts/chartTypes'
 import {
     EVENT_OPTIONS,
     applyBuilder,
@@ -40,7 +39,6 @@ import {
     liftBuilder,
     newInsight,
     newPanel,
-    newPanelFor,
     setTargetBuilder,
     switchKind,
     withSource,
@@ -81,17 +79,19 @@ interface Shape {
     label: string
     icon: IconType
 }
-const SHAPES: Shape[] = [
-    { type: 'timeseries', label: 'Trend', icon: IconTrends },
-    { type: 'bar', label: 'Bars', icon: IconGraph },
-    { type: 'stat', label: 'Number', icon: Icon123 },
-    { type: 'table', label: 'Table', icon: IconTableChart },
-    { type: 'pie', label: 'Pie', icon: IconPieChart },
-    { type: 'retention', label: 'Retention', icon: IconRetention },
-]
-const ALL_SHAPES: Shape[] = Object.entries(vizRegistry)
-    .filter(([, def]) => def.needsData)
-    .map(([type, def]) => SHAPES.find((s) => s.type === type) ?? { type, label: def.label, icon: IconStack })
+const SHAPE_ICONS: Record<string, IconType> = {
+    timeseries: IconTrends,
+    bar: IconGraph,
+    stat: Icon123,
+    table: IconTableChart,
+    pie: IconPieChart,
+}
+const ALL_SHAPES: Shape[] = CHART_TYPES.filter((candidate) => candidate.needsData).map(({ type, label }) => ({
+    type,
+    label,
+    icon: SHAPE_ICONS[type] ?? IconStack,
+}))
+const SHAPES: Shape[] = ALL_SHAPES.filter((shape) => shape.type in SHAPE_ICONS)
 
 export function SimpleTileEditor({
     id,
@@ -332,13 +332,6 @@ const KINDS: Kind[] = [
         hint: 'Where people drop off between steps',
         icon: IconFunnels,
         make: funnelPanel,
-    },
-    {
-        key: 'retention',
-        label: 'Retention',
-        hint: 'Who comes back, week by week',
-        icon: IconRetention,
-        make: () => newPanelFor('retention'),
     },
     {
         key: 'top',
