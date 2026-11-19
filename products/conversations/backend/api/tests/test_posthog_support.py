@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -30,12 +31,28 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
-    def test_token_can_draft_but_never_open_or_send_it(self) -> None:
+    @patch("posthoganalytics.capture")
+    def test_token_can_draft_but_never_open_or_send_it(self, capture: MagicMock) -> None:
         self.client.logout()
         token = self.create_personal_api_key_with_scopes(["posthog_support:write"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_POSTHOG_MCP_SESSION_ID="mcp-session-1",
+            HTTP_X_POSTHOG_MCP_CONVERSATION_ID="conversation-1",
+        )
 
         draft = self._create_draft()
+
+        created = next(
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "posthog support draft created"
+        )
+        assert (created["draft_id"], created["mcp_session_id"], created["mcp_conversation_id"]) == (
+            draft["id"],
+            "mcp-session-1",
+            "conversation-1",
+        )
 
         assert draft["review_url"].endswith(f"/project/{self.team.id}/my-tickets?support_draft={draft['id']}")
         assert draft["message"] == (
