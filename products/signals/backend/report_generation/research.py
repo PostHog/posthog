@@ -1231,6 +1231,11 @@ _PRESENTATION_LINKING = f"""## Linking what you reference
 {PLAIN_TEXT_FIELDS_RULE}"""
 
 
+_NOISE_REPORT_PRESENTATION = """## Reporting noise
+
+When the report asks the team to filter harmless exceptions, describe the whole pattern for the project, not one fingerprint. The title names the filter change, and the tl;dr says that no user action failed. Impact states the volume you measured and the triage cost it creates. Do not describe the exceptions as user harm."""
+
+
 _ACTIONABILITY_CRITERIA = f"""## Actionability criteria
 
 {ACTIONABILITY_CRITERIA}
@@ -1238,6 +1243,19 @@ _ACTIONABILITY_CRITERIA = f"""## Actionability criteria
 ## Already addressed
 
 `already_addressed` is broader than "merged": set it `true` when the fix has landed in recent code changes **or** is already in flight — an open pull request, a recently active branch, or an assigned / in-progress issue or agent task covering the same problem. The issue this report was filed from never counts, even when someone is assigned to it. An immediately-actionable report can open a draft PR automatically, so a `false` here on work someone already has going produces a competing PR the team has to throw away. If you haven't checked yet, do the in-flight check from the research protocol now rather than defaulting to `false`, and name what you found (or that you found nothing) in your explanation."""
+
+
+# A `not_actionable` verdict resets the report to `potential`, where it keeps collecting signals and
+# re-promotes once it gains weight, so an exception that recurs comes back with volume to judge.
+_HARMLESS_EXCEPTION_GUIDANCE = """## Exceptions that hurt nobody
+
+An exception that your research could not tie to any harm is `not_actionable`, even when filtering it would be easy. Typical cases are a one-off error from a browser extension, an in-app browser bridge, or a third-party script injected into the page; an error raised only on localhost or in a development build; and a short burst of events from one visitor with no failed action behind it. "Suppress it if it recurs", "optionally add a capture filter", and "filtering work already in flight covers this" are not code changes this report needs. Choose `not_actionable` and state that verdict in the explanation, which stays on the report's work log. The report then goes back to collecting signals, so an exception that keeps firing returns with the volume to judge it on.
+
+Two findings keep such a report actionable:
+- **A user action that failed.** For example, a checkout that did not complete, a save that was lost, or a page that stopped responding. One affected person is enough when you can name the failed action.
+- **Noise with real volume.** The same harmless exceptions recur in production across many sessions or visitors, enough to bury real errors or cost the team triage time. One capture-filter change for the project is then the action. Name the volume you measured, and cover the related fingerprints in one change, not one change per fingerprint.
+
+In the explanation, say which of these you found, or that you found neither."""
 
 
 def build_initial_research_prompt(
@@ -1380,6 +1398,8 @@ def build_actionability_prompt(
     return f"""You have investigated all {total_signals} signal(s). Now assess: **is this report actionable?**
 
 {criteria}{_render_own_pull_request_carve_out(own_pr_url) if code_available else ""}{_render_source_issue_carve_out(source_issue_urls)}
+
+{_HARMLESS_EXCEPTION_GUIDANCE}
 
 {previous_actionability_context}
 
@@ -1621,7 +1641,9 @@ Do not edit report reviewers or GitHub assignments through tools. Return your de
 Style rules:
 {previous_presentation_context}
 
-{_PRESENTATION_LINKING}{visual_context}
+{_PRESENTATION_LINKING}
+
+{_NOISE_REPORT_PRESENTATION}{visual_context}
 
 Respond with a JSON object matching this schema:
 

@@ -906,3 +906,13 @@ class TestSourceIssueCarveOut:
             assert all(url in prompt for url in issues)
             assert ("never count as `already_addressed`" in prompt) is bool(issues)
             assert ("github.com" in prompt) is bool(issues)
+
+
+class TestHarmlessExceptionGuidance:
+    @pytest.mark.parametrize("code_available", [False, True])
+    def test_actionability_prompt_parks_harmless_exceptions_on_both_paths(self, code_available):
+        # The data-only path builds its criteria block separately. Losing the rule there sends one-off
+        # extension and localhost exceptions back into the inbox as separate chore reports.
+        prompt = build_actionability_prompt(2, code_available=code_available)
+        assert "## Exceptions that hurt nobody" in prompt
+        assert "**A user action that failed.**" in prompt
