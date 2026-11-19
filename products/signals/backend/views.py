@@ -144,6 +144,7 @@ from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE
 from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_prs_for_reports,
@@ -6483,11 +6484,7 @@ def append_suggested_reviewers(
     on both the report and artefact viewsets. Returns the new artefact.
     Raises `ReviewerWriteError` on unresolvable entries."""
     edit = edit or ReviewerEdit(action="replace")
-    # App/user-only write (agents append reviewers via the artefacts POST), so always attribute to
-    # the requesting user — never the X-PostHog-Task-Id header. A task-attributed reviewers row has
-    # no created_by_id, which makes auto-start treat the list as agent-authored and run the
-    # implementation task as a named colleague instead of the editor — the reviewer-impersonation
-    # path the `triggering_user_id` guard in `auto_start` exists to close.
+    # This endpoint records a human edit even when the client also supplies task metadata.
     user_id = request.user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
@@ -6650,6 +6647,9 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
             reviewer_edit=edit,
+            implementation_authorization=None
+            if is_sandbox_origin_request(request)
+            else ImplementationAuthorization(mode="user", user_id=user_id),
             reevaluate_autostart=edit.action not in {"remove", "confirm"}
             and any(
                 not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
@@ -6933,9 +6933,7 @@ def remove_suggested_reviewer(
     The read, the filter and the write sit in one transaction behind the report lock, so a reviewer
     added between them is not dropped, and not recorded as removed by the person stepping off.
 
-    `reevaluate_autostart=False`: the new row is attributed to the caller, and auto-start runs an
-    implementation task as the user a reviewers edit is attributed to. Stepping off a report must
-    never start work, least of all under the credentials of the person who just declined it.
+    Stepping off grants no permission to start implementation, including on deferred retries.
     """
     removal_note = _scout_readable_removal_note(
         team=team, user=user, scoped_team_ids=scoped_team_ids, note=removal_note
@@ -6978,6 +6976,8 @@ def remove_suggested_reviewer(
             for entry in prior
             if not _reviewer_entry_names(entry, user_uuid=str(user.uuid), github_login=github_login)
         ]
+        if len(kept) == len(prior):
+            return False
         new_artefact = SignalReportArtefact.append_status(
             team_id=team.id,
             report_id=str(report_id),
@@ -6988,8 +6988,6 @@ def remove_suggested_reviewer(
             reviewer_edit=ReviewerEdit(action="remove"),
             reevaluate_autostart=False,
         )
-        if len(kept) == len(prior):
-            return False
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
         default_owner_labels = _default_owner_labels(prior)
         removed_default_owner = any(entry.get("is_default_owner") for entry in prior if entry not in kept)
@@ -7631,6 +7629,9 @@ class SignalReportArtefactViewSet(
                         if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
+                        implementation_authorization=None
+                        if is_sandbox_origin_request(request)
+                        else ImplementationAuthorization(mode="user", user_id=request.user.id),
                     )
                     if artefact.id != previous:
                         self._schedule_suggested_reviewer_telemetry(
