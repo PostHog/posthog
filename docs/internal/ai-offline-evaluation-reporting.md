@@ -323,7 +323,7 @@ Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
-The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
+The project API accepts offline experiment results.
 The configured public suites call this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
@@ -743,8 +743,7 @@ Numeric increases do not imply better quality unless that meaning is established
 ### MCP access
 
 The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
-these reads and the create/upload/complete/fail lifecycle behind the same
-`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+these reads and the create/upload/complete/fail lifecycle. Lifecycle tools record externally
 computed results; they do not execute evaluators. Scorer configuration remains on
 the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
 for immutable version discovery. Version tools use the existing scorer permissions.
@@ -879,5 +878,3 @@ Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
 
-The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
-The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.
