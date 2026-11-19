@@ -28,7 +28,7 @@ from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.messaging.backend.services.transactional_email_log import MAX_RESULTS_RECIPIENTS, _bucket_starts
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
@@ -58,9 +58,8 @@ IMPACT_COUNTS = {
     "window_days": 7,
 }
 LONG_ID_SENDS = 20
-TIED_SENDS = 12
+TIED_SENDS = MAX_RESULTS_RECIPIENTS + 6
 SPLIT_LOOKUP_OTHERS = 11
-TIED_SENDS_FOLLOWED = 6
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
@@ -118,6 +117,41 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     }
                 ],
             )
+        self._insert_status_rows(
+            self._status_rows(message_id, queued_at, recipient, rows, team or self.team, workflow_id, domain)
+        )
+        return message_id
+
+    def _status_rows(
+        self,
+        message_id: str,
+        queued_at: datetime,
+        recipient: str,
+        rows: Sequence[tuple[str, float, str]],
+        team: Team,
+        workflow_id: str | None,
+        domain: str,
+    ) -> list[dict]:
+        return [
+            {
+                "team_id": team.id,
+                "message_id": message_id,
+                "status": "failed" if row_status == "run_failed" else row_status,
+                "version": RANK[row_status] * 2**48 + int((queued_at + timedelta(seconds=seconds)).timestamp() * 1000),
+                "created_at": queued_at,
+                "status_at": queued_at + timedelta(seconds=seconds),
+                "reason": reason,
+                "recipient": recipient if row_status == "queued" else "",
+                "function_id": (workflow_id or self.workflow_id) if row_status == "queued" else "",
+                "sending_domain": domain if row_status == "sent" else "",
+                "_timestamp": queued_at,
+                "_offset": 0,
+                "_partition": 0,
+            }
+            for row_status, seconds, reason in rows
+        ]
+
+    def _insert_status_rows(self, rows: list[dict]) -> None:
         sync_execute(
             f"""
             INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
@@ -125,29 +159,33 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                  sending_domain, _timestamp, _offset, _partition)
             VALUES
             """,
-            [
-                {
-                    "team_id": (team or self.team).id,
-                    "message_id": message_id,
-                    "status": "failed" if row_status == "run_failed" else row_status,
-                    "version": RANK[row_status] * 2**48
-                    + int((queued_at + timedelta(seconds=seconds)).timestamp() * 1000),
-                    "created_at": queued_at,
-                    "status_at": queued_at + timedelta(seconds=seconds),
-                    "reason": reason,
-                    "recipient": recipient if row_status == "queued" else "",
-                    "function_id": (workflow_id or self.workflow_id) if row_status == "queued" else "",
-                    "sending_domain": domain if row_status == "sent" else "",
-                    "_timestamp": queued_at,
-                    "_offset": 0,
-                    "_partition": 0,
-                }
-                for row_status, seconds, reason in rows
-            ],
+            rows,
         )
-        return message_id
 
     def _record_distinct_id(self, message_id: str, distinct_id: str, recipient: str, sent_at: datetime) -> None:
+        self._insert_asset_rows([self._asset_row(message_id, distinct_id, recipient, sent_at)])
+
+    def _asset_row(self, message_id: str, distinct_id: str, recipient: str, sent_at: datetime) -> dict:
+        return {
+            "team_id": self.team.id,
+            "function_kind": "hog_flow",
+            "function_id": self.workflow_id,
+            "parent_run_id": "",
+            "invocation_id": message_id,
+            "action_id": "transactional_email",
+            "kind": "email",
+            "distinct_id": distinct_id,
+            "person_id": "",
+            "recipient": recipient,
+            "subject": "Reset",
+            "status": "sent",
+            "sent_at": sent_at,
+            "version": 1,
+            "is_deleted": 0,
+            "html": "",
+        }
+
+    def _insert_asset_rows(self, rows: list[dict]) -> None:
         sync_execute(
             """
             INSERT INTO message_assets_data
@@ -155,26 +193,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                  person_id, recipient, subject, status, sent_at, version, is_deleted, html)
             VALUES
             """,
-            [
-                {
-                    "team_id": self.team.id,
-                    "function_kind": "hog_flow",
-                    "function_id": self.workflow_id,
-                    "parent_run_id": "",
-                    "invocation_id": message_id,
-                    "action_id": "transactional_email",
-                    "kind": "email",
-                    "distinct_id": distinct_id,
-                    "person_id": "",
-                    "recipient": recipient,
-                    "subject": "Reset",
-                    "status": "sent",
-                    "sent_at": sent_at,
-                    "version": 1,
-                    "is_deleted": 0,
-                    "html": "",
-                }
-            ],
+            rows,
         )
 
     def _url(self, suffix: str = "") -> str:
@@ -792,38 +811,45 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("impact", lambda body: body["without_click"], {"sends": TIED_SENDS_FOLLOWED, "converted": 0}),
+            ("impact", lambda body: body["without_click"], {"sends": MAX_RESULTS_RECIPIENTS, "converted": 0}),
             (
                 "results",
                 lambda body: body,
-                {"recipients": TIED_SENDS_FOLLOWED, "converted": 0, "revenue": 0.0, "median_hours_to_convert": None},
+                {"recipients": MAX_RESULTS_RECIPIENTS, "converted": 0, "revenue": 0.0, "median_hours_to_convert": None},
             ),
         ]
     )
     def test_follows_the_same_sends_when_several_tie_at_the_cap(self, _flag, endpoint, counts_of, expected):
-        message_ids = sorted(
-            self._send(60, f"tied-{index}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
-            for index in range(TIED_SENDS)
-        )
+        queued_at = NOW - timedelta(minutes=60)
+        message_ids = sorted(str(uuid5(NAMESPACE_URL, f"tied-{index}")) for index in range(TIED_SENDS))
+        status_rows: list[dict] = []
+        asset_rows: list[dict] = []
         for rank, message_id in enumerate(message_ids):
-            name = f"tied-{rank:02d}"
-            create_person(team=self.team, distinct_ids=[name])
-            self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
-            if rank < TIED_SENDS - TIED_SENDS_FOLLOWED:
+            name = f"tied-{rank:05d}"
+            status_rows += self._status_rows(
+                message_id,
+                queued_at,
+                f"{name}@example.com",
+                [("queued", 0, ""), ("sent", 1, ""), ("delivered", 2, "")],
+                self.team,
+                None,
+                "mail.example.com",
+            )
+            asset_rows.append(self._asset_row(message_id, name, f"{name}@example.com", queued_at))
+            if rank < TIED_SENDS - MAX_RESULTS_RECIPIENTS:
                 _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=NOW - timedelta(minutes=30))
+        self._insert_status_rows(status_rows)
+        self._insert_asset_rows(asset_rows)
         flush_persons_and_events()
 
-        with patch(
-            "products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", TIED_SENDS_FOLLOWED
-        ):
-            response = self.client.get(
-                self._url(f"{endpoint}/"),
-                {
-                    "workflow_id": str(self.workflow_id),
-                    "event": "purchase",
-                    "date_from": (NOW - timedelta(days=1)).isoformat(),
-                },
-            )
+        response = self.client.get(
+            self._url(f"{endpoint}/"),
+            {
+                "workflow_id": str(self.workflow_id),
+                "event": "purchase",
+                "date_from": (NOW - timedelta(days=1)).isoformat(),
+            },
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert counts_of(response.json()) == expected
