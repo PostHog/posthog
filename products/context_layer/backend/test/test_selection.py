@@ -269,7 +269,11 @@ class TestSelection(SimpleTestCase):
         self.assertEqual("thread" in self.states[0], origin == Task.OriginProduct.SLACK)
 
     @parameterized.expand(
-        [("named", "see /phs activation-guide", True), ("not_named", "how is activation defined?", False)]
+        [
+            ("named", "see /phs activation-guide", True),
+            ("named_in_a_list", "use activation-guide,retention-guide", True),
+            ("not_named", "how is activation defined?", False),
+        ]
     )
     def test_a_skill_named_in_the_request_is_injected_without_the_rerank(
         self, name: str, prompt: str, named: bool

@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import hashlib
@@ -115,7 +116,8 @@ class SelectionUnavailable(RuntimeError):
 
 
 def mentioned_names(request: str) -> set[str]:
-    return {token.strip("/`'\"‘’“”.,;:!?()[]{}<>*_") for token in request.split()} - {""}
+    # Skill names are lowercase letters, digits and hyphens, so any other character ends a name.
+    return {token.strip("-") for token in re.findall(r"[a-z0-9-]+", request.lower())} - {""}
 
 
 def elapsed_ms(started: float) -> int:
