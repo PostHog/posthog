@@ -42,6 +42,8 @@ MAX_RETRY_ATTEMPTS = 5
 # Marketo asks callers to check bulk export status no more than once a minute.
 BULK_POLL_INTERVAL_SECONDS = 60
 BULK_POLL_BUDGET_SECONDS = 2 * 60 * 60
+# The cancel runs while the worker shuts down, so it gets one short try.
+BULK_CANCEL_TIMEOUT_SECONDS = 10
 BULK_CHUNK_ROWS = 2000
 # Bulk lead exports name every column explicitly; keep the request body bounded on instances
 # with thousands of custom fields.
@@ -242,6 +244,7 @@ class MarketoClient:
         params: Optional[Mapping[str, Any]] = None,
         json_body: Optional[Mapping[str, Any]] = None,
         stream: bool = False,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
     ) -> requests.Response:
         """Issue one request, re-minting the token once on an HTTP 401."""
 
@@ -252,7 +255,7 @@ class MarketoClient:
                 params=dict(params) if params else None,
                 json=dict(json_body) if json_body is not None else None,
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=timeout,
                 stream=stream,
             )
 
@@ -410,8 +413,12 @@ def _await_bulk_export(
 
 
 def _cancel_bulk_export(client: MarketoClient, obj: str, export_id: str, logger: FilteringBoundLogger) -> None:
+    # Not `request_json`: its retries wait with `time.sleep`, which a shutdown cannot end.
     try:
-        client.request_json("POST", f"/bulk/v1/{obj}/export/{export_id}/cancel.json")
+        response = client.request(
+            "POST", f"/bulk/v1/{obj}/export/{export_id}/cancel.json", timeout=BULK_CANCEL_TIMEOUT_SECONDS
+        )
+        raise_for_marketo_errors(response.json())
     except Exception:
         logger.warning(f"Marketo: failed to cancel bulk export {export_id}")
 

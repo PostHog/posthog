@@ -13,6 +13,7 @@ from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.sources.marketo._config import MarketoSourceConfig
 from products.warehouse_sources.sources.marketo.marketo import (
+    BULK_CANCEL_TIMEOUT_SECONDS,
     BULK_CHUNK_ROWS,
     MarketoAPIError,
     MarketoAuthError,
@@ -472,6 +473,7 @@ class TestMarketo:
         [
             {"success": True, "result": [{"exportId": "exp-1", "status": "Cancelled"}]},
             {"success": False, "errors": [{"code": "1003", "message": "Export cannot be cancelled"}]},
+            {"success": False, "errors": [{"code": "606", "message": "Max rate limit exceeded"}]},
         ],
     )
     def test_a_hand_off_during_the_poll_cancels_the_export(self, cancel_body: dict[str, Any]) -> None:
@@ -503,6 +505,7 @@ class TestMarketo:
             ("POST", "/bulk/v1/activities/export/exp-1/enqueue.json"),
             ("POST", "/bulk/v1/activities/export/exp-1/cancel.json"),
         ]
+        assert session.request.call_args_list[-1].kwargs["timeout"] == BULK_CANCEL_TIMEOUT_SECONDS
 
     @pytest.mark.parametrize("status", ["Failed", "Cancelled"])
     def test_a_terminal_export_status_fails_the_sync(self, status: str) -> None:
