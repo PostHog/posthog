@@ -826,6 +826,7 @@ A property is added without a version change; a rename, a removal or a change of
 The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirty` flags local edits they do not cover.
 A cloud run also publishes its environment, such as `writer_class`, `reader_acu_min`, `reader_acu_max`, `reader_monitoring_interval_seconds`, `host_class`, `engine_version` and `pooler_replicas`.
 Its `fingerprint` hashes that environment with the pooler settings and the local fingerprint.
+A failover run also publishes `reader_acu_idle_max`, and its fingerprint hashes it. A scale run leaves it out, so a profile that gains an idle limit keeps its scale fingerprints.
 Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and they fingerprint apart from later runs at any interval, because the fingerprint now hashes the field.
 
 **Verdict**
