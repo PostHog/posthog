@@ -402,14 +402,12 @@ def _remember_run_token(run_id: str, token: str) -> bool:
     from products.tasks.backend.run_token_fencing import record_run_gateway_token
 
     try:
-        dropped = record_run_gateway_token(run_id, token)
+        record_run_gateway_token(run_id, token)
     except (TaskRun.DoesNotExist, ValidationError, ValueError):
         return True
     except Exception:
         logger.warning("could not record the gateway mint on run %s", run_id, exc_info=True)
         return False
-    if dropped and not revoke_scoped_token_hashes(dropped):
-        logger.warning("could not revoke the gateway mints that run %s dropped", run_id)
     return True
 
 
