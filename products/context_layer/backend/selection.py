@@ -7,7 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextvars import copy_context
 from dataclasses import asdict, replace
 from threading import BoundedSemaphore
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
@@ -41,6 +41,8 @@ MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
 CONFIG_VERSION = "context-selection-v15"
+SELECTION_FLAG = "phai-context-selection"
+DEFAULT_DECISION_MODEL = "openai/gpt-6-luna"
 # The Slack app renders the thread in a tagged block before the request. Thread participants' text sits inside
 # the block, so a tag they forge comes before the real closing tag, and the request is the text after the last one.
 _SLACK_THREAD_CLOSINGS = ("</slack_thread_context>", "</slack_thread_context_update>")
@@ -175,15 +177,34 @@ def selection_mode(run: TaskRun, actor: User) -> str:
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
     ):
         return "disabled"
-    value = get_feature_flag_or_none(
-        "phai-context-selection",
-        str(run.task_id),
-        person_properties={"email": actor.email, "is_staff": actor.is_staff},
-        groups={"organization": str(run.team.organization_id), "project": str(run.team_id)},
-        group_properties={"organization": {"id": str(run.team.organization_id)}, "project": {"id": str(run.team_id)}},
-        send_feature_flag_events=False,
-    )
+    value = get_feature_flag_or_none(SELECTION_FLAG, str(run.task_id), **flag_targeting(run, actor))
     return str(value) if value in ("shadow", "control", "treatment") else "disabled"
+
+
+def flag_targeting(run: TaskRun, actor: User) -> dict[str, Any]:
+    return {
+        "person_properties": {"email": actor.email, "is_staff": actor.is_staff},
+        "groups": {"organization": str(run.team.organization_id), "project": str(run.team_id)},
+        "group_properties": {
+            "organization": {"id": str(run.team.organization_id)},
+            "project": {"id": str(run.team_id)},
+        },
+        "send_feature_flag_events": False,
+    }
+
+
+def selection_model(run: TaskRun, actor: User) -> str:
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            SELECTION_FLAG, str(run.task_id), **flag_targeting(run, actor)
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+    except Exception:
+        logger.warning("context_selection_model_payload_unreadable", exc_info=True)
+        return DEFAULT_DECISION_MODEL
+    model = payload.get("model") if isinstance(payload, dict) else None
+    return model if isinstance(model, str) and 0 < len(model) <= 128 else DEFAULT_DECISION_MODEL
 
 
 class ContextSelector:
@@ -209,6 +230,7 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
+        self.model = DEFAULT_DECISION_MODEL
         self.explicit: frozenset[str] = frozenset()
         self.request = selection.prompt
         self.thread = ""
@@ -341,7 +363,7 @@ class ContextSelector:
     def decision_client(self, deadline: float, step: Literal["gate", "rerank"]) -> "SystemOneClient":
         remaining = time_remaining(deadline)
         return build_system_one_client(
-            model=settings.HOGQL_PROMPT_JEV_MODEL,
+            model=self.model,
             ai_product="posthog_ai",
             distinct_id=str(self.actor.distinct_id),
             trace_id=self.selection_id,
@@ -450,6 +472,7 @@ class ContextSelector:
                 **self.properties,
                 "selection_id": self.selection_id,
                 "mode": self.mode,
+                "model": self.model,
                 "config_version": CONFIG_VERSION,
                 "runtime_version": self.selection.runtime_version,
                 "reason": reason,
@@ -539,6 +562,7 @@ class ContextSelector:
                 return self.finish("ai_consent_required")
             if not self.admit():
                 return self.finish("rate_limited")
+            self.model = selection_model(self.run, self.actor)
             return self.select(deadline)
         except Exception as error:
             error_type = type(error).__name__

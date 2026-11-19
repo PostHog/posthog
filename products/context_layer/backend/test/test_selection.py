@@ -42,6 +42,7 @@ from products.context_layer.backend.selection import (
     bounded_request,
     prepare_context_selection,
     selection_mode,
+    selection_model,
 )
 from products.tasks.backend.models import Task, TaskRun
 
@@ -81,6 +82,12 @@ class TestSelection(SimpleTestCase):
         )
         self.flag = self.enterContext(
             patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment")
+        )
+        self.payload = self.enterContext(
+            patch(
+                "products.context_layer.backend.selection.posthoganalytics.get_feature_flag_payload",
+                return_value={"model": "test/decision-model"},
+            )
         )
         self.client_factory = self.enterContext(
             patch("products.context_layer.backend.selection.build_system_one_client")
@@ -333,8 +340,28 @@ class TestSelection(SimpleTestCase):
             self.assertEqual(labels["selection_id"], result.selection_id)
             self.assertEqual(labels["mode"], mode)
             self.assertEqual(labels["runtime_version"], "unknown")
+            self.assertEqual(self.client_factory.call_args.kwargs["model"], "test/decision-model")
         else:
             self.client_factory.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("object", {"model": "posthog/hogference/jeeves-0.1"}, "posthog/hogference/jeeves-0.1"),
+            ("json_text", '{"model": "posthog/hogference/jeeves-0.1"}', "posthog/hogference/jeeves-0.1"),
+            ("no_payload", None, "openai/gpt-6-luna"),
+            ("no_model_key", {"other": 1}, "openai/gpt-6-luna"),
+            ("model_not_text", {"model": 5}, "openai/gpt-6-luna"),
+            ("not_json", "{", "openai/gpt-6-luna"),
+            ("flag_service_down", RuntimeError("down"), "openai/gpt-6-luna"),
+        ]
+    )
+    def test_flag_payload_picks_the_decision_model(self, name: str, payload: object, expected: str) -> None:
+        if isinstance(payload, Exception):
+            self.payload.side_effect = payload
+        else:
+            self.payload.return_value = payload
+        self.assertEqual(selection_model(self.run_record, self.selector.actor), expected)
+        self.assertEqual(self.payload.call_args.kwargs["person_properties"]["email"], self.selector.actor.email)
 
     @parameterized.expand([("pilot@example.com", "shadow"), ("other@example.com", "disabled")])
     def test_email_targeting_uses_current_actor(self, email: str, expected: str) -> None:
@@ -615,7 +642,6 @@ class TestSelectionDeadline(SimpleTestCase):
 
 @override_settings(
     CLOUD_DEPLOYMENT="US",
-    HOGQL_PROMPT_JEV_MODEL="posthog/hogference/test-decision-model",
     AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
     AI_GATEWAY_API_KEY="phs_test",
 )
@@ -641,6 +667,7 @@ class TestSelectionGateway(SimpleTestCase):
             self.assertEqual(selector.gate(time.monotonic() + 60), 0.9)
         self.assertIn("ai-gateway.example.com", post.call_args.args[0])
         self.assertEqual(post.call_args.kwargs["json"]["state"], {"user_request": "request", "history": "history"})
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "openai/gpt-6-luna")
         headers = str(post.call_args.kwargs["headers"])
         for value in (selector.selection_id, "task_run_id", "message_id", "mode", "config_version", "runtime_version"):
             self.assertIn(value, headers)
