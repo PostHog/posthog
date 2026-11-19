@@ -496,6 +496,9 @@ impl Drop for WarmCleanup<'_> {
 /// can append to this partition's Kafka log. The HWM we snapshot here
 /// is therefore stable, and we can consume to a known endpoint without
 /// racing producers.
+///
+/// A follower warms a live source that leaders still write to. Its replay
+/// ends at the HWM snapshotted here, and it follows the log from there.
 async fn warm_source(
     cfg: &WarmingConfig,
     pools: &WarmClientPools,
@@ -867,7 +870,8 @@ pub async fn follow_source(
     .await
 }
 
-/// Every source is sealed or fenced, so each replay runs to a known end.
+/// Each replay runs to a known end: for a leader every source is sealed or fenced, and a
+/// follower's live source is replayed to the end it had when the replay began.
 pub async fn warm_from_sources(
     cfg: &WarmingConfig,
     pools: &WarmClientPools,
