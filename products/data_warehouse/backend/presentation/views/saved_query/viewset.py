@@ -41,6 +41,7 @@ from products.data_modeling.backend.facade.api import (
     ModelRenameBlockedError,
     ModelRenamePlan,
     ModelRenamePlanStaleError,
+    ModelRenameRefusedError,
     SavedQueryNotFoundError,
     allowed_saved_query_ids,
     apply_model_rename,
@@ -774,13 +775,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    def _validated_new_name(self, saved_query: DataWarehouseSavedQuery, name: str) -> str:
+    def _validated_new_name(self, saved_query: DataWarehouseSavedQuery, name: str) -> tuple[str, dict[str, Any]]:
+        """The validated name, and the serializer context it was checked with, which carries a built database."""
         serializer = self.get_serializer(saved_query, data={"name": name}, partial=True)
         serializer.is_valid(raise_exception=True)
         new_name = serializer.validated_data["name"]
         if new_name == saved_query.name:
             raise serializers.ValidationError({"name": "The model already has this name."})
-        return new_name
+        return new_name, serializer.context
 
     def _require_edit_access(self, plan: ModelRenamePlan) -> None:
         # A rename writes the SQL of every model it lists, so it needs the same access as editing each one.
@@ -803,9 +805,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query: DataWarehouseSavedQuery = self.get_object()
         body = SavedQueryRenamePlanRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        new_name = self._validated_new_name(saved_query, body.validated_data["name"])
+        new_name, _ = self._validated_new_name(saved_query, body.validated_data["name"])
 
-        plan = plan_model_rename(self.team, saved_query.id, new_name)
+        try:
+            plan = plan_model_rename(self.team, saved_query.id, new_name)
+        except ModelRenameRefusedError as error:
+            raise serializers.ValidationError(str(error))
         self._require_edit_access(plan)
         payload = {
             "name": new_name,
@@ -838,11 +843,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         body = SavedQueryRenameRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         old_name = saved_query.name
-        new_name = self._validated_new_name(saved_query, body.validated_data["name"])
+        new_name, context = self._validated_new_name(saved_query, body.validated_data["name"])
 
         with transaction.atomic():
             try:
-                apply_model_rename(
+                plan = apply_model_rename(
                     self.team,
                     saved_query.id,
                     new_name,
@@ -853,13 +858,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 raise Conflict(RENAME_PLAN_STALE_DETAIL)
             except ModelRenameBlockedError:
                 raise serializers.ValidationError(RENAME_BLOCKED_DETAIL)
+            except ModelRenameRefusedError as error:
+                raise serializers.ValidationError(str(error))
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound()
+            user = cast(User, request.user)
+            was_impersonated = is_impersonated(request)
             log_activity(
                 organization_id=self.team.organization_id,
                 team_id=self.team_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated(request),
+                user=user,
+                was_impersonated=was_impersonated,
                 item_id=saved_query.id,
                 scope="DataWarehouseSavedQuery",
                 activity="updated",
@@ -876,8 +885,39 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     ],
                 ),
             )
+            # The rewrites are queryset updates, which no activity receiver sees, so each is logged here.
+            rewritten = {
+                dependent.pk: dependent
+                for dependent in DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id, pk__in=[item.saved_query_id for item in plan.rewrites]
+                ).only("id", "query")
+            }
+            for item in plan.rewrites:
+                after_query = rewritten[item.saved_query_id].query or {}
+                log_activity(
+                    organization_id=self.team.organization_id,
+                    team_id=self.team_id,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    item_id=item.saved_query_id,
+                    scope="DataWarehouseSavedQuery",
+                    activity="updated",
+                    detail=Detail(
+                        name=item.name,
+                        changes=[
+                            Change(
+                                type="DataWarehouseSavedQuery",
+                                action="changed",
+                                field="query",
+                                before={**after_query, "query": item.before},
+                                after=after_query,
+                            )
+                        ],
+                    ),
+                )
         saved_query.refresh_from_db()
-        return response.Response(self.get_serializer(saved_query).data)
+        # The context the name was validated with: a fresh one would build the team's database a third time.
+        return response.Response(self.get_serializer_class()(saved_query, context=context).data)
 
     @extend_schema(request=None, responses={200: lineage.SavedQueryDependenciesSerializer})
     @action(methods=["GET"], detail=True)

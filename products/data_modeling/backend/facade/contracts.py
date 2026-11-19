@@ -125,6 +125,10 @@ class ModelRenamePlanStaleError(Exception):
     """The models that read the renamed model changed after the plan was computed."""
 
 
+class ModelRenameRefusedError(Exception):
+    """The model is not one a person renames: what made it owns its name. The message says why."""
+
+
 @frozen
 class NodeLineageCounts:
     """How many nodes sit upstream and downstream of one node."""

@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -5,6 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { DataModelingNodesRetrieveLookup } from 'products/data_modeling/frontend/generated/api.schemas'
 import type { SavedQueryRenamePlanApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { RenameViewQueryDiff } from './RenameViewQueryDiff'
@@ -164,7 +167,14 @@ export function RenameViewModal({
                         <ul className="mt-1 space-y-1">
                             {plan.blocked.map((model) => (
                                 <li key={model.id} className="break-words">
-                                    <Link to={urls.nodeDetail(model.id)} target="_blank">
+                                    <Link
+                                        to={
+                                            combineUrl(urls.nodeDetail(model.id), {
+                                                lookup: DataModelingNodesRetrieveLookup.SavedQuery,
+                                            }).url
+                                        }
+                                        target="_blank"
+                                    >
                                         {model.name}
                                     </Link>
                                     : {model.reason}

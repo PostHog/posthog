@@ -21,6 +21,7 @@ from rest_framework.test import APIRequestFactory
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.constants import AvailableFeature
@@ -2690,7 +2691,10 @@ class TestSavedQuery(APIBaseTest):
 
     def _model_with_a_dependent(self) -> tuple[DataWarehouseSavedQuery, DataWarehouseSavedQuery]:
         renamed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="stg_signups", query={"kind": "HogQLQuery", "query": "select 1 as id"}
+            team=self.team,
+            name="stg_signups",
+            query={"kind": "HogQLQuery", "query": "select 1 as id"},
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
         )
         dependent = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -2714,7 +2718,9 @@ class TestSavedQuery(APIBaseTest):
         url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}"
         after = "select staging.signups.id -- keep me\nfrom staging.signups"
 
-        plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
+        assert create_for.call_count == 2
 
         assert plan.status_code == 200, plan.content
         assert plan.json() == {
@@ -2732,15 +2738,23 @@ class TestSavedQuery(APIBaseTest):
         }
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
 
-        response = self.client.post(
-            f"{url}/rename/", {"name": "staging.signups", "plan_token": plan.json()["plan_token"]}
-        )
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            response = self.client.post(
+                f"{url}/rename/", {"name": "staging.signups", "plan_token": plan.json()["plan_token"]}
+            )
+        assert create_for.call_count == 2
 
         assert response.status_code == 200, response.content
         assert response.json()["name"] == "staging.signups"
         rename_activity = ActivityLog.objects.get(item_id=str(renamed.id), activity="updated")
         assert rename_activity.detail["changes"][0]["before"] == "stg_signups"
         assert rename_activity.detail["changes"][0]["after"] == "staging.signups"
+        rewrite_activity = ActivityLog.objects.get(item_id=str(dependent.id), activity="updated")
+        assert rewrite_activity.user == self.user
+        assert rewrite_activity.was_impersonated is False
+        assert [
+            (change["field"], change["before"], change["after"]) for change in rewrite_activity.detail["changes"]
+        ] == [("query", dependent.query, {"kind": "HogQLQuery", "query": after})]
         stored = DataWarehouseSavedQuery.objects.get(id=dependent.id)
         assert stored.query == {"kind": "HogQLQuery", "query": after}
         assert stored.query_revision != dependent.query_revision
@@ -2749,8 +2763,15 @@ class TestSavedQuery(APIBaseTest):
         for scope in (None, TRINO_INCREMENTAL_SCOPE):
             assert resolve_write_plan(self.team.id, dependent.id, scope=scope).reason == "incremental"
 
-    @parameterized.expand([("blocked_dependent", 400), ("stale_plan_token", 409)])
-    def test_a_refused_rename_changes_nothing(self, case: str, expected_status: int) -> None:
+    @parameterized.expand(
+        [
+            ("blocked_dependent", 400, None),
+            ("stale_plan_token", 409, None),
+            ("became_a_managed_view", 400, "Cannot update a query from a managed viewset"),
+            ("became_an_endpoint_view", 400, "This view belongs to an endpoint, so it cannot be renamed."),
+        ]
+    )
+    def test_a_refused_rename_changes_nothing(self, case: str, expected_status: int, refusal: str | None) -> None:
         renamed, dependent = self._model_with_a_dependent()
         url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}"
         if case == "blocked_dependent":
@@ -2762,14 +2783,26 @@ class TestSavedQuery(APIBaseTest):
         plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"}).json()
         if case == "blocked_dependent":
             assert plan["blocked"] == [{"id": str(broken.id), "name": "broken", "reason": "Its query does not parse."}]
-        else:
+        elif case == "stale_plan_token":
             dependent.query = {"kind": "HogQLQuery", "query": "select id from stg_signups"}
             dependent.query_revision = uuid.uuid4()
             dependent.save()
+        else:
+            # Changed after the plan, so only the check on the locked row can catch it.
+            DataWarehouseSavedQuery.objects.filter(id=renamed.id).update(
+                origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET
+                if case == "became_a_managed_view"
+                else DataWarehouseSavedQuery.Origin.ENDPOINT
+            )
+            refused_plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
+            assert refused_plan.status_code == 400, refused_plan.content
 
         response = self.client.post(f"{url}/rename/", {"name": "staging.signups", "plan_token": plan["plan_token"]})
 
         assert response.status_code == expected_status, response.content
+        if refusal is not None:
+            assert refused_plan.json()["detail"] == refusal
+            assert response.json()["detail"] == refusal
         assert DataWarehouseSavedQuery.objects.get(id=renamed.id).name == "stg_signups"
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
 
@@ -2779,11 +2812,15 @@ class TestSavedQuery(APIBaseTest):
         if not has_dependent:
             dependent.delete()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}", {"name": "staging.signups"}
-        )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}", {"name": "staging.signups"}
+            )
 
         assert response.status_code == expected, response.content
+        # The first lock covers the model and every reader at once, in id order, so two renames cannot deadlock.
+        first_lock = next(q["sql"] for q in queries.captured_queries if "FOR NO KEY UPDATE" in q["sql"])
+        assert "ORDER BY" in first_lock and "LIKE" in first_lock.upper()
         stored = DataWarehouseSavedQuery.objects.get(id=renamed.id)
         assert stored.name == ("staging.signups" if expected == 200 else "stg_signups")
         if has_dependent:
@@ -2791,7 +2828,10 @@ class TestSavedQuery(APIBaseTest):
 
     def test_rename_rewrites_only_the_model_when_a_table_holds_the_bare_name(self) -> None:
         renamed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="revenue", query={"kind": "HogQLQuery", "query": "select 1 as id"}
+            team=self.team,
+            name="revenue",
+            query={"kind": "HogQLQuery", "query": "select 1 as id"},
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
         )
         DataWarehouseTable.objects.create(
             team=self.team,

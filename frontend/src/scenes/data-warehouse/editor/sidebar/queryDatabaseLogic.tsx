@@ -1822,6 +1822,7 @@ export interface queryDatabaseLogicValues {
     allMetrics: DataCatalogMetricApi[] // metricsLogic
     metricsLoading: boolean // metricsLogic
     currentProjectId: number | string // teamLogic
+    currentTeamIdStrict: number | string // teamLogic
     user: UserType | null // userLogic
     activeDraggedViewId: string | null
     activeExpandedFolderIds: string[]
@@ -2464,7 +2465,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentProjectId'],
+            ['currentProjectId', 'currentTeamIdStrict'],
             userLogic,
             ['user'],
         ],
@@ -2784,14 +2785,16 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             actions.setRenameViewNameError(undefined)
             actions.setRenameViewSubmitError(undefined)
             actions.setRenameViewSaving(true)
-            const projectId = String(values.currentProjectId)
+            // Saved queries belong to the environment, which can differ from its project.
+            const environmentId = String(values.currentTeamIdStrict)
             try {
-                const plan = view.plan ?? (await warehouseSavedQueriesRenamePlanCreate(projectId, view.id, { name }))
+                const plan =
+                    view.plan ?? (await warehouseSavedQueriesRenamePlanCreate(environmentId, view.id, { name }))
                 if (!view.plan && (plan.dependents.length > 0 || plan.blocked.length > 0)) {
                     actions.setRenameViewPlan(plan)
                     return
                 }
-                await warehouseSavedQueriesRenameCreate(projectId, view.id, { name, plan_token: plan.plan_token })
+                await warehouseSavedQueriesRenameCreate(environmentId, view.id, { name, plan_token: plan.plan_token })
                 actions.loadDataWarehouseSavedQueries()
                 actions.refreshDatabaseSchema()
                 lemonToast.success('View renamed')
@@ -2801,7 +2804,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 if (error instanceof ApiError && error.status === 409) {
                     try {
                         actions.setRenameViewPlan(
-                            await warehouseSavedQueriesRenamePlanCreate(projectId, view.id, { name })
+                            await warehouseSavedQueriesRenamePlanCreate(environmentId, view.id, { name })
                         )
                         actions.setRenameViewSubmitError(
                             'The views that reference this one changed. Review the new changes, then rename again.'

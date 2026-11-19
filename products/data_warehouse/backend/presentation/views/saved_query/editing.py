@@ -803,6 +803,16 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             try:
+                # Before the row lock below: the check locks this model together with the models that read it,
+                # in one statement ordered by id, as the rename action does, so concurrent renames cannot deadlock.
+                if (
+                    "name" in validated_data
+                    and validated_data["name"] != instance.name
+                    and is_authored_model(instance)
+                    and instance.engine.has_lineage.available
+                    and modeling_api.rename_needs_plan(instance.team, instance.id, validated_data["name"])
+                ):
+                    raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
                 # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
                 # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
                 # takes on this row for its job's foreign key, which deadlocks the two. It still
@@ -832,15 +842,6 @@ class DataWarehouseSavedQuerySerializer(
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
                 validated_data["query_updated_at"] = timezone.now()
-
-            if (
-                "name" in validated_data
-                and validated_data["name"] != locked_instance.name
-                and is_authored_model(locked_instance)
-                and locked_instance.engine.has_lineage.available
-                and modeling_api.rename_needs_plan(locked_instance.team, locked_instance.id, validated_data["name"])
-            ):
-                raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
             name_changed = before_update.name != view.name

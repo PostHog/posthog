@@ -10,6 +10,7 @@ from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDep
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
+from products.data_modeling.backend.logic.model_bindings import DOES_NOT_RESOLVE, READS_ANOTHER_TABLE
 from products.data_modeling.backend.logic.model_references import (
     DOES_NOT_PARSE,
     PARSE_CHECK_FAILED,
@@ -17,6 +18,7 @@ from products.data_modeling.backend.logic.model_references import (
     model_spellings,
     rename_model_references,
 )
+from products.data_modeling.backend.logic.model_rename import plan_model_rename
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
@@ -186,6 +188,7 @@ class TestRenameModelReferences(BaseTest):
             ("ep_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
             ("costs", None),
             ("marts.fees", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("marts.fees.archive", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
             ("held", None),
         ]:
             body = "select * from revenue" if name == "wrapper" else "select 1 as id"
@@ -318,6 +321,36 @@ class TestRenameModelReferences(BaseTest):
                 "select held.id, models.moved.income.id from held join models.moved.income on 1 = 1",
             ),
             ("other_models_stay", "revenue", "select costs.id from costs", None),
+            (
+                "a_cte_defined_over_the_model",
+                "revenue",
+                "with revenue as (select * from revenue) select * from revenue",
+                "with revenue as (select * from moved.income) select * from revenue",
+            ),
+            (
+                "a_cte_defined_over_the_model_in_a_union",
+                "revenue",
+                "with revenue as (select * from revenue) select * from revenue union all select * from revenue",
+                "with revenue as (select * from moved.income) select * from revenue union all select * from revenue",
+            ),
+            (
+                "a_longer_nested_table_wins_the_qualifier",
+                "marts.fees",
+                "select marts.fees.archive.id, marts.fees.id from marts.fees join marts.fees.archive on 1 = 1",
+                "select marts.fees.archive.id, moved.income.id from moved.income join marts.fees.archive on 1 = 1",
+            ),
+            (
+                "pivot_source",
+                "revenue",
+                "select 1 from revenue pivot (count() for id in (1))",
+                "select 1 from moved.income pivot (count() for id in (1))",
+            ),
+            (
+                "unpivot_source",
+                "revenue",
+                "select * from revenue unpivot (v for k in (id))",
+                "select * from moved.income unpivot (v for k in (id))",
+            ),
         ]
     )
     def test_rename_model_references(self, _case: str, model: str, query: str, expected: str | None):
@@ -359,6 +392,73 @@ class TestRenameModelReferences(BaseTest):
         spellings = model_spellings(renamed, Database.create_for(team=self.team))
         with pytest.raises(ModelReferenceRewriteError, match=reason):
             rename_model_references(query, spellings, ["moved", "income"])
+
+    @parameterized.expand(
+        [
+            (
+                "a_cte_with_the_new_name",
+                "income",
+                "with income as (select 999 as id) select revenue.id from revenue",
+                READS_ANOTHER_TABLE,
+            ),
+            (
+                "a_cte_with_the_new_name_read_unqualified",
+                "income",
+                "with income as (select 2 as id) select id from revenue",
+                READS_ANOTHER_TABLE,
+            ),
+            (
+                "a_table_alias_with_the_new_name",
+                "income",
+                "select revenue.id, income.event from revenue join events as income on 1 = 1",
+                DOES_NOT_RESOLVE,
+            ),
+            (
+                "an_expression_named_by_its_text",
+                "income",
+                "select toString(revenue.id), revenue.id from revenue",
+                "The rename would change its output column toString(revenue.id) to toString(income.id). "
+                "Give that column an alias first.",
+            ),
+            ("a_plain_read", "income", "select revenue.id from revenue", None),
+            ("a_cte_with_another_name", "income", "with other as (select 2 as id) select id from revenue", None),
+        ]
+    )
+    def test_plan_blocks_a_rewrite_that_reads_something_else(
+        self, _case: str, new_name: str, query: str, reason: str | None
+    ):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="revenue")
+        dependent = DataWarehouseSavedQuery.objects.create(team=self.team, name="dependent", query={"query": query})
+
+        plan = plan_model_rename(self.team, renamed.id, new_name)
+
+        dependent_blocks = [entry.reason for entry in plan.blocked if entry.saved_query_id == dependent.id]
+        dependent_rewrites = [entry for entry in plan.rewrites if entry.saved_query_id == dependent.id]
+        assert dependent_blocks == ([reason] if reason is not None else [])
+        assert len(dependent_rewrites) == (0 if reason is not None else 1)
+
+    def test_plan_rewrites_a_model_that_reads_the_renamed_model_directly_and_through_another(self):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="revenue")
+        middle = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="middle",
+            query={"query": "select revenue.id from revenue"},
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        top = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="top",
+            query={"query": "select middle.id from middle join revenue on middle.id = revenue.id"},
+        )
+
+        plan = plan_model_rename(self.team, renamed.id, "income")
+
+        assert plan.blocked == ()
+        rewrites = {entry.saved_query_id: entry.after for entry in plan.rewrites}
+        assert {key: rewrites.get(key) for key in (middle.id, top.id)} == {
+            middle.id: "select income.id from income",
+            top.id: "select middle.id from middle join income on middle.id = income.id",
+        }
 
 
 class TestBoundedResolver(BaseTest):

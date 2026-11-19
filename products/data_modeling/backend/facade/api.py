@@ -146,6 +146,7 @@ _LAZY = {
     "ModelRenameBlockedError": "facade.contracts",
     "ModelRenamePlan": "facade.contracts",
     "ModelRenamePlanStaleError": "facade.contracts",
+    "ModelRenameRefusedError": "facade.contracts",
     "ModelRenameRewrite": "facade.contracts",
     "apply_model_rename": "logic.model_rename",
     "plan_model_rename": "logic.model_rename",
