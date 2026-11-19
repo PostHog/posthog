@@ -3576,6 +3576,16 @@ class SignalReportSectionCountsSerializer(serializers.Serializer):
     reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
 
 
+class SignalReportTagOptionsSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The team's most-used report tags, most-used first, counted over its newest reports. "
+            "Empty when no report has tags."
+        ),
+    )
+
+
 class SignalReportFilterQuerySerializer(serializers.Serializer):
     exclude = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),

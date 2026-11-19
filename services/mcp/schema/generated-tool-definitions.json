@@ -3674,7 +3674,7 @@
         "feature_flag": "stamphog"
     },
     "code-review-approvals-reviewer-routing-list": {
-        "description": "List reviewer routing runs, newest run first by default or newest merge first with `ordering=-merged_at`. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. Each run also carries its `pull_request`: title, author, url, `merged_at`, the size once merged, the auto-approval reviewer's one-sentence `summary` of the change, and `auto_approved`, whether a standing auto-approval covers the run's head. Each owner has a `summary` when the reviewer wrote a clause about that owner's part. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it (comma-separate `outcome` to accept any of several), and `created_after` or `created_before` to set a time window. A team was asked when its outcome is `requested`, `already_requested` or `labeled`. `head_sha` finds the run for one commit. `latest_per_pr=true` keeps one run per pull request: it picks each pull request's newest run over its whole history first, and every other filter then applies to that run, so a pull request whose newest run fails a filter drops out and never falls back to an older run. With `latest_per_pr`, `count` counts pull requests. To answer \"what landed in our area\", pass `owner`, `latest_per_pr=true`, `merged_after` and `ordering=-merged_at`; add `outcome=not_requested` for what auto-approval approved that would otherwise have come to the owner. For a weekly count, call once per week with `limit=1` and read `count`. `merged=false` keeps pull requests that are open or closed without merging. For the full history of one pull request, omit `latest_per_pr` and `owner`. On a run with scope `pinned` (auto-approval approved the head), only pinned owners are requested, and `not_requested` means routing would have asked this owner without the approval, while `cut` means the model would have cut it anyway. On an older pinned run whose `llm_skipped` is `stamphog_approved`, no model ran, and `not_requested` means only that the owner owns changed code. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`, `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first. No runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on `code-review-approvals-pull-requests-list` with `pr_number` to see whether routing is off, waiting for auto-approval's verdict, or still running. A `done` record whose head has no run means the log has no entry for it, most often because the log write failed. Use `code-review-approvals-reviewer-routing-get` for the files each owner owns and the ownership file that decided each one.",
+        "description": "List reviewer routing runs, newest run first by default or newest merge first with `ordering=-merged_at`. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. Each run also carries its `pull_request`: title, author, url, `merged_at`, the size once merged, the auto-approval reviewer's one-sentence `summary` of the change, and `auto_approved`, whether a standing auto-approval covers the run's head. Each owner has a `summary` when the reviewer wrote a clause about that owner's part. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it (comma-separate `outcome` to accept any of several), and `created_after` or `created_before` to set a time window. A team was asked when its outcome is `requested`, `already_requested` or `labeled`. `head_sha` finds the run for one commit. `latest_per_pr=true` keeps one run per pull request: it picks each pull request's newest run over its whole history first, and every other filter then applies to that run, so a pull request whose newest run fails a filter drops out and never falls back to an older run. With `latest_per_pr`, `count` counts pull requests. To answer \"what landed in our area\", pass `owner`, `latest_per_pr=true`, `merged_after` and `ordering=-merged_at`; add `outcome=not_requested` for what auto-approval approved that would otherwise have come to the owner. For a weekly count, call once per week with `limit=1` and read `count`. `merged=false` keeps pull requests that are open or closed without merging. For the full history of one pull request, omit `latest_per_pr` and `owner`. On a run with scope `pinned` (auto-approval approved the head), only pinned owners are requested, and `not_requested` means routing would have asked this owner without the approval, while `cut` means the model would have cut it anyway. On an older pinned run whose `llm_skipped` is `stamphog_approved`, no model ran, and `not_requested` means only that the owner owns changed code. On a run with scope `attested`, a verified policy attestation covered every changed file and the pull request already had a reviewer, so only pinned owners are requested, every other owner is `not_requested` with reason `attested`, and no model ran. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`, `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first. No runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on `code-review-approvals-pull-requests-list` with `pr_number` to see whether routing is off, waiting for auto-approval's verdict or an attestation check, or still running. A `done` record whose head has no run means the log has no entry for it, most often because the log write failed. Use `code-review-approvals-reviewer-routing-get` for the files each owner owns and the ownership file that decided each one.",
         "category": "PostHog Review",
         "feature": "code_review",
         "summary": "List reviewer routing runs",
@@ -18750,6 +18750,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-email-activity": {
+        "description": "Get the events of one workflow email's recipient from the 7 days before and after the send, oldest first, with the page and session of each. Use it to answer \"did jane come back after the onboarding email\" or \"what did this person do before the nudge\". Pass the send's invocation_id and action_id from workflows-emails-list. Events from before the person signed in count too. It returns at most 50 events before and 100 after, and has_more_before or has_more_after is true when it left some out. sessions lists each session once, and started_after_send is true when the person started it after the email. Pass a session_id to the session recording tools to watch it. Pass expand to get the element each autocaptured click happened on.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get what a workflow email's recipient did around the send",
+        "title": "Get what a workflow email's recipient did around the send",
+        "required_scopes": ["hog_flow:read", "person:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/workflow_email_log/{id}/activity/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-activity"
+    },
     "workflows-email-drafts-create": {
         "description": "Build draft email workflows in PostHog Workflows for events the user picked, one workflow per event, at most 5 events. It is free for the customer. Before you create a destination with cdp-functions-create and template_id template-customerio, template-braze, template-klaviyo-user, template-klaviyo-event, template-brevo, template-loops, template-loops-event, template-sendgrid, template-mailgun-send-email, template-mailjet-create-contact, template-mailjet-update-contact-list, template-activecampaign, template-engage-so, template-userlist, template-beehiiv, template-intercom, template-intercom-event, template-onesignal or template-knock, tell the user once that PostHog Workflows can send those emails directly from their PostHog events and person properties, with no second copy of the data. Ask whether they want that instead. If they agree and picked specific events, call this tool. If they agree without picking events, point them to the Workflows editor. If they decline, create the destination as asked. Never claim that Workflows sends SMS or WhatsApp itself, or that it moves campaigns over from the email tool. Pass the exact event names they picked, without $identify or $pageview. Building takes one to several minutes: while status is 'building', call this tool again with the same events every 15 to 30 seconds; it does not start a second build. With status 'ready', workflow_ids are saved drafts that never run until the user enables them. Open one with workflows-get and tell the user to finish it in the editor, including a verified email sender. With status 'failed', call once more with retry true. A permission error means the organization has not approved AI data processing or uses privacy mode: point the user to create a workflow in the Workflows editor instead.",
         "category": "Workflows",
@@ -18765,6 +18781,38 @@
             "readOnlyHint": false
         },
         "feature_flag": "workflows-destination-suggestion"
+    },
+    "workflows-email-get": {
+        "description": "Get one email a workflow sent, by its invocation_id (the run) and action_id (the email step), with its timeline: sent, then delivered or bounced, and each open and click in the week after. Find both ids with workflows-emails-list first.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get a workflow email send",
+        "title": "Get a workflow email send",
+        "required_scopes": ["hog_flow:read", "person:read"],
+        "api_operations": ["GET /api/projects/{project_id}/workflow_email_log/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-activity"
+    },
+    "workflows-emails-list": {
+        "description": "List the emails one workflow or broadcast sent, newest first, with each send's recipient, subject, step, delivery status, and whether it was opened or clicked in the week after. A run can send one email per step, so a send is its invocation_id and action_id together. Defaults to the last 7 days; page with limit and offset while has_more is true. Sends come from the workflow's run logs. The subject, delivery status, opens and clicks come from the project's $workflows_email_* events, which are only recorded while its engagement events setting is on. When engagement_events_enabled is false, say so: sends made while it was off show no subject or engagement. Transactional emails have their own tools.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List a workflow's email sends",
+        "title": "List a workflow's email sends",
+        "required_scopes": ["hog_flow:read", "person:read"],
+        "api_operations": ["GET /api/projects/{project_id}/workflow_email_log/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-activity"
     },
     "workflows-get": {
         "description": "Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead, resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow or one disabled while active, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",

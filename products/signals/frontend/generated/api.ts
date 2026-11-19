@@ -15,6 +15,8 @@ import type {
     AlertPatternPreviewRequestApi,
     AlertPatternPreviewResponseApi,
     AnomalyInsightResponseApi,
+    AnomalyPointsRequestApi,
+    AnomalyPointsResponseApi,
     AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
     CommitDiffResponseApi,
@@ -136,6 +138,7 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportTagOptionsApi,
     SignalReportTaskActionListResponseApi,
     SignalReportTaskActionRunRequestApi,
     SignalReportTaskActionRunResponseApi,
@@ -337,6 +340,27 @@ export const signalsAnomaliesInsightRetrieve = async (
     return apiMutator<AnomalyInsightResponseApi>(getSignalsAnomaliesInsightRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsAnomaliesPointsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/anomalies/points/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the chart points of anomaly series
+ */
+export const signalsAnomaliesPointsCreate = async (
+    projectId: string,
+    anomalyPointsRequestApi: AnomalyPointsRequestApi,
+    options?: RequestInit
+): Promise<AnomalyPointsResponseApi> => {
+    return apiMutator<AnomalyPointsResponseApi>(getSignalsAnomaliesPointsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(anomalyPointsRequestApi),
     })
 }
 
@@ -1908,6 +1932,23 @@ export const signalsReportsSourceMetadataCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportSourceMetadataRequestApi),
+    })
+}
+
+export const getSignalsReportsTagOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/tag_options/`
+}
+
+/**
+ * @summary List the team's most-used report tags
+ */
+export const signalsReportsTagOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportTagOptionsApi> => {
+    return apiMutator<SignalReportTagOptionsApi>(getSignalsReportsTagOptionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
