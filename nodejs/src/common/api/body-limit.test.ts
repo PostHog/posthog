@@ -208,7 +208,6 @@ describe('setupExpressApp JSON body limit', () => {
                 const subscriber = await redisPool.acquire()
                 const published: string[] = []
                 subscriber.on('message', (_channel: string, message: string) => published.push(message))
-                await subscriber.subscribe(channel)
                 const pad = randomBytes(512 * 1024).toString('base64')
                 const trailingWhitespace = Buffer.from(
                     randomBytes(2 * 1024 * 1024).map((byte) => ' \t\n\r'.charCodeAt(byte & 3))
@@ -231,6 +230,7 @@ describe('setupExpressApp JSON body limit', () => {
                 }
 
                 try {
+                    await subscriber.subscribe(channel)
                     const failed = await post(checkFailed)
                     const passed = await post(commandBody('valid'))
                     await waitForExpect(() => expect(published.length).toBeGreaterThan(0))
