@@ -29437,7 +29437,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `waiting` - Waiting for auto-approval's verdict
+     * * `waiting` - Waiting for auto-approval's verdict or an attestation check
      * * `routing` - Routing
      * * `requested` - Requested
      * * `done` - Done
@@ -29455,6 +29455,7 @@ export namespace Schemas {
     /**
      * * `full` - Every owner
      * * `pinned` - Pinned owners only
+     * * `attested` - Pinned owners only, every file attested
      */
     export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
 
@@ -29462,12 +29463,13 @@ export namespace Schemas {
     export const RoutingScopeEnum = {
       Full: 'full',
       Pinned: 'pinned',
+      Attested: 'attested',
     } as const;
 
     export interface CodeReviewApprovalPullRequestRouting {
-      /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for auto-approval's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
+      /** The phase of the latest routing record: 'waiting' (the head waits for the safety net and for auto-approval's verdict in fallback mode, or for a policy attestation check in always mode), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
        *
-       * * `waiting` - Waiting for auto-approval's verdict
+       * * `waiting` - Waiting for auto-approval's verdict or an attestation check
        * * `routing` - Routing
        * * `requested` - Requested
        * * `done` - Done */
@@ -29478,19 +29480,20 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When auto-approval does not approve */
       readonly mode: RoutingModeEnum;
-      /** 'full', or 'pinned' when an auto-approval asks only the owners of sensitive and new paths. Null while the record waits.
+      /** 'full', 'pinned' when an auto-approval asks only the owners of sensitive and new paths, or 'attested' when a verified policy attestation covers every changed file and the pull request already has a reviewer, so only the owners of sensitive and new paths are requested. Null while the record waits.
        *
        * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
+       * * `pinned` - Pinned owners only
+       * * `attested` - Pinned owners only, every file attested */
       readonly scope: RoutingScopeEnum | null;
       /** The head commit the record is for. It can be older than the pull request head. */
       readonly head_sha: string;
-      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or 'safety_net'. */
       readonly trigger: string;
       /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
       readonly claim_expired: boolean;
       /**
-         * When the head started to wait for auto-approval's verdict. Null unless waiting.
+         * When the head started to wait for auto-approval's verdict or an attestation check. Null unless waiting.
          * @nullable
          */
       readonly waiting_since: string | null;
@@ -29763,6 +29766,7 @@ export namespace Schemas {
      * * `no_answer` - No answer
      * * `stamphog_approved` - Auto-approved
      * * `files_truncated` - Files truncated
+     * * `attested` - Every file attested
      */
     export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
 
@@ -29774,6 +29778,7 @@ export namespace Schemas {
       NoAnswer: 'no_answer',
       StamphogApproved: 'stamphog_approved',
       FilesTruncated: 'files_truncated',
+      Attested: 'attested',
     } as const;
 
     /**
@@ -29805,6 +29810,7 @@ export namespace Schemas {
      * * `model_kept` - Kept by the model
      * * `model_cut` - Cut by the model
      * * `stamphog_approved` - Auto-approved
+     * * `attested` - Every file attested
      */
     export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
 
@@ -29818,10 +29824,11 @@ export namespace Schemas {
       ModelKept: 'model_kept',
       ModelCut: 'model_cut',
       StamphogApproved: 'stamphog_approved',
+      Attested: 'attested',
     } as const;
 
     export interface CodeReviewApprovalRoutingRunOwner {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved', or on an 'attested' run, it means only that the unpinned owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled
@@ -29830,7 +29837,7 @@ export namespace Schemas {
        * * `not_requested` - Not requested
        * * `already_requested` - Already requested */
       readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut', 'attested' (a verified policy attestation covers every changed file, so this unpinned owner was not requested) or 'stamphog_approved' (older runs only).
        *
        * * `sensitive` - Owns a sensitive path
        * * `new_path` - Owns a new path
@@ -29839,7 +29846,8 @@ export namespace Schemas {
        * * `cut_skipped` - Cut step skipped
        * * `model_kept` - Kept by the model
        * * `model_cut` - Cut by the model
-       * * `stamphog_approved` - Auto-approved */
+       * * `stamphog_approved` - Auto-approved
+       * * `attested` - Every file attested */
       readonly reason: RoutingOwnerReasonEnum;
       /** The changed paths that pinned the owner, so no cut could remove them. */
       readonly pins: readonly CodeReviewApprovalRoutingPin[];
@@ -29880,12 +29888,13 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When auto-approval does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or 'safety_net'. */
       trigger: string;
-      /** 'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.
+      /** 'full', 'pinned' when an auto-approval asked only the owners of sensitive and new paths, or 'attested' when a verified policy attestation covered every changed file and only the owners of sensitive and new paths were requested.
        *
        * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
+       * * `pinned` - Pinned owners only
+       * * `attested` - Pinned owners only, every file attested */
       readonly scope: RoutingScopeEnum;
       /** Whether the pull request came from a fork, which skips the model. */
       fork?: boolean;
@@ -29896,7 +29905,8 @@ export namespace Schemas {
        * * `nothing_cuttable` - Nothing cuttable
        * * `no_answer` - No answer
        * * `stamphog_approved` - Auto-approved
-       * * `files_truncated` - Files truncated */
+       * * `files_truncated` - Files truncated
+       * * `attested` - Every file attested */
       readonly llm_skipped: LlmSkipReasonEnum | null;
       /** The model the cut request reached. Blank when no request reached the gateway. */
       model?: string;
@@ -29916,7 +29926,7 @@ export namespace Schemas {
     }
 
     export interface CodeReviewApprovalRoutingRunOwnerDetail {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved', or on an 'attested' run, it means only that the unpinned owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled
@@ -29925,7 +29935,7 @@ export namespace Schemas {
        * * `not_requested` - Not requested
        * * `already_requested` - Already requested */
       readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut', 'attested' (a verified policy attestation covers every changed file, so this unpinned owner was not requested) or 'stamphog_approved' (older runs only).
        *
        * * `sensitive` - Owns a sensitive path
        * * `new_path` - Owns a new path
@@ -29934,7 +29944,8 @@ export namespace Schemas {
        * * `cut_skipped` - Cut step skipped
        * * `model_kept` - Kept by the model
        * * `model_cut` - Cut by the model
-       * * `stamphog_approved` - Auto-approved */
+       * * `stamphog_approved` - Auto-approved
+       * * `attested` - Every file attested */
       readonly reason: RoutingOwnerReasonEnum;
       /** The changed paths that pinned the owner, so no cut could remove them. */
       readonly pins: readonly CodeReviewApprovalRoutingPin[];
@@ -29977,12 +29988,13 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When auto-approval does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or 'safety_net'. */
       trigger: string;
-      /** 'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.
+      /** 'full', 'pinned' when an auto-approval asked only the owners of sensitive and new paths, or 'attested' when a verified policy attestation covered every changed file and only the owners of sensitive and new paths were requested.
        *
        * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
+       * * `pinned` - Pinned owners only
+       * * `attested` - Pinned owners only, every file attested */
       readonly scope: RoutingScopeEnum;
       /** Whether the pull request came from a fork, which skips the model. */
       fork?: boolean;
@@ -29993,7 +30005,8 @@ export namespace Schemas {
        * * `nothing_cuttable` - Nothing cuttable
        * * `no_answer` - No answer
        * * `stamphog_approved` - Auto-approved
-       * * `files_truncated` - Files truncated */
+       * * `files_truncated` - Files truncated
+       * * `attested` - Every file attested */
       readonly llm_skipped: LlmSkipReasonEnum | null;
       /** The model the cut request reached. Blank when no request reached the gateway. */
       model?: string;
@@ -137602,6 +137615,7 @@ export namespace Schemas {
      * * `model_kept` - Kept by the model
      * * `model_cut` - Cut by the model
      * * `stamphog_approved` - Auto-approved
+     * * `attested` - Every file attested
      * @minLength 1
      */
     reason?: CodeReviewApprovalsReviewerRoutingListReason;
@@ -137632,6 +137646,7 @@ export namespace Schemas {
       ModelKept: 'model_kept',
       ModelCut: 'model_cut',
       StamphogApproved: 'stamphog_approved',
+      Attested: 'attested',
     } as const;
 
     export type CodeReviewApprovalsReviewerRoutingOwnersListParams = {
