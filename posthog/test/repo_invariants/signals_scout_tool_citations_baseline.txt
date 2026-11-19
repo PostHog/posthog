@@ -19,6 +19,7 @@ generate-app-url
 get-llm-total-costs-for-project
 health-issues-summary
 heatmaps-events
+inbox-report-actions-run
 inbox-reports-claim
 insight-query
 logs-count-ranges
