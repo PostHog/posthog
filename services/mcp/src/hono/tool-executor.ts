@@ -340,7 +340,7 @@ export class ToolExecutor {
                     ...result.content,
                     {
                         type: 'text',
-                        text: `The default project (ID ${projectId}) is active because this request carried no usable \`conversation_id\` or MCP session. To use a project you switched to, pass the \`conversation_id\` from that conversation on subsequent calls.`,
+                        text: `This request carried no usable \`conversation_id\` or MCP session. Tools that rely on the active project use the default project (ID ${projectId}). To use a project you switched to, pass the \`conversation_id\` from that conversation on subsequent calls.`,
                     },
                 ],
             }

@@ -366,7 +366,9 @@ describe('pinned project with switch-project (Hono)', () => {
             expect(mintedConversationId(fallback)).toBeTruthy()
             expect(mintedConversationId(fallback)).not.toBe(conversationId)
 
-            const warning = expect.stringContaining(`default project (ID ${PINNED_PROJECT})`)
+            const warning = expect.stringContaining(
+                `Tools that rely on the active project use the default project (ID ${PINNED_PROJECT}).`
+            )
             expect(withHandle.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
             expect(pinned.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
             expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(warning)
