@@ -7,14 +7,20 @@ from parameterized import parameterized
 
 from posthog.schema import RecordingsQuery
 
+from products.replay_vision.backend import observation_ranks
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
     ScannerModel,
     ScannerType,
 )
-from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
+from products.replay_vision.backend.scanner_access import (
+    can_read_observation,
+    can_read_targeted_experiment,
+    snapshot_experiment_scope_q,
+)
 from products.replay_vision.backend.scope import experiment_id_of, scope_for
+from products.replay_vision.backend.scope.load import EXPERIMENT_ID_SNAPSHOT_STORES, snapshot_experiment_id
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 
 
@@ -144,6 +150,67 @@ class TestScopeResolution(BaseTest):
             self.assertFalse(can_read_targeted_experiment(Mock(), self.team.id, scanner))
 
         self.assertEqual(accessible.call_args.args[2], 31)
+
+
+class TestSnapshotAccessGate(BaseTest):
+    def test_a_scope_only_snapshot_is_not_readable_by_a_denied_caller(self) -> None:
+        # The observation gate reads the experiment off the frozen snapshot. Reading only the two
+        # older stores makes a scope-only snapshot look like it names no experiment, and the
+        # "names none, so unrestricted" branch then hands its rows to a caller denied that
+        # experiment. The pipeline change is what makes those rows exist: before it, a scope-only
+        # scanner produced no variant labels at all.
+        observation = Mock()
+        observation.scanner_snapshot = {"scope": {"kind": "experiment", "experiment_id": 77}}
+
+        with patch(
+            "products.replay_vision.backend.scanner_access.accessible_experiment_ids",
+            return_value=set(),
+        ):
+            self.assertFalse(can_read_observation(Mock(), self.team.id, observation))
+
+        # Granting that same experiment admits the caller, which is what shows the gate read the
+        # id out of `scope` rather than refusing every snapshot it cannot parse.
+        with patch(
+            "products.replay_vision.backend.scanner_access.accessible_experiment_ids",
+            return_value={77},
+        ):
+            self.assertTrue(can_read_observation(Mock(), self.team.id, observation))
+
+    def test_a_snapshot_naming_no_experiment_anywhere_stays_readable(self) -> None:
+        # Every observation predating the scope column has none of the three stores set, and must
+        # keep reading as unrestricted.
+        observation = Mock()
+        observation.scanner_snapshot = {"scanner_config": {"prompt": "p"}}
+
+        self.assertTrue(can_read_observation(Mock(), self.team.id, observation))
+
+    @parameterized.expand([(store,) for store in EXPERIMENT_ID_SNAPSHOT_STORES])
+    def test_every_store_is_read_by_every_snapshot_reader(self, store: str) -> None:
+        """Each reader of a frozen snapshot has to know every store an experiment can live in.
+
+        Three readers in three languages ask this question, so none can share a function. This is
+        what stops a fourth from hardcoding a subset: a store added to the shared list fails here
+        until every reader covers it. A reader that misses one reads a snapshot held only in that
+        store as naming no experiment, which the rank filters and the access gates both treat as
+        readable by anyone.
+        """
+        snapshot = {store: {"experiment_id": 404}}
+
+        self.assertEqual(snapshot_experiment_id(snapshot), 404, "snapshot_experiment_id misses this store")
+        self.assertIn(
+            f"scanner_snapshot__{store}__experiment_id",
+            str(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=[5])),
+            "the observation access filter misses this store",
+        )
+        self.assertIn(
+            f"{{{store},experiment_id}}",
+            observation_ranks._EXPERIMENT_SQL,
+            "the rank row's experiment column misses this store",
+        )
+
+    def test_a_snapshot_naming_nothing_reads_as_no_experiment(self) -> None:
+        self.assertIsNone(snapshot_experiment_id({"scanner_config": {"prompt": "p"}}))
+        self.assertIsNone(snapshot_experiment_id(None))
 
 
 class TestScopeDualWrite(BaseTest):
