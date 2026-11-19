@@ -406,20 +406,28 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
 
 const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
 
-function sendingLimitHoldStartMsForStep(
-    invocation: CyclotronJobInvocationHogFunction,
-    sendStep: string
-): number | null {
+function sendStepOf(invocation: CyclotronJobInvocationHogFunction): string {
+    return invocation.state.actionId
+        ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+        : invocation.id
+}
+
+function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction): number | null {
     const stamp = invocation.queueMetadata?.teamCappedAt
     if (typeof stamp !== 'string') {
         return null
     }
     const separator = stamp.lastIndexOf('@')
-    if (separator < 0 || stamp.slice(0, separator) !== sendStep) {
+    if (separator < 0 || stamp.slice(0, separator) !== sendStepOf(invocation)) {
         return null
     }
     const heldAtMs = DateTime.fromISO(stamp.slice(separator + 1), { zone: 'utc' }).toMillis()
     return Number.isFinite(heldAtMs) ? heldAtMs : null
+}
+
+function sentOverAnHourAfterFirstLimitHold(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const heldSinceMs = sendingLimitHoldStartMs(invocation)
+    return heldSinceMs !== null && Date.now() - heldSinceMs > SENDING_LIMIT_LONG_DELAY_MS
 }
 
 function emailMetric(
@@ -784,9 +792,7 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = invocation.state.actionId
-                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
-                : invocation.id
+            const sendStep = sendStepOf(invocation)
             let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
@@ -838,11 +844,10 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            const claimsTeamBudgetNow = invocation.queueMetadata?.teamBudgetClaimed !== true
             const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
-            const limitHeldSinceMs = sendingLimitHoldStartMsForStep(invocation, sendStep)
+            const limitHeldSinceMs = sendingLimitHoldStartMs(invocation)
             if (capDelay) {
                 result.finished = false
                 result.parked = true
@@ -864,14 +869,6 @@ export class EmailService {
                         : `Could not check this project's email sending limit, so this email is waiting. Retrying in ${capRetrySeconds}s. No action is needed on your side.`
                 )
                 return result
-            }
-            if (
-                claimsTeamBudgetNow &&
-                teamBudgetCharged &&
-                limitHeldSinceMs !== null &&
-                Date.now() - limitHeldSinceMs > SENDING_LIMIT_LONG_DELAY_MS
-            ) {
-                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             // A reply-to set on the email step wins over the sender's default.
@@ -1051,6 +1048,10 @@ export class EmailService {
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
                 result.metrics.push(emailMetric(invocation, 'email_untracked'))
+            }
+
+            if (success && sentOverAnHourAfterFirstLimitHold(invocation)) {
+                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             if (success && assetRow) {

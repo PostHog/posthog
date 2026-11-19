@@ -284,7 +284,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 expect(triggeredMetrics()).toHaveLength(2)
             })
 
-            it('counts nothing when the crossing page does not commit, so its replay counts once', async () => {
+            it('counts nothing when the crossing page does not commit', async () => {
                 bulkCreateAndCheckIn.mockRejectedValue(new Error('lock lost'))
 
                 await expect(runJob({ ...state, maxAudienceSize: 2 })).rejects.toThrow('lock lost')

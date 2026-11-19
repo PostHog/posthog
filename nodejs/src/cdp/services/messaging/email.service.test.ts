@@ -1266,13 +1266,19 @@ describe('EmailService', () => {
                     const cappedService = createCappedService(10)
                     await drainTeamCap(team.id, 10)
 
-                    const first = await cappedService.executeSendEmail(invocation)
-                    const second = await cappedService.executeSendEmail({
+                    const versioned = {
                         ...invocation,
-                        queueMetadata: first.invocation.queueMetadata,
-                    })
+                        state: { ...invocation.state, renderedWorkflowVersion: 3 },
+                    }
+                    const first = await cappedService.executeSendEmail(versioned)
+                    const second = await cappedService.executeSendEmail(first.invocation)
 
-                    expect(metricNames(first)).toEqual(['email_sending_limit_delayed'])
+                    expect(first.metrics).toEqual([
+                        expect.objectContaining({
+                            metric_name: 'email_sending_limit_delayed',
+                            app_source_version: { id: invocation.functionId, version: 3 },
+                        }),
+                    ])
                     expect(metricNames(second)).toEqual([])
                 })
 
@@ -1305,38 +1311,71 @@ describe('EmailService', () => {
                     expect(metricNames(result)).toEqual([])
                 })
 
-                describe('when the limit lets a held email go', () => {
-                    const holdThenRelease = async (
+                describe('when a held email is sent', () => {
+                    const heldVersion = { version: 3 }
+
+                    const holdThenSend = async (
                         minutesHeld: number,
-                        retryMetadata: Record<string, unknown> = {}
+                        sesFault: FakeSesFault | null = null
                     ): Promise<CyclotronJobInvocationResult> => {
+                        const heldAt = Date.now()
+                        jest.spyOn(Date, 'now').mockReturnValue(heldAt)
                         await drainTeamCap(team.id, 10)
-                        const held = await createCappedService(10).executeSendEmail(invocation)
-                        // A fresh limiter stands in for the bucket refilling while the send waited.
-                        const releasingService = createCappedService(200, createRateLimiter('team-email-cap-release'))
-                        const releasedAt = Date.now() + minutesHeld * 60_000
-                        jest.spyOn(Date, 'now').mockReturnValue(releasedAt)
-                        return await releasingService.executeSendEmail({
-                            ...invocation,
-                            queueMetadata: { ...held.invocation.queueMetadata, ...retryMetadata },
-                        })
+                        const held = await createCappedService(10).executeSendEmail(versionedInvocation())
+                        const refilledLimiter = createRateLimiter('team-email-cap-refilled')
+                        jest.spyOn(Date, 'now').mockReturnValue(heldAt + minutesHeld * 60_000)
+                        ses.failWith(sesFault)
+                        return await createCappedService(200, refilledLimiter).executeSendEmail(held.invocation)
                     }
+
+                    const versionedInvocation = (): CyclotronJobInvocationHogFunction => ({
+                        ...invocation,
+                        state: { ...invocation.state, renderedWorkflowVersion: heldVersion.version },
+                    })
 
                     it.each([
                         ['more than an hour', 61, true],
+                        ['exactly an hour', 60, false],
                         ['less than an hour', 59, false],
-                    ])('marks a send held for %s', async (_name, minutesHeld, overAnHour) => {
-                        const result = await holdThenRelease(minutesHeld)
+                    ])('marks a send the limit first held %s earlier', async (_name, minutesHeld, overAnHour) => {
+                        const result = await holdThenSend(minutesHeld)
 
                         expect(result.finished).toBe(true)
-                        expect(metricNames(result).includes('email_sending_limit_delayed_over_1h')).toBe(overAnHour)
+                        expect(
+                            result.metrics.filter((m) => m.metric_name === 'email_sending_limit_delayed_over_1h')
+                        ).toEqual(
+                            overAnHour
+                                ? [
+                                      expect.objectContaining({
+                                          app_source_version: {
+                                              id: invocation.functionId,
+                                              version: heldVersion.version,
+                                          },
+                                      }),
+                                  ]
+                                : []
+                        )
                     })
 
-                    it('does not mark a retry of a send the limit already let go', async () => {
-                        const result = await holdThenRelease(61, { teamBudgetClaimed: true })
+                    it('marks a send once when SES throttles it after the limit lets it go', async () => {
+                        const throttled = await holdThenSend(61, {
+                            status: 429,
+                            type: 'TooManyRequestsException',
+                            message: 'Too many requests',
+                        })
+                        ses.failWith(null)
+                        const sent = await createCappedService(
+                            200,
+                            createRateLimiter('team-email-cap-retry')
+                        ).executeSendEmail(throttled.invocation)
 
-                        expect(result.finished).toBe(true)
-                        expect(metricNames(result)).not.toContain('email_sending_limit_delayed_over_1h')
+                        expect(throttled.finished).toBe(false)
+                        expect(sent.finished).toBe(true)
+                        expect(
+                            [...throttled.metrics, ...sent.metrics].filter(
+                                (m) => m.metric_name === 'email_sending_limit_delayed_over_1h'
+                            )
+                        ).toHaveLength(1)
                     })
                 })
             })
