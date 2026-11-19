@@ -52,9 +52,8 @@ describe('eventsSceneLogic', () => {
     })
 
     // The last field is flag_calls_only_in_flag_evaluations. It defaults to what the backend sends for a team on the
-    // events table, which is true only on mode 2. Jest passes its `done` callback to a test function that declares
-    // more parameters than the row has, then waits for that callback. A rest parameter declares none, so the
-    // four-field rows finish.
+    // events table, which is true only on mode 2. A rest parameter stops Jest from treating that optional field as
+    // the `done` callback on four-field rows.
     test.each<[string, FlagEvaluationsModeEnumApi, Partial<EventsQuery>, FlagCallsNote | null, boolean?]>([
         ['an unfiltered list', FlagEvaluationsModeEnumApi.Number2, {}, 'stored-separately'],
         [

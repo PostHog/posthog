@@ -34,22 +34,27 @@ describe('flagCallsSceneLogic', () => {
         logic.mount()
     })
 
-    test.each<'the URL' | 'the saved tab state'>(['the URL', 'the saved tab state'])(
-        'loads a query from %s',
-        async (arrival) => {
-            const query = flagCallsQuery({ after: '-7d' })
-
-            if (arrival === 'the URL') {
-                router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreFlagCalls), {}, { q: query }).url)
-            } else {
+    test.each<[string, (query: DataTableNode) => void]>([
+        [
+            'the URL',
+            (query) =>
+                router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreFlagCalls), {}, { q: query }).url),
+        ],
+        [
+            'the saved tab state',
+            (query) => {
                 tabUiStateLogic.actions.setSavedQueryForTab(undefined, 'flag-calls', query)
                 router.actions.push(urls.activity(ActivityTab.ExploreFlagCalls))
-            }
-            await expectLogic(logic).toFinishAllListeners()
+            },
+        ],
+    ])('loads a query from %s', async (_name, arrive) => {
+        const query = flagCallsQuery({ after: '-7d' })
 
-            expect(logic.values.query).toEqual(query)
-        }
-    )
+        arrive(query)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.query).toEqual(query)
+    })
 
     // Any filter other than the flag call event alone makes the runner read the events table, which holds no new flag calls.
     test.each<[string, Partial<EventsQuery>]>([
