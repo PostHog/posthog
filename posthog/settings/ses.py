@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from uuid import UUID
 
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env
@@ -53,7 +54,7 @@ WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED: bool = get_from_env(
     "WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False, type_cast=str_to_bool
 )
 WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS: frozenset[str] = frozenset(
-    workflow_id.strip()
+    str(UUID(workflow_id.strip()))
     for workflow_id in os.getenv("WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS", "").split(",")
     if workflow_id.strip()
 )

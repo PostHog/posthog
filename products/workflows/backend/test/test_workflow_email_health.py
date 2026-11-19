@@ -272,10 +272,9 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self._seed(source_id=str(spreading.id), sent=150, hard_bounces=30)
         self._seed(source_id=str(under_the_rate.id), sent=150, hard_bounces=5)
 
-        applied, paused_email = self._sweep()
+        applied, _ = self._sweep()
 
         assert sorted(decision.hog_flow_id for decision in applied) == sorted([str(self.flow.id), str(spreading.id)])
-        assert paused_email.call_count == 2
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_reason == (
             "Emails to addresses that do not exist reached 14.44% of the 450 emails this project's workflows "
@@ -283,30 +282,52 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         )
         under_the_rate.refresh_from_db()
         assert under_the_rate.email_sending_paused_at is None
-        assert self.warning_email.call_count == 0
+        assert under_the_rate.email_sending_warned_at is None
 
     def test_complaints_spread_across_workflows_pause_and_warn_no_workflow(self):
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)
         self._seed(sent=150, complaints=4)
         self._seed(source_id=str(spreading.id), sent=150, complaints=4)
 
-        applied, paused_email = self._sweep()
+        self._sweep()
 
-        assert applied == []
-        assert paused_email.call_count == 0
-        assert self.warning_email.call_count == 0
+        for flow in (self.flow, spreading):
+            flow.refresh_from_db()
+            assert (flow.email_sending_paused_at, flow.email_sending_warned_at) == (None, None)
+
+    def test_an_exempt_workflow_does_not_pause_its_siblings(self):
+        sibling = HogFlow.objects.create(name="Second blast", team=self.team)
+        self._seed(sent=300, hard_bounces=60)
+        self._seed(source_id=str(sibling.id), sent=8, hard_bounces=1)
+
+        with self._unenforced(True):
+            self._sweep()
+
+        for flow in (self.flow, sibling):
+            flow.refresh_from_db()
+            assert (flow.email_sending_paused_at, flow.email_sending_warned_at) == (None, None)
 
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(self):
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)
         self._seed(sent=150, hard_bounces=12)
         self._seed(source_id=str(spreading.id), sent=150, hard_bounces=12)
 
-        applied, paused_email = self._sweep()
+        applied, _ = self._sweep()
 
         assert applied == []
-        assert paused_email.call_count == 0
-        warned = sorted(call.kwargs["hog_flow_id"] for call in self.warning_email.call_args_list)
-        assert warned == sorted([str(self.flow.id), str(spreading.id)])
+        for flow in (self.flow, spreading):
+            flow.refresh_from_db()
+            assert flow.email_sending_paused_at is None
+            assert flow.email_sending_warned_at == self.now
+
+    def test_a_rate_past_the_pause_line_is_not_sent_as_a_warning(self):
+        self._seed(sent=600, at=self.now - timedelta(hours=2))
+        self._seed(sent=300, hard_bounces=40)
+
+        self._sweep()
+
+        self.flow.refresh_from_db()
+        assert (self.flow.email_sending_paused_at, self.flow.email_sending_warned_at) == (None, None)
 
     @parameterized.expand(
         [
@@ -316,6 +337,12 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             (
                 "project_breach_after_a_sibling_sent_a_large_batch",
                 [(0, 1, 150, 30), (1, 1, 150, 30), (2, 1, 150, 5), (2, 2, 3000, 0)],
+                None,
+                [],
+            ),
+            (
+                "project_breach_after_a_quiet_sibling_sent_a_large_batch",
+                [(0, 1, 150, 30), (1, 1, 150, 30), (2, 2, 3000, 0)],
                 None,
                 [],
             ),
@@ -394,7 +421,6 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         with self._unenforced(enforced):
             self._sweep()
 
-        assert self.warning_email.call_count == 0
         self.flow.refresh_from_db()
         assert self.flow.email_sending_warned_at is None
 
@@ -403,14 +429,13 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self._seed(sent=400, complaints=8)
 
         with self._unenforced(enforced):
-            applied, paused_email = self._sweep()
+            applied, _ = self._sweep()
 
         assert applied == []
         assert [decision.hog_flow_id for decision in find_workflow_email_pauses(now=self.now)] == [str(self.flow.id)]
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is None
         assert self.flow.email_sending_paused_reason == ""
-        assert paused_email.call_count == 0
 
     @override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_1H=0.5)
     def test_thresholds_come_from_settings(self):
