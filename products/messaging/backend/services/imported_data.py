@@ -151,13 +151,18 @@ def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created
 
     A choice already stored for a category stays, so a person opted back in here isn't opted out again.
     """
+    return len(import_opt_outs_changed(team_id, opt_outs, created_by_id))
+
+
+def import_opt_outs_changed(team_id: int, opt_outs: Mapping[str, Iterable[str]], created_by_id: int | None) -> set[str]:
+    """Like `import_opt_outs`, but returns the addresses that gained an opt-out."""
     patches = {
         identifier: {str(category_id): PreferenceStatus.OPTED_OUT.value for category_id in category_ids}
         for identifier, category_ids in opt_outs.items()
     }
     patches = {identifier: patch for identifier, patch in patches.items() if patch}
     if not patches:
-        return 0
+        return set()
     preferences = MessageRecipientPreference.objects.filter(team_id=team_id)
     with transaction.atomic():
         stored = set(preferences.filter(identifier__in=list(patches)).values_list("identifier", flat=True))
@@ -170,7 +175,7 @@ def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created
         ]
         # ignore_conflicts covers a row another request inserts after the read above. The merge below still reaches it.
         MessageRecipientPreference.objects.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
-        inserted = preferences.filter(pk__in=[row.pk for row in new_rows]).count()
+        inserted = set(preferences.filter(pk__in=[row.pk for row in new_rows]).values_list("identifier", flat=True))
 
         now = timezone.now()
         merged = []
@@ -184,7 +189,7 @@ def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created
             row.updated_at = now
             merged.append(row)
         MessageRecipientPreference.objects.bulk_update(merged, ["preferences", "updated_at"], batch_size=500)
-    return inserted + len(merged)
+    return inserted | {row.identifier for row in merged}
 
 
 def import_categories(
