@@ -33,7 +33,7 @@ jobs:
             - name: Check ordered tagging history
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
-                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_CLOUD_PLATFORM_BOT_TOKEN }}
               with:
                   github-token: ${{ github.token }}
                   script: await require('./.github/scripts/ordered-image-alias-alerts.js')({ context, github })
