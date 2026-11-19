@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import cast
 
 from django.core.cache import cache
 from django.db.models import Q, QuerySet
@@ -133,7 +134,8 @@ def _delete_marks_older_than(client: Redis, key: str, removed_before: dict[str, 
     person_uuids = list(removed_before)
 
     def delete(pipeline: Pipeline) -> None:
-        marks = pipeline.hmget(key, person_uuids)
+        # A watched pipeline runs commands before multi() right away, so this is the reply, not the pipeline.
+        marks = cast(list[bytes | None], pipeline.hmget(key, person_uuids))
         older = [
             person_uuid
             for person_uuid, mark in zip(person_uuids, marks)
