@@ -239,9 +239,16 @@ describe('cloud controller', () => {
         expect(published()).toMatchObject({ reader_monitoring_interval_seconds: readerInterval })
     })
 
-    it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {
+    it.each<[string, (readerAcu: (typeof PROFILE)['readerAcu']) => object]>([
+        ['without a reader idle limit', ({ min, max }) => ({ min, max })],
+        ['with a reader idle limit at the reader maximum', (readerAcu) => ({ ...readerAcu, idleMax: readerAcu.max })],
+        [
+            'with a reader idle limit above the reader maximum',
+            (readerAcu) => ({ ...readerAcu, idleMax: readerAcu.max + 0.5 }),
+        ],
+    ])('runs a card without a failover %s on the host and judges it on its own verdict', async (_story, readerAcu) => {
         const { controller } = prepare({
-            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+            profile: (p) => ({ ...p, readerAcu: readerAcu(p.readerAcu) }),
             env: api.credentials,
         })
 

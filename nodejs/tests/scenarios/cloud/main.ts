@@ -42,19 +42,19 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
     if (idleMax !== undefined && idleMax < min) {
         throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
     }
-    if (idleMax !== undefined && idleMax >= max) {
-        throw new Error(
-            `readerAcu.idleMax ${idleMax} is not under readerAcu.max ${max}, so every reader would pass it.`
-        )
-    }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
     const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
-    if (card.failsOver && profile.readerAcu.idleMax === undefined) {
+    if (card.failsOver && idleMax === undefined) {
         throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
+    }
+    if (card.failsOver && idleMax !== undefined && idleMax >= max) {
+        throw new Error(
+            `readerAcu.idleMax ${idleMax} is not under readerAcu.max ${max}, so every reader would pass it.`
+        )
     }
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
