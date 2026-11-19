@@ -3,7 +3,7 @@
 A chunk holds one entry per kept label set (and, for a histogram, per bucket layout), with the bucket's value:
 a summed increase or sum, or a list of summed bucket counts. A write compares each bucket with what is stored
 and rewrites only the buckets whose values changed, so a repeated fill writes nothing. A final bucket is past
-capture's lateness cap and is never rewritten.
+capture's lateness cap and an ingestion allowance, and is never rewritten.
 """
 
 import math

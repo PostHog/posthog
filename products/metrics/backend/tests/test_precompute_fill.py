@@ -12,7 +12,7 @@ from products.metrics.backend.facade.enums import AttributeScope, PrecomputedMet
 from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import LabelRef, Leaf, get_or_create_precomputed_metric
-from products.metrics.backend.precompute.fill import LATENESS_CAP, RETENTION, fill_precomputed_metrics, fill_step
+from products.metrics.backend.precompute.fill import FINAL_AFTER, RETENTION, fill_precomputed_metrics, fill_step
 from products.metrics.backend.precompute.store import Entry, UnstorableLabelError, read_entries, write_entries
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
@@ -329,7 +329,10 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         precomputed.covered_from, precomputed.covered_to = start, SETTLED
         return precomputed
 
-    def test_the_daily_refill_rewrites_late_data_past_the_reread_and_marks_old_buckets_final(self):
+    @parameterized.expand([("next_day", 25), ("after_three_days_without_fills", 72)])
+    def test_the_daily_refill_rewrites_late_data_past_the_reread_and_marks_old_buckets_final(
+        self, _name: str, hours_later: int
+    ):
         start = SETTLED - dt.timedelta(hours=30)
         self._seed_delta_counter("checkout", 1.0, start, 30)
         self._create(PrecomputedMetricKind.INCREASE, "requests_total")
@@ -349,13 +352,13 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         precomputed = self._fill(now=NOW + dt.timedelta(hours=1))
         assert self._stored(precomputed)[("checkout",)][late_hour] == 6.0
 
-        later = NOW + dt.timedelta(hours=25)
+        later = NOW + dt.timedelta(hours=hours_later)
         precomputed = self._fill(now=later)
 
         assert self._stored(precomputed)[("checkout",)][late_hour] == 10.0
         assert precomputed.refilled_at == later
         for bucket_start, (_, final) in self._chunks().items():
-            assert final is (bucket_start + dt.timedelta(hours=1) <= later - LATENESS_CAP), bucket_start
+            assert final is (bucket_start + dt.timedelta(hours=1) <= later - FINAL_AFTER), bucket_start
 
     def test_a_final_bucket_is_never_rewritten(self):
         precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
@@ -368,7 +371,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
 
         assert self._chunks()[hour] == ([{"labels": ["checkout"], "fingerprints": [], "value": 6.0}], True)
 
-    def test_backfilled_buckets_past_the_lateness_cap_are_final(self):
+    def test_backfilled_buckets_past_the_lateness_cap_and_ingestion_allowance_are_final(self):
         start = SETTLED - dt.timedelta(hours=30)
         self._seed_delta_counter("checkout", 1.0, start, 30)
         self._create(PrecomputedMetricKind.INCREASE, "requests_total")
@@ -378,7 +381,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         chunks = self._chunks()
         assert len(chunks) == 30
         for bucket_start, (_, final) in chunks.items():
-            assert final is (bucket_start + dt.timedelta(hours=1) <= NOW - LATENESS_CAP), bucket_start
+            assert final is (bucket_start + dt.timedelta(hours=1) <= NOW - FINAL_AFTER), bucket_start
 
     def test_does_not_fill_a_team_without_precomputing(self):
         self._seed_delta_counter("checkout", 1.0, SETTLED - dt.timedelta(hours=2), 2)

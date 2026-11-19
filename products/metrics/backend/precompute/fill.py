@@ -4,8 +4,9 @@ Each pass over a team runs one query at a time through the ordinary metrics quer
 interval grouped by the kept labels. Forward fills store the hours that have settled since the last pass and
 re-read the newest stored hours, so late samples replace what was stored and widen the settle delay. Once a
 day, a re-fill re-reads the past day up to the forward re-read and rewrites the hours that late samples changed.
-Capture drops samples more than 24 hours late, so a bucket written after that is marked final and never read
-again. When nothing else is due, the pass backfills one day, newest first, until the retention window is covered.
+Capture drops samples more than 24 hours late, so a bucket written once that cap and an ingestion allowance have
+passed is marked final and never read again. When nothing else is due, the pass backfills one day, newest first,
+until the retention window is covered.
 A fill that returns too many rows is split in half, down to one hour, and saves the halves it finished
 before the pass deadline.
 """
@@ -51,14 +52,17 @@ RETENTION = dt.timedelta(days=32)
 BACKFILL_STEP = dt.timedelta(days=1)
 MAX_FORWARD_STEP = dt.timedelta(days=1)
 REREAD = dt.timedelta(hours=2)
-# Capture rejects samples older than this, so a bucket that ended this long ago can no longer change.
+# Capture rejects samples older than this.
 LATENESS_CAP = dt.timedelta(hours=24)
+MAX_SETTLE_SECONDS = 2 * 60 * 60
+# A sample capture accepted just inside the lateness cap can still be on its way to ClickHouse, so a bucket turns
+# final only once the longest settle delay has also passed.
+FINAL_AFTER = LATENESS_CAP + dt.timedelta(seconds=MAX_SETTLE_SECONDS)
 REFILL_EVERY = dt.timedelta(hours=24)
 REFILL_WINDOW = dt.timedelta(hours=26)
-# The re-fill reaches back to the oldest bucket that is not final yet, so every bucket gets one re-read past the
-# lateness cap. This bounds that reach when a re-fill was missed.
-MAX_REFILL_WINDOW = dt.timedelta(hours=50)
-MAX_SETTLE_SECONDS = 2 * 60 * 60
+# The re-fill reaches back to the oldest bucket that is not final yet, however old, so every bucket gets one
+# re-read once it can no longer change. After a long gap in fills it catches up this much per step.
+MAX_REFILL_STEP = dt.timedelta(days=3)
 UNUSED_AFTER = dt.timedelta(days=14)
 PAUSE_AFTER_FAILURES = 10
 PASS_BUDGET = dt.timedelta(minutes=4)
@@ -211,7 +215,7 @@ def fill_step(
     width = bucket_width(precomputed_metric)
     target = floor_to_bucket(now - dt.timedelta(seconds=precomputed_metric.settle_seconds), width)
     retention_start = floor_to_bucket(now - RETENTION, width)
-    final_before = now - LATENESS_CAP
+    final_before = now - FINAL_AFTER
     covered_from, covered_to = precomputed_metric.covered_from, precomputed_metric.covered_to
     if covered_from is None or covered_to is None:
         precomputed_metric.covered_from = precomputed_metric.covered_to = target
@@ -246,22 +250,23 @@ def fill_step(
 
 
 def _refill(team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.datetime, deadline: float) -> None:
-    """Re-read the past day before the forward re-read, rewrite the buckets that changed, and mark the ones past the
-    lateness cap final. It starts earlier when an older bucket is not final yet."""
+    """Re-read the past day before the forward re-read, rewrite the buckets that changed, and mark the ones that can no
+    longer change final. It starts earlier when an older bucket is not final yet."""
     width = bucket_width(precomputed_metric)
     covered_from, covered_to = precomputed_metric.covered_from, precomputed_metric.covered_to
     assert covered_from is not None and covered_to is not None
     start = floor_to_bucket(now - REFILL_WINDOW, width)
-    oldest_open = first_open_bucket(precomputed_metric, floor_to_bucket(now - MAX_REFILL_WINDOW, width))
+    oldest_open = first_open_bucket(precomputed_metric, covered_from)
     if oldest_open is not None:
         start = min(start, oldest_open)
     start = max(start, covered_from)
     end = min(floor_to_bucket(now - REREAD, width), covered_to)
     complete = True
     if start < end:
-        queried = query_hours(team, precomputed_metric, start, end, deadline=deadline)
+        # The runner coarsens an hourly interval past 500 buckets, which would store multi-hour sums as hours.
+        queried = query_hours(team, precomputed_metric, start, min(end, start + MAX_REFILL_STEP), deadline=deadline)
         changed = write_entries(
-            precomputed_metric, queried.start, queried.end, queried.entries, final_before=now - LATENESS_CAP
+            precomputed_metric, queried.start, queried.end, queried.entries, final_before=now - FINAL_AFTER
         )
         complete = queried.end >= end
         logger.info(
