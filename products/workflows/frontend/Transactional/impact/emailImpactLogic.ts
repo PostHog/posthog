@@ -3,6 +3,7 @@ import {
     actions,
     afterMount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -19,7 +20,6 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { organizationsProjectsRetrieve } from '~/generated/core/api'
-import type { ProjectBackwardCompatApi } from '~/generated/core/api.schemas'
 import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
@@ -65,7 +65,6 @@ export interface emailImpactLogicValues {
     replayEnabled: boolean
     steps: ImpactStep[] | null
     storedLinkTagging: boolean | null
-    storedLinkTaggingLoading: boolean
     untrackedNote: string | null
 }
 
@@ -93,20 +92,8 @@ export interface emailImpactLogicActions {
         impact: TransactionalEmailImpactApi | null
         payload?: void
     }
-    loadStoredLinkTagging: (_: void) => void
-    loadStoredLinkTaggingFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadStoredLinkTaggingSuccess: (
-        storedLinkTagging: boolean | null,
-        payload?: void
-    ) => {
-        storedLinkTagging: boolean | null
-        payload?: void
+    loadStoredLinkTagging: () => {
+        value: true
     }
     setAlwaysSensitive: (alwaysSensitive: boolean) => {
         alwaysSensitive: boolean
@@ -116,6 +103,9 @@ export interface emailImpactLogicActions {
     }
     setEvent: (event: string | null) => {
         event: string | null
+    }
+    setStoredLinkTagging: (enabled: boolean) => {
+        enabled: boolean
     }
 }
 
@@ -193,6 +183,8 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         setEvent: (event: string | null) => ({ event }),
         setDays: (days: number) => ({ days }),
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
+        loadStoredLinkTagging: true,
+        setStoredLinkTagging: (enabled: boolean) => ({ enabled }),
     }),
     reducers(({ props }) => ({
         // A selector that reads props keeps its result while the store is unchanged, so a template's new
@@ -200,6 +192,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
+        storedLinkTagging: [null as boolean | null, { setStoredLinkTagging: (_, { enabled }) => enabled }],
         impactError: [
             null as string | null,
             {
@@ -244,27 +237,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                         }
                         breakpoint()
                     }
-                },
-            },
-        ],
-        storedLinkTagging: [
-            null as boolean | null,
-            {
-                loadStoredLinkTagging: async (_: void, breakpoint) => {
-                    const { organization, project_id } = values.currentTeam ?? {}
-                    if (!organization || !project_id) {
-                        return values.storedLinkTagging
-                    }
-                    let project: ProjectBackwardCompatApi | null
-                    try {
-                        project = await organizationsProjectsRetrieve(organization, project_id)
-                    } catch {
-                        project = null
-                    }
-                    breakpoint()
-                    return project
-                        ? (project.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
-                        : values.storedLinkTagging
                 },
             },
         ],
@@ -316,8 +288,42 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             (currentTeam: TeamType | TeamPublicType | null): boolean => !!currentTeam?.session_recording_opt_in,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setEvent: () => actions.loadImpact(),
+        setAlwaysSensitive: ({ alwaysSensitive }) => {
+            if (!alwaysSensitive) {
+                actions.loadStoredLinkTagging()
+            }
+        },
+        loadStoredLinkTagging: async () => {
+            const { organization, project_id } = values.currentTeam ?? {}
+            if (!organization || !project_id || values.alwaysSensitive) {
+                return
+            }
+            // Reads are numbered instead of using a breakpoint, because a breakpoint drops an older read as soon as a
+            // newer one starts. When the newer read then fails, the older read's answer is the freshest one there is.
+            cache.linkTaggingReadsStarted = (cache.linkTaggingReadsStarted ?? 0) + 1
+            const read: number = cache.linkTaggingReadsStarted
+            const context = getContext()
+            let enabled: boolean | null | undefined
+            try {
+                const project = await organizationsProjectsRetrieve(organization, project_id)
+                enabled = project.workflows_config?.email_workflow_run_link_tag_enabled
+            } catch {
+                return
+            }
+            // A project response without the field says nothing about the setting, so the last known value stays.
+            if (
+                cache.disposables.isDisposed ||
+                getContext() !== context ||
+                typeof enabled !== 'boolean' ||
+                read < (cache.linkTaggingReadApplied ?? 0)
+            ) {
+                return
+            }
+            cache.linkTaggingReadApplied = read
+            actions.setStoredLinkTagging(enabled)
+        },
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {

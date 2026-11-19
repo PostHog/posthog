@@ -58,7 +58,7 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
     })
 
-    it('keeps the switch off for a member without project admin, whose save the project API would refuse', async () => {
+    it('keeps the switch off for a member without project admin, whose save the project API would refuse, and says why in text', async () => {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: OrganizationMembershipLevel.Member,
@@ -73,5 +73,6 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         expect(toggle).toBeDisabled()
         expect(toggle).toHaveAttribute('aria-checked', 'false')
         expect(patchBodies).toEqual([])
+        expect(screen.getByText(/^This area is restricted to project admins and up/)).toBeVisible()
     })
 })

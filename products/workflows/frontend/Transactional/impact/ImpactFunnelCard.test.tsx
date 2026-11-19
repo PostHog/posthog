@@ -217,6 +217,72 @@ describe('ImpactFunnelCard', () => {
         expect(screen.getByText('Not measured yet')).toBeInTheDocument()
     })
 
+    it("keeps an older read's answer when the newer read fails", async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        let reads = 0
+        let releaseSlowRead = (): void => {}
+        let slowReadStarted = (): void => {}
+        const slowReadHeld = new Promise<void>((resolve) => (slowReadStarted = resolve))
+        let failedReadAnswered = (): void => {}
+        const failedRead = new Promise<void>((resolve) => (failedReadAnswered = resolve))
+        useMocks({
+            get: {
+                [PROJECT_URL]: async () => {
+                    reads += 1
+                    if (reads === 2) {
+                        slowReadStarted()
+                        await new Promise<void>((resolve) => (releaseSlowRead = resolve))
+                        return [200, teamWithLinkTagging(true)]
+                    }
+                    if (reads === 3) {
+                        failedReadAnswered()
+                        return [500, { detail: 'Server error' }]
+                    }
+                    return [200, teamWithLinkTagging(false)]
+                },
+            },
+        })
+        answer = [200, IMPACT]
+        renderCard()
+        expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
+        setPageHidden(true)
+        setPageHidden(false)
+        await slowReadHeld
+        fireEvent(window, new Event('focus'))
+        await failedRead
+
+        releaseSlowRead()
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
+
+    it('keeps the last known setting when the project response leaves the field out', async () => {
+        initKeaTests(true, teamWithLinkTagging(true))
+        let stored: TeamType = teamWithLinkTagging(false)
+        let fieldlessReadAnswered = (): void => {}
+        const fieldlessRead = new Promise<void>((resolve) => (fieldlessReadAnswered = resolve))
+        useMocks({
+            get: {
+                [PROJECT_URL]: () => {
+                    if (stored.workflows_config?.email_workflow_run_link_tag_enabled === undefined) {
+                        fieldlessReadAnswered()
+                    }
+                    return [200, stored]
+                },
+            },
+        })
+        answer = [200, IMPACT]
+        renderCard()
+        expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
+
+        stored = { ...MOCK_DEFAULT_TEAM, workflows_config: { capture_workflows_engagement_events: true } }
+        fireEvent(window, new Event('focus'))
+        await fieldlessRead
+        await expectLogic(emailImpactLogic({ workflowId: 'workflow-1' })).toFinishAllListeners()
+
+        expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
+    })
+
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {
         useStoredTeam(teamWithLinkTagging(false))
         answer = [200, IMPACT]
