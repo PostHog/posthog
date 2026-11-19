@@ -930,6 +930,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             403: OpenApiResponse(description="A cloud task sandbox token cannot connect an account."),
             404: OpenApiResponse(description="ChatGPT plans for cloud tasks are not available to this user."),
             502: OpenApiResponse(description="OpenAI could not be reached."),
+            503: OpenApiResponse(description="PostHog Desktop access could not be verified. Try again."),
         },
         summary="Connect a ChatGPT account for Codex cloud tasks",
         description=(

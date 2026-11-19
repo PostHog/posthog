@@ -19,7 +19,7 @@ def get_allowed_template_variables(
     """Derive from inputs a dictionary of supported template variables for key prefixes."""
     export_datetime = dt.datetime.fromisoformat(data_interval_end)
 
-    return {
+    variables = {
         "second": f"{export_datetime:%S}",
         "minute": f"{export_datetime:%M}",
         "hour": f"{export_datetime:%H}",
@@ -30,6 +30,17 @@ def get_allowed_template_variables(
         "data_interval_end": data_interval_end,
         "table": batch_export_model.name if batch_export_model is not None else "events",
     }
+    if data_interval_start is not None:
+        start = dt.datetime.fromisoformat(data_interval_start)
+        variables.update(
+            start_year=f"{start.year:04d}",
+            start_month=f"{start:%m}",
+            start_day=f"{start:%d}",
+            start_hour=f"{start:%H}",
+            start_minute=f"{start:%M}",
+            start_second=f"{start:%S}",
+        )
+    return variables
 
 
 def get_key_prefix(

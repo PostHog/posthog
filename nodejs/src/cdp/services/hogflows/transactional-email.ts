@@ -259,7 +259,6 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
     (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
 export type TransactionalSendRefusal =
-    | 'idempotency_key_in_flight'
     | 'idempotency_key_reused'
     | 'idempotency_unavailable'
     | 'intake_unavailable'

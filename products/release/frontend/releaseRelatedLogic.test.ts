@@ -84,7 +84,9 @@ describe('releaseRelatedLogic', () => {
         mockedPartialUpdate.mockImplementation(async (_project, _id, changes) => ({ ...RELEASE, ...changes }) as never)
         mockedSurveysCreate.mockReset()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         releaseLogic.mount()
         logic = releaseRelatedLogic()
         logic.mount()

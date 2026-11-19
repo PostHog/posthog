@@ -7583,7 +7583,6 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -9252,7 +9251,6 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -15196,7 +15194,6 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)

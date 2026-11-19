@@ -240,16 +240,17 @@ export function bucketIntervalLabel(times: string[]): string | null {
     if (!Number.isFinite(seconds) || seconds <= 0) {
         return null
     }
-    const units: [number, string][] = [
-        [86400, 'day'],
-        [3600, 'hour'],
-        [60, 'minute'],
-        [1, 'second'],
+    // Short plural forms keep the chart's y-axis label from truncating.
+    const units: [number, string, string][] = [
+        [86400, 'day', 'days'],
+        [3600, 'hour', 'h'],
+        [60, 'minute', 'min'],
+        [1, 'second', 's'],
     ]
-    for (const [size, unit] of units) {
+    for (const [size, singular, plural] of units) {
         if (seconds % size === 0) {
             const count = seconds / size
-            return count === 1 ? unit : `${count} ${unit}s`
+            return count === 1 ? singular : `${count} ${plural}`
         }
     }
     return null

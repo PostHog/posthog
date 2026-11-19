@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.context_layer.backend.temporal.dreaming import (
     ContextLayerBootstrapDreamWorkflow,
     ContextLayerDreamCoordinatorWorkflow,
@@ -6,4 +8,4 @@ from products.context_layer.backend.temporal.dreaming import (
 )
 
 WORKFLOWS = [ContextLayerDreamCoordinatorWorkflow, ContextLayerBootstrapDreamWorkflow]
-ACTIVITIES = [fetch_dream_candidates, dispatch_dream_run]
+ACTIVITIES: list[Callable[..., object]] = [fetch_dream_candidates, dispatch_dream_run]

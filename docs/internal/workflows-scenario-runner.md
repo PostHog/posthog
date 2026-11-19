@@ -71,7 +71,10 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
 - **Each run:** one profile, one lease, one cap.
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
+- **Live log:** while the card runs, the host copies the run's `live.jsonl` to `live.jsonl` under the run's prefix, whole lines only, waiting 5 seconds between copies, and once more when the card ends. That last copy can land after the run is marked done, and teardown can cut it short, so the run's evidence is the complete log. A failed copy never fails the run, and each copy has a time limit. `SCENARIO_LIVE_COPY=off` in the host's environment turns the copy off, and the run behaves as it did before the copy existed.
 - **Reader capacity:** a card with a `pg.failover` valve is judged on the reader's capacity around the failover request. Other cards skip that judgment, and the reader's capacity still prices the run.
+- **Enhanced Monitoring:** the stack monitors the writer every second and the reader at the production setting, so the failover card measures the reader as production runs it. The profile's optional `readerMonitoringIntervalSeconds` sets another reader interval: 1, 5, 10, 15, 30 or 60 seconds. The admission estimate prices each instance's monitoring logs at its interval.
+  An older controller rejects a profile that sets `readerMonitoringIntervalSeconds`, so remove the field from the profile before you clean up a stack with an older controller.
 - **Locally:** both cards are `invalid`, the failover card at its valve and the scale card at its CPU bar, because only a run host carries the run manifest.
 
 ## Glossary
@@ -820,6 +823,9 @@ A property is added without a version change; a rename, a removal or a change of
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
 
 The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirty` flags local edits they do not cover.
+A cloud run also publishes its environment, such as `writer_class`, `reader_acu_min`, `reader_acu_max`, `reader_monitoring_interval_seconds`, `host_class`, `engine_version` and `pooler_replicas`.
+Its `fingerprint` hashes that environment with the pooler settings and the local fingerprint.
+Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and they fingerprint apart from later runs at any interval, because the fingerprint now hashes the field.
 
 **Verdict**
 
