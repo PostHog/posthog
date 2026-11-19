@@ -9,6 +9,7 @@ import { ServerCommands } from '~/common/utils/commands'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PubSub } from '~/common/utils/pubsub'
+import { compressRepeated } from '~/tests/helpers/compression'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { RedisPool } from '~/types'
 
@@ -91,29 +92,62 @@ describe('setupExpressApp JSON body limit', () => {
         ['gzip', gzipSync],
         ['deflate', deflateSync],
         ['br', brotliCompressSync],
-    ] as const)('parses a %s JSON body and answers a malformed one with 400', async (encoding, compress) => {
-        const post = (body: Buffer) => {
-            const req = supertest(app)
-                .post('/body')
-                .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-            req.write(body)
-            return req
+    ] as const)(
+        'parses a %s JSON body at the limit and answers a malformed one with 400',
+        async (encoding, compress) => {
+            const post = (body: Buffer) => {
+                const req = supertest(app)
+                    .post('/body')
+                    .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+                req.write(body)
+                return req
+            }
+
+            const atLimit = JSON.stringify({ data: 'x'.repeat(1024 - JSON.stringify({ data: '' }).length) })
+            const valid = await post(compress(atLimit))
+            const malformed = await post(Buffer.from('this is not compressed data'))
+            const next = await supertest(app).post('/echo').send({ data: 'x' })
+
+            expect({
+                valid: [valid.status, valid.body],
+                malformed: [malformed.status, malformed.body],
+                next: next.status,
+            }).toEqual({
+                valid: [200, parseJSON(atLimit)],
+                malformed: [400, { status: 'error', error: 'Malformed compressed body' }],
+                next: 200,
+            })
         }
+    )
 
-        const valid = await post(compress(JSON.stringify({ data: 'x' })))
-        const malformed = await post(Buffer.from('this is not compressed data'))
-        const next = await supertest(app).post('/echo').send({ data: 'x' })
+    it.each(['gzip', 'deflate', 'br'] as const)(
+        'answers a %s JSON body that decodes far past the limit with 413 without decoding the rest',
+        async (encoding) => {
+            const body = await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128)
+            const peakBefore = process.resourceUsage().maxRSS
+            const cpuBefore = process.cpuUsage()
+            const upload = supertest(app)
+                .post('/echo')
+                .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+            upload.write(body)
+            const oversized = await upload
+            const peakGrowthKb = process.resourceUsage().maxRSS - peakBefore
+            const cpu = process.cpuUsage(cpuBefore)
+            const next = await supertest(app).post('/echo').send({ data: 'x' })
 
-        expect({
-            valid: [valid.status, valid.body],
-            malformed: [malformed.status, malformed.body],
-            next: next.status,
-        }).toEqual({
-            valid: [200, { data: 'x' }],
-            malformed: [400, { status: 'error', error: 'Malformed compressed body' }],
-            next: 200,
-        })
-    })
+            expect({
+                oversized: [oversized.status, oversized.body],
+                cpuUnder100Ms: cpu.user + cpu.system < 100_000,
+                peakGrowthUnder32Mb: peakGrowthKb < 32 * 1024,
+                next: next.status,
+            }).toEqual({
+                oversized: [413, { status: 'error', error: 'Request entity too large' }],
+                cpuUnder100Ms: true,
+                peakGrowthUnder32Mb: true,
+                next: 200,
+            })
+        }
+    )
 
     describe('on the command route', () => {
         let redisPool: RedisPool

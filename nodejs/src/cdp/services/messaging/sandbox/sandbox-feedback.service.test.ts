@@ -21,6 +21,7 @@ import { flush as flushAnalytics } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { compressRepeated } from '~/tests/helpers/compression'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -427,6 +428,18 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             }).toEqual({ malformed: 400, checkFailed: 400, rowsAfterFailures: [], valid: 200 })
             expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
         })
+
+        it.each(['gzip', 'deflate', 'br'] as const)(
+            'answers a %s notification that decodes far past the limit with 413',
+            async (encoding) => {
+                const req = supertest(app)
+                    .post('/public/m/ses_sandbox_webhook')
+                    .set({ 'Content-Type': 'text/plain', 'Content-Encoding': encoding })
+                req.write(await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128))
+
+                expect((await req).status).toBe(413)
+            }
+        )
 
         it.each([
             ['confirms', 'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=t', 200, 1],
