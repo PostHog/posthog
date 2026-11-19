@@ -1333,12 +1333,18 @@ describe('EmailService', () => {
                         state: { ...invocation.state, renderedWorkflowVersion: heldVersion.version },
                     })
 
-                    it.each([
-                        ['more than an hour', 61, true],
-                        ['exactly an hour', 60, false],
-                        ['less than an hour', 59, false],
-                    ])('marks a send the limit first held %s earlier', async (_name, minutesHeld, overAnHour) => {
-                        const result = await holdThenSend(minutesHeld)
+                    it.each<[string, number, boolean, FakeSesFault | null]>([
+                        ['more than an hour earlier', 61, true, null],
+                        ['exactly an hour earlier', 60, false, null],
+                        ['less than an hour earlier', 59, false, null],
+                        [
+                            'more than an hour earlier, unless SES rejects it',
+                            61,
+                            false,
+                            { status: 400, type: 'MessageRejected', message: 'Rejected' },
+                        ],
+                    ])('marks a send the limit first held %s', async (_name, minutesHeld, overAnHour, sesFault) => {
+                        const result = await holdThenSend(minutesHeld, sesFault)
 
                         expect(result.finished).toBe(true)
                         expect(
@@ -1357,12 +1363,16 @@ describe('EmailService', () => {
                         )
                     })
 
-                    it('marks a send once when SES throttles it after the limit lets it go', async () => {
-                        const throttled = await holdThenSend(61, {
+                    it.each([
+                        ['before the hour, retried after it', 59],
+                        ['after the hour', 61],
+                    ])('marks only the send SES accepts when it throttles %s', async (_name, minutesHeld) => {
+                        const throttled = await holdThenSend(minutesHeld, {
                             status: 429,
                             type: 'TooManyRequestsException',
                             message: 'Too many requests',
                         })
+                        jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 2 * 60_000)
                         ses.failWith(null)
                         const sent = await createCappedService(
                             200,
@@ -1370,11 +1380,13 @@ describe('EmailService', () => {
                         ).executeSendEmail(throttled.invocation)
 
                         expect(throttled.finished).toBe(false)
+                        expect(metricNames(throttled)).not.toContain('email_sending_limit_delayed_over_1h')
                         expect(sent.finished).toBe(true)
+                        expect(metricNames(sent)).toEqual(
+                            expect.arrayContaining(['email_sent', 'email_sending_limit_delayed_over_1h'])
+                        )
                         expect(
-                            [...throttled.metrics, ...sent.metrics].filter(
-                                (m) => m.metric_name === 'email_sending_limit_delayed_over_1h'
-                            )
+                            metricNames(sent).filter((name) => name === 'email_sending_limit_delayed_over_1h')
                         ).toHaveLength(1)
                     })
                 })
