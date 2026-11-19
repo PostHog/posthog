@@ -51,7 +51,7 @@ export const VARIANTS: { key: VariantKey; name: string; primarySurface: SurfaceK
 // Filled from the usage brief: flag names and the controls they trip, never numbers.
 export const VARIANT_USAGE_FLAGS: Record<VariantKey, string> = {
     A: 'muscle memory, agent contract, known pain: workflows-request-sending-tier-increase',
-    B: 'muscle memory, known pain: workflows-sending-allowance',
+    B: 'muscle memory, known pain: workflows-sending-allowance · low use: the Reputation tab',
     C: 'muscle memory, known pain: broadcast-audience-over-limit · low use: broadcast-rate-limit-suggestion · channel shift: broadcasts-create MCP tool',
     D: 'low use: email-domain-ready-reputation · known pain: email-domain-check-again',
 }
