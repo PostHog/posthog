@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -271,10 +272,17 @@ class TestStackPlan(BaseTest):
             ("confirmed_pin_overrides_standing_exclusion", True, False, True, True),
             ("automatic_exclusion_writer_off", False, False, True, False),
             ("automatic_exclusion_writer_on", True, False, True, False),
+            ("recovered_legacy_pin", True, False, False, True, True),
         ]
     )
     def test_layers_preserve_reviewer_restrictions(
-        self, _name: str, writer_enabled: bool, needs_review: bool, standing_excluded: bool, pinned: bool
+        self,
+        _name: str,
+        writer_enabled: bool,
+        needs_review: bool,
+        standing_excluded: bool,
+        pinned: bool,
+        legacy: bool = False,
     ) -> None:
         reviewer = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
         corrections = ReviewerCorrections(
@@ -284,18 +292,27 @@ class TestStackPlan(BaseTest):
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=True),
         ):
-            SignalReportArtefact.append_status(
+            SignalReportArtefact._create(
                 team_id=self.team.id,
                 report_id=str(self.parent.id),
                 content=SuggestedReviewers(root=[reviewer]),
-                attribution=ArtefactAttribution.system(),
+                attribution=ArtefactAttribution.from_user(self.user.id) if legacy else ArtefactAttribution.system(),
                 implementation_authorization=ImplementationAuthorization(mode="user", user_id=self.user.id)
                 if standing_excluded and pinned
                 else ImplementationAuthorization(mode="reviewer"),
-                reevaluate_autostart=False,
-                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="research"),
             )
-            if pinned:
+            if legacy:
+                ActivityLog.objects.create(
+                    team_id=self.team.id,
+                    user=self.user,
+                    scope="SignalReport",
+                    item_id=str(self.parent.id),
+                    activity="suggested_reviewers_changed",
+                    detail={
+                        "changes": [{"field": "suggested_reviewers", "before": [], "after": [str(self.user.uuid)]}]
+                    },
+                )
+            elif pinned:
                 SignalReportArtefact._create(
                     team_id=self.team.id,
                     report_id=str(self.parent.id),

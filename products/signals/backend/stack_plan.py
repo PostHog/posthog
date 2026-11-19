@@ -27,6 +27,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
+    ReviewerCorrections,
     ReviewerProposal,
     StatusArtefactContent,
     SuggestedReviewers,
@@ -160,7 +161,7 @@ def create_layer_reports(
                 attribution=attribution,
                 implementation_authorization=authorization,
             )
-        if assignment.state.corrections_id is not None or corrections.needs_review:
+        if assignment.state.corrections_id is not None or corrections != ReviewerCorrections():
             # Keep routing pins from becoming execution authority when the reviewer version moves to a layer.
             SignalReportArtefact._create(
                 team_id=team_id,
