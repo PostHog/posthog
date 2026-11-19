@@ -1,9 +1,11 @@
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery import destinations as destinations_registry
@@ -40,6 +42,8 @@ class RecordingTransport:
     ) -> MessageHandle | None:
         if target.get("slack_channel_id") == "C-refuses":
             raise DeliveryError("Slack refused the message: channel_not_found")
+        if target.get("slack_channel_id") == "C-slow":
+            raise SoftTimeLimitExceeded()
         RecordingTransport.sends.append((self.channel_target(target), message))
         return MessageHandle(external_ref={"channel": self.channel_target(target), "ts": "1"})
 
@@ -156,3 +160,19 @@ class TestDeliveryTestSend(APIBaseTest):
 
         assert outcome == DeliveryTestOutcome(sent=1, failed=1)
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-alerts"]
+
+    def test_the_task_time_limit_ends_the_test_rather_than_skipping_to_the_next_destination(self) -> None:
+        alert_id = self._alert()
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=alert_id,
+            destinations=tuple(
+                NewAlertDestination(data=_slack(channel), event_kinds=(AlertEventKind.FIRING,))
+                for channel in ("C-slow", "C-alerts")
+            ),
+        )
+
+        with pytest.raises(SoftTimeLimitExceeded):
+            self._send(alert_id)
+
+        assert RecordingTransport.sends == []

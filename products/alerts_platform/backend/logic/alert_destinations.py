@@ -195,18 +195,22 @@ def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID])
     These are the destinations a source that counts its HogFunctions misses. A row that copies a live
     HogFunction is that HogFunction's destination, by the rule delivery skips it with. Subscriber rows
     are left out, because a source counts its subscribers apart. One read for the whole page."""
+    if not public_ids:
+        return {}
+    # The caller names the team, as `native_configuration_ids_by_source_config` takes it: a page of
+    # embedded alerts is read where no team scope resolves.
     public_by_configuration = {
         configuration_id: legacy_id or configuration_id
-        for configuration_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(PlatformAlertConfiguration.with_destination_alert_ids(public_ids))
+        for configuration_id, legacy_id in PlatformAlertConfiguration.objects.unscoped()
+        .filter(PlatformAlertConfiguration.with_destination_alert_ids(public_ids), team_id=team_id)
         .values_list("id", "legacy_configuration_id")
     }
     if not public_by_configuration:
         return {}
     rows = [
         row
-        for row in AlertDestination.objects.for_team(team_id).filter(
-            configuration_id__in=list(public_by_configuration), enabled=True
+        for row in AlertDestination.objects.unscoped().filter(
+            team_id=team_id, configuration_id__in=list(public_by_configuration), enabled=True
         )
         if not _names_subscribers(row)
     ]

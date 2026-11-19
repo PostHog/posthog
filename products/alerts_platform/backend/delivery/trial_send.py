@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.models import Team
 from posthog.utils import absolute_uri
@@ -50,6 +51,9 @@ def send_delivery_test(
         try:
             transport = _transport(team, source, public_id, destination)
             transport.deliver(team_id=team_id, target=destination.data, message=message)
+        # The task's time limit, which has to end the test rather than count as one destination failing.
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as error:
             # Named by class: an exception's text can carry the destination's credential URL.
             logger.warning(
