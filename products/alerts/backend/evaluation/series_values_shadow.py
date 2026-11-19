@@ -31,10 +31,11 @@ SHADOW_BUILD_BUDGET_SECONDS = 60
 
 AlertKind = Literal["threshold", "detector"]
 ShadowOutcome = Literal["match", "mismatch", "unavailable", "error"]
+_CANCELLATION = (CancelledError, CHQueryErrorQueryWasCancelled)
 
 _SHADOW_COMPARISON_COUNTER = Counter(
     "posthog_insight_alerts_series_values_shadow_total",
-    "Trends alert checks whose live values were compared with stored closed-day values, by outcome",
+    "Alert checks by the outcome of comparing their live values with stored closed-day values",
     labelnames=["outcome"],
 )
 _SHADOW_COMPARISON_DURATION = Histogram(
@@ -74,6 +75,8 @@ def is_series_values_precompute_enabled(team: Team) -> bool:
                 send_feature_flag_events=False,
             )
         )
+    except _CANCELLATION:
+        raise
     except Exception:
         logger.exception("alert_series_values_flag_check_failed", team_id=team.pk)
         return False
@@ -130,20 +133,43 @@ def compare_series_values_shadow(
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
             closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
             comparison = compare_closed_values(closed, live)
-    except (CancelledError, CHQueryErrorQueryWasCancelled):
+    except _CANCELLATION:
         raise
     except Exception as err:
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
-    _record(alert, alert_kind, comparison, duration_seconds=time.monotonic() - started)
+    _record(alert, alert_kind, "trends", comparison, duration_seconds=time.monotonic() - started)
+
+
+def record_unsupported_insight_kind(alert: AlertConfiguration, insight_kind: str) -> None:
+    try:
+        if not is_series_values_precompute_enabled(alert.team):
+            return
+        _record(
+            alert,
+            "detector" if alert.detector_config else "threshold",
+            insight_kind,
+            ShadowComparison(outcome="unavailable", reason="unsupported_insight_kind"),
+            duration_seconds=None,
+        )
+    except _CANCELLATION:
+        raise
+    except Exception:
+        logger.exception("alert_series_values_shadow_record_failed", team_id=alert.team_id, alert_id=str(alert.id))
 
 
 def _record(
-    alert: AlertConfiguration, alert_kind: AlertKind, comparison: ShadowComparison, *, duration_seconds: float
+    alert: AlertConfiguration,
+    alert_kind: AlertKind,
+    insight_kind: str,
+    comparison: ShadowComparison,
+    *,
+    duration_seconds: float | None,
 ) -> None:
     try:
         _SHADOW_COMPARISON_COUNTER.labels(outcome=comparison.outcome).inc()
-        _SHADOW_COMPARISON_DURATION.labels(outcome=comparison.outcome).observe(duration_seconds)
+        if duration_seconds is not None:
+            _SHADOW_COMPARISON_DURATION.labels(outcome=comparison.outcome).observe(duration_seconds)
         team = alert.team
         posthoganalytics.capture(
             event=SHADOW_COMPARISON_EVENT,
@@ -156,10 +182,13 @@ def _record(
                 "alert_id": str(alert.id),
                 "calculation_interval": alert.calculation_interval,
                 "alert_kind": alert_kind,
-                "duration_ms": round(duration_seconds * 1000),
+                "insight_kind": insight_kind,
+                "duration_ms": None if duration_seconds is None else round(duration_seconds * 1000),
                 "freshly_built": comparison.freshly_built,
             },
             groups=groups(team.organization, team),
         )
+    except _CANCELLATION:
+        raise
     except Exception:
         logger.exception("alert_series_values_shadow_record_failed", team_id=alert.team_id, alert_id=str(alert.id))
