@@ -80,6 +80,11 @@ describe('seriesOf', () => {
             /has a timestamp that is not a time: 2026-11-19T10:01:00$/,
         ],
         [
+            'a timestamp finer than a millisecond',
+            answerOf({ Timestamps: ['2026-11-19T10:01:00.0001Z', ...STAMPS.slice(1)] }),
+            /has a timestamp that is not a time: 2026-11-19T10:01:00.0001Z$/,
+        ],
+        [
             'a timestamp off the period grid',
             answerOf({ Timestamps: ['2026-11-19T10:01:30+00:00', ...STAMPS.slice(1)] }),
             /has a timestamp off the 60s period of its window: 2026-11-19T10:01:30.000Z$/,

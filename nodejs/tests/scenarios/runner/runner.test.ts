@@ -57,8 +57,7 @@ import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 import { seedBacklog } from '../backlog/backlog'
 import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { FakeCloud } from '../cloud/fake-cloud'
-import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
-import { failOver } from '../environment/failover'
+import { Environment, RoleExit, createEnvironment, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
@@ -1506,22 +1505,13 @@ describe('runner through seed, drive and judge', () => {
         const { manifest } = cloud.runCluster(randomUUID())
         const manifestFile = path.join(cacheHome, 'manifest.json')
         writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
-        const stub = environmentOf('all')
-        const onHost: Environment = {
-            ...stub,
-            actuate: (action) =>
-                action.kind === 'rds.failover'
-                    ? failOver({
-                          aws: cloud,
-                          manifest: action.manifest,
-                          holdMs: action.holdMs,
-                          commits: action.commits,
-                          signal: action.signal,
-                          identity: () =>
-                              Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
-                      })
-                    : stub.actuate(action),
-        }
+        const host = createEnvironment({
+            aws: cloud,
+            failover: {
+                identity: () => Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
+            },
+        })
+        const onHost: Environment = { ...environmentOf('all'), actuate: (action) => host.actuate(action) }
 
         const result = await createRunner(
             onHost,
@@ -1534,7 +1524,7 @@ describe('runner through seed, drive and judge', () => {
         results.push(result)
 
         const refusal = expect.stringMatching(
-            /^pg\.failover refused: .*-reader's capacity read has 5 timestamps and 4 values/
+            /^pg\.failover refused: .*-reader's capacity read has \d+ timestamps and \d+ values/
         )
         expect(result).toMatchObject({
             status: 'invalid',

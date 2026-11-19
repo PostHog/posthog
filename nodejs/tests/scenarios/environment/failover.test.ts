@@ -211,6 +211,17 @@ describe('pg.failover', () => {
             /-reader's capacity read has a timestamp off the 60s period of its window: /,
         ],
         [
+            'a capacity read whose times are finer than a millisecond',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer(asked, {
+                        Timestamps: asked.minutes.map((at) => new Date(at).toISOString().replace('.000Z', '.0001Z')),
+                    })
+                )),
+            /-reader's capacity read has a timestamp that is not a time: /,
+        ],
+        [
             'a capacity read that is only one page',
             {},
             (run) =>
