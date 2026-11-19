@@ -132,8 +132,8 @@ jobs:
 
             # The agent tag publishes @posthog/agent to npm, and its users call the Django backend,
             # so the tag must not exist before prod-us and prod-eu run a build with its commit.
-            # The 120-minute wait is a policy: a master commit usually runs in prod 60 to 80 minutes
-            # after it merges, and the wait allows for a slow deploy cycle on top of that. This run
+            # The 120-minute wait is a policy: it allows for a full prod deploy of the commit plus
+            # one more slow deploy cycle, in case the commit misses the first one. This run
             # comes from a push and nothing retries it, so a timeout fails the job rather than
             # passing quietly: the red run shows that the release did not go out.
             # The next push to the agent packages releases a newer commit that includes this one.

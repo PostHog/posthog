@@ -200,9 +200,9 @@ jobs:
             # Desktop releases auto-update users, so a release must not reach them before the
             # Django backend it calls runs in production. The charts deploy records each Django
             # deploy as a GitHub Deployment, and the script reads which build is live. It does
-            # not cover Rust services. The 120-minute wait is a policy: a master commit usually runs
-            # in prod 60 to 80 minutes after it merges, and the wait allows for a slow deploy cycle
-            # on top of that. A release that still waits after that goes to the next scheduled run.
+            # not cover Rust services. The 120-minute wait is a policy: it allows for a full prod
+            # deploy of the tested commit plus one more slow deploy cycle, in case the commit misses
+            # the first one. A release that still waits after that goes to the next scheduled run.
             - name: Wait for the backend to run the tested commit
               id: backend-deploy
               if: >-
