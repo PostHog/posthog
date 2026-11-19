@@ -18,7 +18,7 @@ def event(
     minutes: int,
     session_id: str | None = None,
     latency: float | None = None,
-    **properties: Any,
+    props: dict[str, Any] | None = None,
 ) -> dict:
     session = {} if session_id is None else {"$ai_session_id": session_id}
     timing = {} if latency is None else {"$ai_latency": latency}
@@ -26,20 +26,28 @@ def event(
         "event": event_name,
         "trace_id": trace_id,
         "minutes": minutes,
-        "properties": {**session, **timing, **properties},
+        "properties": {**session, **timing, **(props or {})},
     }
 
 
 def generation(
-    trace_id: str, minutes: int, session_id: str | None = None, latency: float | None = None, **properties: Any
+    trace_id: str,
+    minutes: int,
+    session_id: str | None = None,
+    latency: float | None = None,
+    props: dict[str, Any] | None = None,
 ) -> dict:
-    return event("$ai_generation", trace_id, minutes, session_id, latency, **properties)
+    return event("$ai_generation", trace_id, minutes, session_id, latency, props)
 
 
 def root(
-    trace_id: str, minutes: int, session_id: str | None = None, latency: float | None = None, **properties: Any
+    trace_id: str,
+    minutes: int,
+    session_id: str | None = None,
+    latency: float | None = None,
+    props: dict[str, Any] | None = None,
 ) -> dict:
-    return event("$ai_trace", trace_id, minutes, session_id, latency, **properties)
+    return event("$ai_trace", trace_id, minutes, session_id, latency, props)
 
 
 class TestSessionQueries(ClickhouseTestMixin, BaseTest):
@@ -62,17 +70,17 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
                     1,
                     "s1",
                     latency=2,
-                    **{"$ai_total_cost_usd": 0.01, "$ai_input_tokens": 10, "$ai_output_tokens": 4},
+                    props={"$ai_total_cost_usd": 0.01, "$ai_input_tokens": 10, "$ai_output_tokens": 4},
                 ),
                 generation(
                     "t-gens",
                     3,
                     "s1",
                     latency=1.5,
-                    **{"$ai_total_cost_usd": 0.02, "$ai_input_tokens": 20, "$ai_cache_read_input_tokens": 7},
+                    props={"$ai_total_cost_usd": 0.02, "$ai_input_tokens": 20, "$ai_cache_read_input_tokens": 7},
                 ),
-                generation("t-gens", 4, latency=2, **{"$ai_total_cost_usd": 0.03, "$ai_output_tokens": 6}),
-                generation("t-other", 2, "s2", latency=100, **{"$ai_total_cost_usd": 9}),
+                generation("t-gens", 4, latency=2, props={"$ai_total_cost_usd": 0.03, "$ai_output_tokens": 6}),
+                generation("t-other", 2, "s2", latency=100, props={"$ai_total_cost_usd": 9}),
             ],
         )
 
@@ -108,9 +116,9 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
         seed(
             self.team,
             [
-                generation("t-bad", 0, "s1", **{"$ai_is_error": True}),
-                generation("t-bad", 1, "s1", **{"$ai_is_error": True}),
-                generation("t-worse", 2, "s1", **{"$ai_is_error": True}),
+                generation("t-bad", 0, "s1", props={"$ai_is_error": True}),
+                generation("t-bad", 1, "s1", props={"$ai_is_error": True}),
+                generation("t-worse", 2, "s1", props={"$ai_is_error": True}),
                 generation("t-fine", 3, "s1"),
             ],
         )
@@ -134,8 +142,8 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
         self._seed_events_only(
             [
                 root("t-old", 0, latency=4),
-                generation("t-old", 1, "s-old", **{"$ai_total_cost_usd": 0.5, "$ai_input_tokens": 12}),
-                generation("t-old", 2, "s-old", **{"$ai_is_error": True}),
+                generation("t-old", 1, "s-old", props={"$ai_total_cost_usd": 0.5, "$ai_input_tokens": 12}),
+                generation("t-old", 2, "s-old", props={"$ai_is_error": True}),
             ]
         )
 
