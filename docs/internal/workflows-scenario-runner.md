@@ -73,6 +73,8 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
 - **Reader idle limit:** `readerAcu.idleMax` in the cloud profile is the highest ACU at which the reader still counts as idle. The controller refuses to run under a value below `readerAcu.min`, because no reader could pass it, and still cleans up with that profile. The field is optional, so a profile without it still loads and runs other cards, but the controller refuses a failover card before it leases anything. The lease copies it into the run manifest as `readerIdleMaxAcu`, and the host's `pg.failover` valve reads it from there.
 - **Reader capacity:** a card with a `pg.failover` valve is judged on the reader's capacity around the failover request, T0. The run is `invalid` when any minute before T0 is above `readerAcu.idleMax`, when a minute before T0 has an average above `readerAcu.min` but no maximum, so nothing shows it stayed under the limit, when CloudWatch has no capacity at all for one of the 5 minutes right before T0, or when the minute right before T0 has no maximum. The failover is measured onto the reader as it sits, not onto a reader at its minimum: the scorecard's `reader_acu_at_t0` is the reader's maximum ACU in the last full minute before the minute of T0, and the controller prints it. It is `null` when the run has no T0, when CloudWatch has no maximum for that minute, or when the capacity read failed, which the controller prints as such. Other cards skip that judgment, and the reader's capacity still prices the run.
+- **Enhanced Monitoring:** the stack monitors the writer every second and the reader at the production setting, so the failover card measures the reader as production runs it. The profile's optional `readerMonitoringIntervalSeconds` sets another reader interval: 1, 5, 10, 15, 30 or 60 seconds. The admission estimate prices each instance's monitoring logs at its interval.
+  An older controller rejects a profile that sets `readerMonitoringIntervalSeconds`, so remove the field from the profile before you clean up a stack with an older controller.
 - **Locally:** both cards are `invalid`, the failover card at its valve and the scale card at its CPU bar, because only a run host carries the run manifest.
 
 ## Glossary
@@ -821,6 +823,9 @@ A property is added without a version change; a rename, a removal or a change of
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
 
 The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirty` flags local edits they do not cover.
+A cloud run also publishes its environment, such as `writer_class`, `reader_acu_min`, `reader_acu_max`, `reader_monitoring_interval_seconds`, `host_class`, `engine_version` and `pooler_replicas`.
+Its `fingerprint` hashes that environment with the pooler settings and the local fingerprint.
+Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and they fingerprint apart from later runs at any interval, because the fingerprint now hashes the field.
 
 **Verdict**
 
