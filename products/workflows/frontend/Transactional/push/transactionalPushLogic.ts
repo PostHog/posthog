@@ -199,6 +199,15 @@ export type transactionalPushLogicType = MakeLogicType<
     transactionalPushLogicMeta
 >
 
+// A save writes a new workflow version, and nothing else tells the bound workflow tabs.
+function reloadWorkflowTabs(template: MessageTemplateApi | null): void {
+    const hogFlowId = template?.transactional_hog_flow_id
+    if (hogFlowId) {
+        workflowLogic.findMounted({ id: hogFlowId })?.actions.loadWorkflow()
+        workflowRevisionsLogic.findMounted({ id: hogFlowId })?.actions.loadRevisions()
+    }
+}
+
 export const transactionalPushLogic = kea<transactionalPushLogicType>([
     path((id) => ['products', 'workflows', 'frontend', 'Transactional', 'push', 'transactionalPushLogic', id]),
     props({} as TransactionalPushLogicProps),
@@ -258,6 +267,7 @@ export const transactionalPushLogic = kea<transactionalPushLogicType>([
                     }
                 },
                 makeTransactional: async () => {
+                    cache.submitted = JSON.stringify([values.name, values.draft])
                     try {
                         const updated = await messagingTemplatesMakeTransactionalCreate(
                             String(values.currentTeamIdStrict),
@@ -309,8 +319,6 @@ export const transactionalPushLogic = kea<transactionalPushLogicType>([
             {
                 setDraft: (state, { draft }) => ({ ...state, ...draft }),
                 loadTemplateSuccess: (_, { template }) => pushDraftFrom(template?.content?.push),
-                // Postgres reorders the custom data keys, so the draft follows the stored template.
-                makeTransactionalSuccess: (_, { template }) => pushDraftFrom(template?.content?.push),
             },
         ],
         tab: ['content' as TransactionalPushTab, { setTab: (_, { tab }) => tab }],
@@ -381,13 +389,16 @@ export const transactionalPushLogic = kea<transactionalPushLogicType>([
                 actions.setName(template?.name ?? '')
                 actions.setDraft(pushDraftFrom(template?.content?.push))
             }
-            const hogFlowId = template?.transactional_hog_flow_id
-            if (hogFlowId) {
-                // The publish wrote a new workflow version, and nothing else tells the bound workflow tabs.
-                workflowLogic.findMounted({ id: hogFlowId })?.actions.loadWorkflow()
-                workflowRevisionsLogic.findMounted({ id: hogFlowId })?.actions.loadRevisions()
+            reloadWorkflowTabs(template)
+        },
+        makeTransactionalSuccess: ({ template }) => {
+            // Postgres reorders the custom data keys, so an untouched draft follows the stored template.
+            if (JSON.stringify([values.name, values.draft]) === cache.submitted) {
+                actions.setDraft(pushDraftFrom(template?.content?.push))
             }
         },
+        // The setting is part of the workflow, so changing it writes a new workflow version too.
+        setSensitiveSuccess: ({ template }) => reloadWorkflowTabs(template),
         discardChanges: () => {
             if (values.template) {
                 actions.loadTemplateSuccess(values.template)
