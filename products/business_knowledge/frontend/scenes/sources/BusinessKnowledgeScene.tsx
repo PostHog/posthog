@@ -14,7 +14,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -31,9 +30,6 @@ import {
     businessKnowledgeLogic,
 } from './businessKnowledgeLogic'
 import { KnowledgeSourceNameCell } from './KnowledgeSourceNameCell'
-import { LibraryDialog } from './LibraryDialog'
-import { LibraryRow } from './LibraryRow'
-import { LibrarySummary } from './LibrarySummary'
 import { RefreshStatusCell } from './RefreshStatusCell'
 import { SourceLibrariesCell } from './SourceLibrariesCell'
 import { SourceUsageCell } from './SourceUsageCell'
@@ -57,11 +53,19 @@ export function BusinessKnowledgeScene(): JSX.Element {
         searchTerm,
         sourceTypeFilter,
         addedByFilter,
+        libraries,
         libraryScope,
         selectedLibrary,
     } = useValues(businessKnowledgeLogic)
-    const { openCreateModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter, setAddedByFilter } =
-        useActions(businessKnowledgeLogic)
+    const {
+        openCreateModal,
+        deleteSource,
+        refreshSource,
+        setSearchTerm,
+        setSourceTypeFilter,
+        setAddedByFilter,
+        setLibraryScope,
+    } = useActions(businessKnowledgeLogic)
     const { push } = useActions(router)
 
     if (!isEnabled) {
@@ -96,11 +100,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 <p>Business knowledge is in beta. Tell us what you'd like to see here, or report any issues.</p>
             </LemonBanner>
             <BusinessKnowledgeTabs activeTab="sources" />
-            <SceneSection title="Libraries" className="gap-y-2">
-                <LibraryRow />
-                <LibrarySummary />
-            </SceneSection>
-            <SceneDivider />
             <SceneSection
                 title={
                     selectedLibrary
@@ -140,6 +139,18 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         ]}
                         data-attr="business-knowledge-added-by-filter"
                     />
+                    {libraries.length > 0 && (
+                        <LemonSelect
+                            value={libraryScope}
+                            onChange={setLibraryScope}
+                            options={[
+                                { value: LIBRARY_SCOPE_ALL, label: 'All libraries' },
+                                ...libraries.map((library) => ({ value: library.id, label: library.name })),
+                                { value: LIBRARY_SCOPE_UNFILED, label: 'No library' },
+                            ]}
+                            data-attr="business-knowledge-library-filter"
+                        />
+                    )}
                 </div>
 
                 <LemonTable<KnowledgeSource>
@@ -282,7 +293,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
             </SceneSection>
 
             <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
-            <LibraryDialog />
         </SceneContent>
     )
 }

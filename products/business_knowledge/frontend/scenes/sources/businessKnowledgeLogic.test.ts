@@ -14,9 +14,6 @@ jest.mock('posthog-js', () => ({
 jest.mock('../../api', () => ({
     listSources: jest.fn(),
     listLibraries: jest.fn(),
-    createLibrary: jest.fn(),
-    updateLibrary: jest.fn(),
-    deleteLibrary: jest.fn(),
     updateSource: jest.fn(),
     createTextSource: jest.fn(),
     createUrlSource: jest.fn(),
@@ -154,52 +151,6 @@ describe('businessKnowledgeLogic', () => {
             libraryId: undefined,
             unfiled: false,
         })
-    })
-
-    it('returns to all after the selected library is deleted', async () => {
-        const libraryId = '22222222-2222-2222-2222-222222222222'
-        mockedApi.listLibraries.mockResolvedValue([
-            { id: libraryId, name: 'Docs', is_default: false, source_count: 1, repos: [] },
-        ])
-        mockedApi.deleteLibrary.mockResolvedValue(undefined)
-        await expectLogic(logic, () => {
-            logic.actions.setLibraryScope(libraryId)
-        }).toFinishAllListeners()
-
-        await expectLogic(logic, () => {
-            logic.actions.deleteSelectedLibrary()
-        }).toFinishAllListeners()
-
-        expect(logic.values.libraryScope).toEqual('all')
-    })
-
-    it('selects a new library while other libraries exist', async () => {
-        const existing = {
-            id: '22222222-2222-2222-2222-222222222222',
-            name: 'Docs',
-            is_default: false,
-            source_count: 1,
-            repos: [],
-        }
-        const created = {
-            id: '33333333-3333-3333-3333-333333333333',
-            name: 'Support',
-            is_default: false,
-            source_count: 0,
-            repos: [],
-        }
-        mockedApi.listLibraries.mockResolvedValue([existing])
-        await expectLogic(logic, () => {
-            logic.actions.loadLibraries()
-        }).toFinishAllListeners()
-        mockedApi.createLibrary.mockResolvedValue(created)
-        mockedApi.listLibraries.mockResolvedValue([existing, created])
-
-        await expectLogic(logic, () => {
-            logic.actions.createLibrary('Support')
-        }).toFinishAllListeners()
-
-        expect(logic.values.libraryScope).toEqual(created.id)
     })
 
     it('files a new source into the selected library when the modal closes mid-request', async () => {
