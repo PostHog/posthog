@@ -18,6 +18,8 @@ import {
 } from 'products/messaging/frontend/generated/api'
 import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { workflowLogic } from '../../Workflows/workflowLogic'
+import { workflowRevisionsLogic } from '../../Workflows/workflowRevisionsLogic'
 import {
     EMPTY_PUSH_DRAFT,
     PushDraft,
@@ -339,6 +341,14 @@ export const transactionalPushLogic = kea<transactionalPushLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        saveTemplateSuccess: ({ template }) => {
+            const hogFlowId = template?.transactional_hog_flow_id
+            if (hogFlowId) {
+                // The publish wrote a new workflow version, and nothing else tells the bound workflow tabs.
+                workflowLogic.findMounted({ id: hogFlowId })?.actions.loadWorkflow()
+                workflowRevisionsLogic.findMounted({ id: hogFlowId })?.actions.loadRevisions()
+            }
+        },
         discardChanges: () => {
             if (values.template) {
                 actions.loadTemplateSuccess(values.template)
