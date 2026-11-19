@@ -148606,6 +148606,10 @@ export namespace Schemas {
      */
     key?: string;
     /**
+     * Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.
+     */
+    key_prefix?: string;
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean;

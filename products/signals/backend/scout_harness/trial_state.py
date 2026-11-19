@@ -198,6 +198,7 @@ class ScoutTrialStore:
         *,
         text: str | None = None,
         key: str | None = None,
+        key_prefix: str | None = None,
         skill_name: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -211,6 +212,8 @@ class ScoutTrialStore:
         result = []
         for entry in entries:
             if key and entry.key != key:
+                continue
+            if key_prefix and not entry.key.startswith(key_prefix):
                 continue
             if skill_name and entry.created_by_skill != skill_name:
                 continue

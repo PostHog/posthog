@@ -2579,6 +2579,15 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["key"] for row in response.json()] == ["errors"]
 
+    def test_search_filters_by_key_prefix(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="report:checkout", content="v")
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:checkout", content="filed as report:checkout")
+
+        response = self.client.get(self._list_url(), {"key_prefix": "report:"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["report:checkout"]
+
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
         SignalScratchpad.objects.create(team=self.team, key="another", content="more memory")

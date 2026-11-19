@@ -90,6 +90,7 @@ def search_scratchpad(
     team_id: int,
     text: str | None = None,
     key: str | None = None,
+    key_prefix: str | None = None,
     skill_name: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -115,6 +116,10 @@ def search_scratchpad(
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
     across content *and* key means a key mentioned inside enough other bodies pushes the
     row you wanted past the limit.
+
+    `key_prefix` keeps the entries whose key starts with it, case-sensitively, so one family of
+    keys (`followup:<skill>:`, `report:`) can be read without the bodies that merely quote the
+    prefix. `%` and `_` match literally, and `signal_scratchpad_key_like_idx` serves the `LIKE`.
 
     `skill_name` keeps the entries one writer created, the same writer `created_by_skill` names.
     A per-scout view needs this in SQL, because the newest rows across the fleet can fill the
@@ -149,6 +154,8 @@ def search_scratchpad(
     qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
     if key:
         qs = qs.filter(key=key)
+    if key_prefix:
+        qs = qs.filter(key__startswith=key_prefix)
     if text:
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
     if skill_name:
