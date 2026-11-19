@@ -24,6 +24,7 @@
                 "account",
                 "account_note",
                 "action",
+                "activity",
                 "activity_log",
                 "ai_observability_clusters",
                 "business_knowledge",
