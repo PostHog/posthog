@@ -75,6 +75,33 @@ describe('RecipientsManager', () => {
             })
         })
 
+        it('finds an email opt-out stored under a different capitalization', async () => {
+            await createRecipient(team.id, 'User@Example.com', { $all: 'OPTED_OUT' })
+
+            const result = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+
+            expect(result?.identifier).toBe('User@Example.com')
+            expect(manager.getAllMarketingMessagingPreference(result!)).toBe('OPTED_OUT')
+        })
+
+        it('lets an opt-out win when several capitalizations of one email have rows', async () => {
+            await createRecipient(team.id, 'user@example.com', { $all: 'OPTED_IN', 'cat-1': 'OPTED_IN' })
+            await createRecipient(team.id, 'USER@example.com', { 'cat-1': 'OPTED_OUT', 'cat-2': 'OPTED_IN' })
+
+            const result = await manager.get({ teamId: team.id, identifier: 'User@Example.com' })
+
+            expect(result?.preferences).toEqual({ $all: 'OPTED_IN', 'cat-1': 'OPTED_OUT', 'cat-2': 'OPTED_IN' })
+        })
+
+        it('matches identifiers that are not emails exactly', async () => {
+            await createRecipient(team.id, 'Device:ABC', { $all: 'OPTED_OUT' })
+
+            expect(await manager.get({ teamId: team.id, identifier: 'device:abc' })).toBeNull()
+            expect((await manager.get({ teamId: team.id, identifier: 'Device:ABC' }))?.preferences).toEqual({
+                $all: 'OPTED_OUT',
+            })
+        })
+
         it('should filter out deleted recipients', async () => {
             const id = await createRecipient(team.id, 'user@example.com', {})
 
