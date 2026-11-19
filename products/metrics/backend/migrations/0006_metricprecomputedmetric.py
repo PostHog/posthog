@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
                 (
                     "state",
                     models.CharField(
-                        choices=[("active", "Active"), ("paused", "Paused")], default="active", max_length=16
+                        choices=[("active", "active"), ("paused", "paused")], default="active", max_length=16
                     ),
                 ),
                 ("consecutive_failures", models.PositiveSmallIntegerField(default=0)),

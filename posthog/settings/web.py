@@ -669,8 +669,6 @@ SPECTACULAR_SETTINGS = {
             "CalendarUnitEnum": "products.alerts_platform.backend.facade.enums.PlatformAlertConfigurationRecurrenceUnit.choices",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
-            # Matches metrics' MetricPrecomputedMetric.State (active/paused).
-            "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.MCPServiceAccountStatus",
             # Matches Subscription frequency (daily/weekly/monthly).
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.

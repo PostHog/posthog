@@ -193,8 +193,8 @@ class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
     """
 
     class State(models.TextChoices):
-        ACTIVE = "active", "Active"
-        PAUSED = "paused", "Paused"
+        ACTIVE = "active", "active"
+        PAUSED = "paused", "paused"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     # One of MAX_PRECOMPUTED_METRICS_PER_TEAM slots. The unique slot makes the cap hold under concurrent creates.
