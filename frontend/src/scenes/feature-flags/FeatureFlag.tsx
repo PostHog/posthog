@@ -121,6 +121,8 @@ import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './fl
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
+const VIEW_ONLY_DISABLED_REASON =
+    "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
 
 // The edit/create form pulls in heavy deps (dnd-kit, JSON editors, sortable release conditions).
 // Lazy-mounting it lets the Edit click flip state and paint a loading skeleton before that render,
@@ -551,8 +553,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         // ButtonPrimitive ignores `disabled` when `disabledReasons` is set.
                                         disabledReasons={{
                                             ...(disabledReason ? { [disabledReason]: true } : {}),
-                                            "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
-                                                !featureFlag.can_edit,
+                                            [VIEW_ONLY_DISABLED_REASON]: !featureFlag.can_edit,
                                             [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !canArchiveFeatureFlag(
                                                 featureFlag.filters
                                             ),
@@ -591,8 +592,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         }}
                                         disabledReasons={{
                                             ...(disabledReason ? { [disabledReason]: true } : {}),
-                                            "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
-                                                !featureFlag.can_edit,
+                                            [VIEW_ONLY_DISABLED_REASON]: !featureFlag.can_edit,
                                             [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
                                             ...(restoreBlockedReason ? { [restoreBlockedReason]: true } : {}),
                                             'Restoring…': featureFlagRestoreLoading,
@@ -709,12 +709,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={featureFlag.user_access_level}
                                     >
                                         {({ disabledReason }) => {
                                             const archiveDisabledReason =
                                                 disabledReason ??
                                                 (!featureFlag.can_edit
-                                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    ? VIEW_ONLY_DISABLED_REASON
                                                     : !canArchiveFeatureFlag(featureFlag.filters)
                                                       ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
                                                       : featureFlag.archived
@@ -754,20 +755,25 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.FeatureFlag}
                                         minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={featureFlag.user_access_level}
                                     >
                                         {({ disabledReason }) => (
                                             <SceneMenuBarItem
                                                 variant="destructive"
                                                 disabled={
                                                     !!disabledReason ||
+                                                    !featureFlag.can_edit ||
                                                     featureFlagRestoreLoading ||
                                                     restoreUnavailable ||
                                                     !!restoreBlockedReason
                                                 }
                                                 tooltip={
-                                                    restoreUnavailable
-                                                        ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                                        : restoreBlockedReason
+                                                    disabledReason ??
+                                                    (!featureFlag.can_edit
+                                                        ? VIEW_ONLY_DISABLED_REASON
+                                                        : restoreUnavailable
+                                                          ? RESTORE_UNAVAILABLE_DISABLED_REASON
+                                                          : restoreBlockedReason)
                                                 }
                                                 data-attr={
                                                     featureFlag.deleted
