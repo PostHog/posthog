@@ -19,7 +19,7 @@ Support starts from your numbers, so give them the ones that led to your conclus
 
 - The object: its link, and the setting that matters, such as the flag key and the configured split.
 - What they see and what they expected, as numbers, with the time range in UTC.
-- Each check you ran and what it showed. Keep the ones that ruled a cause out, so support doesn't run them again.
+- Each check you ran and what it showed, one line each. Keep the ones that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open question, and name the rest in one line, such as "Also ruled out: bot traffic, identity fragmentation and a mid-run flag change".
 - The question only PostHog can answer, such as what the flag service returned to the people recorded on the wrong variant.
 
 Leave out the queries behind your checks, unless support needs one to reproduce a number.

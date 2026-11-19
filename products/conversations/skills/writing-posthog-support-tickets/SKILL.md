@@ -42,7 +42,7 @@ A ticket is for something only PostHog staff can do or see:
 - A problem the product's diagnosis checked but could not explain, or traced to PostHog's side.
 
 Write one too when the person still wants a human after hearing the answer.
-The ticket then says what the docs said and asks only what is left.
+The ticket then gives your answer and what it rests on, and asks support to confirm it or to answer what is left.
 Your own conclusion that something is a PostHog bug is not enough.
 Tell the person what you found, and offer a ticket.
 
@@ -55,7 +55,7 @@ If the lookup fails or is refused, don't guess the plan, and go on: PostHog chec
 
 Do the lookups that support would otherwise ask for.
 
-- **Project.** Get the name and ID from `posthog:project-get`. Take the region from the host of a PostHog link in your tool results: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. When no result has a `_posthogUrl`, get a link to the project from `posthog:generate-app-url` and read its host. If it is neither host, write the host you found.
+- **Project.** Get the name and ID from `posthog:project-get`, and a link to the project's home page from `posthog:generate-app-url`. The link's host gives the region: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. If it is neither, write the host you found.
 - **Objects.** For each flag, insight, dashboard, experiment, error, replay or survey they mention, look it up and take its link from the `_posthogUrl` field of the result. Never build a PostHog URL by hand, because a wrong link reads as a real one. For a docs page, copy the URL from the `posthog:docs-search` result as it is.
 - **SDK.** When the problem is in their app, read `$lib` and `$lib_version` from a recent event they sent.
 - **What support needs.** Include every item in the row that fits the request, and read its reference when it has one.
@@ -127,14 +127,14 @@ Show the person the full ticket.
 Tell them nothing is sent until they send it, and never say that a ticket was filed.
 Do not promise a response time.
 
-- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it. Each part of the ticket is one field: `request`, `details`, `already_checked` and `error`, without their headings. Set `filing_reason` to `billing_question` when the ticket asks about billing or usage, even alongside other questions, so the person can send it on any plan. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
+- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it. Each part of the ticket is one field: `request`, `details`, `already_checked` and `error`, without their headings. Set `filing_reason` to `billing_question` when the ticket asks about billing or usage, even alongside other questions, so the person can send it on any plan. Otherwise use `user_asked_for_support` when they want a human after hearing your answer, and `user_disagrees_with_agent` when they think your answer is wrong. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
 - Otherwise, they paste it into the Support panel in the PostHog app, which attaches their project and session to the ticket.
 
 Say which details or links you could not find, so they can add them before they send it.
 
 ## Before you hand it over, check
 
-- The docs did not already answer it, and the product's diagnosis, when there is one, did not find the cause in their setup.
+- The docs and the product's diagnosis did not settle it, or the person still wants a human after hearing the answer.
 - Every link came from a tool result, from `posthog:docs-search` as it is, or from the person.
 - The ticket has every item in its row of the table.
 - **Request** has every question the docs did not answer, with every part, and only PostHog can answer it or do what it asks.
