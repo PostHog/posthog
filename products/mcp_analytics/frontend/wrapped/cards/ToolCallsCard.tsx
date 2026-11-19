@@ -30,21 +30,16 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                         ` Calls grew ${card.growth_multiple}× since ${formatMonth(card.months[1]?.month ?? card.months[0].month)}.`}
                 </p>
             )}
-            <ol className="m-0 mt-3 flex list-none flex-col gap-3 p-0" aria-label="Tool calls by month">
+            <ol className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label="Tool calls by month">
                 {months.map((month, index) => (
                     <li
                         key={month.month}
-                        className="MCPWrapped__rise grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-sm tabular-nums"
+                        className="MCPWrapped__rise grid grid-cols-[3rem_1fr_3rem] items-center gap-2 text-sm tabular-nums"
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
-                        <span className="relative">
-                            {month.calls === busiest && (
-                                <IconCrown
-                                    className="absolute -top-3 left-0 size-3.5 -rotate-12"
-                                    aria-label="Busiest month"
-                                />
-                            )}
-                            {formatMonth(month.month)}
+                        <span className="flex items-center gap-1">
+                            {formatMonth(month.month, 'short')}
+                            {month.calls === busiest && <IconCrown className="size-3.5" aria-label="Busiest month" />}
                         </span>
                         <span className="h-3 overflow-hidden rounded-full bg-white/20">
                             <span
