@@ -191,9 +191,10 @@ def _parse_entry_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
+    return parsed if parsed.tzinfo is not None else None
 
 
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
@@ -201,6 +202,7 @@ MAX_PENDING_FOLLOWUP_MESSAGES = 20
 MEMORY_READ_METHOD = "_posthog/memory_read"
 MAX_MEMORY_READ_FIELD_CHARS = 200
 MAX_MEMORY_READS_PER_APPEND = 50
+MAX_MEMORY_READ_CLOCK_SKEW = timedelta(minutes=5)
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
 
@@ -3400,6 +3402,7 @@ class TaskRun(models.Model):
         ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
         lock_attempts: int = 3,
         batch_id: str | None = None,
+        sent_by_run_sandbox: Callable[[], bool] | None = None,
     ):
         """Append log entries to S3 storage.
 
@@ -3416,7 +3419,7 @@ class TaskRun(models.Model):
         is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
-        self._capture_memory_reads(entries)
+        self._capture_memory_reads(entries, sent_by_run_sandbox)
 
         if is_new_file and ttl_days is not None:
             try:
@@ -3485,9 +3488,8 @@ class TaskRun(models.Model):
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
 
-    def _capture_memory_reads(self, entries: list[dict]) -> None:
-        if self.environment != self.Environment.CLOUD:
-            return
+    def _capture_memory_reads(self, entries: list[dict], sent_by_run_sandbox: Callable[[], bool] | None) -> None:
+        latest_timestamp = django_timezone.now() + MAX_MEMORY_READ_CLOCK_SKEW
         reads: dict[tuple[str, str, str], tuple[dict[str, Any], datetime | None]] = {}
         for entry in entries:
             notification = entry.get("notification")
@@ -3511,9 +3513,14 @@ class TaskRun(models.Model):
                 "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
                 "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
             }
-            reads.setdefault((tool_call_id, slug, file), (properties, _parse_entry_timestamp(entry.get("timestamp"))))
+            timestamp = _parse_entry_timestamp(entry.get("timestamp"))
+            if timestamp is not None and not self.created_at <= timestamp <= latest_timestamp:
+                timestamp = None
+            reads.setdefault((tool_call_id, slug, file), (properties, timestamp))
             if len(reads) >= MAX_MEMORY_READS_PER_APPEND:
                 break
+        if not reads or sent_by_run_sandbox is None or not sent_by_run_sandbox():
+            return
         for (tool_call_id, slug, file), (properties, timestamp) in reads.items():
             self.capture_event(
                 "agent_memory_read",

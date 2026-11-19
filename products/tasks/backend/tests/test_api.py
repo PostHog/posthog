@@ -9560,6 +9560,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(log_entries[1]["type"], "progress")
         self.assertEqual(log_entries[1]["message"], "Step 1 complete")
 
+    @parameterized.expand([("the_run_sandbox", True, 1), ("a_user", False, 0)])
+    def test_append_log_captures_memory_reads_only_from(self, _name, from_sandbox, expected_events):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        client = self._sandbox_oauth_client(task.id) if from_sandbox else self.client
+        entry = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/memory_read",
+                "params": {"slug": "-tmp-workspace", "file": "notes.md", "tool": "Read", "toolCallId": "toolu_1"},
+            },
+        }
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", {"entries": [entry]}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "agent_memory_read"]
+        self.assertEqual(len(captured), expected_events)
+
     def test_clear_conversation_records_the_boundary(self):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)

@@ -2796,7 +2796,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         entries = request.validated_data["entries"]
         with timer("s3_append"):
-            run = tasks_facade.append_task_run_log(pk, task_id, self.team_id, entries=entries)
+            run = tasks_facade.append_task_run_log(
+                pk,
+                task_id,
+                self.team_id,
+                entries=entries,
+                sent_by_run_sandbox=lambda: run_context.is_sandbox_run_request(
+                    request=request, team_id=self.team_id, task_id=task_id, run_id=pk
+                ),
+            )
         if run is None:
             raise NotFound()
 
