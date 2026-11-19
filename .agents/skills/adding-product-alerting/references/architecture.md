@@ -59,10 +59,10 @@ A product's own alert row and its platform copy share one `owner`: `source` or `
 
 ### Destinations and delivery
 
-Each platform configuration has a second owner field, `destinations_owner`, because an alert moves its evaluation first and its destinations later.
+Where an alert's destinations live is a rule per alert kind, not a field on the configuration: `source_configs.keeps_platform_destinations` reads it from the kind's registration (`native.platform_destinations`).
 
-- With source-owned destinations, the alert still sends through its HogFunctions. A platform-owned alert on the `HOG_FUNCTION` delivery path has the source emit the internal events its own stack emitted, so customers receive exactly what they received before the cutover.
-- With platform-owned destinations, `AlertDestination` rows hold them, and the platform's own transports send each type natively. Team-wide `AlertReceiver` and `AlertRoute` rows match alerts by label.
+- For a kind whose source keeps HogFunctions, the alert still sends through them. A platform-owned alert on the `HOG_FUNCTION` delivery path has the source emit the internal events its own stack emitted, so customers receive exactly what they received before the cutover.
+- For a kind that keeps platform destinations, `AlertDestination` rows hold them, and the platform's own transports send each type natively. Team-wide `AlertReceiver` and `AlertRoute` rows match alerts by label.
 
 The HogFunction destination and delivery contracts below serve alerts whose destinations have not moved to the platform.
 
