@@ -1,5 +1,5 @@
 // PROTOTYPE (throwaway, never merged). Round 1 of PostHog/michaelr-context#420: the calendar of everything
-// scheduled and sent, as a month grid (D) and as an agenda (E), next to today's calendar (F), switchable via
+// scheduled and sent: the shipped send calendar (F, the default), a month grid (D) and an agenda (E), switchable via
 // `?variant=`. Built as one self-contained page, so any navigation shape can mount it.
 import { useValues } from 'kea'
 import { router } from 'kea-router'
@@ -23,9 +23,9 @@ import { CalendarEntry, TIMEZONE_LABEL, TODAY, entriesBetween } from './prototyp
 import { PrototypeSwitcher, PrototypeVariant, usePrototypeVariant } from './PrototypeSwitcher'
 
 export const CALENDAR_VARIANTS: PrototypeVariant[] = [
+    { key: 'F', name: 'Shipped send calendar', flags: 'low use: every calendar control' },
     { key: 'D', name: 'Month, repeats folded', flags: 'low use: drag to reschedule, type filter' },
     { key: 'E', name: 'Agenda with results', flags: 'low use: Week/Month toggle' },
-    { key: 'F', name: "Today's calendar", flags: 'low use: every calendar control' },
 ]
 
 export type CalendarSelection = { entryId: string } | { day: string } | null

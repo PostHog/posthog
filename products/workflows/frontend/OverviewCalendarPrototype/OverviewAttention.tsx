@@ -86,7 +86,7 @@ export function OverviewAttention(): JSX.Element {
                 <section className="flex min-w-0 flex-col gap-2">
                     <div className="flex items-center justify-between">
                         <Heading size="sm">Goes out in the next 7 days</Heading>
-                        <Button variant="link" onClick={() => openInCalendar(undefined, 'D')}>
+                        <Button variant="link" onClick={() => openInCalendar(undefined, 'F')}>
                             Open calendar
                         </Button>
                     </div>
