@@ -388,6 +388,16 @@ func hasOverflowingNumber(v *value) bool {
 	return false
 }
 
+// A Go map never shrinks, and clearing one costs time in proportion to its largest size, so one wide document must
+// not leave its map behind for every later document to clear.
+func (p *processor) releaseExportKeys() {
+	if len(p.exportKeys) > maxRecycledValues {
+		p.exportKeys = nil
+		return
+	}
+	clear(p.exportKeys)
+}
+
 func (p *processor) writeExportMembers(buf *bytes.Buffer, document *value, isDeclaredString func(string) bool, hasMember bool) bool {
 	decodeDots := false
 	for _, member := range document.entries {
@@ -401,7 +411,7 @@ func (p *processor) writeExportMembers(buf *bytes.Buffer, document *value, isDec
 			p.exportKeys = make(map[string]struct{}, len(document.entries))
 		}
 		// The keys can borrow the input row, so the set must not outlive this document.
-		defer clear(p.exportKeys)
+		defer p.releaseExportKeys()
 	}
 	for _, member := range document.entries {
 		key := member.key
