@@ -154,6 +154,72 @@ JELLYFISH_ENDPOINTS: dict[str, JellyfishEndpointConfig] = {
         window_mode="full",
         fan_out=JellyfishFanOut(parent="deliverables", param="deliverable_id"),
     ),
+    "team_sprint_summary": JellyfishEndpointConfig(
+        name="team_sprint_summary",
+        path="metrics/team_sprint_summary",
+        # Sprints are discrete records with their own dates, so one wide window per team.
+        window_mode="full",
+        fan_out=JellyfishFanOut(parent="teams", param="team_id"),
+    ),
+    "allocations_by_investment_category_person": JellyfishEndpointConfig(
+        name="allocations_by_investment_category_person",
+        path="allocations/details/investment_category/by_person",
+        window_mode="month",
+        partition_key="window_start_date",
+    ),
+    "allocations_by_investment_category_team": JellyfishEndpointConfig(
+        name="allocations_by_investment_category_team",
+        path="allocations/details/investment_category/by_team",
+        params={"team_hierarchy_level": 1},
+        window_mode="month",
+        partition_key="window_start_date",
+    ),
+    "allocations_summary_by_investment_category": JellyfishEndpointConfig(
+        name="allocations_summary_by_investment_category",
+        path="allocations/summary_filtered/by_investment_category",
+        window_mode="month",
+        partition_key="window_start_date",
+    ),
+    "allocations_summary_by_work_category": JellyfishEndpointConfig(
+        name="allocations_summary_by_work_category",
+        path="allocations/summary_filtered/by_work_category",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="work_categories", param="work_category_slug"),
+        partition_key="window_start_date",
+    ),
+    "ai_company_adoption_analytics": JellyfishEndpointConfig(
+        name="ai_company_adoption_analytics",
+        path="ai_impact/company_adoption_analytics",
+        window_mode="month",
+        partition_key="window_start_date",
+    ),
+    "ai_company_impact_analytics": JellyfishEndpointConfig(
+        name="ai_company_impact_analytics",
+        path="ai_impact/company_impact_analytics",
+        window_mode="month",
+        partition_key="window_start_date",
+    ),
+    "ai_team_adoption_analytics": JellyfishEndpointConfig(
+        name="ai_team_adoption_analytics",
+        path="ai_impact/team_adoption_analytics",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="teams", param="team_id"),
+        partition_key="window_start_date",
+    ),
+    "ai_team_impact_analytics": JellyfishEndpointConfig(
+        name="ai_team_impact_analytics",
+        path="ai_impact/team_impact_analytics",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="teams", param="team_id"),
+        partition_key="window_start_date",
+    ),
+    "ai_person_adoption": JellyfishEndpointConfig(
+        name="ai_person_adoption",
+        path="ai_impact/person_adoption",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="engineers", param="person_id"),
+        partition_key="window_start_date",
+    ),
 }
 
 ENDPOINTS = tuple(JELLYFISH_ENDPOINTS.keys())

@@ -7,6 +7,7 @@ from the last cursor the loop logged.
 """
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
 
@@ -214,4 +215,7 @@ class ConversationBackfillWorkflow(PostHogWorkflow):
 
 
 WORKFLOWS = [ConversationBackfillWorkflow]
-ACTIVITIES = [list_conversations_to_backfill_activity, mirror_conversation_to_task_activity]
+ACTIVITIES: list[Callable[..., object]] = [
+    list_conversations_to_backfill_activity,
+    mirror_conversation_to_task_activity,
+]

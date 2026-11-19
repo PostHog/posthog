@@ -102,6 +102,10 @@ from products.metrics.backend.metric_query_runner import (
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.precompute.fill import (
+    fill_precomputed_metrics as _fill_precomputed_metrics,
+    teams_with_precomputed_metrics as _teams_with_precomputed_metrics,
+)
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -768,6 +772,7 @@ def list_metric_attribute_keys(
     team: Team,
     metric_name: str = "",
     search: str = "",
+    search_values: bool = False,
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
@@ -778,6 +783,9 @@ def list_metric_attribute_keys(
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
+    With `search_values`, keys whose values contain the search term are listed
+    after the keys whose name does, and carry `matchedOn: "value"` plus the
+    matching `matchedValue`.
     The window defaults to the last 24 hours. Returns `{"name": str,
     "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
@@ -795,6 +803,7 @@ def list_metric_attribute_keys(
         team=team,
         metric_name=metric_name,
         search=search,
+        search_values=search_values,
         date_from=date_from,
         date_to=date_to,
         limit=limit,
@@ -1272,3 +1281,13 @@ def update_recording_rule(
 def delete_recording_rule(*, team: Team, rule_id: str) -> None:
     """Raises `RecordingRuleNotFound`."""
     recording_rule_logic.delete_rule(team.id, rule_id)
+
+
+def fill_precomputed_metrics(*, team_id: int) -> None:
+    """One pass of the fill loop over a team's precomputed metrics: forward, a day of backfill, retention."""
+    _fill_precomputed_metrics(team_id)
+
+
+def teams_with_precomputed_metrics() -> list[int]:
+    """The teams with at least one precomputed metric, active or paused, for the fill schedule."""
+    return _teams_with_precomputed_metrics()

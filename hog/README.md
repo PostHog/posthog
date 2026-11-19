@@ -43,9 +43,12 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
-- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Homebrew, npm, pnpm and bun get a release after the manifest names it, so for those installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Package managers can take a while to pick up a release, so for Homebrew, npm, pnpm and bun installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
 ## Commands
+
+`hog` alone shows a person the commands most people start with, and `hog help` lists every command and option.
+Agents and pipes get the full help, with the exit codes.
 
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
@@ -55,7 +58,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).                 |
 | `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.           |
 | `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                                     |
-| `hog auth status`                         | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
+| `hog auth status`, `hog whoami`           | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
 | `hog auth logout`                         | Removes the login commands in this folder use. `--all` removes every login.                                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
 | `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |
@@ -457,19 +460,21 @@ sampo add --package npm/hog --bump patch --message "Describe the change for the 
 
 Use `minor` or `major` instead of `patch` when it fits. Commit the file sampo writes under `hog/.sampo/changesets/`.
 
-After the pull request merges to master, the workflow:
+A changeset a person writes starts a release when its pull request merges. A changeset the `hog changeset` workflow adds, named `pr-<number>.md`, waits for the weekly run on Tuesdays at 14:00 UTC, so MCP and catalog changes cost one approval a week. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
-1. Posts an approval request in the hog releases Slack channel.
-2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that changed what the build ships since the last release can approve: `hog/`, `services/mcp/`, the workspace packages and product files the MCP library bundles, the root `package.json`, the lockfile, `patches/`, the install actions and this workflow. The workflow's `HOG_SOURCE_PATHS` lists them.
+When a release starts, the workflow:
+
+1. Posts an approval request in the hog releases Slack channel, naming the pull requests whose changesets the release ships and who can't approve it.
+2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets can approve. The check runs as the last release tag has `hog/release/check-approvers.sh`, so a change to the rule applies from the release after the one that ships it.
 3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
 
-4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on what merged while the release pull request waited. When an approver opened, merged or pushed commits to one of those changes, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
+4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on the changesets that merged while the release pull request waited, since their code ships in the build. When an approver owns one of them, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
 5. Compiles every target, with the version and the release commit's date as the build date.
 6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
 7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
-8. Creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages. One release at a time does this step.
+8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binary this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 

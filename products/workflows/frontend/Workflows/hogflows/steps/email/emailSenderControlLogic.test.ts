@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -55,11 +57,15 @@ describe('emailSenderControlLogic', () => {
     let wfLogic: ReturnType<typeof workflowLogic.build>
     let logic: ReturnType<typeof emailSenderControlLogic.build>
 
-    function setUp(step: HogFlowAction, status: Record<string, any> = STATUS): void {
+    function setUp(
+        step: HogFlowAction,
+        status: Record<string, any> = STATUS,
+        workflowInfo: Partial<HogFlow> = {}
+    ): void {
         initKeaTests()
         wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
-        wfLogic.actions.setWorkflowInfo({ actions: [...wfLogic.values.workflow.actions, step] })
+        wfLogic.actions.setWorkflowInfo({ ...workflowInfo, actions: [...wfLogic.values.workflow.actions, step] })
         integrationsLogic.mount()
         integrationsLogic.actions.loadIntegrationsSuccess([OWN_SENDER])
         sandboxSenderLogic.mount()
@@ -125,9 +131,13 @@ describe('emailSenderControlLogic', () => {
         ['an own step in a workflow another product owns', ownStep(), STATUS, false, { origin_product: 'broadcasts' }],
         ['an own step whose id the sandbox sender rejects', { ...ownStep(), id: 'welcome.email' }, STATUS, false, {}],
     ])('offers the sandbox sender for %s', (_, step, status, expected, workflowInfo) => {
-        setUp(step, status)
-        wfLogic.actions.setWorkflowInfo(workflowInfo)
+        const capture = jest.spyOn(posthog, 'capture')
+
+        setUp(step, status, workflowInfo)
 
         expect(logic.values.showSandboxOption).toEqual(expected)
+        expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox sender offered')).toEqual(
+            expected ? [['workflows sandbox sender offered', { step_type: step.type }]] : []
+        )
     })
 })

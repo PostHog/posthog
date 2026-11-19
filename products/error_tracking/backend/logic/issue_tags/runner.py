@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from enum import StrEnum
 from uuid import UUID
 
@@ -35,10 +35,16 @@ class TaggerRun:
 
 
 def run_issue_taggers(
-    team_id: int, issue_id: UUID | str, load_event_properties: Callable[[Team], dict[str, object]]
+    team_id: int,
+    issue_id: UUID | str,
+    load_event_properties: Callable[[Team], dict[str, object]],
+    *,
+    taggers: tuple[Tagger, ...] | None = None,
+    keys: Collection[str] | None = None,
 ) -> tuple[TaggerRun, ...] | IssueTaggingSkipReason:
     """Run every tagger that applies to the team on the enabled tags that list it, and store the answers.
 
+    `taggers` (default `TAGGERS`) and `keys` (default every enabled tag) limit what runs, for a re-run.
     A tagger that raises does not stop the others. Its run carries the error, and the caller decides whether to retry.
     `load_event_properties` runs only when a tagger applies, so a team without one reads no event.
     """
@@ -48,23 +54,28 @@ def run_issue_taggers(
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         return IssueTaggingSkipReason.TEAM_MISSING
-    taggers = _applicable_taggers(team_id)
-    if not taggers:
+    applicable = applicable_taggers(team_id, TAGGERS if taggers is None else taggers, keys)
+    if not applicable:
         return IssueTaggingSkipReason.NO_TAGGER
 
     try:
         issue = ErrorTrackingIssue.objects.get(team_id=team_id, id=issue_id)
         context = TagContext(issue=issue, event_properties=load_event_properties(team))
-        return tuple(_run_tagger(context, tagger, definitions) for tagger, definitions in taggers)
+        return tuple(_run_tagger(context, tagger, definitions) for tagger, definitions in applicable)
     except ErrorTrackingIssue.DoesNotExist:
         # The writer raises this too when a merge removes the issue while a tagger runs.
         return IssueTaggingSkipReason.ISSUE_MISSING
 
 
-def _applicable_taggers(team_id: int) -> list[tuple[Tagger, tuple[IssueTagDefinition, ...]]]:
+def applicable_taggers(
+    team_id: int, taggers: tuple[Tagger, ...], keys: Collection[str] | None
+) -> list[tuple[Tagger, tuple[IssueTagDefinition, ...]]]:
+    """Each tagger that applies to the team, with the enabled tags that list it. The caller checked ISSUE_TAGS_FLAG."""
     enabled = issue_tag_definitions_for_enabled_team(team_id)
+    if keys is not None:
+        enabled = tuple(definition for definition in enabled if definition.key in keys)
     applicable = []
-    for tagger in TAGGERS:
+    for tagger in taggers:
         definitions = tuple(
             definition for definition in enabled if any(config.source == tagger.source for config in definition.taggers)
         )

@@ -15,7 +15,20 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
-TOOL_GROUPS = frozenset({"Data", "Incidents", "Billing", "Organizations", "Access"})
+TOOL_GROUPS = frozenset(
+    {
+        "Access",
+        "AI",
+        "Billing",
+        "Data deletion",
+        "Data warehouse",
+        "Incidents",
+        "Infrastructure",
+        "Ingestion",
+        "Organizations",
+        "Product data",
+    }
+)
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 PK_PARAMETER = re.compile(r"<(?:\w+:)?pk>")
 # A shell module whose name ends in one of these registers panels, tools or moved URLs, and discover() imports it.
@@ -105,7 +118,7 @@ class ConsoleRegistry:
 
     def tools(self) -> list[ConsoleTool]:
         self.discover()
-        return [tool_class() for tool_class in sorted(self._tools.values(), key=lambda t: (t.group, t.title))]
+        return [tool_class() for tool_class in sorted(self._tools.values(), key=lambda t: (t.group.lower(), t.title))]
 
     def get_tool(self, key: str) -> ConsoleTool | None:
         self.discover()

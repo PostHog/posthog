@@ -223,19 +223,34 @@ def _denied_tables(team: Team, user: User, user_access_control: UserAccessContro
     )._denied_tables
 
 
-DENIED_TABLES_CACHE_TTL_SECONDS = 60
+DENIED_TABLES_CACHE_TTL_SECONDS = 10 * 60
 
 DeniedTablesLoader = Callable[[Team, User, UserAccessControl], set[str]]
 
 
-def cached_denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+def cached_denied_tables(
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl,
+    *,
+    referenced_tables_by_metric: dict[str, list[str]],
+) -> set[str]:
     level = "admin" if user_access_control.is_organization_admin else "member"
-    key = f"data_catalog:denied_tables:{team.id}:{user.id}:{level}"
-    denied = get_safe_cache(key)
-    if denied is None:
-        denied = sorted(_denied_tables(team, user, user_access_control))
-        safe_cache_set(key, denied, DENIED_TABLES_CACHE_TTL_SECONDS)
+    key = f"data_catalog:denied_tables_for_metrics:{team.id}:{user.id}:{level}"
+    cached = get_safe_cache(key)
+    if cached is not None and _already_judged(cached["referenced_tables_by_metric"], referenced_tables_by_metric):
+        return set(cached["denied"])
+    denied = sorted(_denied_tables(team, user, user_access_control))
+    safe_cache_set(
+        key,
+        {"denied": denied, "referenced_tables_by_metric": referenced_tables_by_metric},
+        DENIED_TABLES_CACHE_TTL_SECONDS,
+    )
     return set(denied)
+
+
+def _already_judged(judged_tables_by_metric: dict[str, list[str]], tables_by_metric: dict[str, list[str]]) -> bool:
+    return all(judged_tables_by_metric.get(metric_id) == tables for metric_id, tables in tables_by_metric.items())
 
 
 def _live_metric_reads_tables(team: Team, name: str) -> bool:
