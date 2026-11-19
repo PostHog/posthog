@@ -406,13 +406,22 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
 
 const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
 
-function wasDelayedBySendingLimitOverAnHour(invocation: CyclotronJobInvocationHogFunction): boolean {
-    const cappedAt = invocation.queueMetadata?.teamCappedAt
-    if (typeof cappedAt !== 'string') {
-        return false
+/**
+ * When the sending limit first held this send step, from the stamp the hold left in the queue
+ * metadata. The stamp names its step, so a stamp a worker carried over from an earlier email step
+ * reads as no hold.
+ */
+function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction, sendStep: string): number | null {
+    const stamp = invocation.queueMetadata?.teamCappedAt
+    if (typeof stamp !== 'string') {
+        return null
     }
-    const cappedAtMs = DateTime.fromISO(cappedAt, { zone: 'utc' }).toMillis()
-    return Number.isFinite(cappedAtMs) && Date.now() - cappedAtMs > SENDING_LIMIT_LONG_DELAY_MS
+    const separator = stamp.lastIndexOf('@')
+    if (separator < 0 || stamp.slice(0, separator) !== sendStep) {
+        return null
+    }
+    const heldAtMs = DateTime.fromISO(stamp.slice(separator + 1), { zone: 'utc' }).toMillis()
+    return Number.isFinite(heldAtMs) ? heldAtMs : null
 }
 
 function emailMetric(
@@ -824,9 +833,11 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
+            const claimsTeamBudgetNow = invocation.queueMetadata?.teamBudgetClaimed !== true
             const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
+            const limitHeldSinceMs = sendingLimitHoldStartMs(invocation, sendStep)
             if (capDelay) {
                 result.finished = false
                 result.parked = true
@@ -835,8 +846,8 @@ export class EmailService {
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
-                if (capDelay.label && !invocation.queueMetadata?.teamCappedAt) {
-                    result.invocation.queueMetadata.teamCappedAt = DateTime.utc().toISO()
+                if (capDelay.label && limitHeldSinceMs === null) {
+                    result.invocation.queueMetadata.teamCappedAt = `${sendStep}@${DateTime.utc().toISO()}`
                     result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed'))
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
@@ -848,6 +859,16 @@ export class EmailService {
                         : `Could not check this project's email sending limit, so this email is waiting. Retrying in ${capRetrySeconds}s. No action is needed on your side.`
                 )
                 return result
+            }
+            // Measured once, when the limit lets the held send go. Later retries of the send carry
+            // the claim and skip this, so their wait does not count as time held by the limit.
+            if (
+                claimsTeamBudgetNow &&
+                teamBudgetCharged &&
+                limitHeldSinceMs !== null &&
+                Date.now() - limitHeldSinceMs > SENDING_LIMIT_LONG_DELAY_MS
+            ) {
+                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             // A reply-to set on the email step wins over the sender's default.
@@ -1045,10 +1066,6 @@ export class EmailService {
                     count: 1,
                     ...sendVersion,
                 })
-            }
-
-            if (success && wasDelayedBySendingLimitOverAnHour(invocation)) {
-                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             if (success && assetRow) {

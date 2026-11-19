@@ -9,8 +9,8 @@ import { HogFunctionFilters } from '../../types'
 import { isTimeoutError } from '../../utils/cdp-fetch'
 
 export interface BlastRadiusResponse {
-    affected: number
-    total: number
+    users_affected: number
+    total_users: number
 }
 
 export interface BlastRadiusPersonsResponse {

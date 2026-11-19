@@ -1283,6 +1283,23 @@ describe('EmailService', () => {
                     )
                 })
 
+                it('counts a later email step the limit holds, even with an earlier hold carried over', async () => {
+                    const cappedService = createCappedService(10)
+                    await drainTeamCap(team.id, 10)
+                    const firstStep = await cappedService.executeSendEmail({
+                        ...invocation,
+                        state: { ...invocation.state, actionId: 'email-1' },
+                    })
+
+                    const laterStep = await cappedService.executeSendEmail({
+                        ...invocation,
+                        state: { ...invocation.state, actionId: 'email-2' },
+                        queueMetadata: firstStep.invocation.queueMetadata,
+                    })
+
+                    expect(metricNames(laterStep)).toEqual(['email_sending_limit_delayed'])
+                })
+
                 it('does not count a wait on an unreachable limiter as a limit delay', async () => {
                     const cappedService = createCappedService(
                         200,
@@ -1295,21 +1312,39 @@ describe('EmailService', () => {
                     expect(metricNames(result)).toEqual([])
                 })
 
-                it.each([
-                    ['more than an hour', 61, true],
-                    ['less than an hour', 59, false],
-                ])('marks a send the limit held for %s', async (_name, minutesAgo, overAnHour) => {
-                    const result = await createCappedService(200).executeSendEmail({
-                        ...invocation,
-                        queueMetadata: {
-                            ...invocation.queueMetadata,
-                            teamCapped: true,
-                            teamCappedAt: DateTime.utc().minus({ minutes: minutesAgo }).toISO(),
-                        },
+                describe('when the limit lets a held email go', () => {
+                    const holdThenRelease = async (
+                        minutesHeld: number,
+                        retryMetadata: Record<string, unknown> = {}
+                    ): Promise<CyclotronJobInvocationResult> => {
+                        await drainTeamCap(team.id, 10)
+                        const held = await createCappedService(10).executeSendEmail(invocation)
+                        // A fresh limiter stands in for the bucket refilling while the send waited.
+                        const releasingService = createCappedService(200, createRateLimiter('team-email-cap-release'))
+                        const releasedAt = Date.now() + minutesHeld * 60_000
+                        jest.spyOn(Date, 'now').mockReturnValue(releasedAt)
+                        return await releasingService.executeSendEmail({
+                            ...invocation,
+                            queueMetadata: { ...held.invocation.queueMetadata, ...retryMetadata },
+                        })
+                    }
+
+                    it.each([
+                        ['more than an hour', 61, true],
+                        ['less than an hour', 59, false],
+                    ])('marks a send held for %s', async (_name, minutesHeld, overAnHour) => {
+                        const result = await holdThenRelease(minutesHeld)
+
+                        expect(result.finished).toBe(true)
+                        expect(metricNames(result).includes('email_sending_limit_delayed_over_1h')).toBe(overAnHour)
                     })
 
-                    expect(result.finished).toBe(true)
-                    expect(metricNames(result).includes('email_sending_limit_delayed_over_1h')).toBe(overAnHour)
+                    it('does not mark a retry of a send the limit already let go', async () => {
+                        const result = await holdThenRelease(61, { teamBudgetClaimed: true })
+
+                        expect(result.finished).toBe(true)
+                        expect(metricNames(result)).not.toContain('email_sending_limit_delayed_over_1h')
+                    })
                 })
             })
 

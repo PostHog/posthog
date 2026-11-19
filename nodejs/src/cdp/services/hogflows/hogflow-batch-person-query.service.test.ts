@@ -42,7 +42,7 @@ describe('HogFlowBatchPersonQueryService', () => {
     describe('getBlastRadius', () => {
         it('calls the Django endpoint and returns parsed response', async () => {
             const service = createService()
-            const response: BlastRadiusResponse = { affected: 12, total: 50 }
+            const response: BlastRadiusResponse = { users_affected: 12, total_users: 50 }
 
             fetchMock.mockResolvedValue({
                 fetchResponse: createFetchResponse(200, response),
@@ -69,7 +69,7 @@ describe('HogFlowBatchPersonQueryService', () => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
-                fetchResponse: createFetchResponse(200, { affected: 1, total: 2 }),
+                fetchResponse: createFetchResponse(200, { users_affected: 1, total_users: 2 }),
                 fetchError: null,
             })
 
