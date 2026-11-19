@@ -2,6 +2,7 @@ import re
 import ast
 import json
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -151,6 +152,10 @@ def test_writer_egress_is_the_pinned_allowlist() -> None:
         "registry.npmjs.org",
         "posthog.com",
     }
+
+
+def test_writer_wake_spend_is_capped_at_5_dollars() -> None:
+    assert WRITER.max_cost_usd == Decimal("5")
 
 
 @pytest.mark.parametrize(

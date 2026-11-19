@@ -4,6 +4,7 @@ import re
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -1702,7 +1703,6 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             revoke_private_gateway_token(token)
             raise
         return {
-            "LLM_GATEWAY_URL": "",
             "AI_GATEWAY_URL": gateway_url,
             "AI_GATEWAY_PRODUCTS": "signals_scout",
             "AI_GATEWAY_TOKEN": token,
@@ -1737,6 +1737,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             ai_stage=ai_stage,
             internal=task.internal,
             profile_billing_product=profile_billing_product,
+            profile_max_cost_usd=profile.max_cost_usd if profile else None,
             prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
             distinct_id=ctx.distinct_id,
             state=ctx.state,
@@ -1831,6 +1832,7 @@ def ai_gateway_env_vars(
     runtime: str | None = None,
     prior_slack_run: bool = False,
     profile_billing_product: str | None = None,
+    profile_max_cost_usd: Decimal | None = None,
     run_id: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
@@ -1913,6 +1915,10 @@ def ai_gateway_env_vars(
         mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
     if run_id:
         mint_kwargs["run_id"] = run_id
+    run_cap_usd = token_cap_usd(team_id, ai_product)
+    if profile_max_cost_usd is not None and profile_max_cost_usd < Decimal(run_cap_usd):
+        run_cap_usd = str(profile_max_cost_usd)
+        mint_kwargs["cap_usd"] = run_cap_usd
     token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
     if not token:
         raise gateway_token_unavailable("mint_failed", team_id, ai_product)
@@ -1920,7 +1926,7 @@ def ai_gateway_env_vars(
         "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
         "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
         "AI_GATEWAY_TOKEN": token,
-        "AI_GATEWAY_TOKEN_CAP_USD": token_cap_usd(team_id, ai_product),
+        "AI_GATEWAY_TOKEN_CAP_USD": run_cap_usd,
         "AI_GATEWAY_PRODUCT": ai_product,
     }
     if "allowed_models" in mint_kwargs:

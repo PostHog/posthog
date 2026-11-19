@@ -16,21 +16,23 @@ The hard part of debugging is that **the Temporal UI doesn't show this output** 
 
 Cloud runs only work locally if **all** of these are set in `.env.local` (values shown are the local targets — never commit real secrets). Inside the Docker sandbox, `localhost` is the container itself, so PostHog URLs use `host.docker.internal`.
 
-| Key                             | Purpose / local value                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `SANDBOX_PROVIDER`              | `"docker"` — route sandboxes to local Docker instead of Modal                                          |
-| `SANDBOX_MCP_URL`               | `"http://host.docker.internal:8787/mcp"` — MCP server the agent uses                                   |
-| `SANDBOX_LLM_GATEWAY_URL`       | `"http://host.docker.internal:3308"` — local LLM gateway the agent routes model calls through          |
-| `SANDBOX_JWT_PRIVATE_KEY`       | signs the scoped sandbox tokens                                                                        |
-| `GITHUB_APP_CLIENT_ID`          | your local GitHub App (clone + PR)                                                                     |
-| `GITHUB_APP_CLIENT_SECRET`      | ""                                                                                                     |
-| `GITHUB_APP_SLUG`               | ""                                                                                                     |
-| `GITHUB_APP_PRIVATE_KEY`        | ""                                                                                                     |
-| `LLM_GATEWAY_ANTHROPIC_API_KEY` | real Anthropic key the **local gateway** proxies to (read via the gateway's `LLM_GATEWAY_` env prefix) |
+| Key                            | Purpose / local value                                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_PROVIDER`             | `"docker"` — route sandboxes to local Docker instead of Modal                                                                     |
+| `SANDBOX_MCP_URL`              | `"http://host.docker.internal:8787/mcp"` — MCP server the agent uses                                                              |
+| `SANDBOX_AI_GATEWAY_URL`       | `"http://localhost:8080"` — local AI gateway the worker mints run tokens through                                                  |
+| `SANDBOX_AI_GATEWAY_PRODUCTS`  | `"background_agents,posthog_code"` — AI products the worker mints run tokens for; a run whose product is missing fails at startup |
+| `SANDBOX_AI_GATEWAY_MINT_KEY`  | the `phs_` key `bin/setup-gateway-e2e` mints, used to mint each run's token                                                       |
+| `SANDBOX_JWT_PRIVATE_KEY`      | signs the scoped sandbox tokens                                                                                                   |
+| `GITHUB_APP_CLIENT_ID`         | your local GitHub App (clone + PR)                                                                                                |
+| `GITHUB_APP_CLIENT_SECRET`     | ""                                                                                                                                |
+| `GITHUB_APP_SLUG`              | ""                                                                                                                                |
+| `GITHUB_APP_PRIVATE_KEY`       | ""                                                                                                                                |
+| `AI_GATEWAY_ANTHROPIC_API_KEY` | real Anthropic key the **local gateway** proxies to                                                                               |
 
 Two non-env requirements, or the keys above are inert:
 
-- **The LLM gateway must actually be running on `:3308`.** It's gated behind the `llm_gateway` capability — enable the **`ai_features`** intent (`hogli dev:setup`) so the `llm-gateway` proc starts. `SANDBOX_LLM_GATEWAY_URL` pointing at a dead port just yields `ConnectionRefused` from the agent.
+- **The AI gateway must actually be running on `:8080`.** It's gated behind the `ai_gateway` capability, so the `ai-gateway` proc runs `hogli start:ai:gateway`. Without it the worker cannot mint a run token and the run fails before the sandbox starts.
 - **The wizard OAuth app must exist** — `bin/ensure-local-setup` provisions it and sets `WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID`; without it the `cloud_run` endpoint returns 404 "not available".
 
 After editing `.env.local`, **restart the stack** — env is read at process start, not hot-reloaded.
@@ -109,6 +111,6 @@ Notes on what you'll (not) see here:
 ## Common failure signatures
 
 - **`Could not determine cloud region from access token`** — the wizard hit cloud auth instead of your local instance. Local needs the wizard pointed at the local base URL; see `run_wizard._build_wizard_command` (`--base-url`, DEBUG-gated).
-- **`Unable to connect to API (ConnectionRefused)`** from the agent — `LLM_GATEWAY_URL=UNSET` or the gateway isn't on `:3308`. Check `SANDBOX_LLM_GATEWAY_URL` + the `ai_features` intent (gateway proc).
-- **Auth/4xx from the gateway** — the gateway is reachable but has no upstream provider key (`LLM_GATEWAY_ANTHROPIC_API_KEY`) or the token lacks `llm_gateway:read`.
+- **`Unable to connect to API (ConnectionRefused)`** from the agent — the AI gateway isn't on `:8080`. Check `SANDBOX_AI_GATEWAY_URL` and the `ai-gateway` proc.
+- **Auth/4xx from the gateway** — the gateway is reachable but has no upstream provider key (`AI_GATEWAY_ANTHROPIC_API_KEY`) or the run's scoped token was not minted.
 - **Workflow "running" but nothing happening** — it's in the wait loop (CI follow-up / inactivity). The workflow's Temporal **Current Details** field names what it's waiting on.

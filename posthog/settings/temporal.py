@@ -108,17 +108,14 @@ HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional
 # Projected ServiceAccount token file (rotating JWT). When set and readable it wins
 # over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
 HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
-SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 # The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
 # base URL is what selects it: no product slug on the path, attribution as one
 # X-PostHog-Properties blob. SANDBOX_AI_GATEWAY_PRODUCTS limits the switch to named
-# ai_product values so one product migrates without moving every other sandbox caller.
-# Both must be set; clearing either rolls back to the Python gateway.
+# ai_product values. A run whose product is not listed gets no token and fails at startup.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
-# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
-# on the Python gateway, so the routing allowlist above is inert without it.
+# gateway-routed sandbox runs. Unset: no run gets a token, so every sandbox run fails at startup.
 SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.

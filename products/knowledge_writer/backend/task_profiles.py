@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
     GithubAccess,
@@ -56,7 +58,7 @@ WRITER = TaskProfile(
     max_wake_minutes=180,
     billing_product="background_agents",
     bills_compute=False,
-    max_cost_usd=None,
+    max_cost_usd=Decimal("5"),
     task_budget_usd=None,
     finish_in_flight=True,
 )

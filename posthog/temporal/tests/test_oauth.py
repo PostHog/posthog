@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import cast
+from typing import cast, get_args
 from uuid import uuid4
 
 import pytest
@@ -54,6 +54,10 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_read_only_is_default(self) -> None:
         assert resolve_scopes() == resolve_scopes("read_only")
+
+    @parameterized.expand([(preset,) for preset in get_args(McpScopePreset)])
+    def test_no_sandbox_preset_carries_the_gateway_scope(self, preset: McpScopePreset) -> None:
+        assert "llm_gateway:read" not in resolve_scopes(preset)
 
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")

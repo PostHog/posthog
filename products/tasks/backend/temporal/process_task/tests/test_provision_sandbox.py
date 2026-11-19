@@ -137,13 +137,12 @@ def test_build_sandbox_tags_drops_none_values():
     assert all(isinstance(value, str) for value in tags.values())
 
 
-# All four SANDBOX_*_URL settings are pinned: they feed the enforced allowlist
+# All three SANDBOX_*_URL settings are pinned: they feed the enforced allowlist
 # outside DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL)
 # would otherwise leak into these exact-equality expectations.
 @override_settings(
     DEBUG=False,
     SANDBOX_API_URL=None,
-    SANDBOX_LLM_GATEWAY_URL=None,
     SANDBOX_AI_GATEWAY_URL=None,
     SANDBOX_MCP_URL=None,
 )
@@ -184,7 +183,7 @@ def test_to_modal_domain_allowlist_admits_configured_gateway_host():
     assert "ai-gateway.dev.posthog.dev" in _to_modal_domain_allowlist([])
 
 
-@override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://127.0.0.1:3308")
+@override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="http://127.0.0.1:8080")
 def test_to_modal_domain_allowlist_drops_loopback_ip_settings_host():
     # 127.0.0.1 contains dots, so the fqdn filter alone would pass it into
     # Modal's outbound_domain_allowlist, which rejects non-domain entries;
@@ -433,11 +432,9 @@ def test_build_environment_variables_omits_otel_env_when_flag_disabled(_api, _jw
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
-@override_settings(SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com")
 def test_build_environment_variables_forwards_run_context_to_token_minting(_api, _jwt, _git):
     """The fresh-provisioning path must forward team, origin, stage, and internal
-    into token minting; a dropped kwarg silently degrades every fresh run to the
-    Python gateway."""
+    into token minting; a dropped kwarg mints the wrong product's token."""
     ctx = _context(origin_product="signals_scout", state={"ai_stage": "scout:logs"})
     task = MagicMock()
     task.internal = True
@@ -448,7 +445,6 @@ def test_build_environment_variables_forwards_run_context_to_token_minting(_api,
         out = _build_environment_variables(ctx, task, "", "access-token")
     env.assert_called_once_with(ctx, task)
     assert out["AI_GATEWAY_TOKEN"] == "phe"
-    assert "LLM_GATEWAY_URL" not in out
 
 
 @pytest.mark.parametrize(

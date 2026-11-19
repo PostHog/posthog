@@ -66,6 +66,7 @@ from ...logic.routing import route_request
 from ...logic.server_commit import docs_branch_head
 from ...logic.writer_change import WRITER_CHANGE_ARTIFACT_NAME, writer_change_artifact
 from ...settings import WriterSettings, source_repositories, writer_settings
+from ...task_profiles import WRITER
 from ...temporal.client import merge_check_workflow_id, publish_workflow_id
 
 PRODUCTION_DOCS_REPOSITORY = "posthog/posthog.com"
@@ -76,12 +77,16 @@ AGENT_POLL_INTERVAL_SECONDS = 15
 SCRATCH_PUBLISH_TIMEOUT_SECONDS = 300
 SMOKE_NOTE = "Knowledge writer smoke test."
 SMOKE_REQUESTER = "knowledge-writer-smoke-test"
-LOCAL_LLM_GATEWAY_LIVENESS_URL = "http://localhost:3308/_liveness"
+LOCAL_AI_GATEWAY_LIVENESS_URL = "http://localhost:8080/livez"
 PROBE_TIMEOUT_SECONDS = 3
+AI_GATEWAY_MINT_SETTINGS = {
+    "SANDBOX_AI_GATEWAY_URL": "http://localhost:8080",
+    "SANDBOX_AI_GATEWAY_PRODUCTS": f"must list {WRITER.billing_product}",
+    "SANDBOX_AI_GATEWAY_MINT_KEY": "the phs_ key bin/setup-gateway-e2e mints",
+}
 LOCAL_SANDBOX_URLS = {
     "SELF_CAPTURE_HOST": "http://localhost:8010",
     "SANDBOX_API_URL": "http://localhost:8010",
-    "SANDBOX_LLM_GATEWAY_URL": "http://host.docker.internal:3308",
 }
 MERGE_CHECK_TIMEOUT_SECONDS = 25 * 60
 MERGE_CHECK_DELETE_TIMEOUT_SECONDS = 120
@@ -326,12 +331,25 @@ async def task_queue_pollers() -> int:
 def missing_agent_services() -> list[MissingPrerequisite]:
     missing: list[MissingPrerequisite] = []
     try:
-        requests.get(LOCAL_LLM_GATEWAY_LIVENESS_URL, timeout=PROBE_TIMEOUT_SECONDS).raise_for_status()
+        requests.get(LOCAL_AI_GATEWAY_LIVENESS_URL, timeout=PROBE_TIMEOUT_SECONDS).raise_for_status()
     except requests.RequestException as error:
         missing.append(
             MissingPrerequisite(
-                name="LLM gateway",
-                fix=f"run bin/start-llm-gateway with LLM_GATEWAY_DEBUG=true ({error.__class__.__name__})",
+                name="AI gateway",
+                fix=f"run hogli start:ai:gateway ({error.__class__.__name__})",
+            )
+        )
+    missing += [
+        MissingPrerequisite(name=name, fix=f"set {name} for the worker; {fix}")
+        for name, fix in AI_GATEWAY_MINT_SETTINGS.items()
+        if not getattr(settings, name)
+    ]
+    routed_products = {entry.strip() for entry in (settings.SANDBOX_AI_GATEWAY_PRODUCTS or "").split(",")}
+    if settings.SANDBOX_AI_GATEWAY_PRODUCTS and WRITER.billing_product not in routed_products:
+        missing.append(
+            MissingPrerequisite(
+                name="SANDBOX_AI_GATEWAY_PRODUCTS",
+                fix=f"add {WRITER.billing_product} so the worker mints the writer's run token",
             )
         )
     if not os.environ.get("CODER"):

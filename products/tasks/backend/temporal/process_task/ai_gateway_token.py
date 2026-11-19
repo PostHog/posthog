@@ -390,6 +390,7 @@ def mint_scoped_token(
     gateway_config: "AIGatewayConfig | None" = None,
     raise_on_failure: bool = False,
     run_id: str | None = None,
+    cap_usd: str | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -408,7 +409,7 @@ def mint_scoped_token(
     post = internal_requests.post if gateway_config is not None else requests.post
 
     body: dict[str, Any] = {
-        "cap_usd": token_cap_usd(team_id, ai_product),
+        "cap_usd": cap_usd if cap_usd is not None else token_cap_usd(team_id, ai_product),
         "ttl_seconds": max(60, min(expires_in_seconds, 86400))
         if expires_in_seconds is not None
         else _token_ttl_seconds(ai_product),

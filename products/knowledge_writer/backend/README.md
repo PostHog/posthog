@@ -39,12 +39,12 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
 - Temporal: `docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal up -d temporal temporal-admin-tools`
 - Web: `bin/start-backend`
 - Worker: `python manage.py start_temporal_worker --task-queue development-task-queue`
-- LLM gateway: `bin/start-llm-gateway` with the `llm-gateway` env from `bin/mprocs.yaml` and `LLM_GATEWAY_ANTHROPIC_API_KEY`. Without `LLM_GATEWAY_DEBUG=true` the gateway rejects the local OAuth app with a 403.
+- AI gateway: `hogli start:ai:gateway` with `AI_GATEWAY_ANTHROPIC_API_KEY`, and, for the worker, `SANDBOX_AI_GATEWAY_URL=http://localhost:8080`, `SANDBOX_AI_GATEWAY_PRODUCTS` listing `background_agents`, and `SANDBOX_AI_GATEWAY_MINT_KEY` set to the `phs_` key `bin/setup-gateway-e2e` mints. A sandbox run gets no other model credential.
 - Feature flags: `bin/start-rust-service feature-flags`. Intake evaluates the launch flag through it.
 
-On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010`, `SANDBOX_API_URL=http://localhost:8010` and `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308`.
+On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010` and `SANDBOX_API_URL=http://localhost:8010`.
 
-Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode. Before any GitHub write, the command checks the env vars, flags, flags service, Temporal worker, LLM gateway and GitHub integration, prints `MISSING <name>: <fix>` for each gap, and stops. It prints the task, publish workflow and docs pull request links as the run reaches them. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
+Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode. Before any GitHub write, the command checks the env vars, flags, flags service, Temporal worker, AI gateway and GitHub integration, prints `MISSING <name>: <fix>` for each gap, and stops. It prints the task, publish workflow and docs pull request links as the run reaches them. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
 flox activate -- python manage.py knowledge_writer_pr_smoke \

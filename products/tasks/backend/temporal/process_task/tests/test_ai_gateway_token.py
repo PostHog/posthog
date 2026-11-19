@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -229,22 +230,30 @@ class TestMintScopedToken:
         response.text = ""
         return response
 
-    @pytest.mark.parametrize("private", [False, True])
-    def test_mints_pinned_token(self, mint_settings, private: bool, gateway_config: AIGatewayConfig | None) -> None:
+    @pytest.mark.parametrize(
+        "private,cap_usd",
+        [(False, None), (True, None), (False, "5")],
+        ids=["scoped", "private", "scoped_with_run_cap"],
+    )
+    def test_mints_pinned_token(
+        self, mint_settings, private: bool, cap_usd: str | None, gateway_config: AIGatewayConfig | None
+    ) -> None:
         with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.return_value = self._response(201, {"token": "phe_abc", "capture_mode": "none"})
             token: str | None
             if private:
                 token = mint_private_gateway_token(team_id=123, expires_in_seconds=600, gateway_config=gateway_config)
             else:
-                token = mint_scoped_token(ai_product="signals_scout", team_id=123, gateway_config=gateway_config)
+                token = mint_scoped_token(
+                    ai_product="signals_scout", team_id=123, gateway_config=gateway_config, cap_usd=cap_usd
+                )
             assert token == "phe_abc"
         _, kwargs = post.call_args
         expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
         expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
         assert post.call_args[0][0] == f"{expected_url}/tokens"
         assert kwargs["json"] == {
-            "cap_usd": "30",
+            "cap_usd": cap_usd or "30",
             "ttl_seconds": 600 if private else 14400,
             "product": "signals_scout",
             "obo": "123",
@@ -483,21 +492,36 @@ class TestMintScopedToken:
 
 class TestAiGatewayEnvVars:
     @time_machine.travel("2026-09-23T12:00:00Z", tick=False)
-    def test_routed_run_gets_url_products_and_token(self, mint_settings):
+    @pytest.mark.parametrize(
+        "profile_max_cost_usd,run_cap_usd,cap_kwargs",
+        [
+            (None, "30", {}),
+            (Decimal("5"), "5", {"cap_usd": "5"}),
+            (Decimal("30"), "30", {}),
+            (Decimal("100"), "30", {}),
+        ],
+        ids=["no_profile_cap", "profile_cap_below_product_cap", "profile_cap_equal", "profile_cap_above_product_cap"],
+    )
+    def test_routed_run_gets_url_products_and_token(self, mint_settings, profile_max_cost_usd, run_cap_usd, cap_kwargs):
         with patch(
             "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
             return_value="phe_abc",
         ) as mint:
-            env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout:logs")
+            env = ai_gateway_env_vars(
+                team_id=123,
+                origin_product="signals_scout",
+                ai_stage="scout:logs",
+                profile_max_cost_usd=profile_max_cost_usd,
+            )
         assert env == {
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
-            "AI_GATEWAY_TOKEN_CAP_USD": "30",
+            "AI_GATEWAY_TOKEN_CAP_USD": run_cap_usd,
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
-        mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
+        mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None, **cap_kwargs)
 
     @pytest.mark.parametrize(
         "products,origin_product,ai_stage",
@@ -790,7 +814,11 @@ class TestProvisioningBoundaries:
 
     @pytest.mark.parametrize(
         "profile,profile_billing_product",
-        [(None, None), (get_task_profile("business_knowledge"), "background_agents")],
+        [
+            (None, None),
+            (get_task_profile("business_knowledge"), "background_agents"),
+            (get_task_profile("knowledge_writer.docs"), "background_agents"),
+        ],
     )
     def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings, profile, profile_billing_product):
         from products.tasks.backend.temporal.process_task import utils
@@ -812,6 +840,7 @@ class TestProvisioningBoundaries:
             runtime="acp",
             prior_slack_run=False,
             profile_billing_product=profile_billing_product,
+            profile_max_cost_usd=profile.max_cost_usd if profile else None,
             run_id=str(self._ctx().run_id),
         )
 
@@ -886,7 +915,6 @@ class TestProvisioningBoundaries:
 
         if task.is_scout_experiment:
             assert out == {
-                "LLM_GATEWAY_URL": "",
                 "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
                 "AI_GATEWAY_TOKEN": "phe_private",

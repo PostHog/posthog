@@ -514,37 +514,6 @@ def test_workflow_run_rechecks_owner_active_state_from_the_database(mock_create:
     mock_create.assert_not_called()
 
 
-@pytest.mark.parametrize("adapter", ["claude", "codex"])
-@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_subscription_run_withholds_the_gateway_scope(mock_create: MagicMock, adapter: str) -> None:
-    task = MagicMock(
-        id="task-id",
-        created_by=MagicMock(),
-        stored_profile=None,
-        team_id=123,
-        origin_product=Task.OriginProduct.USER_CREATED,
-    )
-
-    create_oauth_access_token(task, run_state={f"{adapter}_model_access": "own-subscription"})
-
-    assert mock_create.call_args.kwargs["withhold_scopes"] == ["llm_gateway:read"]
-
-
-@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_gateway_billed_run_keeps_the_gateway_scope(mock_create: MagicMock) -> None:
-    task = MagicMock(
-        id="task-id",
-        created_by=MagicMock(),
-        stored_profile=None,
-        team_id=123,
-        origin_product=Task.OriginProduct.USER_CREATED,
-    )
-
-    create_oauth_access_token(task, run_state={"codex_model_access": "posthog-gateway"})
-
-    assert "withhold_scopes" not in mock_create.call_args.kwargs
-
-
 @pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_create: MagicMock) -> None:

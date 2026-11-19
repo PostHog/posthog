@@ -18,7 +18,7 @@ from posthog.scopes.catalog import (
     SLACK_RUN_SCOPE,
 )
 from posthog.scopes.ceilings import resolve_ceiling
-from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS, PRIVILEGED_SCOPES
 from posthog.utils import get_instance_region
 
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -120,7 +120,6 @@ INTERNAL_SCOPES: list[str] = [
     "task:write",
     # Inbox endpoints move from `task:*` to `inbox:*` scopes, so a run carries both until the move ends.
     "inbox:write",
-    "llm_gateway:read",
     # Provenance marker: proves a token was minted here (server-side), not obtained by a
     # user via the consent flow or a personal API key. `internal_run` is an internal scope,
     # so it's rejected by every user-facing scope validator and can't be forged. The LLM
@@ -329,14 +328,15 @@ SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
 # `OAUTH_SCOPES_SUPPORTED` via `posthog/scopes_projection.py`). Scopes
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
-# emit duplicates.
+# emit duplicates, and privileged gateway scopes so a sandbox's only gateway
+# credential is its capped per-run token.
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
     excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS
-    internal_set = set(INTERNAL_SCOPES)
+    skipped_scopes = set(INTERNAL_SCOPES) | PRIVILEGED_SCOPES
     return [
         f"{obj}:{action}"
         for obj in API_SCOPE_OBJECTS
-        if obj not in excluded_objects and f"{obj}:{action}" not in internal_set
+        if obj not in excluded_objects and f"{obj}:{action}" not in skipped_scopes
     ]
 
 
@@ -484,12 +484,7 @@ def resolve_scopes(
                 reads.append("signal_scout_internal:read")
             resolved = [*reads, *(scratchpad if scopes == "signals_research" else [])]
         elif scopes == "signals_scout_experiment":
-            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
-            reads = [
-                scope
-                for scope in (*MCP_READ_SCOPES, *internal)
-                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
-            ]
+            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             private_writes = (
                 [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
                 if include_internal_scopes

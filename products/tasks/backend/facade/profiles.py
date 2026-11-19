@@ -218,8 +218,8 @@ class TaskProfile:
     billing_product: str
     # True bills sandbox compute to the customer. Compute cost is recorded either way.
     bills_compute: bool
-    # Spend cap for one wake, counting inference and compute. It resets on every wake. None means
-    # no cap.
+    # Inference spend cap for one wake, set as the cap on the wake's scoped gateway token when it is
+    # below the product's cap. Compute is not counted. None means the product's cap alone.
     max_cost_usd: Decimal | None
     # Spend cap for the whole task across every wake, counting inference and compute. None means
     # no cap.

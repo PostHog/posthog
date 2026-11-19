@@ -213,7 +213,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse("invalid_token", e)
 
         access_token = authenticator.access_token
-        # llm_gateway:read is on every sandbox and agent token, so the scope alone
+        # llm_gateway:read is on desktop agent tokens too, so the scope alone
         # cannot identify the wizard.
         application = getattr(access_token, "application", None)
         client_id = getattr(application, "client_id", None)

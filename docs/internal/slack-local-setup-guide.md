@@ -245,13 +245,8 @@ curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 `https://localhost:8010/...` and the browser fails with an SSL error. Put it in `.env.local` so
 it is available every time you run `hogli start`.
 
-> **A tunnel `SITE_URL` breaks local sandbox agents.** It reaches the sandbox as
-> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
-> `host.docker.internal` to the local LLM gateway on 3308. Every other host falls through to
-> the production gateway, where a local run token does not authenticate. The agent starts, sends
-> its first prompt, and hangs until its inactivity window ends, with nothing in any log. Set
-> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` alongside the tunnel `SITE_URL`, or
-> keep `SITE_URL` on localhost and hand-write the integration row (Step 5).
+> **Local sandbox agents call the AI gateway through `SANDBOX_AI_GATEWAY_URL`**, not `SITE_URL`,
+> so a tunnel `SITE_URL` does not change where model calls go. Keep `SANDBOX_AI_GATEWAY_URL=http://localhost:8080`.
 
 > There's also an `NGROK_URL` env var that `redirect_uri()` checks before `SITE_URL` in DEBUG —
 > it would override just the OAuth redirect and leave `SITE_URL` alone. We used `SITE_URL` and

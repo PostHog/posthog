@@ -50,9 +50,6 @@ __all__ = [
     "dispatched_run_scopes",
 ]
 
-SUBSCRIPTION_RUN_WITHHELD_SCOPES = frozenset({"llm_gateway:read"})
-
-
 # Every Signals sandbox surface mints under the dedicated Signals OAuth app, so the LLM
 # gateway can pin the `signals` product to that app alone. Sharing the Array app would leave
 # a Signals token equally valid for `posthog_code` and `background_agents`, and the product
@@ -252,22 +249,14 @@ def create_oauth_access_token(
         token_options["include_interactive_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
-    withheld = set(SUBSCRIPTION_RUN_WITHHELD_SCOPES) if run_uses_own_subscription(run_state) else set()
     if "internal_run:write" in resolve_scopes(scopes):
         # Flat scopes regain shared internal grants when resolved again during minting.
-        withheld.update(RESEARCH_WITHHELD_SCOPES)
-    if withheld:
-        token_options["withhold_scopes"] = sorted(withheld)
+        token_options["withhold_scopes"] = sorted(RESEARCH_WITHHELD_SCOPES)
     if monitoring_result_scope is None:
         monitoring_result_scope = _monitoring_result_scope(task, run_id)
     if monitoring_result_scope:
         token_options["include_monitoring_result_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
-
-
-def run_uses_own_subscription(run_state: dict[str, Any] | None) -> bool:
-    state = run_state or {}
-    return any(state.get(f"{adapter}_model_access") == "own-subscription" for adapter in ("claude", "codex"))
 
 
 def create_oauth_access_token_for_run(

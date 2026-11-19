@@ -239,12 +239,13 @@
             {
                 "kind": "check",
                 "by": [
-                    "products/knowledge_writer/backend/tests/test_intake.py::test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert"
+                    "products/knowledge_writer/backend/tests/test_intake.py::test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert",
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_writer_wake_spend_is_capped_at_5_dollars",
+                    "products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py::TestMintScopedToken::test_mints_pinned_token[sandbox-settings-scoped_with_run_cap]",
+                    "products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py::TestAiGatewayEnvVars::test_routed_run_gets_url_products_and_token[profile_cap_below_product_cap]",
+                    "products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py::TestProvisioningBoundaries::test_run_gateway_env_vars_maps_the_full_context[profile2-background_agents]",
+                    "posthog/temporal/tests/test_oauth.py::TestResolveScopes::test_no_sandbox_preset_carries_the_gateway_scope"
                 ]
-            },
-            {
-                "kind": "prose",
-                "reason": "TaskProfile.max_cost_usd is read nowhere, so per-wake spend is bounded only by the shared $50 background_agents gateway token cap; the next change wires the profile cap into the mint."
             }
         ],
         "I1": [

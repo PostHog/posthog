@@ -41,8 +41,6 @@ AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
     "api.anthropic.com",
-    "gateway.us.posthog.com",
-    "gateway.eu.posthog.com",
     "ai-gateway.us.posthog.com",
     "ai-gateway.eu.posthog.com",
 ]
@@ -82,11 +80,10 @@ def _port_from_url(url: str | None) -> int | None:
 # sandbox as a URL it must call, so its hostname joins the enforced allow rule
 # in every environment (dev's ai-gateway.dev.posthog.dev is outside
 # *.posthog.com, so the static infrastructure list alone can't cover it).
-# Non-standard ports (llm-gateway on 3308, MCP wrangler on 8787) feed the
+# Non-standard ports (ai-gateway on 8080, MCP wrangler on 8787) feed the
 # DEBUG-only rule; the enforced rule stays on cloud-routing ports.
 _SANDBOX_URL_SETTINGS = (
     "SANDBOX_API_URL",
-    "SANDBOX_LLM_GATEWAY_URL",
     "SANDBOX_AI_GATEWAY_URL",
 )
 
@@ -213,7 +210,7 @@ def _get_debug_only_ports() -> list[int]:
     """Ports added ONLY when DEBUG is on. The prod-safe set is
     `[443, 80, 22]` (cloud routing only); in DEBUG we additionally expose
     Django (8000) and Caddy (8010), plus any non-standard ports parsed from
-    `SANDBOX_*_URL` (e.g. llm-gateway 3308, MCP wrangler 8787). Without this,
+    `SANDBOX_*_URL` (e.g. ai-gateway 8080, MCP wrangler 8787). Without this,
     locally-hosted services on custom ports are denied at the agentsh
     syscall layer even when their hostname is allowed.
     """
@@ -540,7 +537,6 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "POSTHOG_*",
                 "JWT_PUBLIC_KEY",
                 "GITHUB_TOKEN",
-                "LLM_GATEWAY_URL",
                 "AI_GATEWAY_URL",
                 "AI_GATEWAY_PRODUCTS",
                 "AI_GATEWAY_TOKEN",

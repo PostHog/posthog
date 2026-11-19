@@ -125,18 +125,12 @@ EGRESS_PROBE_MAX_TIME_SECONDS = 3
 CURL_EXIT_OPERATION_TIMEOUT = 28
 CURL_EXIT_PATTERN = re.compile(r"curl_exit=(\d+)$")
 
-SESSION_INIT_PROBE_HOSTS = (
-    "gateway.us.posthog.com",
-    "gateway.eu.posthog.com",
-    "api.anthropic.com",
-)
+SESSION_INIT_PROBE_HOSTS = ("api.anthropic.com",)
 
 
 def _session_init_probe_hosts() -> list[str]:
-    """Hosts the startup-failure egress probe checks. Both gateway settings
-    are included: routed products call SANDBOX_AI_GATEWAY_URL, everything
-    else SANDBOX_LLM_GATEWAY_URL, and a block on either is this probe's
-    reason to exist.
+    """Hosts the startup-failure egress probe checks. The gateway host is
+    included because a block on it is this probe's reason to exist.
     """
     hosts = list(SESSION_INIT_PROBE_HOSTS)
     mcp_host = _hostname_from_url(
@@ -144,10 +138,9 @@ def _session_init_probe_hosts() -> list[str]:
     )
     if mcp_host and mcp_host not in hosts:
         hosts.insert(0, mcp_host)
-    for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
-        gateway_host = _hostname_from_url(getattr(settings, setting_name, None))
-        if gateway_host and gateway_host not in hosts:
-            hosts.insert(0, gateway_host)
+    gateway_host = _hostname_from_url(settings.SANDBOX_AI_GATEWAY_URL)
+    if gateway_host and gateway_host not in hosts:
+        hosts.insert(0, gateway_host)
     return hosts
 
 
