@@ -158,3 +158,12 @@ def test_hour_buckets_stay_one_real_hour_apart_across_dst() -> None:
     gaps = {(b.astimezone(UTC) - a.astimezone(UTC)) for a, b in zip(starts, starts[1:])}
     assert gaps == {timedelta(hours=1)}
     assert len(starts) == 6
+
+
+def test_bucket_size_measures_real_elapsed_time_across_dst() -> None:
+    zone = ZoneInfo("Europe/Madrid")
+    window = TraceWindow(
+        start=datetime(2026, 10, 24, 12, tzinfo=zone),
+        end=datetime(2026, 10, 26, 12, tzinfo=zone),
+    )
+    assert bucket_size_for(window) == BucketSize.DAY
