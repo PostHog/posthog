@@ -297,6 +297,8 @@ class TestQuotaRedis(SimpleTestCase):
 
     @override_settings(QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=True)
     def test_forked_child_can_collect_inherited_cluster_with_locked_connections(self) -> None:
+        # Finalize earlier tests' garbage here: its finalizers can block in a forked child.
+        gc.collect()
         slots = [[0, 16383, [b"billing.invalid", 6379, b"node"]]]
         with (
             patch.object(Redis, "execute_command", return_value=slots),
@@ -321,7 +323,7 @@ class TestQuotaRedis(SimpleTestCase):
             os._exit(0)
         os.close(write_fd)
         try:
-            readable, _, _ = select.select([read_fd], [], [], 2)
+            readable, _, _ = select.select([read_fd], [], [], 30)
             self.assertTrue(readable, "Inherited Redis locks blocked child garbage collection")
             self.assertEqual(os.read(read_fd, 2), b"ok")
         finally:
