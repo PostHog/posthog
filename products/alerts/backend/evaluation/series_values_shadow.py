@@ -36,7 +36,7 @@ _CANCELLATION = (CancelledError, CHQueryErrorQueryWasCancelled)
 _SHADOW_COMPARISON_COUNTER = Counter(
     "posthog_insight_alerts_series_values_shadow_total",
     "Alert checks by the outcome of comparing their live values with stored closed-day values",
-    labelnames=["outcome"],
+    labelnames=["outcome", "insight_kind"],
 )
 _SHADOW_COMPARISON_DURATION = Histogram(
     "posthog_insight_alerts_series_values_shadow_duration_seconds",
@@ -167,7 +167,7 @@ def _record(
     duration_seconds: float | None,
 ) -> None:
     try:
-        _SHADOW_COMPARISON_COUNTER.labels(outcome=comparison.outcome).inc()
+        _SHADOW_COMPARISON_COUNTER.labels(outcome=comparison.outcome, insight_kind=insight_kind).inc()
         if duration_seconds is not None:
             _SHADOW_COMPARISON_DURATION.labels(outcome=comparison.outcome).observe(duration_seconds)
         team = alert.team
