@@ -46,12 +46,12 @@ jobs:
                       /bin/fix-rdkafka-paths
                   sparse-checkout-cone-mode: false
 
-            # The root package brings oxlint. `@posthog/hog...` brings hog and the workspace
+            # The root package brings oxlint. `hog...` brings hog and the workspace
             # packages it depends on.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/root --filter='@posthog/hog...' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter='hog...' install --frozen-lockfile
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
