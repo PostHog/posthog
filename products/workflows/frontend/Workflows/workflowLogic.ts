@@ -5447,10 +5447,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 description: 'Are you sure?',
                 primaryButton: {
                     children: 'Discard',
-                    onClick: () =>
+                    onClick: () => {
                         actions.resetWorkflow(
                             values.originalWorkflow ? withStagedDraft(values.originalWorkflow) : NEW_WORKFLOW
-                        ),
+                        )
+                        // An edit from elsewhere can wait for typed edits to save, and a discard saves nothing.
+                        actions.replayDeferredResourceEdited()
+                    },
                 },
                 secondaryButton: {
                     children: 'Cancel',

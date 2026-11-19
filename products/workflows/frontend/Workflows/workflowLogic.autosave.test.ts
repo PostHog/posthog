@@ -1768,15 +1768,32 @@ describe('workflowLogic auto-save', () => {
             })
 
             it.each([
-                ['applies', null, { reloads: 1, name: 'Renamed elsewhere', description: undefined }],
+                [
+                    'applies',
+                    null,
+                    false,
+                    { reloads: 1, name: 'Renamed elsewhere', description: undefined, dialogs: [] },
+                ],
                 [
                     'waits with typed edits for',
                     'Edited while previewing',
-                    { reloads: 0, name: 'Autosave test', description: 'Edited while previewing' },
+                    false,
+                    { reloads: 0, name: 'Autosave test', description: 'Edited while previewing', dialogs: [] },
+                ],
+                [
+                    'applies, once typed edits are discarded,',
+                    'Edited while previewing',
+                    true,
+                    {
+                        reloads: 1,
+                        name: 'Renamed elsewhere',
+                        description: undefined,
+                        dialogs: ['Discard changes'],
+                    },
                 ],
             ])(
                 '%s an edit from elsewhere that arrived while a failed publish preview ran',
-                async (_, typed, expected) => {
+                async (_, typed, discard, expected) => {
                     resourceEditedLogic.mount()
                     let release: () => void = () => {}
                     const held = new Promise<void>((resolve) => {
@@ -1819,13 +1836,18 @@ describe('workflowLogic auto-save', () => {
                     })
                     release()
                     await expectLogic(logic).toFinishAllListeners()
+                    if (discard) {
+                        logic.actions.discardChanges()
+                        clickConfirm('Discard changes')
+                        await expectLogic(logic).toFinishAllListeners()
+                    }
 
                     expect({
                         reloads,
                         name: logic.values.workflow.name,
                         description: logic.values.workflow.description,
-                        dialogs,
-                    }).toEqual({ ...expected, dialogs: [] })
+                        dialogs: dialogs.map((dialog) => dialog.title),
+                    }).toEqual(expected)
                 }
             )
 
