@@ -6,6 +6,7 @@ over the latter. `increase` extrapolates to the window's edges as Prometheus doe
 planned tile with this raw answer sees the same gap a real one would.
 """
 
+import json
 import math
 import bisect
 import datetime as dt
@@ -37,6 +38,14 @@ class _Response:
 
     def json(self) -> dict[str, Any]:
         return self.body
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]:
+        encoded = json.dumps(self.body).encode()
+        for start in range(0, len(encoded), chunk_size):
+            yield encoded[start : start + chunk_size]
+
+    def close(self) -> None:
+        pass
 
 
 class FakeSnuffle:

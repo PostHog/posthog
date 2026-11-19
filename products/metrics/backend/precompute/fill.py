@@ -47,7 +47,7 @@ from products.metrics.backend.precompute.store import (
     value_changed,
     write_entries,
 )
-from products.metrics.backend.promql import promql_range_results
+from products.metrics.backend.promql import PromQLResponseTooLargeError, promql_range_results
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +72,8 @@ MAX_REFILL_STEP = dt.timedelta(days=1)
 UNUSED_AFTER = dt.timedelta(days=14)
 PAUSE_AFTER_FAILURES = 10
 PASS_BUDGET = dt.timedelta(minutes=4)
+# A larger Snuffle response splits the fill's range, as too many rows does, before it is decoded.
+MAX_FILL_RESPONSE_BYTES = 50_000_000
 _LOCK_TIMEOUT_SECONDS = 10 * 60
 
 
@@ -102,7 +104,12 @@ def _query_promql_buckets(
     function = _PROMQL_FUNCTIONS[PrecomputedMetricKind(precomputed_metric.kind)]
     selector = f"{function}({precomputed_metric.metric_name}[{int(width.total_seconds())}s])"
     expr = f"sum by ({', '.join(labels)}) ({selector})" if labels else f"sum({selector})"
-    results = promql_range_results(team, expr, start + width, end, width, record_query=False)
+    try:
+        results = promql_range_results(
+            team, expr, start + width, end, width, record_query=False, max_bytes=MAX_FILL_RESPONSE_BYTES
+        )
+    except PromQLResponseTooLargeError as error:
+        raise MetricQueryTooManyRowsError(str(error)) from error
     if len(results) > MAX_ENTRIES_PER_CHUNK:
         raise TooManySeriesError("one bucket has too many label sets; keep fewer labels")
     entries: dict[EntryKey, Entry] = {}

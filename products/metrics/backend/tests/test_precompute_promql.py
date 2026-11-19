@@ -319,6 +319,16 @@ class TestPrecomputedPromQL(APIBaseTest):
         assert precomputed.kind == PrecomputedMetricKind.BUCKET_INCREASE
         assert [label["key"] for label in precomputed.labels] == ["le"]
 
+    def test_a_fill_response_over_the_byte_budget_splits_the_range(self):
+        promql = "sum by (provider) (sum_over_time(llm_cost_usd[$__interval]))"
+        with patch("products.metrics.backend.precompute.fill.MAX_FILL_RESPONSE_BYTES", 600):
+            self._precompute(promql, 2, "hour")
+
+        result = self._run(promql, 2, "hour")
+
+        assert result.provenance.mode == MetricQueryProvenanceMode.MIXED, result.provenance
+        assert _max_relative_difference(result.series, self._raw(promql, 2, "hour")) <= EXACT
+
     def test_fills_read_whole_buckets_without_counting_as_user_queries(self):
         promql = "sum by (provider) (sum_over_time(llm_cost_usd[$__interval]))"
 

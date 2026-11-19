@@ -584,10 +584,12 @@ def evaluate_stored(plan: PromQLPlan, entries: dict[EntryKey, Entry]) -> list[di
 
 def _rank(by_group: dict[tuple[str, ...], dict[dt.datetime, float]], rank: str, k: int) -> dict:
     """`topk` or `bottomk` at each step: a group keeps only the steps where it ranks in the first `k`."""
+    present_by_step: dict[dt.datetime, list[tuple[float, tuple[str, ...]]]] = {}
+    for group, points in by_group.items():
+        for step, value in points.items():
+            present_by_step.setdefault(step, []).append((value, group))
     kept: dict[tuple[str, ...], dict[dt.datetime, float]] = {}
-    steps = sorted({step for points in by_group.values() for step in points})
-    for step in steps:
-        present = [(points[step], group) for group, points in by_group.items() if step in points]
+    for step, present in present_by_step.items():
         present.sort(key=lambda item: item[0], reverse=rank == "topk")
         for value, group in present[:k]:
             kept.setdefault(group, {})[step] = value

@@ -61,6 +61,10 @@ def _decoded(response: requests.Response, body: bytes | None) -> Any:
     return response.json() if body is None else json.loads(body)
 
 
+class PromQLResponseTooLargeError(PromQLQueryError):
+    """The response passed the caller's `max_bytes`."""
+
+
 def _read_body(response: requests.Response, max_bytes: int | None) -> bytes | None:
     """The body read no further than `max_bytes`, so an oversized result is never held whole. None when
     unbounded, so the response decodes itself."""
@@ -71,7 +75,7 @@ def _read_body(response: requests.Response, max_bytes: int | None) -> bytes | No
         for chunk in response.iter_content(chunk_size=64 * 1024):
             body.extend(chunk)
             if len(body) > max_bytes:
-                raise PromQLQueryError(
+                raise PromQLResponseTooLargeError(
                     f"The PromQL query returned more than {max_bytes // 1_000_000} MB. Aggregate it, for example "
                     "with sum by (...), or look back over a shorter window."
                 )
@@ -191,6 +195,7 @@ def promql_range_results(
     step: dt.timedelta,
     *,
     record_query: bool = True,
+    max_bytes: int | None = None,
 ) -> list[dict[str, Any]]:
     """The raw `matrix` results of a Snuffle range query: one `{metric, values}` per series."""
     payload = snuffle_payload(
@@ -204,6 +209,7 @@ def promql_range_results(
             "step": str(int(step.total_seconds())),
         },
         record_query=record_query,
+        max_bytes=max_bytes,
     )
 
     data = payload.get("data") or {}
