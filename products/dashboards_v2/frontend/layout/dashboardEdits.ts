@@ -2,6 +2,7 @@ import {
     type ContentWidget,
     type Dashboard,
     GRID,
+    type SectionTile,
     type SectionWidget,
     type Tile,
     type TilePlace,
@@ -16,7 +17,7 @@ export type DashboardEdit =
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
-    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title' | 'collapsed'>> }
+    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
     | { edit: 'setTileParts'; id: string; parts: ContentWidget['parts'] }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
@@ -70,6 +71,50 @@ function settleGrid(tiles: Tile[], cols: number): Tile[] {
 }
 
 /** Every edit ends here, so a saved dashboard never holds an overlap, a gap or a stale section height. */
+/** Every tile full width, one under another in reading order: top to bottom, then left to right. */
+export function stackTiles(tiles: Tile[], cols: number): Tile[] {
+    const ordered = [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
+    let y = 0
+    return ordered.map((tile) => {
+        const stacked = isSection(tile)
+            ? stackSection(tile, cols, y)
+            : { ...tile, place: { x: 0, y, w: cols, h: stackedRows(tile) } }
+        y += stacked.place.h
+        return stacked
+    })
+}
+
+/** A chart sized for a wide screen would fill a phone, so stacked charts stay between these heights. */
+const STACKED_CHART_ROWS = { min: 5, max: 8 }
+
+function stackedRows(tile: Tile): number {
+    if (tile.widget.type !== 'line' && tile.widget.type !== 'bar') {
+        return tile.place.h
+    }
+    return Math.min(STACKED_CHART_ROWS.max, Math.max(STACKED_CHART_ROWS.min, tile.place.h))
+}
+
+function stackSection(tile: SectionTile, cols: number, y: number): Tile {
+    const widget = { ...tile.widget, tiles: stackTiles(tile.widget.tiles, cols) }
+    return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
+}
+
+/** The dashboard as one person sees it, with sections they opened or closed for themselves. Never saved. */
+export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>): Dashboard {
+    const ids = Object.keys(folds)
+    if (ids.length === 0) {
+        return dashboard
+    }
+    const folded = ids.reduce(
+        (next, id) =>
+            changeTileEverywhere(next, id, (tile) =>
+                isSection(tile) ? { ...tile, widget: { ...tile.widget, collapsed: folds[id] } } : tile
+            ),
+        dashboard
+    )
+    return settleDashboard(folded)
+}
+
 export function settleDashboard(dashboard: Dashboard): Dashboard {
     return { ...dashboard, tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns) })) }
 }

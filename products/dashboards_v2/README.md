@@ -33,6 +33,7 @@ A tile keeps its size when it moves in or out of a section, unless the grid it l
 
 A section's height is never chosen. It is one row for the header plus the rows its tiles need.
 A closed section is one row. An empty open section keeps two rows, so it can take a drop.
+Anyone can open or close a section, for their own view only. It is not saved and is not an undo step; the saved state is the default everyone sees first.
 A section cannot be resized narrower than its tiles need.
 A section moved into a narrower grid gets narrower, and its tiles are placed again to fit.
 
@@ -74,6 +75,15 @@ It does not decide places: its compactor is `placeTiles`.
 - Tabs can be added, renamed, and removed. The last tab cannot be removed.
 - Undo and redo cover every edit, and a press that moves nothing adds no undo step.
 - Only people who can edit dashboards can change the layout. Everyone else sees it read-only.
+
+## Narrow screens
+
+Below 768px of canvas width (`GRID.stackBelowPx`), the dashboard is read-only and every tile is full width.
+
+- Tiles stack in reading order: top to bottom, then left to right. Sections stack their own tiles the same way.
+- Text and number tiles keep their height. Line and bar charts stay between 5 and 8 rows, so one chart never fills the screen.
+- The stacked layout is worked out from the saved one each time and is never saved.
+- Every edit is refused, and disabled controls say to open the dashboard on a wider screen.
 
 ## Adding a widget type
 

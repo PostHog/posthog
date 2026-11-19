@@ -26,7 +26,7 @@ export function SectionTile({
     editable: boolean
     onSectionRows: (id: string, rows: number | null) => void
 }): JSX.Element {
-    const { applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { applyDashboardEdit, setSectionFolded } = useActions(dashboardV2Logic)
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, collapsed, () => setDraft(widget.title))
@@ -47,9 +47,7 @@ export function SectionTile({
                         title={widget.title}
                         collapsed={collapsed}
                         canEdit={editable}
-                        onToggle={() =>
-                            applyDashboardEdit({ edit: 'updateSection', id, patch: { collapsed: !collapsed } })
-                        }
+                        onToggle={() => setSectionFolded(id, !collapsed)}
                         onRename={(title) => applyDashboardEdit({ edit: 'updateSection', id, patch: { title } })}
                         draft={draft}
                         onDraftChange={setDraft}
