@@ -20,10 +20,6 @@ use uuid::Uuid;
 use super::{Emitter, Transaction};
 use crate::error::UserError;
 
-const BILLING_LIMIT_USER_MESSAGE: &str = "Import paused because this project reached its billing \
-    limit. Raise or remove the billing limit, or wait for it to reset at the start of the next \
-    billing period, then resume the import.";
-
 pub fn client_options(api_key: String, host: &str) -> Result<ClientOptions, Error> {
     ClientOptionsBuilder::default()
         .api_key(api_key)
@@ -216,12 +212,11 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
                 .increment(batch_count as u64);
             counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
                 .increment(1);
-            let billing_limited = matches!(e, PosthogError::BillingLimitExceeded(_));
+            let user_msg = user_message(&e);
             let err = Error::new(e).context("capture batch failed");
-            return Err(if billing_limited {
-                err.context(UserError::new(BILLING_LIMIT_USER_MESSAGE))
-            } else {
-                err
+            return Err(match user_msg {
+                Some(msg) => err.context(UserError::new(msg)),
+                None => err,
             });
         }
 
@@ -253,6 +248,17 @@ fn failure_reason(err: &PosthogError) -> &'static str {
         PosthogError::Connection(_) => "transport",       // network / unexpected status
         PosthogError::Serialization(_) => "serialization", // local encode failure
         _ => "other",
+    }
+}
+
+const BILLING_LIMIT_USER_MESSAGE: &str = "Import paused because this project reached its billing \
+    limit. Raise or remove the billing limit, or wait for it to reset at the start of the next \
+    billing period, then resume the import.";
+
+fn user_message(err: &PosthogError) -> Option<&'static str> {
+    match err {
+        PosthogError::BillingLimitExceeded(_) => Some(BILLING_LIMIT_USER_MESSAGE),
+        _ => None,
     }
 }
 
