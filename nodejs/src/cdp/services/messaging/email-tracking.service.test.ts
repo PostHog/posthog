@@ -535,6 +535,8 @@ describe('EmailTrackingService', () => {
             it.each([
                 ['an open table makes the parser ignore', '<body><table><tr><td>Hi</td></tr></body>'],
                 ['comes after one inside a template', '<body><template></body></template><p>Hi</p></body>'],
+                ['comes after one inside SVG', '<body><svg></BODY ><text>Offer</text></svg><p>Hi</p></body>'],
+                ['comes after one inside a select', '<body><select><option>A</BODY ></select><p>Hi</p></body>'],
             ])('places the pixel before a body end tag that %s', (_name, html) => {
                 const out = sesTrack(html)
                 expect(out.indexOf('<img src="')).toBe(html.lastIndexOf('</body>'))

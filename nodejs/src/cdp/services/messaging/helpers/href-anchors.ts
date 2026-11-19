@@ -1,4 +1,12 @@
-import { DefaultTreeAdapterMap, Parser, Token, TreeAdapter, defaultTreeAdapter, parseFragment } from 'parse5'
+import {
+    DefaultTreeAdapterMap,
+    Parser,
+    Token,
+    TreeAdapter,
+    defaultTreeAdapter,
+    parseFragment,
+    html as spec,
+} from 'parse5'
 
 import { escapeHtml } from './escape-html'
 
@@ -286,16 +294,24 @@ type Scan = {
 }
 
 // Records the first body end tag. The tree keeps only the last one, and none that an open table makes the parser
-// ignore, but the pixel has always gone before the first, where a browser still renders it. One inside a template is
-// left out, because template content is never rendered.
+// ignore, but the pixel has always gone before the first, where a browser still renders it. One is skipped where an
+// image there would not render as one: in a template, in a select, or inside SVG or MathML, where an image closes the
+// graphic.
 class BodyEndParser extends Parser<DefaultTreeAdapterMap> {
     bodyEnd = -1
 
     override onEndTag(token: Token.TagToken): void {
-        if (this.bodyEnd < 0 && token.tagName === 'body' && token.location && this.openElements.tmplCount === 0) {
+        if (this.bodyEnd < 0 && token.tagName === 'body' && token.location && this.takesImageHere()) {
             this.bodyEnd = token.location.startOffset
         }
         super.onEndTag(token)
+    }
+
+    private takesImageHere(): boolean {
+        const current = this.openElements.current
+        // The document itself has no namespace.
+        const inHtml = !('namespaceURI' in current) || current.namespaceURI === spec.NS.HTML
+        return inHtml && this.openElements.tmplCount === 0 && !this.openElements.hasInSelectScope(spec.TAG_ID.SELECT)
     }
 }
 
