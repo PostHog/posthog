@@ -1,5 +1,5 @@
 // PROTOTYPE, never merged: PostHog/michaelr-context#419. What each sidebar row opens. Enough to judge the navigation,
-// not the pages themselves: overview and calendar have their own prototype tickets.
+// not the pages themselves: the overview has its own prototype ticket, and the calendar is the shipped send calendar.
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -71,33 +71,26 @@ function Overview(): JSX.Element {
             </Placeholder>
             <div className="flex flex-wrap gap-3">
                 <Stat label="Messages sent, last 7 days" value="4,210" />
-                <Stat label="Scheduled this week" value="3" to={messagingSectionUrl('calendar')} />
+                <Stat label="Scheduled this week" value="2" to={messagingSectionUrl('calendar')} />
                 <Stat label="Channels to fix" value="1" to={messagingSectionUrl('channels')} />
             </div>
         </div>
     )
 }
 
+// The story hands in the shipped send calendar. Importing it here makes the static Storybook build hang on the scene.
+let registeredCalendar: (() => JSX.Element) | null = null
+
+export function registerPrototypeCalendar(calendar: () => JSX.Element): void {
+    registeredCalendar = calendar
+}
+
 function Calendar(): JSX.Element {
-    const scheduled = PROTOTYPE_BROADCASTS.filter((b) => b.status === 'Scheduled')
-    return (
-        <div className="flex flex-col gap-4">
-            <Placeholder title="Place for the calendar">
-                One calendar for everything scheduled to send, across broadcasts and workflows. It replaces the calendar
-                tab in Workflows and in Broadcasts. Its own prototype decides the layout.
-            </Placeholder>
-            <LemonTable
-                dataSource={[
-                    ...scheduled.map((b) => ({ name: b.name, kind: 'Broadcast', when: b.when })),
-                    { name: 'Trial ending reminder', kind: 'Workflow', when: 'Every day, 09:00' },
-                ]}
-                columns={[
-                    { title: 'Name', dataIndex: 'name' },
-                    { title: 'Kind', dataIndex: 'kind' },
-                    { title: 'When', dataIndex: 'when' },
-                ]}
-            />
-        </div>
+    const SendCalendar = registeredCalendar
+    return SendCalendar ? (
+        <SendCalendar />
+    ) : (
+        <Placeholder title="Calendar">The shipped send calendar shows here.</Placeholder>
     )
 }
 
@@ -154,7 +147,7 @@ function MessagingWorkflows(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <ViewNote>
-                Workflows with an email, SMS or push step. Automations and loops stay in{' '}
+                Messaging workflows have an email, SMS or push step. Automations and loops stay in{' '}
                 <Link to="/workflows">Workflows</Link>.
             </ViewNote>
             <LemonTable
@@ -203,7 +196,7 @@ function Templates(): JSX.Element {
                         render: (_, t) => (
                             <span className="flex items-center gap-2">
                                 <Link>{t.name}</Link>
-                                {t.transactional && <LemonTag type="highlight">Transactional</LemonTag>}
+                                {t.transactional && <LemonTag type="highlight">Transactional email</LemonTag>}
                             </span>
                         ),
                     },

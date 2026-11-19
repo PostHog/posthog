@@ -46,8 +46,8 @@ export const MESSAGING_SECTION_LABELS: Record<MessagingSection, string> = {
     overview: 'Overview',
     calendar: 'Calendar',
     broadcasts: 'Broadcasts',
-    transactional: 'Transactional',
-    workflows: 'Workflows',
+    transactional: 'Transactional emails',
+    workflows: 'Messaging workflows',
     templates: 'Templates',
     channels: 'Channels',
     recipients: 'Recipients',
@@ -70,7 +70,7 @@ export const MESSAGING_SECTION_ICONS: Record<MessagingSection, JSX.Element> = {
 
 /** Fake counts next to a row, so the sidebar shows what a row would say about its view. */
 export const MESSAGING_SECTION_META: Partial<Record<MessagingSection, string>> = {
-    calendar: '3 this week',
+    calendar: '2 this week',
     broadcasts: '2 scheduled',
     transactional: '4',
     workflows: '5 live',

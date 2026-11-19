@@ -12,6 +12,8 @@ import {
 import { MessagingNavPrototypeSwitcher } from '~/layout/today/messagingNavPrototype/MessagingNavPrototypeSwitcher'
 import { mswDecorator } from '~/mocks/browser'
 
+import { SendCalendar } from '../SendCalendar/SendCalendar'
+import { registerPrototypeCalendar } from './MessagingHomePrototypeSections'
 import { PROTOTYPE_WORKFLOWS } from './prototypeData'
 
 const ACTION_TYPES: Record<string, string> = {
@@ -58,6 +60,55 @@ function hogFlowsFor(url: URL): { count: number; results: typeof HOG_FLOWS } {
     return { count: results.length, results }
 }
 
+// The calendar row shows the shipped send calendar, so it gets a few invented sends around the story's date.
+const calendarFlow = (
+    n: number,
+    name: string,
+    broadcast: boolean,
+    rrule: string,
+    startsAt: string,
+    cohortId: number
+): Record<string, unknown> => ({
+    id: `0190f0f0-0000-7000-8000-0000000001${n}`,
+    name,
+    origin_product: broadcast ? 'broadcasts' : null,
+    created_by: { id: 1, uuid: 'user-1', first_name: 'Alex', email: 'alex@example.com' },
+    user_access_level: 'editor',
+    trigger_type: 'batch',
+    audience_properties: [{ key: 'id', type: 'cohort', value: cohortId }],
+    audience_type: null,
+    email_to: null,
+    message_category_id: null,
+    schedules: [
+        {
+            id: `0190f0f0-0000-7000-8000-0000000002${n}`,
+            rrule,
+            starts_at: startsAt,
+            timezone: 'UTC',
+            status: 'active',
+            next_run_at: null,
+            created_at: '2026-11-01T09:00:00Z',
+            updated_at: '2026-11-01T09:00:00Z',
+        },
+    ],
+    batch_jobs: [],
+})
+
+const CALENDAR_FLOWS = [
+    calendarFlow(1, 'November product update', true, 'FREQ=DAILY;COUNT=1', '2026-11-21T10:00:00Z', 31),
+    calendarFlow(2, 'Webinar reminder: data pipelines', true, 'FREQ=DAILY;COUNT=1', '2026-11-25T15:00:00Z', 32),
+    calendarFlow(3, 'Weekly digest', false, 'FREQ=WEEKLY;BYDAY=TU', '2026-10-06T09:00:00Z', 33),
+    calendarFlow(4, 'Monthly tips', false, 'FREQ=MONTHLY;BYMONTHDAY=3', '2026-10-03T08:00:00Z', 33),
+]
+
+const COHORTS = [
+    { id: 31, name: 'All active users', count: 4200 },
+    { id: 32, name: 'Webinar sign-ups', count: 310 },
+    { id: 33, name: 'Newsletter subscribers', count: 1800 },
+].map((c) => ({ ...c, is_static: false, is_calculating: false, deleted: false, filters: {}, groups: [] }))
+
+registerPrototypeCalendar(SendCalendar)
+
 let appliedForStory: string | null = null
 
 const meta: Meta = {
@@ -72,6 +123,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/messaging_categories/': { count: 0, results: [] },
                 '/api/projects/:team_id/messaging_templates/': { count: 0, results: [] },
                 '/api/projects/:team_id/health_issues/summary/': {},
+                '/api/projects/:team_id/hog_flows/send_calendar/': CALENDAR_FLOWS,
+                '/api/projects/:team_id/cohorts/': { count: COHORTS.length, results: COHORTS },
+                '/api/projects/:team_id/cohorts/:id/': ({ params }) => COHORTS.find((c) => String(c.id) === params.id),
             },
             post: {
                 '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Users/Alex Example' },
@@ -112,6 +166,9 @@ export const VariantB: Story = {
 }
 export const VariantC: Story = {
     parameters: { variant: 'C', pageUrl: '/messaging/broadcasts?variant=C' },
+}
+export const CalendarRow: Story = {
+    parameters: { variant: 'B', pageUrl: '/messaging/calendar?variant=B' },
 }
 export const WorkflowsAfterTheMove: Story = {
     parameters: { variant: 'B', pageUrl: '/workflows?variant=B' },
