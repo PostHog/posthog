@@ -53,6 +53,8 @@ export function DashboardTileGroupTabs({
     children,
 }: DashboardTileGroupTabsProps): JSX.Element {
     const activeSection = sections.find((section) => section.key === activeSectionKey)
+    // Next to group tabs, "Overview" can repeat a group's own title, so the tab of tiles outside any group is "Other".
+    const ungroupedTabLabel = sections.some((section) => section.kind === 'group') ? 'Other' : 'Overview'
 
     const getMenuActions = (section: DashboardSection | undefined): DashboardTileGroupMenuActions => {
         if (section?.kind !== 'group') {
@@ -125,7 +127,7 @@ export function DashboardTileGroupTabs({
                                             </Tooltip>
                                         </QuillDashboardTileGroupContextMenu>
                                     ) : (
-                                        'Overview'
+                                        ungroupedTabLabel
                                     )}
                                 </TabsTrigger>
                             )

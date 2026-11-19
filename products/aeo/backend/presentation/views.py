@@ -59,6 +59,7 @@ from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
+    DEFAULT_STATS_DAYS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
@@ -131,7 +132,7 @@ DEFAULT_COMPETITOR_CANDIDATES = 20
 MAX_COMPETITOR_CANDIDATES = 100
 MAX_BRAND_ALIASES = 20
 MAX_CHECKS_PAGE_SIZE = 100
-STATS_DAYS = 30
+STATS_DAYS = DEFAULT_STATS_DAYS
 MAX_OVERVIEW_DAYS = 90
 ENGINE_HELP = (
     "Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. "

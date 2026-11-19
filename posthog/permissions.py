@@ -34,12 +34,13 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
+from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.session.reauth import sensitive_action_reference, step_up_required
@@ -335,6 +336,52 @@ class VerifiedDomainEnforcementPermission(BasePermission):
             raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
 
         return True
+
+
+class TwoFactorEnforcementPermission(BasePermission):
+    """
+    Deny session requests to an organization that requires 2FA when the session hasn't met it.
+
+    `SessionAuthentication` checks the current organization only, so this checks the URL-resolved
+    organization, for the same reason as `VerifiedDomainEnforcementPermission`. Token requests
+    pass: a token meets the policy when it is minted (`enforce_credential_two_factor`).
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not self._applies(request) or not view_targets_one_organization(view):
+            return True
+
+        organization = url_target_organization(view)
+        if organization is not None:
+            self._enforce(request, organization)
+        return True
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if not self._applies(request):
+            return True
+
+        if isinstance(object, Organization):
+            self._enforce(request, object)
+        elif isinstance(object, Team | Project):
+            self._enforce(request, object.organization)
+        return True
+
+    @staticmethod
+    def _applies(request: Request) -> bool:
+        return isinstance(request.user, User) and isinstance(request.successful_authenticator, SessionAuthentication)
+
+    @staticmethod
+    def _enforce(request: Request, organization: Organization) -> None:
+        user = cast(User, request.user)
+        # `SessionAuthentication` already checked the current organization; repeating it costs queries.
+        # The policy flag is on the loaded row, so it goes before the membership lookup's cache round trip.
+        if organization.pk == user.current_organization_id or not organization.enforce_2fa:
+            return
+        # Some views build their own chain without a membership check. A non-member holds nothing here
+        # that 2FA protects, and the denial would disclose this organization's policy.
+        if get_cached_organization_membership(organization.pk, user) is None:
+            return
+        enforce_two_factor(request, user, organization)
 
 
 def url_target_organization(view) -> Optional[Organization]:
@@ -745,11 +792,7 @@ def get_authenticator_user_credential(authenticator: object) -> PersonalAPIKey |
     return None
 
 
-def get_authenticator_scopes(authenticator) -> list[str] | None:
-    """The API scopes carried by a scoped-token authenticator, or None for session and
-    other non-token auth. Single source of truth for the token->scopes mapping, shared by
-    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
-    did, one path could grant access while the other skipped its check."""
+def _stored_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
@@ -761,6 +804,16 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def get_authenticator_scopes(authenticator) -> list[str] | None:
+    """The API scopes carried by a scoped-token authenticator, or None for session and
+    other non-token auth. Single source of truth for the token->scopes mapping, shared by
+    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
+    did, one path could grant access while the other skipped its check. Renamed scopes come
+    back under their new names, so a key or token stored before a rename keeps its access."""
+    scopes = _stored_authenticator_scopes(authenticator)
+    return translate_renamed_scopes(scopes) if scopes is not None else None
 
 
 def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:

@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
@@ -164,6 +165,15 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 action?.type === 'email_sandbox',
         ],
     }),
+    subscriptions(({ values, cache }) => ({
+        showSandboxOption: (shown: boolean) => {
+            if (shown && !cache.offerReported) {
+                cache.offerReported = true
+                // pinned: analytics event name and properties, renaming breaks dashboards
+                posthog.capture('workflows sandbox sender offered', { step_type: values.action?.type ?? null })
+            }
+        },
+    })),
     listeners(({ actions, values, props }) => {
         function replaceStep(next: EmailStepAction, previous: EmailStepAction): void {
             actions.setWorkflowAction(props.actionId, next)

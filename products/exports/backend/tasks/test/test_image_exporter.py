@@ -1094,7 +1094,10 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
 
         assert image_exporter._read_site_style(page, failed_stylesheets) == expected
 
-    def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
+    @parameterized.expand([("automatic", {}, 2), ("custom_size", {"device_scale_factor": 1}, 1)])
+    def test_replay_export_finds_the_player_inside_its_frame_document(
+        self, _name: str, render_options: dict, expected_scale: int
+    ) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query
         # never looks inside a frame, so the export would time out, or measure the page without the player.
         page = MagicMock()
@@ -1114,8 +1117,9 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
             ),
             patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
         ):
-            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper")
+            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper", **render_options)
 
+        assert browser.new_context.call_args.kwargs["device_scale_factor"] == expected_scale
         assert all(call.args[0] != ".replayer-wrapper" for call in page.wait_for_selector.call_args_list)
         page.wait_for_function.assert_called_once()
         assert "iframe.PlayerFrame__document" in page.wait_for_function.call_args.args[0]

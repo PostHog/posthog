@@ -248,7 +248,7 @@ class DeliveryUnavailable(Exception):
 
 
 class SendWarningCode(LabeledStrEnum):
-    SANDBOX_SENDER = "sandbox_sender", "Sent from the sandbox sender"
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
 
 
 @frozen
@@ -267,6 +267,7 @@ class QueuedEmail:
     warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    sent_from_sandbox: bool = False
 
 
 class SupabaseEmailActionType(LabeledStrEnum):
@@ -449,6 +450,25 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+@frozen
+class TransactionalEmailConversions:
+    sends: int
+    converted: int
+
+
+@frozen
+class TransactionalEmailImpact:
+    sent: int
+    delivered: int
+    opened: int
+    clicked: int
+    not_clicked: int
+    untracked: int
+    window_days: int
+    after_click: TransactionalEmailConversions | None
+    without_click: TransactionalEmailConversions | None
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):

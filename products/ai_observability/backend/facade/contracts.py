@@ -917,6 +917,8 @@ class EvalSuggestion:
     headline: str
     outcome: str
     reason: str
+    observation: str
+    observation_scope: str
     draft: Mapping[str, Any]
     filters: Sequence[Mapping[str, Any]]
     rollout_percentage: float

@@ -119,3 +119,66 @@ def test_pnpm_lock_peer_ranges_returns_every_version() -> None:
         "1.9.0": ">=1.257.2",
         "1.11.2": "^2.0.0",
     }
+
+
+GIT_POSTHOG = '{ git = "https://github.com/PostHog/posthog-rs", rev = "abc", version = "1.0.0" }'
+
+
+def _write_rust_root(root: Path, workspace_dep: str, workspace_lock: list[tuple[str, str]], cli_dep: str) -> None:
+    (root / "rust").mkdir()
+    (root / "cli").mkdir()
+    (root / "rust" / "Cargo.toml").write_text(f"[workspace.dependencies]\n{workspace_dep}\n")
+    (root / "rust" / "Cargo.lock").write_text(
+        "".join(f'[[package]]\nname = "{name}"\nversion = "{version}"\n\n' for name, version in workspace_lock)
+    )
+    (root / "cli" / "Cargo.toml").write_text(f"[dependencies]\n{cli_dep}\n")
+    (root / "cli" / "Cargo.lock").write_text('[[package]]\nname = "posthog"\nversion = "1.0.0"\n')
+
+
+@pytest.mark.parametrize(
+    "workspace_dep,workspace_lock,problem",
+    [
+        (f"posthog = {GIT_POSTHOG}", [("posthog", "1.0.0")], None),
+        ('posthog = "1.1.0"', [("posthog", "1.1.0")], None),
+        ('posthog-rs = "1.1.0"', [("posthog", "1.1.0"), ("posthog-rs", "1.1.0")], None),
+        (
+            'posthog = { git = "https://github.com/PostHog/posthog-rs", rev = "abc" }',
+            [("posthog", "1.0.0")],
+            "rust/Cargo.toml: posthog has no version requirement",
+        ),
+        ('posthog = "2.0.0"', [("posthog", "2.0.0")], "rust/Cargo.toml: posthog = '2.0.0', expected major 1"),
+        (
+            'posthog-rs = "0.33.1"',
+            [("posthog-rs", "0.33.1")],
+            "rust/Cargo.toml: posthog-rs = '0.33.1', expected major 1",
+        ),
+        (
+            'posthog = "1.1.0"',
+            [("posthog", "1.1.0"), ("posthog-rs", "0.33.1")],
+            "rust/Cargo.lock resolves posthog/posthog-rs to majors [0, 1]",
+        ),
+        ('serde = "1"', [("serde", "1.0.0")], "rust/Cargo.toml declares neither of posthog, posthog-rs"),
+    ],
+)
+def test_check_rust_reads_either_crate_name_and_every_lock_entry(
+    tmp_path: Path, workspace_dep: str, workspace_lock: list[tuple[str, str]], problem: str | None
+) -> None:
+    _write_rust_root(tmp_path, workspace_dep, workspace_lock, f"posthog = {GIT_POSTHOG}")
+
+    problems = guard.check_rust(tmp_path)
+
+    if problem is None:
+        assert problems == []
+    else:
+        assert len(problems) >= 1
+        assert problems[0].startswith(problem)
+
+
+def test_check_rust_applies_the_expected_major_to_the_cli(tmp_path: Path) -> None:
+    _write_rust_root(
+        tmp_path, f"posthog = {GIT_POSTHOG}", [("posthog", "1.0.0")], 'posthog-rs = { version = "=0.30.0" }'
+    )
+
+    assert guard.check_rust(tmp_path) == [
+        "cli/Cargo.toml: posthog-rs = '=0.30.0', expected major 1. " + guard.MIGRATION_HINT,
+    ]

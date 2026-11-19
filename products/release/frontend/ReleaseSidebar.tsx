@@ -8,30 +8,28 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { newestByName } from '~/layout/today/todayNewestByName'
+import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { releaseLogic } from './releaseLogic'
-import { STAGE_COLOR_VARS } from './releaseUtils'
+import { releaseSidebarEntryName, STAGE_COLOR_VARS } from './releaseUtils'
 
 const RELEASE_TYPES = ['feature_flag', 'experiment', 'early_access_feature', 'release']
 const RECENTS_LIMIT = 6
-
-function entryName(entry: FileSystemEntry): string {
-    return splitPath(entry.path).pop() || entry.path
-}
 
 export function ReleaseSidebar(): JSX.Element {
     const { rows, flagCount, experimentCount, earlyAccessCount, dataLoading } = useValues(releaseLogic)
     const { shortcutData, pinnedShortcutIds } = useValues(sidebarPinsLogic)
     const { recents } = useValues(recentItemsModel)
+    const { releaseRecents } = useValues(todayRecentsLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
     const [closed, setClosed] = useState<Record<string, boolean>>({})
@@ -92,14 +90,40 @@ export function ReleaseSidebar(): JSX.Element {
         },
     ].filter((item) => matches(item.label))
 
-    const pinned = shortcutData.filter((entry) => RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry)))
+    const releaseRowsById = new Map(rows.map((row) => [row.id, row]))
+    const entryName = (entry: FileSystemEntry): string => releaseSidebarEntryName(entry, releaseRowsById) ?? ''
+    const pinned = shortcutData.filter(
+        (entry) =>
+            !!entry.ref && RELEASE_TYPES.includes(entry.type ?? '') && !!entryName(entry) && matches(entryName(entry))
+    )
+    const releaseItems: FileSystemEntry[] = releaseRecents.flatMap((recent) => {
+        const row = releaseRowsById.get(recent.id)
+        return row
+            ? [
+                  {
+                      id: row.id,
+                      type: 'release',
+                      ref: row.id,
+                      path: escapePath(row.name),
+                      href: urls.release(row.id),
+                      last_viewed_at: new Date(recent.viewedAt).toISOString(),
+                  },
+              ]
+            : []
+    })
     const recent = newestByName(
-        recents.filter(
-            (entry) =>
-                RELEASE_TYPES.includes(entry.type ?? '') &&
-                matches(entryName(entry)) &&
-                !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
-        ),
+        [...recents, ...releaseItems]
+            .sort(
+                (first, second) =>
+                    (Date.parse(second.last_viewed_at ?? '') || 0) - (Date.parse(first.last_viewed_at ?? '') || 0)
+            )
+            .filter(
+                (entry) =>
+                    !!entry.ref &&
+                    RELEASE_TYPES.includes(entry.type ?? '') &&
+                    matches(entryName(entry)) &&
+                    !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
+            ),
         entryName,
         (entry) => entry.id,
         RECENTS_LIMIT
@@ -110,12 +134,23 @@ export function ReleaseSidebar(): JSX.Element {
             key={`${kind}:${entry.id}`}
             value={`${kind}:${entry.id}`}
             label={entryName(entry)}
-            icon={iconForType((entry.type ?? 'feature_flag') as FileSystemIconType)}
+            icon={
+                entry.type === 'release' ? (
+                    <IconFlag />
+                ) : (
+                    iconForType((entry.type ?? 'feature_flag') as FileSystemIconType)
+                )
+            }
             to={entry.href ?? '#'}
             active={!!entry.href && path === removeProjectIdIfPresent(entry.href)}
             action={
                 <SidebarPinButton
-                    target={{ type: entry.type ?? '', ref: entry.ref, name: entryName(entry), href: entry.href }}
+                    target={{
+                        type: entry.type ?? '',
+                        ref: entry.ref,
+                        name: entry.type === 'release' ? 'Release' : entryName(entry),
+                        href: entry.href,
+                    }}
                     dataAttr={`release-sidebar-${kind}-pin`}
                 />
             }

@@ -15,6 +15,7 @@ from ..logic.eval_suggestions import (
     accept as eval_suggestion_accept,
     suggestions as eval_suggestions,
 )
+from ..logic.eval_suggestions.runs import OBSERVATION_KEYS
 from ..models.eval_suggestions import (
     EvalSuggestion as EvalSuggestionModel,
     EvalSuggestionRun as EvalSuggestionRunModel,
@@ -128,7 +129,9 @@ def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSugges
         headline=suggestion.headline,
         outcome=suggestion.outcome,
         reason=suggestion.reason,
-        draft=suggestion.draft,
+        observation=str(suggestion.draft.get("observation", "")),
+        observation_scope=str(suggestion.draft.get("observation_scope", "")),
+        draft={key: value for key, value in suggestion.draft.items() if key not in OBSERVATION_KEYS},
         filters=suggestion.filters,
         rollout_percentage=suggestion.rollout_percentage,
         measured_failure_rate=suggestion.measured_failure_rate,
