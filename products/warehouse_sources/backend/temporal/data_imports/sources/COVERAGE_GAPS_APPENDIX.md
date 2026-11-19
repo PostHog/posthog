@@ -11283,10 +11283,10 @@ Today (7): `Comments`, `Posts`, `Promoter`, `Satisfaction`, `Updates`, `Users`, 
 
 Diffed against: <https://sleekplan.com/docs/api/openapi-v2.yaml>
 
-- [ ] `List groups (GET /v2/groups)` — analyze customer accounts and aggregate their feedback, votes, and satisfaction (medium)
-- [ ] `List a group's members (GET /v2/groups/{group_id}/members)` — join existing users to customer accounts for account-level feedback analysis (medium)
-- [ ] `Get post metadata (GET /v1/post/{postid}/meta)` — use custom feedback attributes to segment requests and connect them with business data (medium)
-- [ ] `List documents (GET /v2/documents)` — analyze product decisions and specifications alongside customer feedback (medium)
+- [x] `List groups (GET /v2/groups)` — analyze customer accounts and aggregate their feedback, votes, and satisfaction (medium) → `Groups` (full refresh)
+- [x] `List a group's members (GET /v2/groups/{group_id}/members)` — join existing users to customer accounts for account-level feedback analysis (medium) → `GroupMembers` (full refresh, fan-out over `Groups`)
+- [ ] `Get post metadata (GET /v1/post/{postid}/meta)` — use custom feedback attributes to segment requests and connect them with business data (medium) Skipped: the vendor spec and reference page document no response body, so no row shape or primary key can be chosen.
+- [x] `List documents (GET /v2/documents)` — analyze product decisions and specifications alongside customer feedback (medium) → `Documents` (full refresh)
 
 Note: Parsed both official OpenAPI files, openapi.yaml for V1 and openapi-v2.yaml for the newer namespace. Current comments and votes already use requests for each post; the seven fixed tables cover most V1 collections. Group members and post metadata require parent requests; full document content requires the document detail endpoint. Excluded notifications, mutations, and undocumented category, tag, or document history collections.
 
