@@ -241,7 +241,13 @@ from products.signals.backend.report_metric_refresh import (
 )
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import complete_implementation, verifying_attempt
-from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
+from products.signals.backend.report_monitoring_summary import (
+    MONITORING_RECENT_WINDOW,
+    ReportMonitoringOutcome,
+    ReportMonitoringSummary,
+    monitoring_outcomes,
+    monitoring_summaries,
+)
 from products.signals.backend.report_note_mentions import (
     note_text,
     parse_note_mentions,
@@ -1889,10 +1895,11 @@ _REPORT_LIST_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         required=False,
         description=(
-            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
-            "closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, "
+            "resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
             "actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being "
-            "verified after implementation. for_you holds the open, actionable reports that "
+            "verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring "
+            "ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that "
             "wait for the requesting user's input, that they claimed, or that name them as a suggested "
             "reviewer. needs_decision also includes failed reports without a judgment. "
             "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
@@ -2050,6 +2057,17 @@ _REPORT_LIST_PARAMETERS = [
             "the user's personal ranking."
         ),
     ),
+    OpenApiParameter(
+        name="connected",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated ways the requesting user is connected to a report; a report matching any of them is "
+            "kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. "
+            "'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
@@ -2126,6 +2144,7 @@ class SignalReportViewSet(
             "needs_input",
             "needs_decision",
             "monitoring",
+            "monitoring_recent",
             "resolved",
             "closed",
             "dismissed",
@@ -2134,6 +2153,8 @@ class SignalReportViewSet(
             "all",
         }
     )
+    # pinned: values of the `connected` list query param, a public API contract.
+    _REPORT_CONNECTIONS = ("assigned", "suggested_reviewer")
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
         "is_suggested_reviewer": "is_suggested_reviewer",
@@ -2412,6 +2433,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
+        qs = self._apply_signal_report_connected_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
@@ -2804,6 +2826,9 @@ class SignalReportViewSet(
         return self._filter_signal_reports_by_suggested_reviewers(queryset, reviewer_user_uuids)
 
     def _filter_signal_reports_by_suggested_reviewers(self, queryset, reviewer_user_uuids: list[str]):
+        return queryset.filter(self._suggested_reviewer_condition(reviewer_user_uuids))
+
+    def _suggested_reviewer_condition(self, reviewer_user_uuids: list[str]) -> Q:
         try:
             reviewer_user_uuids = [str(uuid.UUID(user_uuid)) for user_uuid in reviewer_user_uuids]
         except (ValueError, AttributeError) as e:
@@ -2816,8 +2841,8 @@ class SignalReportViewSet(
             get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
         )
         if not reviewer_user_uuids and not reviewer_github_logins:
-            return queryset.none()
-        return queryset.filter(
+            return Q(pk__in=[])
+        return Q(
             id__in=report_ids_naming_reviewers(
                 team_id=self.team.id,
                 user_uuids=reviewer_user_uuids,
@@ -2825,6 +2850,25 @@ class SignalReportViewSet(
                 logins_match_unidentified_only=True,
             )
         )
+
+    def _apply_signal_report_connected_filter(self, queryset):
+        raw = self.request.query_params.get("connected")
+        if raw is None or not raw.strip():
+            return queryset
+        connections = {value.strip() for value in raw.split(",") if value.strip()}
+        invalid = connections - set(self._REPORT_CONNECTIONS)
+        if invalid:
+            allowed = ", ".join(self._REPORT_CONNECTIONS)
+            raise serializers.ValidationError(
+                {"connected": f"Invalid value(s): {', '.join(sorted(invalid))}. Allowed: {allowed}."}
+            )
+        user = cast(User, self.request.user)
+        condition = Q(pk__in=[])
+        if "assigned" in connections:
+            condition |= reports_claimed_for_user(team_id=self.team_id, user_id=user.id)
+        if "suggested_reviewer" in connections:
+            condition |= self._suggested_reviewer_condition([str(user.uuid)])
+        return queryset.filter(condition)
 
     def _apply_signal_report_inbox_scope_filter(self, queryset):
         scope = self.request.query_params.get("scope")
@@ -2968,6 +3012,16 @@ class SignalReportViewSet(
             if not self._report_monitoring_enabled:
                 return queryset.none()
             return queryset.filter(status=SignalReport.Status.MONITORING)
+        if inbox_view == "monitoring_recent":
+            if not self._report_monitoring_enabled:
+                return queryset.none()
+            return queryset.filter(
+                Q(status=SignalReport.Status.MONITORING)
+                | Q(
+                    status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED],
+                    monitoring_ended_at__gte=timezone.now() - MONITORING_RECENT_WINDOW,
+                )
+            )
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
         if inbox_view == "closed":
@@ -3920,14 +3974,22 @@ class SignalReportViewSet(
                 )
         claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         monitoring_summaries_map: dict[str, ReportMonitoringSummary] = {}
+        monitoring_outcomes_map: dict[str, ReportMonitoringOutcome] = {}
         if self._report_monitoring_enabled:
+            now = timezone.now()
             with tracer.start_as_current_span("signals.reports.list.fetch_monitoring_summaries"):
                 monitoring_summaries_map = monitoring_summaries(
                     reports,
                     team_id=self.team_id,
-                    now=timezone.now(),
+                    now=now,
                     may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+                    ended_since=(
+                        now - MONITORING_RECENT_WINDOW
+                        if self.request.query_params.get("view") == "monitoring_recent"
+                        else None
+                    ),
                 )
+                monitoring_outcomes_map = monitoring_outcomes(reports, team_id=self.team_id)
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -3938,6 +4000,7 @@ class SignalReportViewSet(
             ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "monitoring_summaries_map": monitoring_summaries_map,
+            "monitoring_outcomes_map": monitoring_outcomes_map,
             "ranked_inbox_sort": self._ranked_inbox_sort,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
