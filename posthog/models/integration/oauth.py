@@ -30,7 +30,7 @@ from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
-from posthog.scopes import OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 from . import apple_ads, common, model, refresh_tracking, row_writes
 

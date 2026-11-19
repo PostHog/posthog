@@ -314,7 +314,7 @@ class PostHogGroupFilterQuery(GroupFilterQuery):
 
 
 class SCIMUsersView(SCIMBaseView):
-    def get(self, request: Request, scim_slug: str) -> Response:
+    def get(self, request: Request, scim_slug: str | None = None) -> Response:
         config = cast(IdentityProviderConfig, request.auth)
         filter_param = request.query_params.get("filter")
 
@@ -335,7 +335,7 @@ class SCIMUsersView(SCIMBaseView):
                     additional_properties={
                         "scim_operation": "filter_users",
                         "filter": filter_param,
-                        "scim_slug": scim_slug,
+                        "scim_slug": scim_slug or config.scim_slug,
                         "organization_id": config.organization_id,
                     },
                 )
@@ -347,7 +347,7 @@ class SCIMUsersView(SCIMBaseView):
             _build_scim_list_response(queryset, pagination=pagination, adapter_cls=PostHogSCIMUser, config=config)
         )
 
-    def post(self, request: Request, scim_slug: str) -> Response:
+    def post(self, request: Request, scim_slug: str | None = None) -> Response:
         config = cast(IdentityProviderConfig, request.auth)
 
         try:
@@ -371,7 +371,7 @@ class SCIMUsersView(SCIMBaseView):
                 e,
                 additional_properties={
                     "scim_operation": "create_user",
-                    "scim_slug": scim_slug,
+                    "scim_slug": scim_slug or config.scim_slug,
                     "organization_id": config.organization_id,
                     "request_data": request.data,
                 },
@@ -403,11 +403,11 @@ class SCIMUserDetailView(SCIMBaseView):
             )
         return super().handle_exception(exc)
 
-    def get(self, request: Request, scim_slug: str, user_id: int) -> Response:
+    def get(self, request: Request, user_id: int, scim_slug: str | None = None) -> Response:
         scim_user = self.get_object(user_id)
         return Response(scim_user.to_dict())
 
-    def put(self, request: Request, scim_slug: str, user_id: int) -> Response:
+    def put(self, request: Request, user_id: int, scim_slug: str | None = None) -> Response:
         scim_user = self.get_object(user_id)
         config = cast(IdentityProviderConfig, request.auth)
         try:
@@ -426,7 +426,7 @@ class SCIMUserDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "replace_user",
                     "user_id": user_id,
-                    "scim_slug": scim_slug,
+                    "scim_slug": scim_slug or config.scim_slug,
                     "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
@@ -436,7 +436,7 @@ class SCIMUserDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def patch(self, request: Request, scim_slug: str, user_id: int) -> Response:
+    def patch(self, request: Request, user_id: int, scim_slug: str | None = None) -> Response:
         scim_user = self.get_object(user_id)
         config = cast(IdentityProviderConfig, request.auth)
         try:
@@ -457,7 +457,7 @@ class SCIMUserDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "update_user",
                     "user_id": user_id,
-                    "scim_slug": scim_slug,
+                    "scim_slug": scim_slug or config.scim_slug,
                     "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
@@ -467,7 +467,7 @@ class SCIMUserDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def delete(self, request: Request, scim_slug: str, user_id: int) -> Response:
+    def delete(self, request: Request, user_id: int, scim_slug: str | None = None) -> Response:
         scim_user = self.get_object(user_id)
         user_email = scim_user.obj.email
         scim_user.delete()
@@ -483,7 +483,7 @@ class SCIMUserDetailView(SCIMBaseView):
 
 
 class SCIMGroupsView(SCIMBaseView):
-    def get(self, request: Request, scim_slug: str) -> Response:
+    def get(self, request: Request, scim_slug: str | None = None) -> Response:
         config = cast(IdentityProviderConfig, request.auth)
         filter_param = request.query_params.get("filter")
 
@@ -504,7 +504,7 @@ class SCIMGroupsView(SCIMBaseView):
                     additional_properties={
                         "scim_operation": "filter_groups",
                         "filter": filter_param,
-                        "scim_slug": scim_slug,
+                        "scim_slug": scim_slug or config.scim_slug,
                         "organization_id": config.organization_id,
                     },
                 )
@@ -516,7 +516,7 @@ class SCIMGroupsView(SCIMBaseView):
             _build_scim_list_response(queryset, pagination=pagination, adapter_cls=PostHogSCIMGroup, config=config)
         )
 
-    def post(self, request: Request, scim_slug: str) -> Response:
+    def post(self, request: Request, scim_slug: str | None = None) -> Response:
         config = cast(IdentityProviderConfig, request.auth)
         try:
             scim_group = PostHogSCIMGroup.from_dict(request.data, config)
@@ -532,7 +532,7 @@ class SCIMGroupsView(SCIMBaseView):
                 e,
                 additional_properties={
                     "scim_operation": "create_group",
-                    "scim_slug": scim_slug,
+                    "scim_slug": scim_slug or config.scim_slug,
                     "organization_id": config.organization_id,
                     "request_data": request.data,
                 },
@@ -559,11 +559,11 @@ class SCIMGroupDetailView(SCIMBaseView):
             )
         return super().handle_exception(exc)
 
-    def get(self, request: Request, scim_slug: str, group_id: str) -> Response:
+    def get(self, request: Request, group_id: str, scim_slug: str | None = None) -> Response:
         scim_group = self.get_object(group_id)
         return Response(scim_group.to_dict())
 
-    def put(self, request: Request, scim_slug: str, group_id: str) -> Response:
+    def put(self, request: Request, group_id: str, scim_slug: str | None = None) -> Response:
         scim_group = self.get_object(group_id)
         try:
             scim_group.put(request.data)
@@ -580,7 +580,7 @@ class SCIMGroupDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "replace_group",
                     "group_id": group_id,
-                    "scim_slug": scim_slug,
+                    "scim_slug": scim_slug or cast(IdentityProviderConfig, request.auth).scim_slug,
                     "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
@@ -590,7 +590,7 @@ class SCIMGroupDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def patch(self, request: Request, scim_slug: str, group_id: str) -> Response:
+    def patch(self, request: Request, group_id: str, scim_slug: str | None = None) -> Response:
         scim_group = self.get_object(group_id)
         try:
             operations = request.data.get("Operations", [])
@@ -608,7 +608,7 @@ class SCIMGroupDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "update_group",
                     "group_id": group_id,
-                    "scim_slug": scim_slug,
+                    "scim_slug": scim_slug or cast(IdentityProviderConfig, request.auth).scim_slug,
                     "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
@@ -618,7 +618,7 @@ class SCIMGroupDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def delete(self, request: Request, scim_slug: str, group_id: str) -> Response:
+    def delete(self, request: Request, group_id: str, scim_slug: str | None = None) -> Response:
         scim_group = self.get_object(group_id)
         config = cast(IdentityProviderConfig, request.auth)
         # Log before delete: Role.delete() runs inside a transaction, which causes
@@ -635,7 +635,7 @@ class SCIMGroupDetailView(SCIMBaseView):
 
 
 class SCIMServiceProviderConfigView(SCIMBaseView):
-    def get(self, request: Request, scim_slug: str) -> Response:
+    def get(self, request: Request, scim_slug: str | None = None) -> Response:
         return Response(
             {
                 "schemas": [constants.SchemaURI.SERVICE_PROVIDER_CONFIG],
@@ -660,7 +660,7 @@ class SCIMServiceProviderConfigView(SCIMBaseView):
 
 
 class SCIMResourceTypesView(SCIMBaseView):
-    def get(self, request: Request, scim_slug: str) -> Response:
+    def get(self, request: Request, scim_slug: str | None = None) -> Response:
         return Response(
             {
                 "schemas": [constants.SchemaURI.LIST_RESPONSE],
@@ -674,7 +674,7 @@ class SCIMResourceTypesView(SCIMBaseView):
 
 
 class SCIMSchemasView(SCIMBaseView):
-    def get(self, request: Request, scim_slug: str) -> Response:
+    def get(self, request: Request, scim_slug: str | None = None) -> Response:
         return Response(
             {
                 "schemas": [constants.SchemaURI.LIST_RESPONSE],

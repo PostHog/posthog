@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.models import User
 
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from ..models.community_skills import CommunitySkillKind
 from ..models.skills import SCOUT_SKILL_CATEGORY
@@ -48,7 +48,7 @@ class SkillCommunityPublishMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/publish-community",
         required_scopes=["llm_skill:write"],
     )
-    @llma_track_latency("llma_skills_publish_community")
+    @skills_track_latency("llma_skills_publish_community")
     @monitor(feature=None, endpoint="llma_skills_publish_community", method="POST")
     def publish_to_community(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         auth_error = self._ensure_web_authenticated(request)

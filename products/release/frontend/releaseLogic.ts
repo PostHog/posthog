@@ -12,6 +12,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { TODAY_RECENT_KEY, TodayReleaseRecent } from '~/layout/today/todayRecents'
 import { AccessControlLevel, AccessControlResourceType, type Breadcrumb, type UserType } from '~/types'
 
 import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
@@ -52,6 +53,7 @@ interface ReleaseLogicValues {
     currentProjectId: number | null
     featureFlags: FeatureFlagsSet
     releasesEnabled: boolean
+    releasesAreaEnabled: boolean
     user: UserType | null
     releases: ReleaseDTOApi[]
     releasesLoading: boolean
@@ -108,6 +110,7 @@ interface ReleaseLogicValues {
     breadcrumbs: Breadcrumb[]
     filteredRows: ReleaseRow[]
     decisionRows: ReleaseRow[]
+    todayRecent: TodayReleaseRecent | null
 }
 
 interface ReleaseLogicActions {
@@ -187,7 +190,7 @@ interface ReleaseLogicActions {
     addLink: (id: string, candidate: LinkCandidate) => { id: string; candidate: LinkCandidate }
 }
 
-type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
+type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions, { id?: string }>
 
 export interface ReleaseUsageEvent {
     event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
@@ -366,6 +369,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
                                   survey_ids: changes.survey_ids ?? release.survey_ids,
                                   insight_ids: changes.insight_ids ?? release.insight_ids,
+                                  metric_insight_ids: changes.metric_insight_ids ?? release.metric_insight_ids,
+                                  metric_goals: changes.metric_goals ?? release.metric_goals,
                                   surveys: linked?.surveys ?? release.surveys,
                                   insights: linked?.insights ?? release.insights,
                                   broadcasts:
@@ -690,6 +695,13 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
     }),
     selectors({
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.rows, (_, props: { id?: string }) => props.id],
+            (rows: ReleaseRow[], id: string | undefined): TodayReleaseRecent | null => {
+                const row = rows.find((item) => item.id === id)
+                return row ? { type: 'release', id: row.id, name: row.name, href: urls.release(row.id) } : null
+            },
+        ],
         breadcrumbs: [
             (s) => [s.rows, router.selectors.location],
             (rows: ReleaseRow[], location: { pathname: string }): Breadcrumb[] => {
@@ -709,11 +721,16 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
         releasesEnabled: [
             (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASE_OBJECTS],
+        ],
+        releasesAreaEnabled: [
+            (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASES_AREA],
         ],
         canEditReleases: [
-            () => [],
-            (): boolean => userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
+            (s) => [s.releasesEnabled],
+            (releasesEnabled: boolean): boolean =>
+                releasesEnabled && userHasAccess(AccessControlResourceType.FeatureFlag, AccessControlLevel.Editor),
         ],
         partialLoadFailed: [
             (s) => [
@@ -847,12 +864,17 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setFeatureFlags: () => {
-            if (values.releasesEnabled && !cache.lastReloadAt) {
-                actions.reload()
+            if (
+                values.releasesEnabled !== cache.releasesEnabled ||
+                values.releasesAreaEnabled !== cache.releasesAreaEnabled
+            ) {
+                actions.reload(true)
             }
         },
         reload: ({ force }) => {
-            if (!values.releasesEnabled) {
+            cache.releasesEnabled = values.releasesEnabled
+            cache.releasesAreaEnabled = values.releasesAreaEnabled
+            if (!values.releasesEnabled && !values.releasesAreaEnabled) {
                 return
             }
             const now = Date.now()
@@ -860,7 +882,9 @@ export const releaseLogic = kea<releaseLogicType>([
                 return
             }
             cache.lastReloadAt = now
-            actions.loadReleases()
+            if (values.releasesEnabled) {
+                actions.loadReleases()
+            }
             actions.loadFlagCount()
             actions.loadExperimentCount()
             actions.loadEarlyAccessCount()
@@ -901,6 +925,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                 broadcast_ids: saved.broadcast_ids,
                                 survey_ids: saved.survey_ids,
                                 insight_ids: saved.insight_ids,
+                                metric_insight_ids: [...saved.metric_insight_ids],
+                                metric_goals: [...saved.metric_goals],
                             },
                             broadcasts: [...saved.broadcasts],
                             linked: { surveys: saved.surveys, insights: saved.insights },
@@ -1045,6 +1071,9 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadEarlyAccessFeatures()
         },
         loadReleasesSuccess: () => {
+            if (!values.releasesEnabled) {
+                return
+            }
             actions.loadFlags()
             actions.loadScheduledChanges()
             actions.loadBroadcastSends()
@@ -1066,8 +1095,8 @@ export const releaseLogic = kea<releaseLogicType>([
             [urls.releases()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
                     posthog.capture('release view all opened')
+                    actions.reload()
                 }
-                actions.reload()
             },
             [urls.releaseCalendar()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {

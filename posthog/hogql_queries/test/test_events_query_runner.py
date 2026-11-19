@@ -217,12 +217,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert set(by_distinct_id) == {"good", "dict", "list", "int"}
         # String session id is checked for a recording (none exists, so False); non-string ones are skipped.
         assert by_distinct_id["good"]["$has_recording"] is False
-        for distinct_id in ("dict", "list", "int"):
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert isinstance(by_distinct_id[distinct_id]["$session_id"], str)
-                assert by_distinct_id[distinct_id]["$has_recording"] is False
-            else:
-                assert "$has_recording" not in by_distinct_id[distinct_id]
+        for distinct_id in ("dict", "list"):
+            assert "$has_recording" not in by_distinct_id[distinct_id]
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The native table declares `$session_id` as a string, so a number comes back as its text.
+            assert by_distinct_id["int"]["$session_id"] == "12345"
+            assert by_distinct_id["int"]["$has_recording"] is False
+        else:
+            assert "$has_recording" not in by_distinct_id["int"]
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(
@@ -1434,6 +1436,62 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "full",
         ]
 
+    def test_flag_evaluations_only_organization_lists_one_persons_flag_calls_by_person_id(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID, "flag-user-second-device"],
+            properties={"email": FLAG_EVALUATIONS_EMAIL},
+        )
+        other_person = _create_person(team_id=self.team.pk, distinct_ids=["other-flag-user"])
+        first_device_call = self._create_flag_calls_in_both_tables(person_id=person.uuid)
+        second_device_call = self._insert_flag_evaluation(
+            "flag-user-second-device",
+            person.uuid,
+            timestamp=FLAG_CALL_TIMESTAMP - timedelta(minutes=5),
+            properties={"$feature_flag": "second-device-flag", "$feature_flag_response": True, "$lib": "posthog-ios"},
+        )
+        self._insert_flag_evaluation("other-flag-user", other_person.uuid)
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=[
+                    "*",
+                    "properties.$feature_flag",
+                    "properties.$feature_flag_response",
+                    "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+                    "properties.$lib",
+                    "timestamp",
+                ],
+                event="$feature_flag_called",
+                personId=str(person.uuid),
+                after="-24h",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert len([query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]) == 1
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [(str(star["uuid"]), *columns) for star, *columns in response.results] == [
+            (
+                str(first_device_call),
+                FLAG_EVALUATIONS_FLAG_KEY,
+                "variant-a",
+                "https://example.com/pricing",
+                "web",
+                FLAG_CALL_TIMESTAMP,
+            ),
+            (
+                str(second_device_call),
+                "second-device-flag",
+                "true",
+                None,
+                "posthog-ios",
+                FLAG_CALL_TIMESTAMP - timedelta(minutes=5),
+            ),
+        ]
+
     @parameterized.expand(
         [
             (
@@ -1659,6 +1717,37 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert sorted(row[0] for row in response.results) == ["first-retained-day-user", "recent-user"]
 
+    def test_flag_evaluations_person_filter_matches_each_of_the_persons_distinct_ids(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        _create_person(team_id=self.team.pk, distinct_ids=["id1", "id2"])
+        flush_persons_and_events()
+        person = get_person_by_distinct_id(self.team.pk, "id1")
+        assert person is not None
+        self._insert_flag_evaluation("id1", person.uuid)
+        self._insert_flag_evaluation("id2", person.uuid)
+        self._insert_flag_evaluation("someone-else", uuid.uuid4())
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["distinct_id"],
+                event="$feature_flag_called",
+                personId=str(person.pk),
+                after="-30d",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert sorted(row[0] for row in response.results) == ["id1", "id2"]
+        page_queries = [sql for sql in queries if re.search(r"\bFROM\s+flag_evaluations\b", sql)]
+        assert len(page_queries) == 1
+        assert (
+            "in(cityHash64(flag_evaluations.distinct_id), tuple(cityHash64('id1'), cityHash64('id2')))"
+            in page_queries[0]
+        )
+        assert "in(flag_evaluations.distinct_id, tuple('id1', 'id2'))" in page_queries[0]
+
     @snapshot_clickhouse_queries
     def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
@@ -1708,6 +1797,45 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"display_name": "orphan-user", "id": str(orphan_person_id), "distinct_id": "orphan-user"},
             {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
             {"display_name": "unnamed-user", "id": str(unnamed.uuid), "distinct_id": "unnamed-user"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("display_name_lookup", ["timestamp ASC"]),
+            ("persons_join", ["person_display_name -- Person ASC"]),
+        ]
+    )
+    def test_flag_evaluations_person_display_name_follows_a_merge_on_a_team_that_reads_the_stored_person(
+        self, _name: str, order_by: list[str]
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+        merged = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["merged-user", "merged-user-anon"],
+            properties={"email": "merged-user@example.com"},
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation("merged-user-anon", uuid.uuid4())
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [(self.team.pk, "merged-user-anon", str(merged.uuid), 1, 0)],
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=order_by,
+                after="-30d",
+            )
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0] for row in response.results] == [
+            {"display_name": "merged-user@example.com", "id": str(merged.uuid), "distinct_id": "merged-user-anon"}
         ]
 
     @parameterized.expand([("default_order", None), ("requested_order", ["person_display_name -- Person ASC"])])

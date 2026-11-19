@@ -22,12 +22,9 @@ from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
-from posthog.scopes import (
-    API_SCOPE_ACTIONS,
-    API_SCOPE_OBJECTS,
-    INTERNAL_API_SCOPE_OBJECTS,
-    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
-)
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
+from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
@@ -42,7 +39,7 @@ if EE_AVAILABLE:
 
 logger = structlog.get_logger(__name__)
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
@@ -203,14 +200,11 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
         # Every project member can read the legacy secret token, so the check on the person who grants
         # the scope does not limit who ends up holding this key.
-        if (
-            "business_knowledge:read" in added
-            and self.instance is not None
-            and _mirrors_legacy_team_token(self.instance)
-        ):
+        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
+        if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
             raise serializers.ValidationError(
                 "This key is the project's legacy secret token, which every project member can read. "
-                "Create a new key for the business_knowledge:read scope."
+                f"Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
             )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)

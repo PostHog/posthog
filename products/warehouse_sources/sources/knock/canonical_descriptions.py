@@ -175,4 +175,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "added_at": "Timestamp when the user was added to the audience.",
         },
     },
+    "user_feed_items": {
+        "description": "An in-app feed item of a user: a message delivered to an in-app feed channel, as the user's feed shows it. Archived items are included.",
+        "docs_url": "https://docs.knock.app/api-reference/users/feeds/list_items",
+        "columns": {
+            "id": "The unique identifier of the feed item, the same as the ID of its message.",
+            "user_id": "The ID of the user whose feed contains the item.",
+            "channel_id": "The ID of the in-app feed channel the item was delivered to.",
+            "activities": "The trigger activities that produced the item.",
+            "actors": "The actors associated with the item.",
+            "blocks": "The rendered content blocks of the item.",
+            "data": "The trigger data the item was generated with.",
+            "source": "The workflow that produced the item, with its key, categories and version.",
+            "tenant": "The ID of the tenant associated with the item.",
+            "total_activities": "The total number of activities on the item.",
+            "total_actors": "The total number of actors on the item.",
+            "inserted_at": "Timestamp when the item was created.",
+            "updated_at": "Timestamp when the item was last updated.",
+        },
+    },
 }

@@ -48,8 +48,8 @@ def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
     the stored mode unchanged. HogQL reads flag calls from flag_evaluations for a project on the native JSON events
     table whatever this returns, because that table holds no flag calls, so the switch does not move that project."""
     mode = get_organization_flag_evaluations_mode(organization_id)
-    # The switch skips FLAG_EVALUATIONS_ONLY. For teams in the ingestion allowlist, events holds none of that
-    # organization's flag calls, so the readers would show no calls instead of the flag_evaluations rows.
+    # The switch skips FLAG_EVALUATIONS_ONLY. Events holds no new flag calls of the teams that ingestion copies to
+    # flag_evaluations, so the readers would show no calls instead of the flag_evaluations rows.
     if mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS and get_instance_setting(
         "FLAG_EVALUATIONS_READS_FORCE_EVENTS"
     ):
@@ -72,12 +72,16 @@ def reads_flag_calls_from_flag_evaluations(team: "Team", modifiers: "HogQLQueryM
     return get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
 
 
-def flag_calls_only_in_flag_evaluations(team: "Team") -> bool:
+def flag_calls_only_in_flag_evaluations(team: "Team", read_mode: int | None = None) -> bool:
     """Whether a reader that picks its own table finds none of the team's new flag calls in the events table it
-    reads: the organization is on FLAG_EVALUATIONS_ONLY, or the team reads the native JSON events table."""
+    reads: the organization is on FLAG_EVALUATIONS_ONLY, or the team reads the native JSON events table.
+    A caller that already holds get_flag_evaluations_read_mode for the team's organization passes it as `read_mode`,
+    which saves the lookup."""
     if _reads_native_events_with_flag_evaluations(team, None):
         return True
-    return get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+    if read_mode is None:
+        read_mode = get_flag_evaluations_read_mode(team.organization_id)
+    return read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
 def _reads_native_events_with_flag_evaluations(team: "Team", modifiers: "HogQLQueryModifiers | None") -> bool:

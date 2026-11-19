@@ -202,12 +202,6 @@
             },
             "type": "object"
         },
-        "sampling_mode": {
-            "default": "comprehensive",
-            "description": "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
-            "enum": ["focused", "balanced", "comprehensive"],
-            "type": "string"
-        },
         "sampling_rate": {
             "default": 1,
             "description": "0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",

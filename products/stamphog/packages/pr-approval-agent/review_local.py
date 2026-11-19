@@ -43,6 +43,8 @@ comes from the environment (ANTHROPIC_API_KEY).
 in a temporary tree that holds the trusted policy files, this engine and, when the server could read
 them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
 `--attest` runs the same gates in the same tree before the server posts an approval (see attest()).
+`--attestation-proof` tells the server's reviewer routing what the pinned attestations prove about the
+PR (see attestation_proof()), so routing verifies a proof with the engine's own rules.
 """
 
 import os
@@ -655,6 +657,11 @@ def attest(context: dict) -> dict:
     return outcome("")
 
 
+def attestation_proof(context: dict) -> dict:
+    """What the pinned attestations prove about the PR. See ``Pipeline.attestation_proof``."""
+    return _pipeline_without_checkout(context).attestation_proof()
+
+
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
@@ -778,6 +785,11 @@ def main() -> None:
     parser.add_argument(
         "--attest", action="store_true", help="Gates only, no checkout and no LLM (server check before an approval)"
     )
+    parser.add_argument(
+        "--attestation-proof",
+        action="store_true",
+        help="What the pinned attestations prove about the PR, no checkout and no LLM (server reviewer routing)",
+    )
     args = parser.parse_args()
 
     if args.repo_dir:
@@ -794,6 +806,10 @@ def main() -> None:
     if args.attest:
         # A crash exits non-zero, and the server treats that as a failed check and posts no approval.
         print(json.dumps(attest(context)), flush=True)
+        return
+    if args.attestation_proof:
+        # A crash exits non-zero, and the server then routes the PR to every owner.
+        print(json.dumps(attestation_proof(context)), flush=True)
         return
 
     launched_at = _launched_at_ms()

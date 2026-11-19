@@ -70,14 +70,14 @@ describe('resolveProxyRegion', () => {
         ['a US project', OK, UNAUTHORIZED, 'us'],
         ['an EU project', UNAUTHORIZED, OK, 'eu'],
         ['an EU project that blocks the caller IP', UNAUTHORIZED, IP_BLOCKED, 'eu'],
-    ])('routes a project secret API key of %s by reading its knowledge route', async (_, us, eu, expected) => {
+    ])('routes a project secret API key of %s by asking what the key reads', async (_, us, eu, expected) => {
         stubRegions(us, eu)
         const kv = { get: vi.fn(async () => null), put: vi.fn(async () => undefined) }
 
-        expect(await resolveProxyRegion('phs_test', 'hash', kv as unknown as KVNamespace, '42')).toBe(expected)
+        expect(await resolveProxyRegion('phs_test', 'hash', kv as unknown as KVNamespace)).toBe(expected)
         const urls = vi
             .mocked(fetch)
             .mock.calls.map(([input]) => (input instanceof Request ? input.url : String(input)))
-        expect(urls.every((url) => url.endsWith('/api/projects/42/business_knowledge/libraries/'))).toBe(true)
+        expect(urls.every((url) => url.endsWith('/api/projects/@current/business_knowledge/access/'))).toBe(true)
     })
 })

@@ -59,6 +59,7 @@ from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
+    DEFAULT_STATS_DAYS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
@@ -70,6 +71,7 @@ from products.aeo.backend.facade.contracts import (
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
+    BrandSentimentSentence,
     BrandStatus,
     BrandUpdate,
     CheckFrequency,
@@ -130,7 +132,7 @@ DEFAULT_COMPETITOR_CANDIDATES = 20
 MAX_COMPETITOR_CANDIDATES = 100
 MAX_BRAND_ALIASES = 20
 MAX_CHECKS_PAGE_SIZE = 100
-STATS_DAYS = 30
+STATS_DAYS = DEFAULT_STATS_DAYS
 MAX_OVERVIEW_DAYS = 90
 ENGINE_HELP = (
     "Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. "
@@ -284,7 +286,26 @@ class AEOPromptTopicSerializer(DataclassSerializer):
         }
 
 
+class AEOBrandSentimentSentenceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BrandSentimentSentence
+        ref_name = "AEOBrandSentimentSentence"
+        extra_kwargs = {
+            "start": {
+                "help_text": "Offset of the sentence's first character in 'answer_text', counted in Unicode code points."
+            },
+            "end": {"help_text": "Offset just past the sentence's last character, counted in Unicode code points."},
+            "label": {"help_text": "Sentiment of this sentence: 'positive', 'neutral' or 'negative'."},
+            "score": {"help_text": "Classifier confidence (0-1) in 'label'."},
+        }
+
+
 class AEOPromptCheckSerializer(DataclassSerializer):
+    brand_sentiment_sentences = AEOBrandSentimentSentenceSerializer(
+        many=True,
+        help_text="The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored.",
+    )
+
     class Meta:
         dataclass = PromptCheck
         ref_name = "AEOPromptCheck"

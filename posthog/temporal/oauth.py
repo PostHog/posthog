@@ -11,15 +11,14 @@ from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
-from posthog.scopes import (
+from posthog.scopes.catalog import (
     API_SCOPE_OBJECTS,
-    INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
-    OAUTH_HIDDEN_SCOPE_OBJECTS,
     SCOUT_MONITORING_RESULT_SCOPE,
     SLACK_RUN_SCOPE,
-    resolve_ceiling,
 )
+from posthog.scopes.ceilings import resolve_ceiling
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
 from posthog.utils import get_instance_region
 
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -113,7 +112,7 @@ McpScopePreset = Literal[
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
 # Granted only to sandbox runs a person started by hand (see `interactive_run` in
-# posthog/scopes.py). Kept out of `INTERNAL_SCOPES` so a scheduled run never carries it.
+# posthog/scopes/exposure.py). Kept out of `INTERNAL_SCOPES` so a scheduled run never carries it.
 INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
 

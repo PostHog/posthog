@@ -99,6 +99,8 @@ The free tier is limited to 60 requests per minute. The measurement tables fetch
                 return "Fetched per sensor across all locations — request-heavy, so off by default"
             if kind == "location_fanout":
                 return "Fetched per location — request-heavy, so off by default"
+            if kind == "parameter_fanout":
+                return "Fetched per parameter across the whole network — request-heavy, so off by default"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

@@ -1,7 +1,7 @@
 from django.test import SimpleTestCase
 
 from posthog.api.oauth.step_up import STEP_UP_DEFAULT_RESOURCE_SCOPES
-from posthog.scopes import OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 
 class TestStepUpDefaultScopes(SimpleTestCase):

@@ -34,7 +34,7 @@ import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -471,6 +471,10 @@ export class ApiConfig {
         return this._currentOrganizationId
     }
 
+    static hasCurrentOrganizationId(): boolean {
+        return !!this._currentOrganizationId
+    }
+
     static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
         this._currentOrganizationId = id
     }
@@ -568,11 +572,6 @@ export class ApiRequest {
     }
 
     // API-aware endpoint composition
-
-    // # Utils
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
-    }
 
     // # Organizations
     public organizations(): ApiRequest {
@@ -1059,7 +1058,7 @@ export class ApiRequest {
 
     // # Roles
     public roles(): ApiRequest {
-        return this.organizations().current().addPathComponent('roles')
+        return this.organizationsDetail().addPathComponent('roles')
     }
 
     public rolesDetail(roleId: RoleType['id']): ApiRequest {
@@ -1076,7 +1075,7 @@ export class ApiRequest {
 
     // # OrganizationMembers
     public organizationMembers(): ApiRequest {
-        return this.organizations().current().addPathComponent('members')
+        return this.organizationsDetail().addPathComponent('members')
     }
 
     public organizationMembersForAccount(): ApiRequest {
@@ -1634,16 +1633,11 @@ export class ApiRequest {
 
     // # Organization Integrations
     public organizationIntegrations(): ApiRequest {
-        return this.organizations().current().addPathComponent('integrations')
+        return this.organizationsDetail().addPathComponent('integrations')
     }
 
     public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
         return this.organizationIntegrations().addPathComponent(id)
-    }
-
-    // # Organization OAuth Applications
-    public organizationOAuthApplications(): ApiRequest {
-        return this.organizations().current().addPathComponent('oauth_applications')
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -1884,7 +1878,7 @@ export class ApiRequest {
     }
 
     public addProductIntent(): ApiRequest {
-        return this.projects().current().addPathComponent('add_product_intent')
+        return this.projectsDetail().addPathComponent('add_product_intent')
     }
 
     // Max Core Memory
@@ -2054,6 +2048,29 @@ function clientBuildHeader(url: string): Record<string, string> {
         return {}
     }
     return { 'X-PostHog-Client-Build': clientBuild }
+}
+
+// pinned: a URL parameter in shared links, and the cookie name that NewEventsSchemaCookieMiddleware reads
+export const NEW_EVENTS_SCHEMA = 'ph_new_events_schema'
+
+// Read once when the page loads, because pages such as the SQL editor rewrite their URL without it.
+const requestedNewEventsTable = new URLSearchParams(window.location.search).get(NEW_EVENTS_SCHEMA)
+
+export function getPageNewEventsTable(): boolean | null {
+    return requestedNewEventsTable === '1' ? true : requestedNewEventsTable === '0' ? false : null
+}
+
+/**
+ * Two tabs of one browser share one cookie, so each page sends the table its link asked for.
+ * Same-origin only, for the same CORS reason as the build header.
+ */
+function newEventsTableHeader(url: string): Record<string, string> {
+    const requested = getPageNewEventsTable()
+    if (requested === null || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    // pinned: NewEventsSchemaCookieMiddleware reads this header name and the values "1" and "0"
+    return { 'X-PostHog-New-Events-Schema': requested ? '1' : '0' }
 }
 
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
@@ -2825,6 +2842,8 @@ const api = {
                 flatSpans?: boolean
                 // true omits the per-span attribute maps — use when only scalar span fields are read.
                 excludeAttributes?: boolean
+                // true adds each span's OTel events. The column is large, so keep `limit` small.
+                includeEvents?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -3461,6 +3480,7 @@ const api = {
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
+                headers: newEventsTableHeader(url),
                 openWhenHidden: true,
                 onopen: async (response) => {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
@@ -5019,6 +5039,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** Comma-separated report tag slugs. A report matches when it carries any of them. */
+            tags?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
             /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
@@ -6194,12 +6216,6 @@ const api = {
         },
     },
 
-    organizationOAuthApplications: {
-        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
-            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
-        },
-    },
-
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
@@ -6373,8 +6389,7 @@ const api = {
                 ...(scope !== undefined ? { scope } : {}),
             }
             return await new ApiRequest()
-                .projects()
-                .current()
+                .projectsDetail()
                 .withAction('settings_as_of')
                 .withQueryString(toParams(params, true))
                 .get()
@@ -6862,6 +6877,7 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
@@ -6890,6 +6906,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6935,6 +6952,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
@@ -6971,6 +6989,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -7028,6 +7047,7 @@ const api = {
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
                 ...clientBuildHeader(url),
+                ...newEventsTableHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7305,6 +7325,7 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
             ...clientBuildHeader(url),
+            ...newEventsTableHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {

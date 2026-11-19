@@ -1,6 +1,7 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
+import { asToolbarProject, ToolbarProject } from 'lib/toolbar/toolbarProject'
 import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/shared/patch'
@@ -11,7 +12,6 @@ import { finder } from '~/toolbar/shared/vendor/finder'
 import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
-import { asToolbarProject, ToolbarProject } from './toolbarProject'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // The browser extension's content script draws its overlay in this host.

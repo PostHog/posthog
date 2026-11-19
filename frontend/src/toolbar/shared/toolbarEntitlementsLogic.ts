@@ -43,11 +43,11 @@ export interface toolbarEntitlementsLogicActions {
         accessToken: string,
         refreshToken: string | null,
         clientId: string,
-        project: import('./toolbarProject').ToolbarProject
+        project: import('../../lib/toolbar/toolbarProject').ToolbarProject
     ) => {
         accessToken: string
         clientId: string
-        project: import('./toolbarProject').ToolbarProject
+        project: import('../../lib/toolbar/toolbarProject').ToolbarProject
         refreshToken: string | null
     } // toolbarConfigLogic
     loadEntitlements: () => any

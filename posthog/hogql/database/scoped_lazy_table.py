@@ -3,7 +3,7 @@ from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.database.models import DatabaseField, LazyTable, LazyTableToAdd
 
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 
 def json_key_read(chain: list[str | int]) -> ast.Expr:

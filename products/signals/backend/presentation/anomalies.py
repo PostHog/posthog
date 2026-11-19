@@ -36,12 +36,15 @@ from products.signals.backend.facade.api import (
     AnomalyInterval,
     AnomalyOrder,
     AnomalySearchFilters,
+    AnomalySeriesRef,
 )
 
 ANOMALIES_SEARCH_FLAG = "anomalies-search"
 READ_EVENT = "anomaly search read"
 # Bounds the work of filling unscored buckets: an hourly series has 24 buckets a day.
 MAX_RANGE = datetime.timedelta(days=366)
+# The most series one points request reads: one page of search rows at the largest `limit`.
+MAX_POINTS_SERIES = 100
 
 
 @frozen
@@ -86,8 +89,10 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         choices=AnomalyOrder.choices,
         default=AnomalyOrder.UNUSUAL,
         help_text=(
-            "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged "
-            "bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series."
+            "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose "
+            "newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, "
+            "then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as "
+            "`unusual`. With `group_by: insight`, each insight sorts by its first series."
         ),
     )
     search = serializers.CharField(
@@ -102,6 +107,15 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         max_value=10_000,
         default=0,
         help_text="Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.",
+    )
+    include_points = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. "
+            "The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for "
+            "`day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with "
+            "`group_by: insight`."
+        ),
     )
 
 
@@ -134,6 +148,69 @@ class AnomalyFlaggedPointSerializer(serializers.Serializer):
     score = serializers.FloatField(
         allow_null=True, help_text="The detector score of the bucket. Compare it only with buckets of the same series."
     )
+
+
+class AnomalySeriesPointSerializer(serializers.Serializer):
+    bucket_start = ProjectDateTimeField(help_text="The start of the scored bucket, in the project timezone.")
+    value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
+    flag = serializers.BooleanField(help_text="Whether the detector flagged the bucket.")
+
+
+class AnomalySeriesRefSerializer(serializers.Serializer):
+    insight_id = serializers.IntegerField(help_text="The numeric id of the insight, from an anomaly search row.")
+    series_key = serializers.CharField(max_length=64, help_text="The `series_key` of an anomaly search row.")
+    interval = serializers.ChoiceField(
+        choices=AnomalyInterval.choices,
+        help_text="The `interval` of the anomaly search row. It sets the length of the chart window.",
+    )
+
+
+class AnomalyPointsRequestSerializer(serializers.Serializer):
+    series = serializers.ListField(
+        child=AnomalySeriesRefSerializer(),
+        min_length=1,
+        max_length=MAX_POINTS_SERIES,
+        help_text=f"The series to read points for, usually one page of anomaly search rows. At most {MAX_POINTS_SERIES}.",
+    )
+
+
+class AnomalySeriesPointsSerializer(serializers.Serializer):
+    insight_id = serializers.IntegerField(source="series.insight_id", help_text="The numeric id of the insight.")
+    series_key = serializers.CharField(source="series.series_key", help_text="Identifies the series.")
+    interval = serializers.ChoiceField(
+        source="series.interval", choices=AnomalyInterval.choices, help_text="The interval the chart window uses."
+    )
+    date_from = ProjectDateTimeField(
+        help_text=(
+            "The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for "
+            "`day`, 26 weeks for `week` and 24 months for `month`."
+        )
+    )
+    points = AnomalySeriesPointSerializer(
+        many=True,
+        help_text=(
+            "The scored buckets of the series in the chart window, oldest first. A bucket that was not scored, or "
+            "only has a warm-up row, has no point: it is unknown, not 0."
+        ),
+    )
+
+
+class AnomalyPointsResponseSerializer(serializers.Serializer):
+    date_to = ProjectDateTimeField(
+        help_text="The end of every chart window: the time of the request, in the project timezone."
+    )
+    series = AnomalySeriesPointsSerializer(
+        many=True,
+        help_text=(
+            "One entry per requested series, in request order. A series whose insight does not exist, or that the "
+            "caller cannot read, is left out. A series with no scored bucket in its chart window has no points."
+        ),
+    )
+
+
+class AnomalyDashboardSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="The numeric id of the dashboard.")
+    name = serializers.CharField(allow_null=True, help_text="The name of the dashboard. Null when it has none.")
 
 
 class AnomalySeriesSerializer(serializers.Serializer):
@@ -195,6 +272,25 @@ class AnomalySeriesSerializer(serializers.Serializer):
     flagged_points = AnomalyFlaggedPointSerializer(
         many=True, help_text="Up to 5 flagged buckets in the range, newest first."
     )
+    dashboards = AnomalyDashboardSerializer(
+        many=True,
+        help_text="The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none.",
+    )
+    points = AnomalySeriesPointSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Only with `include_points`. The scored buckets of the series in the chart window of its interval, "
+            "oldest first. The chart window can start before `date_from`, so the points do not match `scored_buckets`. "
+            "A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.points is None:
+            data.pop("points")
+        return data
 
 
 class AnomalyTopSeriesSerializer(serializers.Serializer):
@@ -452,6 +548,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=query["limit"],
             offset=query["offset"],
             search=query.get("search") or None,
+            include_points=query["include_points"],
         )
         try:
             result = signals_facade.search_anomalies(team=self.team, user=user, filters=filters, now=now)
@@ -464,6 +561,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             order=filters.order.value,
             offset=filters.offset,
             searched=filters.search is not None,
+            include_points=filters.include_points,
             scoring_enabled=result.scoring_enabled,
             rows=len(result.series) + len(result.insights),
             insights_scored_in_range=result.insights_scored_in_range,
@@ -488,6 +586,29 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data
         )
+
+    @validated_request(
+        request_serializer=AnomalyPointsRequestSerializer,
+        responses={200: OpenApiResponse(response=AnomalyPointsResponseSerializer)},
+        summary="Get the chart points of anomaly series",
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["insight:read"])
+    def points(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        user = self._user(request)
+        now = timezone.now().astimezone(self.team.timezone_info)
+        series = signals_facade.get_anomaly_series_points(
+            team=self.team,
+            user=user,
+            series=[
+                AnomalySeriesRef(
+                    insight_id=ref["insight_id"], series_key=ref["series_key"], interval=IntervalType(ref["interval"])
+                )
+                for ref in request.validated_data["series"]
+            ],
+            now=now,
+        )
+        self._capture_read(request, "points", requested=len(request.validated_data["series"]), series=len(series))
+        return Response(AnomalyPointsResponseSerializer({"date_to": now, "series": series}).data)
 
     @validated_request(
         query_serializer=AnomalyInsightQuerySerializer,

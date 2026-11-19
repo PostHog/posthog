@@ -1,7 +1,5 @@
 import { Client } from 'pg'
 
-import { createExampleInvocation } from '~/cdp/_tests/fixtures'
-import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -51,17 +49,6 @@ describe('checkSandboxRecipient', () => {
             ...request,
         })
 
-    const marketingEmail: Extract<HogFlowAction, { type: 'function_email' }> = {
-        id: 'email',
-        name: 'Send email',
-        description: '',
-        type: 'function_email',
-        filters: null,
-        config: { template_id: 'template-email', message_category_type: 'marketing', inputs: {} },
-        created_at: 0,
-        updated_at: 0,
-    }
-
     const realFrequencyCap = (configReader: PostgresRouter = postgres): (() => Promise<FrequencyCapCheck>) => {
         const preferences = new RecipientPreferencesService(
             new RecipientsManagerService(postgres),
@@ -70,11 +57,16 @@ describe('checkSandboxRecipient', () => {
                 teamWorkflowsConfig: new TeamWorkflowsConfigService(configReader, hub.pubSub),
                 valkey,
                 persons: {
-                    getCyclotronPerson: () => Promise.reject(new Error('an email cap check reads the run person')),
+                    getCyclotronPerson: () => Promise.reject(new Error('the sandbox cap check takes the run person')),
                 },
             }
         )
-        return () => preferences.checkFrequencyCap(createExampleInvocation({ team_id: teamId }), marketingEmail)
+        return () =>
+            preferences.checkMarketingFrequencyCap({
+                teamId,
+                resolvePersonId: () => Promise.resolve('uuid'),
+                dispatchKey: new UUIDT().toString(),
+            })
     }
 
     const capThePerson = async (): Promise<void> => {

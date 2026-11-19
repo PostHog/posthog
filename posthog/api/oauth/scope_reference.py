@@ -14,7 +14,9 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 
 from posthog.scope_docs import SCOPE_GROUPS, get_scope_docs
-from posthog.scopes import OAUTH_SCOPES_SUPPORTED, PRIVILEGED_SCOPES, RISKY_SCOPE_WARNINGS, APIScopeActions
+from posthog.scopes.catalog import APIScopeActions
+from posthog.scopes.exposure import PRIVILEGED_SCOPES, RISKY_SCOPE_WARNINGS
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 CACHE_MAX_AGE_SECONDS = 60 * 60
 

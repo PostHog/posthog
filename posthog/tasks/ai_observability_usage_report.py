@@ -273,6 +273,7 @@ def get_teams_with_ai_events(
     end: datetime,
     trigger_events: list[str],
     event_prefix: str | None = None,
+    team_ids: list[int] | None = None,
 ) -> list[int]:
     """
     Get all team_ids that have at least one AI observability trigger event in the period.
@@ -287,12 +288,14 @@ def get_teams_with_ai_events(
     event_predicate = "event IN %(ai_observability_report_trigger_events)s"
     if event_prefix is not None:
         event_predicate = f"({event_predicate} OR startsWith(event, %(event_prefix)s))"
+    team_predicate = "AND team_id IN %(team_ids)s" if team_ids is not None else ""
     query = f"""
         SELECT DISTINCT team_id
         FROM {events_read_table(use_new_events_schema(None))}
         WHERE {event_predicate}
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
+          {team_predicate}
     """
 
     with tags_context(
@@ -310,6 +313,7 @@ def get_teams_with_ai_events(
                 "event_prefix": event_prefix,
                 "begin": begin,
                 "end": end,
+                "team_ids": team_ids,
             },
             workload=Workload.OFFLINE,
             settings=CH_AI_OBSERVABILITY_SETTINGS,

@@ -17,8 +17,9 @@ filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import date, datetime
+from functools import cache
 from typing import Any, TypeGuard
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import (
@@ -46,6 +48,7 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
 from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.realtime_limits import max_realtime_history_days
 from products.cohorts.backend.realtime_teams import is_serving_team
 
 logger = structlog.get_logger(__name__)
@@ -152,6 +155,26 @@ def _settled_state(cohort: Cohort) -> str | None:
     if cohort.is_flag_compatible:
         return CohortRealtimeState.READY
     return None
+
+
+def _history_limit_to_report(
+    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
+) -> int | None:
+    """The plan's history limit, when criteria that look back past a limit keep this cohort ``off`` or ``daily``.
+
+    An ``off`` cohort past the plan's limit can't be turned on. A save makes a cohort ``daily`` when its criteria
+    look back past the pipeline's cap, and that one reports the plan's limit too, because it is the one a person
+    can act on and it is never above the cap.
+    """
+    if state == CohortRealtimeState.OFF:
+        limit_days = plan_history_days()
+    elif state == CohortRealtimeState.DAILY:
+        limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+    else:
+        return None
+    if not behavioral_history_over_limit((cohort.filters or {}).get("properties"), limit_days=limit_days, today=today):
+        return None
+    return plan_history_days()
 
 
 def _required_backfill_kinds(cohort: Cohort) -> set[str]:
@@ -335,15 +358,16 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute
     # start date at the limit can read on the other side of it here, which changes only the reason.
     today = timezone.now().date()
-    limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+    # Read only for a cohort that can be past it, so a page of cohorts that are on reads no organization.
+    plan_history_days = cache(lambda: max_realtime_history_days(Organization.objects.get(team__id=team_id)))
 
     for cohort in cohorts:
         settled = _settled_state(cohort)
         if settled is None:
             pending.append(cohort)
         else:
-            over_limit = settled == CohortRealtimeState.DAILY and behavioral_history_over_limit(
-                (cohort.filters or {}).get("properties"), limit_days=limit_days, today=today
+            history_limit_days = _history_limit_to_report(
+                cohort, settled, plan_history_days=plan_history_days, today=today
             )
             readiness[cohort.id] = CohortRealtimeReadiness(
                 # Only a prepared realtime cohort has a moment it became targetable. A person
@@ -351,8 +375,8 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
                 state=settled,
                 ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
                 build=None,
-                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if over_limit else None,
-                history_limit_days=limit_days if over_limit else None,
+                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if history_limit_days is not None else None,
+                history_limit_days=history_limit_days,
             )
 
     if not pending:

@@ -1,0 +1,21 @@
+hoglint: this commit is blocked: 2 new findings.
+New findings by rule:
+     2  temporal-placement
+Fix each finding, or stop and tell the person. Do not edit hoglint.ledger, hoglint.exceptions.toml, hoglint.toml or a preset to make this check pass.
+new findings (2)
+  temporal-placement: posthog.temporal.tests.ai.test_empty_probe is in a place that the rule does not allow
+    why: posthog/temporal/ holds only core Temporal code: the worker platform, the cross-product orchestrators and the core workflows.
+    fix (needs care): Move the file to products/<product>/backend/temporal/.
+    needs a person: If the workflow is core, stop and tell the person. The preset lists the Temporal homes of core.
+    see: hoglint explain temporal-placement
+  temporal-placement: posthog.temporal.tests.ai.test_placement_probe is in a place that the rule does not allow
+advisory rows (898)
+  request-path: ee.settings reaches products.actions.backend.facade.api.find_action_team_id: ee.settings -> posthog.middleware.AuthenticationMiddleware -> products.actions.backend.facade.api.find_action_team_id
+    at ee/settings.py:64
+unknowns (137)
+  get-model [inherited, not-modelled] posthog/admin/console/organization_deletion_panels.py:64: model-label 'apps.get_model' did not resolve
+  get-model [inherited, not-modelled] posthog/api/file_system/access_levels.py:134: model-label 'apps.get_model' did not resolve
+unknowns attributed against HEAD (tree 0397904bc6e9, stored summary): 0 introduced, 0 ambiguous, 137 inherited
+level isolated: 25 pass, 74 fail
+10145 findings accepted by the ledger
+What the hook checks and what to do: hoglint help hook.

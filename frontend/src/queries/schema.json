@@ -1851,6 +1851,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "entry_span_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+                },
                 "error_count": {
                     "$ref": "#/definitions/integer"
                 },
@@ -3030,6 +3034,10 @@
                 "boxPlot": {
                     "$ref": "#/definitions/AssistantDataVisualizationBoxPlotSettings",
                     "description": "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+                },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.",
+                    "type": "boolean"
                 },
                 "goalLines": {
                     "description": "Horizontal goal lines drawn across the chart.",
@@ -16001,6 +16009,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20660,6 +20671,10 @@
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
                 },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series bar charts.",
+                    "type": "boolean"
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -20732,6 +20747,12 @@
                 },
                 "valueLabelBackground": {
                     "type": "boolean"
+                },
+                "valueLabelBackgroundColor": {
+                    "type": "string"
+                },
+                "valueLabelColor": {
+                    "type": "string"
                 },
                 "valueLabelFontSize": {
                     "type": "number"
@@ -31809,7 +31830,7 @@
         },
         "ForecastDetectorConfig": {
             "additionalProperties": false,
-            "description": "Forecasts the next point from the points before it, then compares the actual value with the forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither side set, it fires outside the 0.05 to 0.95 forecast range on either side.",
+            "description": "Forecasts the next point from the points before it, then compares the actual value with the forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither side set, it fires outside the 0.01 to 0.99 forecast range on either side.",
             "properties": {
                 "above": {
                     "$ref": "#/definitions/ForecastSideRule",
@@ -32415,6 +32436,10 @@
                 "showLegend": {
                     "default": false,
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
+                "showSummaryOnDashboards": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showTrendLines": {
@@ -33721,7 +33746,7 @@
                     "type": "boolean"
                 },
                 "useNewEventsSchema": {
-                    "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it.",
+                    "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored.",
                     "type": "boolean"
                 },
                 "usePreaggregatedIntermediateResults": {
@@ -35293,12 +35318,15 @@
         },
         "LLMDetectorConfig": {
             "additionalProperties": false,
-            "description": "Hands the series to a model instead of a statistical test. Carries no preprocessing block: differencing or smoothing would hide from the model exactly what it is meant to read.",
             "properties": {
                 "instructions": {
                     "description": "What counts as unusual or interesting for this metric, in your own words. Optional.",
                     "maxLength": 2000,
                     "type": "string"
+                },
+                "model": {
+                    "$ref": "#/definitions/LLMDetectorModel",
+                    "description": "The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5."
                 },
                 "type": {
                     "const": "llm",
@@ -35307,6 +35335,11 @@
             },
             "required": ["type"],
             "type": "object"
+        },
+        "LLMDetectorModel": {
+            "description": "Hands the series to a model instead of a statistical test. Carries no preprocessing block: differencing or smoothing would hide from the model exactly what it is meant to read.",
+            "enum": ["claude-haiku-5-5", "gpt-6-luna"],
+            "type": "string"
         },
         "LLMSentimentMessage": {
             "additionalProperties": false,
@@ -40537,6 +40570,10 @@
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
                 },
+                "minor": {
+                    "description": "True when the monthly impact is under 1% of the ad account's monthly spend.",
+                    "type": "boolean"
+                },
                 "reason": {
                     "type": "string"
                 },
@@ -40879,7 +40916,7 @@
             "additionalProperties": false,
             "properties": {
                 "adTable": {
-                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "description": "Google Ads ad table, used to read the ad copy and landing pages of each ad group.",
                     "type": "string"
                 },
                 "campaignConversionActionTable": {
@@ -44120,7 +44157,19 @@
             "type": "object"
         },
         "MetricsAggregation": {
-            "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
+            "enum": [
+                "sum",
+                "avg",
+                "count",
+                "min",
+                "max",
+                "quantile",
+                "rate",
+                "increase",
+                "histogram_quantile",
+                "count_rate",
+                "count_increase"
+            ],
             "type": "string"
         },
         "MetricsAlertConfig": {
@@ -44543,6 +44592,10 @@
                     "$ref": "#/definitions/MetricsAggregation",
                     "description": "Omit to get one line per series (at most 100), without combining them"
                 },
+                "apdexThresholdMs": {
+                    "description": "Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500.",
+                    "type": "number"
+                },
                 "filters": {
                     "items": {
                         "$ref": "#/definitions/MetricsQueryFilter"
@@ -44630,6 +44683,33 @@
             "required": ["time", "value"],
             "type": "object"
         },
+        "MetricsQueryProvenance": {
+            "additionalProperties": false,
+            "description": "Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles.",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/MetricsQueryProvenanceMode"
+                },
+                "precomputedUntil": {
+                    "description": "Buckets before this time came from precomputed metrics. Absent when no clause read them.",
+                    "type": "string"
+                },
+                "reasons": {
+                    "description": "Why clauses ran raw, one per clause.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["mode"],
+            "type": "object"
+        },
+        "MetricsQueryProvenanceMode": {
+            "description": "`precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples.",
+            "enum": ["precomputed", "mixed", "raw"],
+            "type": "string"
+        },
         "MetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -44644,6 +44724,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -53573,6 +53656,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "provenance": {
+                            "$ref": "#/definitions/MetricsQueryProvenance"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -57815,8 +57901,7 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl",
-                "surfacing_score"
+                "recording_ttl"
             ],
             "type": "string"
         },
@@ -57975,10 +58060,6 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
-                },
-                "recommended_only": {
-                    "description": "Restrict results to recordings above the replay relevance threshold.",
-                    "type": "boolean"
                 },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"
@@ -58191,6 +58272,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58211,6 +58296,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58233,6 +58322,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },
@@ -62444,6 +62537,10 @@
                 },
                 "flatSpans": {
                     "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
+                },
+                "includeEvents": {
+                    "description": "Include each span's OpenTelemetry events. The column is large, so only set this on small lists",
                     "type": "boolean"
                 },
                 "kind": {

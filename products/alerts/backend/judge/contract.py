@@ -197,8 +197,11 @@ class SeriesJudgment:
     model: str
 
     def persisted_metadata(self) -> dict[str, Any]:
-        """The slice of the judgment worth keeping on the check for a person to read later."""
-        return {"rationale": self.rationale, "kind": self.kind}
+        """The slice of the judgment worth keeping on the check for a person to read later.
+
+        The model is kept because an alert's model can change, and the history shows which one made each verdict.
+        """
+        return {"rationale": self.rationale, "kind": self.kind, "model": self.model}
 
 
 class SeriesJudge(Protocol):

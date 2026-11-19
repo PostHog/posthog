@@ -21,7 +21,7 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.utils import UUID_REGEX
 
 from ..facade import api

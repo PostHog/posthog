@@ -1,3 +1,4 @@
+import functools
 from collections.abc import Iterator
 from typing import Any
 
@@ -11,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceInputs,
     SourceResponse,
+    flatten_jsonapi,
     frozen,
     rest_api_resource,
     schema_for_resource,
@@ -57,10 +59,6 @@ def probe_credentials(config: ProductiveSourceConfig, endpoint: str, team_id: in
     next(iter(rest_api_resource(api_config, team_id, "", None)), None)
 
 
-def _flatten_attributes(item: dict[str, Any]) -> dict[str, Any]:
-    return {**item.get("attributes", {}), **{key: value for key, value in item.items() if key != "attributes"}}
-
-
 def productive_source(
     config: ProductiveSourceConfig,
     inputs: SourceInputs,
@@ -101,7 +99,7 @@ def productive_source(
             None,
             resume_hook=save_checkpoint,
             initial_paginator_state={"page": resume.next_page} if resume is not None else None,
-        ).add_map(_flatten_attributes)
+        ).add_map(functools.partial(flatten_jsonapi, relationships_as_ids=False))
         yield from resource
 
     return SourceResponse(
