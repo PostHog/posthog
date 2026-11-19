@@ -336,6 +336,21 @@ class ProjectRepositories:
                 "Only project admins can turn off Deep reviews for pull requests that need a person."
             )
 
+    @staticmethod
+    def _check_settings_need_project(
+        flash_for: str | None | Unset, review_drafts: bool | None, deep_review_gated_prs: bool | None
+    ) -> None:
+        """Refuse an exception or a switch turned on for a repository that is not in the project."""
+        if isinstance(flash_for, str):
+            raise RepositorySettingsError("Include the repository in this project before you add an exception.")
+        if review_drafts:
+            raise RepositorySettingsError("Include the repository in this project before you turn on draft reviews.")
+        if deep_review_gated_prs:
+            raise RepositorySettingsError(
+                "Include the repository in this project before you turn on Deep reviews for pull requests "
+                "that need a person."
+            )
+
     def save_repository(
         self,
         ref: RepositoryRef,
@@ -380,17 +395,7 @@ class ProjectRepositories:
                 )
 
             if not new_selected and not takes_all:
-                if isinstance(flash_for, str):
-                    raise RepositorySettingsError("Include the repository in this project before you add an exception.")
-                if review_drafts:
-                    raise RepositorySettingsError(
-                        "Include the repository in this project before you turn on draft reviews."
-                    )
-                if deep_review_gated_prs:
-                    raise RepositorySettingsError(
-                        "Include the repository in this project before you turn on Deep reviews for pull requests "
-                        "that need a person."
-                    )
+                self._check_settings_need_project(flash_for, review_drafts, deep_review_gated_prs)
                 # The repository leaves the project, so its exception and its switches go too.
                 new_flash_for = None
                 new_review_drafts = False
