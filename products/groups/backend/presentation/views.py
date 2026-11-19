@@ -184,7 +184,8 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        return self._update_metadata(request, cast(list[dict], request.data))
+        updates_field = GroupTypeMetadataUpdateRequestSerializer().fields["updates"]
+        return self._update_metadata(request, updates_field.run_validation(request.data))
 
     @extend_schema(
         request=GroupTypeMetadataUpdateRequestSerializer,

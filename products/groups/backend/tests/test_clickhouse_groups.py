@@ -1902,6 +1902,16 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(cache.get(cache_key)[0]["name_singular"], "org")
         self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
+    @parameterized.expand(["update_metadata", "update_metadata_for_agents"])
+    def test_update_metadata_rejects_more_rows_than_group_types(self, action: str) -> None:
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
+        rows = [{"group_type_index": 0, "name_singular": "org"}] * (GROUP_TYPES_LIMIT + 1)
+        body = rows if action == "update_metadata" else {"updates": rows}
+
+        response = self.client.patch(f"{self.url}/{action}", body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_update_metadata_for_agents_accepts_object_body(self):
         create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
 
