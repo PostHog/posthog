@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="role",
             name="organization_access_level",
-            field=models.PositiveSmallIntegerField(blank=True, choices=[(8, "administrator")], null=True),
+            field=models.SmallIntegerField(blank=True, choices=[(8, "administrator")], null=True),
         ),
         AddConstraintNotValid(
             model_name="role",

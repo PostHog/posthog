@@ -23,7 +23,7 @@ class Role(UUIDTModel):
         ]
 
     name = models.CharField(max_length=200)
-    organization_access_level = models.PositiveSmallIntegerField(
+    organization_access_level = models.SmallIntegerField(
         null=True,
         blank=True,
         choices=OrganizationAccessLevel.choices,

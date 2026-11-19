@@ -36,7 +36,9 @@ class TestRoleOrganizationAccessLevel(TestCase):
         role.refresh_from_db()
         self.assertIsNone(role.organization_access_level)
 
-    @parameterized.expand([(OrganizationMembership.Level.MEMBER,), (OrganizationMembership.Level.OWNER,), (0,), (9,)])
+    @parameterized.expand(
+        [(OrganizationMembership.Level.MEMBER,), (OrganizationMembership.Level.OWNER,), (-1,), (0,), (9,)]
+    )
     def test_model_validation_rejects_other_levels(self, level: int) -> None:
         organization = Organization.objects.create(name="Example")
         role = Role(name="Invalid", organization=organization, organization_access_level=level)
@@ -44,7 +46,9 @@ class TestRoleOrganizationAccessLevel(TestCase):
             role.full_clean(exclude=["created_by"])
         self.assertIn("organization_access_level", error.exception.message_dict)
 
-    @parameterized.expand([(OrganizationMembership.Level.MEMBER,), (OrganizationMembership.Level.OWNER,), (0,), (9,)])
+    @parameterized.expand(
+        [(OrganizationMembership.Level.MEMBER,), (OrganizationMembership.Level.OWNER,), (-1,), (0,), (9,)]
+    )
     def test_database_rejects_other_levels(self, level: int) -> None:
         organization = Organization.objects.create(name="Example")
         role = Role.objects.create(name="Grant", organization=organization)
