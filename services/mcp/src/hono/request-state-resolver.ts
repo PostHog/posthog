@@ -345,7 +345,8 @@ export class RequestStateResolver {
         // Never from a flag or mode, which can change under a cached read-only `exec`; wrappers gate writes on the `exec` name.
         const splitWrites = await this.resolveSplitWrites(
             reqCtx,
-            props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
+            props.splitWrites === true && !readOnly && clientProfile.consumer === undefined,
+            Boolean(requestContext.mcpSessionId)
         )
 
         const apiKeyScopes = _apiKey?.scopes ?? []
@@ -446,10 +447,17 @@ export class RequestStateResolver {
         }
     }
 
-    /** Pinned to the MCP session, so no later request can turn a listed read-only `exec` into a writer. */
-    private async resolveSplitWrites(reqCtx: RequestContext, requested: boolean): Promise<boolean> {
+    /**
+     * Pinned to the MCP session, so no later request can turn a listed read-only `exec` into a writer. A conversation
+     * handle doesn't count: the first call mints one after `tools/list`, which would split a client that never saw `exec-write`.
+     */
+    private async resolveSplitWrites(
+        reqCtx: RequestContext,
+        requested: boolean,
+        hasMcpSession: boolean
+    ): Promise<boolean> {
         const sessionCache = reqCtx.sessionScopedCache
-        if (!sessionCache) {
+        if (!sessionCache || !hasMcpSession) {
             return false
         }
         if (requested) {

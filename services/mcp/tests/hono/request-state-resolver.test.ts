@@ -120,7 +120,10 @@ vi.mock('@/hono/request-context', async () => {
             return {
                 tokenCache: { ...makeCache(mockTokenStore), scope: props.userHash },
                 lookups: args[4] ?? new StateLookupCache(),
-                sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
+                sessionScopedCache:
+                    props.mcpSessionId || props.mcpConversationId
+                        ? makeCache(sessionScopedStore(props.mcpSessionId ?? `conversation:${props.mcpConversationId}`))
+                        : undefined,
                 legacySessionScopedCache: props.mcpSessionId
                     ? {
                           get: vi.fn(async () => {
@@ -1020,8 +1023,16 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.splitWrites).toBe(expected)
     })
 
-    it('does not split writes for a client with no session to pin the split to', async () => {
-        const result = await makeResolver().resolve(makeProps({ mcpSessionId: undefined, splitWrites: true }))
+    it.each([
+        ['no handle', {}],
+        [
+            'only a conversation handle, which the first call mints after tools/list',
+            { mcpConversationId: 'conversation-1' },
+        ],
+    ])('does not split writes for a client with %s', async (_label, handle) => {
+        const result = await makeResolver().resolve(
+            makeProps({ mcpSessionId: undefined, splitWrites: true, ...handle })
+        )
 
         expect(result.splitWrites).toBe(false)
     })
