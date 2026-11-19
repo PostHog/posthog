@@ -116,6 +116,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-postgres columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, postgres_schema, table_name = get_postgres_source_location(
@@ -145,6 +146,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-mysql columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         mysql_schema, table_name = get_mysql_source_location(
@@ -173,6 +175,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-redshift columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, redshift_schema, table_name = get_redshift_source_location(
@@ -203,6 +206,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-snowflake columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, snowflake_schema, table_name = get_snowflake_source_location(
@@ -233,6 +237,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-ClickHouse columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         clickhouse_database, table_name = get_clickhouse_source_location(
@@ -264,6 +269,7 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             schema.incremental_field,
             # Direct-MotherDuck columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, motherduck_schema, table_name = get_motherduck_source_location(

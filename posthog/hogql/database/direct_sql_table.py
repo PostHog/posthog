@@ -36,7 +36,10 @@ class DirectSQLTable(FunctionCallTable):
             return table_ref
         columns = [field.name for field in self.fields.values() if isinstance(field, DatabaseField)]
         if not columns:
-            raise QueryError(f"Table {self.name} has no selected columns.")
+            raise QueryError(
+                f"None of the selected columns of table {self.name} exist in the source anymore. "
+                "Select its columns again."
+            )
         return f"(SELECT {', '.join(quote(column) for column in columns)} FROM {table_ref})"
 
     def to_printed_hogql(self) -> str:
