@@ -113,9 +113,9 @@ _LIQUID_BLANK = rf"[{_LIQUID_BLANKS}]"
 # character past ASCII that is not a blank or a curly double quote.
 _LIQUID_WORD_CHAR = rf"(?:[-0-9?A-Z_a-z]|[^\x00-\x7f{_LIQUID_BLANKS}\u201c\u201d])"
 _LIQUID_TAG_NAME = re.compile(rf"{_LIQUID_BLANK}*+(#|{_LIQUID_WORD_CHAR}*+)")
-# The tokenizer ends a raw block at the first `{%` followed by the identifier `endraw`. It reads `{%- endraw` and
-# `endraw-` as other identifiers, so neither of them ends the block.
+# LiquidJS reads `{%- endraw` and `endraw-` as other identifiers, so neither of them ends a raw block.
 _LIQUID_RAW_END = re.compile(rf"\{{%{_LIQUID_BLANK}*endraw(?!{_LIQUID_WORD_CHAR})")
+_LIQUID_DELIMITER = re.compile(r"%\}|\{%")
 _LIQUID_BOUND = rf"""([+-]?\d++(?:\.(?!\.)\d*+)?|{_LIQUID_STRING_PATTERN})"""
 _LIQUID_RANGE = re.compile(rf"""\(\s*+{_LIQUID_BOUND}\s*+\.\.\s*+{_LIQUID_BOUND}\s*+\)""", re.DOTALL)
 _LIQUID_STRING_OR_PAREN = re.compile(r"['\"(]")
@@ -426,13 +426,29 @@ def _liquid_tokens(template: str) -> Iterator[_LiquidTag]:
         position = end + 2
         name = _liquid_tag_name(inside.removeprefix("-").removesuffix("-"))
         if not is_output and name == "raw":
-            closing = _LIQUID_RAW_END.search(template, position)
-            closing_end = -1 if closing is None else template.find("%}", closing.end())
-            if closing_end == -1:
+            position = _raw_block_end(template, position)
+            if position == -1:
                 return
-            position = closing_end + 2
             continue
         yield _LiquidTag(inside=inside, name=name, is_output=is_output)
+
+
+def _raw_block_end(template: str, position: int) -> int:
+    """Where the raw block whose text starts at `position` ends, after its `endraw` tag, or -1. A port of
+    `readEndrawOrRawContent` in LiquidJS, where an `endraw` that meets another `{%` before its `%}` gives way to it."""
+    candidate = template.find("{%", position)
+    while candidate != -1:
+        end_tag = _LIQUID_RAW_END.match(template, candidate)
+        if end_tag is None:
+            candidate = template.find("{%", candidate + 2)
+            continue
+        delimiter = _LIQUID_DELIMITER.search(template, end_tag.end())
+        if delimiter is None:
+            return -1
+        if delimiter.group() == "%}":
+            return delimiter.end()
+        candidate = delimiter.start()
+    return -1
 
 
 def _liquid_tag_name(tag: str) -> str:
