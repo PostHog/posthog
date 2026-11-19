@@ -1301,6 +1301,18 @@ describe('cloud controller', () => {
             'reader average above its maximum before T0 ({-3}); the runner saved a failed scorecard: the card ended failed',
         ],
         [
+            'a failed runner scorecard whose reason is not text, with an average before T0 above its maximum',
+            {
+                card: { exitCode: 1, runnerStatusReason: { toString: null } },
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -3 ? { ...minute, avg: 1.2 } : minute
+                ),
+            },
+            () => undefined,
+            'invalid',
+            'reader average above its maximum before T0 ({-3})',
+        ],
+        [
             'a reader above the idle limit while the failover waits for its offset',
             {
                 readerAcu: [

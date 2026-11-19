@@ -121,6 +121,7 @@ export type FakeCloudOptions = {
         uploadFails?: boolean
         diesAfterMs?: number
         runnerStatus?: string
+        runnerStatusReason?: unknown
         journalsIntent?: boolean
     }
     probe?: 'lost' | 'timedOut'
@@ -519,7 +520,12 @@ export class FakeCloud implements Aws {
 
     private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
         const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
-        const statusReason = status === 'passed' ? '' : `the card ended ${status}`
+        const statusReason =
+            this.options.card && 'runnerStatusReason' in this.options.card
+                ? this.options.card.runnerStatusReason
+                : status === 'passed'
+                  ? ''
+                  : `the card ended ${status}`
         const failoverAt = this.failovers.get(card.runId)
         const timeline: ValveTimelineEntry[] =
             failoverAt === undefined

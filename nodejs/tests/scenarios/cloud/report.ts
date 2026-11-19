@@ -266,9 +266,10 @@ export async function report(
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
+    const savedReason = host?.event.status_reason
     const hostReason =
-        host && host.event.status !== 'passed' && host.event.status_reason
-            ? [`the runner saved a ${host.event.status} scorecard: ${host.event.status_reason}`]
+        host && host.event.status !== 'passed' && typeof savedReason === 'string' && savedReason
+            ? [`the runner saved a ${host.event.status} scorecard: ${savedReason}`]
             : []
     const environment = environmentOf(profile, card, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
