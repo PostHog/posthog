@@ -107,7 +107,11 @@ describe('workflow write response shape', () => {
             id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
         } as any)
 
-        expect(request.mock.calls[0]?.[0].body).toEqual({ status: 'active' })
+        expect(request.mock.calls[0]?.[0]).toMatchObject({
+            method: 'PATCH',
+            path: '/api/projects/42/hog_flows/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/',
+            body: { status: 'active' },
+        })
         expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
         expect(result.warnings).toEqual(warnings)
         expect(result._posthogUrl).toBe(`https://us.posthog.com${path}`)
