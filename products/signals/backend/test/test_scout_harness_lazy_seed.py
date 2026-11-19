@@ -816,20 +816,43 @@ class TestShippedStructuredOutputSchemas:
 
 
 class TestShippedBillingScoutVocabulary:
-    def test_every_billing_usage_type_has_a_product_key_row(self) -> None:
-        # The scout prices and routes a meter only through this table, so a usage type billing adds
-        # without a row here is a meter the scout reads but can neither price nor hand off.
+    @pytest.mark.parametrize(
+        "section",
+        [
+            # The scout prices a meter only through this table.
+            "## Three vocabularies for one meter",
+            # And hands it off, and finds the skill to read, only through this one.
+            "## Where each usage type hands off",
+        ],
+    )
+    def test_every_billing_usage_type_has_a_row(self, section: str) -> None:
+        # A usage type billing adds without a row is a meter the scout reads but can neither price nor hand off.
         (skill,) = [s for s in discover_canonical_skills() if s.name == "signals-scout-billing"]
         (reference,) = [f.content for f in skill.files if f.path == "references/usage-types.md"]
-        vocabulary = reference.split("## Three vocabularies for one meter", 1)[1].split("\n## ", 1)[0]
+        table = reference.split(section, 1)[1].split("\n## ", 1)[0]
         mapped = {
             usage_type
-            for line in vocabulary.splitlines()
+            for line in table.splitlines()
             if line.startswith("| `")
             for usage_type in re.findall(r"`([a-z0-9_]+)`", line.split("|")[1])
         }
 
         assert set(USAGE_TYPE_VALUES) - mapped == set()
+
+    def test_every_official_skill_the_scout_names_exists(self) -> None:
+        # The scout reads these skills from the sandbox at run time, so a renamed or removed skill leaves
+        # it following a pointer to nothing.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == "signals-scout-billing"]
+        named = {
+            name
+            for content in (skill.body, *(f.content for f in skill.files))
+            for name in re.findall(r"`posthog:([a-z0-9-]+)`", content)
+        }
+        repo_root = Path(__file__).resolve().parents[4]
+        official = {path.parent.name for path in repo_root.glob("products/*/skills/*/SKILL.md")}
+
+        assert "managing-self-driving-spend" in named
+        assert named - official == set()
 
 
 class TestDeprecationFrontmatter:

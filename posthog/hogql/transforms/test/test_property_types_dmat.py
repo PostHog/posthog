@@ -9,10 +9,13 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.conf import settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -108,6 +111,37 @@ class TestDmatIntegration(BaseTest):
         assert "dmat_string_0" not in query
         # Should use JSON extraction or properties access
         assert "properties" in query or "JSONExtractRaw" in query
+
+    def test_loads_the_slots_of_every_property_in_one_query(self):
+        definitions = {
+            name: PropertyDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=name,
+                property_type=PropertyType.String,
+                type=PropertyDefinition.Type.EVENT,
+            )
+            for name in ("plan", "seats", "region")
+        }
+        MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=definitions["plan"],
+            slot_index=3,
+            state=MaterializedColumnSlotState.READY,
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            metadata = load_property_metadata(
+                HogQLContext(team_id=self.team.pk, team=self.team),
+                event_property_names=set(definitions),
+                person_property_names=set(),
+                group_property_names={},
+            )
+
+        slot_queries = [query for query in queries.captured_queries if "posthog_materializedcolumnslot" in query["sql"]]
+        assert len(slot_queries) == 1
+        assert metadata.event_properties["plan"]["dmat"] == "dmat_string_3"
+        assert "dmat" not in metadata.event_properties["seats"]
 
 
 @dataclass

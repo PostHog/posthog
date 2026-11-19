@@ -228,8 +228,10 @@ tools:
             set, the task exists but its run did not start. The run cannot ask questions, so it writes a note to the
             report's work log when it needs a decision. 409 `report_action_run_active` means a run already works on the
             pull request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action
-            from a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
-            `report_action_unavailable`, the detail says why.
+            from a person's session. 403 `report_action_not_granted` means this scout was not granted the action or sent
+            a `message`, which a scout cannot; leave a note for a person instead. 429 `report_action_scout_daily_cap`
+            means this scout started its daily allowance of actions. 402 and 429 mean a trial, task, or usage limit: do
+            not retry until it clears. For `report_action_unavailable`, the detail says why.
         param_overrides:
             id:
                 aliases:
@@ -649,6 +651,7 @@ tools:
                 - title
                 - summary
                 - metrics
+                - tags
                 - status
                 - priority
                 - actionability
