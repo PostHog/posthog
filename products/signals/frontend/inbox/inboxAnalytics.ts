@@ -7,6 +7,7 @@ import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes
 import type {
     InboxSummaryApi,
     PaginatedSignalReportListListApiPersonalRankingStatus,
+    ReportLinkSummaryApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
@@ -53,6 +54,7 @@ export const INBOX_EVENTS = {
     // Sent by the cloud inbox only, because the desktop inbox does not track visible time.
     REPORT_READ: 'Inbox report read',
     REPORT_ACTION: 'Inbox report action',
+    REPORT_LINK_STRIP_CLICKED: 'Inbox report link strip clicked',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     // Cloud-only for now.
@@ -536,6 +538,10 @@ export function captureInboxReportsImpressed(params: {
     rankerId: string | null
     /** Whether the Recommended list showed score pills. */
     rankingPill: boolean
+    /** Whether the cards showed link strips. Each impression then carries its strip kind. */
+    linkStrips?: boolean
+    /** How many other reports each card stands for after plan layers collapse, parallel to `reports`. */
+    collapsedCounts?: number[]
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
     const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
@@ -570,6 +576,12 @@ export function captureInboxReportsImpressed(params: {
                 ? { personal_tier: report.personal_tier ?? null, personal_reason_shown: !!report.personal_reason }
                 : {}),
             ...rankingPillProperties(report, params.rankingPill),
+            ...(params.linkStrips
+                ? {
+                      link_strip_kind: report.link_summary?.kind ?? null,
+                      collapsed_report_count: params.collapsedCounts?.[index] ?? 0,
+                  }
+                : {}),
         })),
     })
 }
@@ -734,6 +746,36 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
+    })
+}
+
+/** What a click on a card's link strip opened. */
+export type InboxLinkStripTarget = 'linked_report' | 'plan_step' | 'other_link'
+
+/**
+ * A click on a card's link strip. With the strip kinds on `Inbox reports impressed` as the denominator,
+ * this says whether people follow links from the list, and for which kinds.
+ */
+export function captureInboxReportLinkStripClicked(params: {
+    report: SignalReport
+    summary: ReportLinkSummaryApi
+    target: InboxLinkStripTarget
+    linkedReportId: string
+    /** The link kind of the report that was opened, for an `other_link` click. */
+    linkedKind?: string | null
+    /** The 1-based position of the opened layer, for a `plan_step` click. */
+    stepPosition?: number | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_LINK_STRIP_CLICKED, {
+        ...baseReportProperties(params.report),
+        strip_kind: params.summary.kind,
+        target: params.target,
+        linked_report_id: params.linkedReportId,
+        linked_kind: params.linkedKind ?? null,
+        step_position: params.stepPosition ?? null,
+        step_count: params.summary.plan?.steps.length ?? null,
+        own_step_position: params.summary.plan?.position ?? null,
+        other_link_count: params.summary.other_links.length,
     })
 }
 
