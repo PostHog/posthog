@@ -618,6 +618,11 @@ class TestAbuseRules(SimpleTestCase):
                 content(hog="for (let x in [inputs.sender, <__H_expr_H__ url={inputs.url} />]) {\n  print(x)\n}"),
                 True,
             ),
+            (
+                "closure_called_through_a_between_temporary",
+                content(hog="let hit := inputs.sender between <__expr__ url={inputs.url} /> and 1"),
+                True,
+            ),
             ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
             ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
             ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),

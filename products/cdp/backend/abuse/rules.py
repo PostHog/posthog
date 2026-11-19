@@ -84,9 +84,6 @@ _NON_HOG_TEMPLATE_PREFIXES = ("plugin-", "segment-", "native-")
 
 _CALLBACK_FUNCTIONS = frozenset({"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce"})
 _BUILTIN_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
-# Locals the bytecode compiler declares itself, which a call or a tag can reach like any other local.
-_CATCH_LOCALS = ("e", "type")
-_FOR_IN_LOCALS = ("__H_expr_H__", "__H_keys_H__", "__H_values_H__", "__H_index_H__", "__H_limit_H__")
 
 # Source that names none of these cannot match a rule that reads parsed Hog, so it is not parsed.
 _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "replaceAll"})))
@@ -276,11 +273,9 @@ class _HogCodeVisitor(TraversingVisitor):
             super().visit_lambda(node)
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
-        # The compiler declares its temporaries before it compiles the iterable.
-        with self._scope(_FOR_IN_LOCALS):
-            self.visit(node.expr)
-            with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
-                self.visit(node.body)
+        self.visit(node.expr)
+        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
+            self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
         with self._scope():
@@ -288,10 +283,9 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
-        with self._scope(_CATCH_LOCALS):
-            for name, _error_type, handler in node.catches:
-                with self._scope([name] if name else []):
-                    self.visit(handler)
+        for name, _error_type, handler in node.catches:
+            with self._scope([name] if name else []):
+                self.visit(handler)
         self.visit(node.finally_stmt)
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
@@ -318,9 +312,11 @@ class _HogCodeVisitor(TraversingVisitor):
         self.calls_out = True
         super().visit_select_set_query(node)
 
+    # A tag calls the local of its name, and the compiler declares locals of its own, such as `e` in a catch block or
+    # `__expr__` in a between expression. A function has no use for tags, so any tag counts.
     def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
         super().visit_hogqlx_tag(node)
-        self.calls_out |= self._is_local(node.kind)
+        self.calls_out = True
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
