@@ -408,7 +408,7 @@ func (p *processor) writeExportMembers(buf *bytes.Buffer, document *value, isDec
 	}
 	if decodeDots {
 		if p.exportKeys == nil {
-			p.exportKeys = make(map[string]struct{}, len(document.entries))
+			p.exportKeys = make(map[string]struct{}, min(len(document.entries), maxRecycledValues))
 		}
 		// The keys can borrow the input row, so the set must not outlive this document.
 		defer p.releaseExportKeys()
