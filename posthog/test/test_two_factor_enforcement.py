@@ -731,10 +731,16 @@ class TestTwoFactorPolicyOfTheTargetOrganization(APIBaseTest):
             ("project object", "/api/environments/{team}/"),
             ("organization route", "/api/organizations/{organization}/members/"),
             ("organization object", "/api/organizations/{organization}/"),
+            ("organization object action", "/api/organizations/{organization}/teams/data_freshness/"),
         ]
     )
     def test_session_request_follows_the_target_organization(self, _name: str, path: str) -> None:
         response = self.client.get(path.format(team=self.strict_team.id, organization=self.strict_organization.id))
+
+        self._assert_two_factor_setup_required(response)
+
+    def test_organization_object_write_follows_the_target_organization(self) -> None:
+        response = self.client.post(f"/api/organizations/{self.strict_organization.id}/request_ai_access/")
 
         self._assert_two_factor_setup_required(response)
 
