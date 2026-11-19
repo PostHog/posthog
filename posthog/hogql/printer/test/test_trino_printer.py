@@ -618,6 +618,14 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "SELECT properties.color FROM (SELECT properties FROM users)",
             'json_extract_scalar("properties", \'$["color"]\')',
         ),
+        (
+            "SELECT p.color FROM (SELECT properties AS p FROM users)",
+            'json_extract_scalar("p", \'$["color"]\')',
+        ),
+        (
+            "WITH c AS (SELECT properties FROM users) SELECT q.properties.color FROM (SELECT properties FROM c) AS q",
+            'json_extract_scalar("q"."properties", \'$["color"]\')',
+        ),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
@@ -665,6 +673,12 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
     [
         "SELECT p.key FROM (SELECT properties.nested AS p FROM users)",
         "WITH c AS (SELECT properties.nested AS p FROM users) SELECT q.p.key FROM (SELECT p FROM c) AS q",
+        "SELECT properties.key FROM (SELECT properties.nested AS properties FROM users)",
+        "SELECT p.key FROM (SELECT properties AS p FROM users UNION ALL SELECT properties.nested AS p FROM users)",
+        "SELECT q.properties.key FROM (SELECT b.properties, a.properties FROM users AS a "
+        "JOIN (SELECT id, properties.nested AS properties FROM users) AS b ON a.id = b.id) AS q",
+        "SELECT r.p.key FROM users AS l "
+        "LEFT ANY JOIN (SELECT id, properties.nested AS p FROM users) AS r ON l.id = r.id",
     ],
 )
 def test_rejects_property_read_on_a_value_a_subquery_already_extracted(query: str) -> None:
