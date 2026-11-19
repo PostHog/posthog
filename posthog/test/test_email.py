@@ -583,12 +583,12 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off_sends_over_smtp", False, None, None, 1, 0),
-            ("workflows_accepts", True, 202, None, 0, 1),
-            ("workflows_accepts_while_the_relay_is_down", True, 202, "relay_down", 0, 1),
-            ("workflows_refuses_before_queueing_falls_back_to_smtp", True, 400, None, 1, 1),
-            ("sandbox_refusal_falls_back_to_smtp", True, 422, "sandbox_recipient_not_member", 1, 1),
-            ("workflows_may_have_queued_never_falls_back", True, 503, None, 0, 2),
+            ("flag_off_sends_over_smtp", False, None, None, 1, "sent"),
+            ("workflows_accepts", True, 202, None, 0, "sent"),
+            ("workflows_accepts_while_the_relay_is_down", True, 202, "relay_down", 0, "sent"),
+            ("workflows_refusal_retries_and_never_uses_smtp", True, 400, None, 0, "retries"),
+            ("workflows_may_have_queued_retries", True, 503, None, 0, "retries"),
+            ("undeliverable_address_is_dropped", True, 422, "recipient_unreachable", 0, "dropped"),
         ]
     )
     @patch("posthog.email.posthoganalytics.feature_enabled")
@@ -600,7 +600,7 @@ class TestEmail(BaseTest):
         workflows_status: int | None,
         condition: str | None,
         expected_smtp_sends: int,
-        expected_workflows_posts: int,
+        outcome: str,
         mock_post: MagicMock,
         mock_flag: MagicMock,
     ) -> None:
@@ -626,24 +626,22 @@ class TestEmail(BaseTest):
                 reply_to="a@b.com",
             )
             message.add_recipient("test@posthog.com")
-            if workflows_status == 503:
+            if outcome == "retries":
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
-                # A retry after the flag turns off still replays the email through Workflows, never over SMTP.
-                mock_flag.return_value = False
-                mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
-            message.send(send_async=False, retry=False)
+            else:
+                message.send(send_async=False, retry=False)
 
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
-        self.assertEqual(mock_post.call_count, expected_workflows_posts)
-        if expected_workflows_posts:
+        self.assertEqual(mock_post.call_count, 1 if flag_on else 0)
+        if flag_on:
             payload = mock_post.call_args.kwargs["json"]
             self.assertEqual(payload["template_key"], "async_migration_error")
             self.assertEqual(payload["subject"], "Subject")
             self.assertIn("<html", payload["html"])
             self.assertEqual(payload["reply_to"], ["a@b.com"])
         record = MessagingRecord.objects.get(campaign_key="smtp_routing")
-        self.assertIsNotNone(record.sent_at)
+        self.assertEqual(record.sent_at is not None, outcome == "sent")
 
     @parameterized.expand(
         [
@@ -678,25 +676,6 @@ class TestEmail(BaseTest):
         self.assertEqual(len(mail.outbox), expected_smtp_sends)
 
     @patch("posthog.email.requests.post")
-    def test_a_pinned_retry_never_goes_over_smtp_after_the_workflows_key_is_removed(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = MagicMock(status_code=503, text="unavailable", json=MagicMock(return_value={}))
-        with (
-            patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
-            override_instance_config("EMAIL_HOST", "localhost"),
-            self.settings(CLOUD_DEPLOYMENT="US", POSTHOG_HOST="https://us.posthog.com"),
-        ):
-            message = EmailMessage(campaign_key="key_removed", subject="Subject", template_name="async_migration_error")
-            message.add_recipient("pinned@posthog.com")
-            with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test"):
-                with self.assertRaises(WorkflowsEmailError):
-                    message.send(send_async=False, retry=False)
-            with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
-                with self.assertRaises(WorkflowsEmailError):
-                    message.send(send_async=False, retry=False)
-
-        self.assertEqual(len(mail.outbox), 0)
-
-    @patch("posthog.email.requests.post")
     def test_a_failed_commit_after_workflows_accepts_retries_through_workflows(self, mock_post: MagicMock) -> None:
         mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
         original_save = MessagingRecord.save
@@ -718,8 +697,8 @@ class TestEmail(BaseTest):
             ):
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
-            # The flag is off by the retry, so only the pin keeps the email on Workflows.
-            with patch("posthog.email.posthoganalytics.feature_enabled", return_value=False):
+            # The retry sends the same idempotency key, so Workflows replays the email instead of sending it twice.
+            with patch("posthog.email.posthoganalytics.feature_enabled", return_value=True):
                 message.send(send_async=False, retry=False)
 
         self.assertEqual(len(mail.outbox), 0)

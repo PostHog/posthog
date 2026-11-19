@@ -858,14 +858,6 @@ CACHES["metrics_prometheus_usage"] = {
     },
 }
 
-# A transactional email's Workflows pin is read on its retry, right after an attempt wrote it, and under the recipient's
-# row lock. Read from the writer, and bound each call so a stalled Redis cannot hold the lock.
-# django-redis shares one connection pool per URL, so the timeouts go in the URL to give this alias its own pool.
-CACHES["email_workflows_pins"] = {
-    **CACHES["default"],
-    "LOCATION": f"{REDIS_URL}{'&' if '?' in REDIS_URL else '?'}socket_connect_timeout=0.5&socket_timeout=0.5",
-}
-
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {
@@ -987,7 +979,6 @@ if TEST:
     CACHES["survey_site_snapshot"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
-    CACHES["email_workflows_pins"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
