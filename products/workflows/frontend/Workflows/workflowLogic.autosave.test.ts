@@ -1491,6 +1491,11 @@ describe('workflowLogic auto-save', () => {
                 ...staged,
                 draft: { name: 'Autosave test', ...withSandboxEmail([VALID_TRIGGER, EXIT]) },
             } as HogFlow
+            // The editor's copy shows the step live already, while the API may have moved the live step off it.
+            const stagedKeepingSandbox = {
+                ...stagedAddingSandbox,
+                ...withSandboxEmail([VALID_TRIGGER, EXIT]),
+            } as HogFlow
             it.each([
                 ['the preview warns', true, staged, true],
                 ['the preview does not warn', false, staged, false],
@@ -1499,6 +1504,12 @@ describe('workflowLogic auto-save', () => {
                     'an older preview omits the field and the draft adds a test sender step',
                     undefined,
                     stagedAddingSandbox,
+                    true,
+                ],
+                [
+                    'an older preview omits the field and the draft keeps a test sender step',
+                    undefined,
+                    stagedKeepingSandbox,
                     true,
                 ],
                 ['an older preview omits the field and the draft adds no test sender step', undefined, staged, false],

@@ -65,9 +65,9 @@ import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogi
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
+    draftUsesSandboxSender,
     fetchStoredWorkflow,
     isLiveOnSandboxSender,
-    publishMovesStepsToSandboxSender,
     readySandboxSender,
 } from '../Channels/sandboxSender'
 import {
@@ -4900,11 +4900,11 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             // The server judges the warning from the same copy the token covers, and refuses the confirm if
             // a later live change moves steps onto the test sender that this dialog didn't warn about. A worker
-            // from before that field omits it and ignores the confirm's flag, so the editor's copy decides then;
-            // the check above showed that copy matches the staged draft the token covers.
+            // from before that field omits it and ignores the confirm's flag, so the editor warns then whenever
+            // the staged draft has a test sender step.
             const movesToSandboxSender =
                 preview.moves_to_sandbox_sender ??
-                (!!values.originalWorkflow && publishMovesStepsToSandboxSender(values.originalWorkflow))
+                (!!values.originalWorkflow && draftUsesSandboxSender(values.originalWorkflow))
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
                 posthog.capture('workflows sandbox sender enable warning shown', {
