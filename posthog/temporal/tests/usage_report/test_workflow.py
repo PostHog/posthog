@@ -54,6 +54,7 @@ from posthog.temporal.usage_report.workflow import (
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
     MCP_EVENT_COUNT_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
+    PIPELINES_EGRESS_BYTES_QUERY_NAME,
     QUERY_CONCURRENCY,
     REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME,
     SANDBOX_COMPUTE_QUERY_NAME,
@@ -68,6 +69,7 @@ from posthog.temporal.usage_report.workflow import (
     _queries_for_local_evaluation_not_modified_patch,
     _queries_for_logs_distinct_patterns_patch,
     _queries_for_mcp_event_count_patch,
+    _queries_for_pipelines_egress_bytes_patch,
     _queries_for_replay_vision_spend_projection_patch,
     _queries_for_sandbox_compute_patch,
     _queries_for_signals_spend_patch,
@@ -107,6 +109,7 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
             LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
         ),
         ("ai_overage_bytes", _queries_for_ai_overage_bytes_patch, AI_OVERAGE_BYTES_QUERY_NAME),
+        ("pipelines_egress_bytes", _queries_for_pipelines_egress_bytes_patch, PIPELINES_EGRESS_BYTES_QUERY_NAME),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(
@@ -116,9 +119,10 @@ def test_single_query_is_versioned_for_existing_histories(
     assert query_name in [spec.name for spec in queries_for_patch(QUERIES, True)]
 
 
-def test_deferred_query_is_known_to_every_worker_but_not_dispatched() -> None:
-    assert AI_OVERAGE_BYTES_QUERY_NAME in QUERY_INDEX
-    assert AI_OVERAGE_BYTES_QUERY_NAME not in [spec.name for spec in _dispatched_queries(QUERIES)]
+@parameterized.expand([(AI_OVERAGE_BYTES_QUERY_NAME,), (PIPELINES_EGRESS_BYTES_QUERY_NAME,)])
+def test_deferred_query_is_known_to_every_worker_but_not_dispatched(query_name: str) -> None:
+    assert query_name in QUERY_INDEX
+    assert query_name not in [spec.name for spec in _dispatched_queries(QUERIES)]
 
 
 @parameterized.expand(
