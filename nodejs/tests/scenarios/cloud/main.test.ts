@@ -438,6 +438,11 @@ describe('cloud controller', () => {
             'readerAcu.idleMax',
         ],
         [
+            'a reader idle limit above the reader maximum',
+            { profile: (p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax: p.readerAcu.max + 0.5 } }) },
+            'readerAcu.idleMax',
+        ],
+        [
             'a pooler image not pinned by digest',
             { profile: (p) => ({ ...p, pooler: { ...p.pooler, image: 'registry.example.com/pgbouncer:1' } }) },
             'pooler.image',
