@@ -471,6 +471,8 @@ export function createRunner(
             let sampled: Sampled = { samples: [], missed: [], host: [] }
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
+            const judging = new AbortController()
+            let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
             let producer: KafkaProducerWrapper | undefined
@@ -543,6 +545,7 @@ export function createRunner(
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
+                const liveSignal = AbortSignal.any([signal, judging.signal])
                 const watch = card.drive.stopOnBreak
                     ? watchRamp(
                           {
@@ -557,11 +560,12 @@ export function createRunner(
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
                               profile,
-                              writerCpu: (window) => writerCpuFor(card.bars, window, signal),
+                              writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
                           },
-                          signal
+                          liveSignal
                       )
                     : undefined
+                pendingJudgments = () => watch?.pending() ?? Promise.resolve()
                 const recorder = watch
                     ? {
                           record: (unit: JournalEntry) => {
@@ -584,18 +588,23 @@ export function createRunner(
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
-                const [convergence] = await Promise.all([
-                    judge.converge(durationMs(card.convergeWithin), signal),
-                    watch?.pending(),
-                ])
+                const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                const checkInvariants = async (samples: Sampled['samples']) => {
+                    const janitorResets = janitorResetsOf({ samples, sampledFrom: sampling.sampler.sampledFrom })
+                    return {
+                        janitorResets,
+                        invariants: await judge.check(card.invariants, card.gates, { janitorResets }),
+                    }
+                }
+                const atDeadline = watch ? await checkInvariants([...sampler.taken()]) : undefined
+                await pendingJudgments()
                 const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 await live.stop()
                 const down = await stopHealth()
-                const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const { janitorResets, invariants } = atDeadline ?? (await checkInvariants(sampled.samples))
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
@@ -665,6 +674,8 @@ export function createRunner(
                     statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
+                judging.abort()
+                await pendingJudgments()
                 await valves.releaseAll()
                 await stopHealth?.()
                 probed = (await probes?.stop()) ?? probed
