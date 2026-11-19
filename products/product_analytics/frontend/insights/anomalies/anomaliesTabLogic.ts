@@ -154,13 +154,6 @@ export interface anomaliesTabLogicActions {
         position: number
         series: AnomalySeriesApi
     }
-    toggleInsightExpanded: (
-        insightId: number,
-        position: number
-    ) => {
-        insightId: number
-        position: number
-    }
     resetFilters: () => {
         value: true
     }
@@ -169,6 +162,13 @@ export interface anomaliesTabLogicActions {
     }
     setLoadError: (loadError: AnomaliesLoadError) => {
         loadError: AnomaliesLoadError
+    }
+    toggleInsightExpanded: (
+        insightId: number,
+        position: number
+    ) => {
+        insightId: number
+        position: number
     }
 }
 
