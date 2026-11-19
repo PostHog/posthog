@@ -703,10 +703,10 @@ Diffed against: <https://docs.api.appfollow.io/reference/app_collections_list_ap
 - [x] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high) — synced as `app_versions`.
 - [x] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium) — synced as `reviews_stats`, incremental on `date`. Counts only; sentiment lives on `/reviews/semantic`.
 - [ ] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium)
-- [ ] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium)
-- [ ] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium)
-- [ ] `/api/v2/reports/aso` — packaged ASO report combining keywords, ranks and visibility (medium)
-- [ ] `/api/v2/reviews/semantic` — semantic tags per review, the breakdown dimension for review analysis (medium)
+- [x] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium) — synced as `reviews_ratings_stats`. It returns star ratings by review tag per replying user for one review date, not a rating distribution, so the table walks one request per day.
+- [x] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium) — synced as `reviews_replies_stats`, `reviews_replies_count` and `reviews_replies_speed`. `/count` returns the replied reviews whose rating changed after the reply, not counts.
+- [x] `/api/v2/reports/aso` — packaged ASO report combining keywords, ranks and visibility (medium) — synced as `aso_reports`. It returns App Store Connect downloads, impressions and page views per source channel, not keywords or ranks.
+- [x] `/api/v2/reviews/semantic` — semantic tags per review, the breakdown dimension for review analysis (medium) — synced as `reviews_semantic` (Advanced API add-on).
 - [ ] `/api/v2/charts/topcharts` — public top charts for competitive benchmarking (medium)
 - [ ] `/api/v2/meta/ratings/console/gp` — Google Play Console ratings, more accurate than scraped store ratings (medium)
 - [ ] `/api/v2/aso/featured` — App Store featuring events that drive install spikes (low)
@@ -8991,13 +8991,13 @@ Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 - [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
 - [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
 - [x] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
-- [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
-- [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
+- [x] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
+- [x] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
 - [x] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
 - [x] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
 - [x] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
-- [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low)
-- [ ] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
+- [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low) Skipped: requires timeframe_start with no documented history bound or order, and late events change past hourly counts, so neither incremental nor bounded full refresh is reliable.
+- [x] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
 
 Note: Diffed against the official Orb SDK API surface (orbcorp/orb-node api.md), which enumerates every REST path. Alerts, webhooks and backfill endpoints excluded as config/plumbing.
 
