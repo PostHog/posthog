@@ -2,33 +2,44 @@
 
 Workflows is the product where a team builds workflows, broadcasts and transactional emails, and sends messages to people through them.
 It also holds the channels, recipients and deliverability setup behind those messages.
-This glossary sets the words for the Messaging home in the new sidebar.
-A term marked "(Messaging home)" becomes true when that home ships behind `today-rail-nav`.
+This glossary sets the words for Email & Messaging, the product home for everything that sends messages.
+A term marked "(Email & Messaging)" becomes true when that home ships.
 Until then the UI still says Library, Message categories, and a "Messaging" setup tab.
 
 ## Language
 
 ### Navigation
 
-**Messaging** (Messaging home):
-The one home in the sidebar for broadcasts, transactional emails, messaging workflows, templates, channels, recipients and deliverability.
-Inside the home, the word names nothing else.
+**Email & Messaging** (Email & Messaging):
+The product home for broadcasts, transactional emails, messaging workflows, templates and their setup, with its own sidebar.
+It opens on the Overview.
+_Avoid_: Messaging (as the product name), Messaging home
 
-**Workflows row** (Messaging home):
-The sidebar row that lists every workflow, with the All / Messaging / Automations / Loops filter.
-It is the home of automations and loops.
-Messaging > Workflows shows the messaging view only.
+**Overview** (Email & Messaging):
+The first page of Email & Messaging: how messages performed, what needs attention, and what sends next.
+An account with nothing set up sees the next set-up step there instead.
 
-**Setup** (Messaging home):
-The group heading for Channels, Recipients and Deliverability, when a layout needs one.
+**Calendar** (Email & Messaging):
+One view of everything scheduled to send, across broadcasts and workflows, instead of one calendar per scene.
+
+**View** (Email & Messaging):
+A saved filter, sort and column set over the things you send.
+A **default view** is built in, one per kind of thing you send: Broadcasts, Transactional emails and Messaging workflows.
+The sidebar lists them under "Views".
+_Avoid_: Folder, Tab, Segment
+
+**Setup** (Email & Messaging):
+The sidebar group for Channels, Recipients, Deliverability and Settings.
 _Avoid_: Messaging (as that heading)
 
-**Settings** (Messaging home):
+**Settings** (Email & Messaging):
 The settings for engagement events, email tracking consent and UTM defaults.
-They open from a settings control on the home.
+They are the last row of Setup.
 
-**Calendar** (Messaging home):
-One view of everything scheduled to send, across broadcasts and workflows, instead of one calendar per scene.
+**Workflows row**:
+The Products row of the Workflows product, which lists every workflow with the All / Messaging / Automations / Loops filter.
+It is the home of automations and loops.
+Inside Email & Messaging, the Messaging workflows view shows only messaging workflows.
 
 ### What you send
 
@@ -44,6 +55,8 @@ _Avoid_: Journey, Campaign, Flow
 **Messaging workflow**:
 A workflow that is not a loop and has an email, SMS or push step.
 A Slack step does not make a workflow a messaging workflow.
+The view is called "Messaging workflows".
+_Avoid_: Drip campaign, Campaign
 
 **Automation**:
 A workflow that is not a loop and has no email, SMS or push step.
@@ -51,7 +64,7 @@ It is a view, not a noun of its own.
 
 **Loop**:
 A workflow that the Loops product created.
-It shows only on the Workflows row, never inside Messaging.
+It shows only on the Workflows row, never inside Email & Messaging.
 
 **Broadcast**:
 A one-time or scheduled message to a group of people, on any channel.
@@ -64,7 +77,7 @@ The word never names the consent area.
 
 **Transactional email**:
 An email template that your code sends with one API call.
-The section label is "Transactional".
+The view is called "Transactional emails".
 _Avoid_: API send, transactional message (until a second channel ships)
 
 **Message**:
@@ -74,9 +87,9 @@ A broadcast to 1,000 people is 1,000 messages.
 **Templates**:
 Reusable message content.
 Today every template is an email template.
-API-enabled templates show a "Transactional" tag in Templates and also appear under Transactional.
+API-enabled templates show a "Transactional" tag in Templates and also appear in the Transactional emails view.
 **Workflow templates** are starting points for a workflow.
-They live in the "New workflow" chooser, not in Templates (Messaging home).
+They live in the "New workflow" chooser, not in Templates (Email & Messaging).
 _Avoid_: Library
 
 Broadcasts, transactional emails and workflows have no umbrella noun.
@@ -93,7 +106,7 @@ _Avoid_: Connection, Sender, Integration (as the section name)
 The setup of the email channel.
 It is a verified domain that PostHog sends email from.
 
-**Recipients** (Messaging home):
+**Recipients** (Email & Messaging):
 The area that decides who may receive your messages.
 It holds opt-outs and the suppression list.
 _Avoid_: Audience, Subscriptions, Contacts, Consent
@@ -118,6 +131,6 @@ An email with the transactional mark still reaches a suppressed address unless t
 A **suppressed address** is one entry.
 _Avoid_: Blocklist
 
-**Deliverability** (Messaging home):
+**Deliverability** (Email & Messaging):
 The area for whether mail arrives and how much PostHog may send.
 It holds Reputation and the sending limits, which are the daily limit and the frequency cap.
