@@ -1715,7 +1715,7 @@ Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
 ## BlandAI — **thin**
 
-Today (13): `call_events`, `call_transcripts`, `calls`, `eval_call_results`, `eval_runs`, `inbound_numbers`, `pathway_versions`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`, `web_agents`
+Today (18): `agent_test_runs`, `agent_test_scenarios`, `audit_logs`, `call_events`, `call_transcripts`, `calls`, `eval_call_results`, `eval_runs`, `inbound_numbers`, `knowledge_bases`, `pathway_versions`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`, `web_agents`, `widget_threads`
 
 Diffed against: <https://docs.bland.ai/llms.txt>
 
@@ -1727,10 +1727,10 @@ Diffed against: <https://docs.bland.ai/llms.txt>
 - [x] `GET /v1/pathway_versions` — pathway version history so a call can be attributed to the version that served it (medium)
 - [x] `GET /v1/voices` — lookup resolving voice IDs referenced by calls (medium)
 - [x] `GET /v1/evals/runs and /v1/evals/runs/{id}/call-results` — per-call eval scores, the quality metric for voice agents (medium)
-- [ ] `GET /v1/agent-testing/runs (and /agent-testing/scenarios)` — regression test outcomes per pathway over time (medium)
-- [ ] `GET /v1/widget/{id}/threads` — web widget conversation threads, another engagement channel (medium)
-- [ ] `GET /v1/audit-logs` — account change history for compliance reporting (low)
-- [ ] `GET /v1/knowledge` — knowledge base inventory referenced by pathways (low)
+- [x] `GET /v1/agent-testing/runs (and /agent-testing/scenarios)` — regression test outcomes per pathway over time (medium)
+- [x] `GET /v1/widget/{id}/threads` — web widget conversation threads, another engagement channel (medium)
+- [x] `GET /v1/audit-logs` — account change history for compliance reporting (low)
+- [x] `GET /v1/knowledge` — knowledge base inventory referenced by pathways (low)
 
 Note: Source directory has no dynamic table discovery — bland_ai.py exposes a static table catalog only. Bland's API is very large (200+ documented operations), so the remaining gaps above are still a sizeable fraction.
 
@@ -6015,13 +6015,13 @@ Diffed against: <https://docs.honeybadger.io/api/>
 - [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
 - [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
 - [x] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
-- [ ] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium)
-- [ ] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium)
+- [x] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium). Added as `notices_per_day` (incremental on `day` via `start`; first sync reads 30 days).
+- [x] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium). Added as `notices_by_class` (full refresh, rolling 30-day window).
 - [x] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium). Added as `check_ins` (full refresh).
 - [x] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium). Added as `alarm_history` (fan-out over alarms, full refresh; off by default).
 - [x] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium). Added as `comments` (fan-out over `faults`, full refresh; off by default).
-- [ ] `teams/{id}/team_members` — membership table resolving assignee/owner references (low)
-- [ ] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low)
+- [x] `teams/{id}/team_members` — membership table resolving assignee/owner references (low). Added as `team_members` (fan-out over teams, full refresh; off by default).
+- [x] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low). Added as `accounts` and `account_users` (fan-out over accounts; off by default), both full refresh.
 
 Note: Static endpoint list; source dir products/warehouse_sources/sources/honeybadger has no dynamic table discovery. Enumerated every /v2/ path across the api/faults, api/projects, api/uptime, api/check-ins, api/comments, api/alarms, api/environments, api/teams, api/accounts, api/insights, api/dashboards, api/status-pages and api/streams doc pages.
 
@@ -6124,17 +6124,17 @@ Note: The wider HubSpot sweep lives in [COVERAGE_GAPS.md](COVERAGE_GAPS.md). The
 
 ## HuggingFace — **thin**
 
-Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
+Today (10): `collections`, `commits`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `organization_members`, `spaces`
 
 Diffed against: <https://huggingface.co/.well-known/openapi.json>
 
 - [x] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
 - [x] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
 - [x] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
-- [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium)
-- [ ] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium)
-- [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium)
-- [ ] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium)
+- [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium). Skipped: Hub-wide snapshot capped at 20 rows (`limit` max 20), not scoped to the connected namespace; the repo tables already carry `trendingScore`.
+- [x] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium). Added as `commits`, the `main` history of every model, dataset and Space of the namespace, keyed on `repo_type`, `repo_name` and the commit `id`
+- [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium). Skipped: both list the Hub-wide paper catalog, not data of the connected namespace; neither filters by repo owner, and `/api/papers` pages through every paper on the Hub.
+- [x] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium). Added as `organization_members`; empty when the namespace is a user (the Hub answers 404)
 - [ ] `/api/spaces/{namespace}/{repo}/metrics` — runtime usage metrics for spaces we already sync (medium)
 - [x] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
 - [ ] `/api/jobs/{namespace} (and /{jobId}/metrics)` — compute job runs and their metrics for cost/usage analysis (low)
@@ -8765,12 +8765,12 @@ Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/
 - [x] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high). Added as `chat_completions`; only completions created with `store: true` are listed, and there is no server-side time filter, so it is full refresh
 - [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
 - [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
-- [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
+- [x] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium). Added as `project_groups`
 - [x] `/batches` — batch job records with request counts and completion status (medium). Added as `batches`
-- [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
+- [x] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium). Added as `fine_tuning_jobs`, `fine_tuning_job_events` and `fine_tuning_job_checkpoints`
 - [x] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium). Added as `evals`, `eval_runs` and `eval_run_output_items`
-- [ ] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low)
-- [ ] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low)
+- [x] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low). Added as `chat_completion_messages`
+- [x] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low). Added as `vector_stores`
 
 Note: Current coverage is exactly the Administration + Usage API surface and is complete there (only certificates, data_retention, spend_alerts/spend_limit and permission endpoints are missing, all config). The gaps listed come from the platform API, which this source does not touch at all.
 
@@ -11176,10 +11176,10 @@ Diffed against: <https://apidocs.simplecast.com/api/collections/10068189/T1DsAGJ
 - [x] `analytics/downloads (GET)` — downloads over time, the headline metric of the entire product (high)
 - [x] `analytics/episodes (GET, plus /average_downloads, /hours_listened, /listeners, /top_10)` — per-episode download and listening figures — the grain every podcast analysis starts from (high)
 - [x] `analytics/listeners (GET, plus /last_7 and analytics/podcasts/listeners)` — unique listener counts, the audience-size metric distinct from downloads (high)
-- [ ] `podcasts/{podcast_id}/seasons (GET) and seasons/{season_id}/episodes (GET)` — lookup resolving the season an episode belongs to, needed for any season-over-season comparison (medium)
-- [ ] `analytics/technology/* (GET: applications, browsers, devices, device_class, listening_methods, network_types, operating_systems, providers, web_players)` — listening-platform breakdown dimensions — which apps and devices the audience uses (medium)
-- [ ] `analytics/location (GET)` — geographic breakdown of the audience (medium)
-- [ ] `distribution_channels (GET) and podcasts/{podcast_id}/distribution_channels (GET)` — lookup for the platforms a show is distributed to, needed to attribute downloads by channel (medium)
+- [x] `podcasts/{podcast_id}/seasons (GET) and seasons/{season_id}/episodes (GET)` — lookup resolving the season an episode belongs to, needed for any season-over-season comparison (medium) Built as `seasons`; seasons/{season_id}/episodes not built because each `episodes` row already carries its season.
+- [x] `analytics/technology/* (GET: applications, browsers, devices, device_class, listening_methods, network_types, operating_systems, providers, web_players)` — listening-platform breakdown dimensions — which apps and devices the audience uses (medium)
+- [x] `analytics/location (GET)` — geographic breakdown of the audience (medium)
+- [x] `distribution_channels (GET) and podcasts/{podcast_id}/distribution_channels (GET)` — lookup for the platforms a show is distributed to, needed to attribute downloads by channel (medium)
 - [ ] `analytics/embed/* (GET: listens, avg_completion, heatmap, locations, speeds, episodes)` — web player engagement including completion rate and drop-off heatmap (medium)
 - [ ] `categories (GET) and podcasts/{podcast_id}/categories (+ /subcategories)` — lookup for show taxonomy used in benchmarking and rollups (medium)
 - [ ] `analytics/campaigns/{campaign_id} (GET)` — campaign-level performance for promoted episodes (medium)
@@ -12450,8 +12450,8 @@ Diffed against: <https://developers.tickettailor.com/sitemap.xml>
 - [x] `GET /v1/holds` — held/reserved seats per event, required to reconcile inventory against issued tickets (medium) → `holds` (full refresh)
 - [x] `GET /v1/stores` — lookup resolving the store a synced product belongs to, for per-store merch revenue (medium) → `stores` (full refresh)
 - [x] `GET /v1/event_series/{id}/waitlist_signups` — waitlist signups, the demand signal for sold-out events (medium) → `waitlist_signups` (full refresh, fan-out over `event_series`)
-- [ ] `GET /v1/checkout_forms (+ /v1/checkout_forms/{id}/elements)` — lookup that decodes the custom checkout answers stored on orders and issued tickets (medium)
-- [ ] `GET /v1/event_series/{id}/overrides` — per-occurrence overrides on a recurring series, explaining why an occurrence differs from its series (low)
+- [x] `GET /v1/checkout_forms (+ /v1/checkout_forms/{id}/elements)` — lookup that decodes the custom checkout answers stored on orders and issued tickets (medium) → `checkout_forms` (full refresh) + `checkout_form_elements` (full refresh, fan-out over `checkout_forms`)
+- [x] `GET /v1/event_series/{id}/overrides` — per-occurrence overrides on a recurring series, explaining why an occurrence differs from its series (low) → `event_series_overrides` (full refresh, fan-out over `event_series`)
 
 Note: The docs site is a Docusaurus shell that renders the OpenAPI client-side, so the sitemap was used to enumerate operations and individual pages were fetched to confirm paths. /v1/events already covers event occurrences, and ticket types/ticket groups have create/update/delete only (no list) — they come embedded in event objects, so neither is a real gap.
 
@@ -13637,12 +13637,12 @@ Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources
 - [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
 - [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
 - [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
-- [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
-- [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
-- [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
-- [ ] `call_outcomes` — lookup resolving outcome_id on the calls table we already sync (medium)
-- [ ] `text_messages` — SMS activity alongside calls and notes, completing the rep-activity picture (medium)
-- [ ] `sequence_enrollments` — which contacts/leads entered which outreach sequence and their enrollment state (medium)
+- [x] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
+- [x] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
+- [x] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
+- [x] `call_outcomes` — lookup resolving outcome_id on the calls table we already sync (medium)
+- [x] `text_messages` — SMS activity alongside calls and notes, completing the rep-activity picture (medium)
+- [x] `sequence_enrollments` — which contacts/leads entered which outreach sequence and their enrollment state (medium)
 
 Note: Zendesk Sell also ships a separate Firehose (incremental sync) API covering appointments, collaborations, visits, documents and sources. Those remain uncovered but were ranked below the cut; `sequences`, `visits`, `visit\_outcomes`, `collaborations` and `documents` are the next tier.
 

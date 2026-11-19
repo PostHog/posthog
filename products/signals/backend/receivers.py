@@ -338,8 +338,19 @@ def _transition_actor_user(instance: SignalReport) -> User | None:
     return getattr(instance, "_transition_actor_user", None)
 
 
-def _actor_properties(actor: ArtefactAttribution | None, actor_user: User | None = None) -> dict[str, Any]:
-    """Actor properties for the status-change label. A transition with no caller-set actor is `system`."""
+def _credited_user(instance: SignalReport) -> User | None:
+    """The person an automated transition credits, such as the owner of the pull request that merged."""
+    return getattr(instance, "_credited_user", None)
+
+
+def _actor_properties(
+    actor: ArtefactAttribution | None, actor_user: User | None = None, credited_user: User | None = None
+) -> dict[str, Any]:
+    """Actor properties for the status-change label. A transition with no caller-set actor is `system`.
+
+    An actor without a user, such as the PR-merge resolve, keeps its kind and names `credited_user`, so
+    the person counts as active while the ranking labels still read the transition as automatic.
+    """
     actor = actor or ArtefactAttribution.system()
     properties: dict[str, Any] = {
         "actor_kind": actor.kind,
@@ -349,6 +360,9 @@ def _actor_properties(actor: ArtefactAttribution | None, actor_user: User | None
         "actor_task_id": actor.task_id,
     }
     if actor.user_id is None:
+        if credited_user is not None:
+            properties["actor_user_uuid"] = str(credited_user.uuid)
+            properties["actor_distinct_id"] = credited_user.distinct_id
         return properties
     # The bulk-state endpoint transitions up to 100 reports for one actor, so it passes the request
     # user to skip a repeat lookup per report.
@@ -1098,6 +1112,7 @@ def capture_status_change_analytics(
     wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
     actor = _transition_actor(instance)
     actor_user = _transition_actor_user(instance)
+    credited_user = _credited_user(instance)
 
     def _capture() -> None:
         try:
@@ -1123,7 +1138,7 @@ def capture_status_change_analytics(
                     **properties,
                     "previous_status": previous_status,
                     "is_first_report": _is_first_visible_report(instance.team_id, report_id),
-                    **_actor_properties(actor, actor_user),
+                    **_actor_properties(actor, actor_user, credited_user),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback
