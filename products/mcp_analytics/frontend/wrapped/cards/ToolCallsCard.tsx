@@ -22,8 +22,8 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
             </div>
             {busiestMonth && (
                 <p className="MCPWrapped__rise m-0 text-base">
-                    {formatMonth(busiestMonth.month)} was your busiest month, with{' '}
-                    {humanFriendlyNumber(busiestMonth.calls)} calls.
+                    <span className="block text-xl font-bold">{formatMonth(busiestMonth.month)} took the crown.</span>
+                    {humanFriendlyNumber(busiestMonth.calls)} tool calls in a single month.
                     {card.growth_multiple !== null &&
                         ` Calls grew ${card.growth_multiple}× since ${formatMonth(card.months[1]?.month ?? card.months[0].month)}.`}
                 </p>
