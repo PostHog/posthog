@@ -9,6 +9,7 @@ PULL_REQUESTS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "title": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "body": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "draft": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
     "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

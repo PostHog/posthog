@@ -283,7 +283,8 @@ const workflowsSendEmailPrepare = (): ToolBase<
             purpose: 'workflows-send-email',
             inputSchema: WorkflowsSendEmailSchema(),
             actionLabel: 'send email',
-            messageTemplate: "About to send the email '{subject}' to {to}. Reply 'confirm' to send it.\n",
+            messageTemplate:
+                "About to send the email '{subject}' to {to}. If this project has no verified sending domain, PostHog may send it from the PostHog test sender instead, only to members of your organization, and ignore from and reply_to. Reply 'confirm' to send it.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },

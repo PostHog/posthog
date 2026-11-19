@@ -12,12 +12,13 @@ use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
 use posthog::{
     CaptureCompression, CaptureSummary, Client, ClientOptions, ClientOptionsBuilder,
-    Error as PosthogError, Event,
+    Error as PosthogError, Event, EventStatus,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{Emitter, Transaction};
+use crate::error::UserError;
 
 pub fn client_options(api_key: String, host: &str) -> Result<ClientOptions, Error> {
     ClientOptionsBuilder::default()
@@ -187,7 +188,20 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
             let e = match self.client.capture_batch_immediate(batch, true).await {
                 Ok(summary) => {
                     record_summary(&summary);
-                    continue;
+                    // The SDK already re-sent these events until its attempts ran out. Fail the
+                    // chunk so the job pauses instead of committing events capture never stored.
+                    // Drops are not retried: capture rejects the same events the same way.
+                    let unpersisted = retry_count(&summary);
+                    if unpersisted == 0 {
+                        continue;
+                    }
+                    counter!("capture_batch_events_total", "outcome" => "failure", "reason" => "unpersisted")
+                        .increment(unpersisted as u64);
+                    counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => "unpersisted")
+                        .increment(1);
+                    return Err(Error::msg(format!(
+                        "capture did not persist {unpersisted} events after all retry attempts"
+                    )));
                 }
                 Err(e) => e,
             };
@@ -198,7 +212,12 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
                 .increment(batch_count as u64);
             counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
                 .increment(1);
-            return Err(Error::msg(format!("capture batch failed: {e}")));
+            let user_msg = user_message(&e);
+            let err = Error::new(e).context("capture batch failed");
+            return Err(match user_msg {
+                Some(msg) => err.context(UserError::new(msg)),
+                None => err,
+            });
         }
 
         // Count success once per fully-committed chunk. A mid-chunk failure rolls the offset
@@ -229,6 +248,17 @@ fn failure_reason(err: &PosthogError) -> &'static str {
         PosthogError::Connection(_) => "transport",       // network / unexpected status
         PosthogError::Serialization(_) => "serialization", // local encode failure
         _ => "other",
+    }
+}
+
+const BILLING_LIMIT_USER_MESSAGE: &str = "Import paused because this project reached its billing \
+    limit. Raise or remove the billing limit, or wait for it to reset at the start of the next \
+    billing period, then resume the import.";
+
+fn user_message(err: &PosthogError) -> Option<&'static str> {
+    match err {
+        PosthogError::BillingLimitExceeded(_) => Some(BILLING_LIMIT_USER_MESSAGE),
+        _ => None,
     }
 }
 
@@ -263,6 +293,14 @@ fn record_summary(summary: &CaptureSummary) {
     };
     counter!(REQUEST_RESULTS, "outcome" => outcome, "status" => "200", "error" => "none")
         .increment(1);
+}
+
+fn retry_count(summary: &CaptureSummary) -> usize {
+    summary
+        .event_results()
+        .values()
+        .filter(|result| result.result == EventStatus::Retry)
+        .count()
 }
 
 fn record_request_failure(err: &PosthogError) {
@@ -773,12 +811,15 @@ mod tests {
         let client = make_client(&server.url()).await;
         let txn = make_transaction(&client);
 
-        let result = txn.commit_write().await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
+        let err = txn.commit_write().await.unwrap_err();
+        let err_msg = format!("{err:#}");
         assert!(
             err_msg.contains("Billing Limit Exceeded"),
             "expected billing error, got: {err_msg}"
+        );
+        assert_eq!(
+            crate::error::get_user_message(&err),
+            BILLING_LIMIT_USER_MESSAGE
         );
         mock.assert();
     }
@@ -1135,7 +1176,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn per_event_results_in_a_2xx_are_counted_by_detail_without_failing_the_chunk() {
+    async fn per_event_results_in_a_2xx_are_counted_by_detail() {
         let uuids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
         let events: Vec<Event> = uuids
             .iter()
@@ -1171,8 +1212,8 @@ mod tests {
                 seen_uuids: Mutex::new(HashSet::new()),
             });
             assert!(
-                txn.commit_write().await.is_ok(),
-                "this PR only observes per-event results; it does not change what commits"
+                txn.commit_write().await.is_err(),
+                "a retry left after the last attempt must fail the chunk"
             );
         })
         .await;
@@ -1223,6 +1264,217 @@ mod tests {
                 &[("outcome", "partial"), ("status", "200"), ("error", "none")]
             ),
             Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "unpersisted")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_requests_total",
+                &[("outcome", "failure"), ("reason", "unpersisted")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "success")]
+            ),
+            None
+        );
+    }
+
+    fn events_with_uuids(uuids: &[Uuid]) -> Vec<Event> {
+        uuids
+            .iter()
+            .map(|uuid| {
+                let mut event = Event::new("test", "user1");
+                event.set_uuid(*uuid);
+                event
+            })
+            .collect()
+    }
+
+    /// Commits `events` against a capture that answers request N with `bodies[N]` (status 200),
+    /// with one SDK attempt per body. Returns whether the commit succeeded and the counters.
+    async fn commit_against_v1_bodies(
+        events: Vec<Event>,
+        bodies: &[serde_json::Value],
+    ) -> (
+        bool,
+        Vec<(String, std::collections::HashMap<String, String>, u64)>,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let mocks: Vec<_> = bodies
+            .iter()
+            .map(|body| {
+                server
+                    .mock("POST", "/i/v1/analytics/events")
+                    .with_status(200)
+                    .with_body(body.to_string())
+                    .expect(1)
+                    .create()
+            })
+            .collect();
+
+        let mut committed = false;
+        let snap = counters_after(|| async {
+            let client = make_client_with_retries(&server.url(), bodies.len() as u32).await;
+            let txn = Box::new(CaptureTransaction {
+                client: &client,
+                send_rate: 10_000,
+                start: Instant::now(),
+                events: Mutex::new(events),
+                seen_uuids: Mutex::new(HashSet::new()),
+            });
+            committed = txn.commit_write().await.is_ok();
+        })
+        .await;
+        for mock in mocks {
+            mock.assert();
+        }
+        (committed, snap)
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn drops_in_a_2xx_commit_the_chunk_even_when_every_event_is_dropped() {
+        let details = [
+            "invalid_options",
+            "events_over_quota",
+            "event_restriction_drop",
+            "non_historical_import_drop",
+        ];
+        let uuids: Vec<Uuid> = details.iter().map(|_| Uuid::now_v7()).collect();
+        let results: serde_json::Map<String, serde_json::Value> = uuids
+            .iter()
+            .zip(details)
+            .map(|(uuid, detail)| {
+                (
+                    uuid.to_string(),
+                    serde_json::json!({ "result": "drop", "details": detail }),
+                )
+            })
+            .collect();
+
+        let (committed, snap) = commit_against_v1_bodies(
+            events_with_uuids(&uuids),
+            &[serde_json::json!({ "results": results })],
+        )
+        .await;
+
+        assert!(committed, "drops are counted and skipped, never paused on");
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_request_results_total",
+                &[
+                    ("outcome", "none_persisted"),
+                    ("status", "200"),
+                    ("error", "none")
+                ]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_event_results_total",
+                &[
+                    ("result", "drop"),
+                    ("class", "restriction"),
+                    ("detail", "non_historical_import_drop")
+                ]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "success")]
+            ),
+            Some(details.len() as u64)
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_retry_that_the_sdk_resend_persists_commits_the_chunk() {
+        let uuids = [Uuid::now_v7(), Uuid::now_v7()];
+        let first = serde_json::json!({ "results": {
+            uuids[0].to_string(): { "result": "ok" },
+            uuids[1].to_string(): { "result": "retry", "details": "not_persisted" },
+        }});
+        let second = serde_json::json!({ "results": {
+            uuids[1].to_string(): { "result": "ok" },
+        }});
+
+        let (committed, snap) =
+            commit_against_v1_bodies(events_with_uuids(&uuids), &[first, second]).await;
+
+        assert!(committed, "the SDK's own resend stored the event");
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "unpersisted")]
+            ),
+            None
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "success")]
+            ),
+            Some(2)
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_retry_left_after_every_sdk_attempt_fails_the_chunk() {
+        let uuids = [Uuid::now_v7(), Uuid::now_v7()];
+        let first = serde_json::json!({ "results": {
+            uuids[0].to_string(): { "result": "ok" },
+            uuids[1].to_string(): { "result": "retry", "details": "not_persisted" },
+        }});
+        let second = serde_json::json!({ "results": {
+            uuids[1].to_string(): { "result": "retry", "details": "not_persisted" },
+        }});
+
+        let (committed, snap) =
+            commit_against_v1_bodies(events_with_uuids(&uuids), &[first, second]).await;
+
+        assert!(!committed, "the job must pause rather than lose the event");
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "unpersisted")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_requests_total",
+                &[("outcome", "failure"), ("reason", "unpersisted")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "success")]
+            ),
+            None
         );
     }
 

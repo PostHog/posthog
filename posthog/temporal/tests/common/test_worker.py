@@ -4,23 +4,38 @@ from functools import partial
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.test import override_settings
+
 from temporalio.worker import Worker
 
 from posthog.temporal.common.registration import HistogramSpec, TemporalRegistration
 from posthog.temporal.common.worker import ManagedWorker, with_declared_histograms
 
 
-def test_declared_histograms_never_change_core_buckets():
+@pytest.mark.parametrize(
+    "task_queue, expected",
+    [
+        ("tasks-task-queue", {"core_latency": [1.0, 2.0], "product_latency": [1.0, 10.0], "sdk_latency": [3.0]}),
+        ("max-ai-task-queue", {"core_latency": [1.0, 2.0], "product_latency": [1.0, 10.0]}),
+    ],
+)
+def test_declared_histograms_apply_to_their_queue_and_never_change_core_buckets(
+    task_queue: str, expected: dict[str, list[float]]
+) -> None:
     declared = TemporalRegistration(
         histograms=(
             HistogramSpec(metric_name="core_latency", buckets=(5.0,)),
             HistogramSpec(metric_name="product_latency", buckets=(1.0, 10.0)),
+            HistogramSpec(metric_name="sdk_latency", buckets=(3.0,), queue_setting="TASKS_TASK_QUEUE"),
         )
     )
-    with patch("posthog.temporal.common.worker.combined_registration", return_value=declared):
-        buckets = with_declared_histograms({"core_latency": [1.0, 2.0]})
+    with (
+        patch("posthog.temporal.common.worker.combined_registration", return_value=declared),
+        override_settings(TASKS_TASK_QUEUE="tasks-task-queue"),
+    ):
+        buckets = with_declared_histograms(task_queue, {"core_latency": [1.0, 2.0]})
 
-    assert buckets == {"core_latency": [1.0, 2.0], "product_latency": [1.0, 10.0]}
+    assert buckets == expected
 
 
 @pytest.mark.asyncio

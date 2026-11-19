@@ -176,7 +176,6 @@ dependencies = [
     "elevenlabs~=2.75.0",
     "django-oauth-toolkit~=3.2.0",
     "azure-ai-projects~=1.0.0",
-    "azure-ai-inference~=1.0.0b9",
     "azure-storage-blob~=12.27.1",
     "opentelemetry-sdk==1.37.0",
     "opentelemetry-instrumentation-aiokafka==0.58b0",
@@ -253,6 +252,7 @@ dev = [
     "faker==17.6.0",
     "fakeredis[lua]==2.34.1",
     "flameprof~=0.4",
+    "hoglint==0.2.3",
     "hypothesis~=6.151.14",
     "pyinstrument~=5.1",
     # 16.6.1 and later write a retried failure to JUnit as an extra passing <testcase>, which reads as pass-on-retry.
@@ -333,7 +333,7 @@ proto-codegen = [
 required-version = ">=0.13.4"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, pydantic = false, pydantic-core = false, posthog-hogland = false, google-ads = false, grpcio = false }
+exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, hoglint = false, django = false, modal = false, pydantic = false, pydantic-core = false, posthog-hogland = false, google-ads = false, grpcio = false }
 # posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
 # dependency spec on every release, so this constraint is what stops a new major from
 # landing by accident. Lift it in the migration PR that moves the call sites.

@@ -11,7 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
-from django.contrib.sessions.backends.base import UpdateError
+from django.contrib.sessions.backends.base import SessionBase, UpdateError
 from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -23,6 +23,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 from social_core.exceptions import AuthFailed
+from social_django.models import Partial
 
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -53,6 +54,15 @@ MOCK_GITLAB_SSO_RESPONSE = {
 }
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+
+
+def _store_social_signup_partial(session: SessionBase) -> None:
+    partial = Partial.objects.create(
+        token=uuid.uuid4().hex,
+        backend=session["backend"],
+        data={"kwargs": {"details": {"email": session["email"]}}},
+    )
+    session["partial_pipeline_token"] = partial.token
 
 
 class TestSignupAPI(APIBaseTest):
@@ -430,6 +440,7 @@ class TestSignupAPI(APIBaseTest):
         session["backend"] = "google-oauth2"
         session["email"] = "social+alias@posthog.com"
         session["user_name"] = "Social User"
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -450,6 +461,7 @@ class TestSignupAPI(APIBaseTest):
         session["backend"] = "google-oauth2"
         session["email"] = "social.referral@posthog.com"
         session["user_name"] = "Social User"
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -1812,6 +1824,7 @@ class TestSignupAPI(APIBaseTest):
             session = self.client.session
             session["backend"] = "google-oauth2"
             session["email"] = email
+            _store_social_signup_partial(session)
             session.save()
             response = self.client.post(
                 "/api/social_signup/", {"first_name": "Jane", "organization_name": "Jane's Org"}
@@ -1977,9 +1990,9 @@ class TestSignupChallengeAPI(APIBaseTest):
     def test_signup_challenge_returns_428_with_nonce_and_site_key(
         self, mock_call_api, mock_log_event, mock_create_nonce
     ):
-        from posthog.workos_radar import RadarVerdict
+        from posthog.workos_radar import RadarAttempt, RadarVerdict
 
-        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        mock_call_api.return_value = RadarAttempt(verdict=RadarVerdict.CHALLENGE)
 
         response = self.client.post(
             "/api/signup/",
@@ -1998,34 +2011,38 @@ class TestSignupChallengeAPI(APIBaseTest):
         self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
 
     @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar.requests.put")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
-    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_01ABC")
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @patch("posthoganalytics.capture")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
     def test_signup_challenge_resubmit_with_valid_token_succeeds(
-        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+        self, mock_capture, mock_call_api, mock_log_event, mock_consume_nonce, mock_verify_token, mock_put
     ):
-        from posthog.workos_radar import RadarVerdict
+        mock_put.return_value.status_code = 200
 
-        mock_call_api.return_value = RadarVerdict.CHALLENGE
-
-        response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "John",
-                "email": "challenge@posthog.com",
-                "password": VALID_TEST_PASSWORD,
-                "organization_name": "Test Org",
-                "turnstile_token": "valid_token",
-                "challenge_nonce": "challenge:abc123:uuid",
-            },
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "John",
+                    "email": "challenge@posthog.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": "Test Org",
+                    "turnstile_token": "valid_token",
+                    "challenge_nonce": "challenge:abc123:uuid",
+                },
+            )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = User.objects.get(email="challenge@posthog.com")
         self.assertEqual(user.first_name, "John")
+        mock_call_api.assert_not_called()
+        mock_put.assert_called_once()
+        assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
+        assert mock_put.call_args[1]["json"] == {"attempt_status": "success", "challenge_status": "success"}
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.workos_radar._call_radar_api")
@@ -2040,6 +2057,7 @@ class TestSignupChallengeAPI(APIBaseTest):
         session["backend"] = "google-oauth2"
         session["email"] = "social@posthog.com"
         session["user_name"] = "Social User"
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -2068,9 +2086,9 @@ class TestInviteSignupChallengeAPI(APIBaseTest):
     def test_invite_signup_challenge_returns_428_with_nonce_and_site_key(
         self, mock_call_api, mock_log_event, mock_create_nonce
     ):
-        from posthog.workos_radar import RadarVerdict
+        from posthog.workos_radar import RadarAttempt, RadarVerdict
 
-        mock_call_api.return_value = RadarVerdict.CHALLENGE
+        mock_call_api.return_value = RadarAttempt(verdict=RadarVerdict.CHALLENGE)
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="invite+challenge@posthog.com", organization=self.organization
@@ -3271,6 +3289,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test_api_social_invite_sign_up@posthog.com",
             }
         )
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3302,6 +3321,7 @@ class TestInviteSignupAPI(APIBaseTest):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "blank_role@posthog.com"})
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3328,6 +3348,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test_api_social_invite_sign_up_with_verification@posthog.com",
             }
         )
+        _store_social_signup_partial(session)
         session.save()
 
         response = self.client.post(
@@ -3355,6 +3376,26 @@ class TestInviteSignupAPI(APIBaseTest):
         )
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [("missing_partial", "missing"), ("different_backend", "backend"), ("different_email", "email")]
+    )
+    def test_social_signup_rejects_session_fields_from_another_flow(self, _name: str, mismatch: str):
+        Organization.objects.all().delete()
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "member@example.com"})
+        _store_social_signup_partial(session)
+        if mismatch == "missing":
+            session.pop("partial_pipeline_token")
+        elif mismatch == "backend":
+            session["backend"] = "github"
+        else:
+            session["email"] = "other@example.com"
+        session.save()
+        response = self.client.post("/api/social_signup/", {"organization_name": "Example", "first_name": "Member"})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(email__in=["member@example.com", "other@example.com"]).exists())
+        self.assertNotIn("_auth_user_id", self.client.session)
 
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
@@ -3412,37 +3453,37 @@ class TestInviteSignupAPI(APIBaseTest):
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
 
+    @patch("posthog.workos_radar.requests.put")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
-    @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
+    @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_02DEF")
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
     @patch("posthoganalytics.capture")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
     def test_invite_signup_challenge_resubmit_with_turnstile_token_succeeds(
-        self, mock_capture, mock_call_api, mock_log_event, mock_validate_nonce, mock_verify_token
+        self, mock_capture, mock_call_api, mock_log_event, mock_consume_nonce, mock_verify_token, mock_put
     ):
-        from posthog.workos_radar import RadarVerdict
-
-        mock_call_api.return_value = RadarVerdict.CHALLENGE
-
+        mock_put.return_value.status_code = 200
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="challenge+test@posthog.com", organization=self.organization
         )
 
-        response = self.client.post(
-            f"/api/signup/{invite.id}/",
-            {
-                "first_name": "Challenged",
-                "password": VALID_TEST_PASSWORD,
-                "turnstile_token": "valid_token_from_cf",
-                "challenge_nonce": "challenge:abc123:uuid",
-            },
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/signup/{invite.id}/",
+                {
+                    "first_name": "Challenged",
+                    "password": VALID_TEST_PASSWORD,
+                    "turnstile_token": "valid_token_from_cf",
+                    "challenge_nonce": "challenge:abc123:uuid",
+                },
+            )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert [c[0][0] for c in mock_put.call_args_list] == ["https://api.workos.com/radar/attempts/radar_att_02DEF"]
         user = User.objects.get(email="challenge+test@posthog.com")
         self.assertEqual(user.first_name, "Challenged")
-        mock_validate_nonce.assert_called_once()
+        mock_consume_nonce.assert_called_once()
         mock_verify_token.assert_called_once()
 
     def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):

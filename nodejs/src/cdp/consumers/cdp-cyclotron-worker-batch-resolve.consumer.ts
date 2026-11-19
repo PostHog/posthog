@@ -725,6 +725,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         reason: BatchResolverFailureReason,
         reasonMessage: string
     ): Promise<void> {
+        logger.warn('⚠️', `${this.name} - batch ${state.batchJobId} failing: ${reasonMessage}`, {
+            teamId: state.teamId,
+            hogFlowId: state.hogFlowId,
+            batchJobId: state.batchJobId,
+            reason,
+        })
         this.hogFunctionMonitoringService.queueLogs(
             [
                 {
@@ -797,6 +803,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // dequeue clears its own queued logs/metrics, not just terminal writes.
         await job.ack()
         logger.info('✅', `${this.name} - batch ${state.batchJobId} → ${state.pendingTerminal}`, {
+            teamId: state.teamId,
+            hogFlowId: state.hogFlowId,
+            reason: state.terminalReason,
             totalEnqueued: state.totalEnqueued,
             pagesProcessed: state.pagesProcessed,
         })

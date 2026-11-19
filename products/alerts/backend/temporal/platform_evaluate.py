@@ -1052,8 +1052,8 @@ def _maximum_attempts(check: AdmittedInsightCheck) -> int:
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
 # Registered on the AI queue's worker, which holds the model credentials.
-PLATFORM_AI_QUEUE_ACTIVITIES = [evaluate_platform_insight_llm_check_activity]
-PLATFORM_EVALUATION_ACTIVITIES = [
+PLATFORM_AI_QUEUE_ACTIVITIES: list[Callable[..., object]] = [evaluate_platform_insight_llm_check_activity]
+PLATFORM_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     plan_platform_insight_batch_activity,
     plan_platform_insight_round_activity,
     plan_platform_insight_checks_activity,

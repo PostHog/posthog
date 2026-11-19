@@ -19,6 +19,11 @@
 # the branching code, or sets CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA itself, gets the same result
 # on both runs, so it stays off the list.
 #
+# .github/scripts/check-new-events-schema-targets.py fails a pull request that adds one of those
+# branches to a module when a test that imports the module is not listed, unless the pull request
+# has the test-new-events-schema label. It does not see a test that reaches the module through
+# another module.
+#
 # One path per line, directory or file, relative to the repository root. A file under a listed
 # directory needs no line of its own. Every path must hold at least one test module.
 #
@@ -43,6 +48,7 @@ products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
 products/error_tracking/backend/hogql_queries
 products/error_tracking/backend/tests/test_issue_summaries.py
+products/error_tracking/backend/tests/test_issue_tagger_rerun.py
 products/experiments
 products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries

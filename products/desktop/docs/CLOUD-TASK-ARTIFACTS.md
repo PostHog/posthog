@@ -21,6 +21,8 @@ Registration failure does not block the completed turn or replace the current ar
 
 The Artifacts pane shows file and reference artifacts in one list. The Timeline announces a new reference as an added artifact. Inbox report references open in the native Inbox report view. Other references open an artifact tab that resolves current object data from the active PostHog project.
 
+The Artifacts pane shows the first five pull requests. Select **Show more** to see all pull requests, or **Show less** to return to the first five.
+
 The desktop app runs scripts embedded in HTML artifacts inside an isolated preview process. The preview cannot access Node.js, Electron, PostHog credentials, remote resources, downloads, or device permissions. Use **Stop preview** if a script becomes unresponsive, then use **Restart preview** to load it in a fresh process.
 
 ## Versions and dismissal
