@@ -2034,6 +2034,14 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
+        const sesAcceptsTracked = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        }
+        const trackingOff = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { tracking_enabled: false }
+        }
         describe('attachments', () => {
             let bucket: BucketProxy
             let pdf: StoredFile
@@ -2771,7 +2779,22 @@ describe('EmailService', () => {
 
         type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
         const statusCases: StatusCase[] = [
-            ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
+            [
+                'a transactional email that SES accepts with tracking on',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sesAcceptsTracked,
+                'sent',
+                '',
+            ],
+            [
+                'a transactional email that SES accepts with open and click tracking off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                trackingOff,
+                'sent',
+                'untracked',
+            ],
             [
                 'a transactional email that SES rejects',
                 TRANSACTIONAL_EMAIL_EVENT,
