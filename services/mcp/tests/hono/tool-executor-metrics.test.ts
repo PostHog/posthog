@@ -127,6 +127,8 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: false, type: 'validation' },
         { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'rate_limited' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'rate_limited' },
         { tool: 'execute-sql', useSingleExec: false, type: 'internal', filtered: true },
         { tool: 'execute-sql', useSingleExec: true, type: 'internal', filtered: true },
         { tool: 'posthog-connection-call', useSingleExec: false, type: 'internal', filtered: true },
@@ -212,7 +214,9 @@ describe('ToolExecutor metrics', () => {
                 content: [{ type: 'text', text: `Error: [${tool}]: ${content}` }],
             })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
-            expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
+            expect(captureException).toHaveBeenCalledTimes(
+                ['validation', 'permission', 'memory_limit', 'rate_limited'].includes(type) ? 0 : 1
+            )
             if (filtered) {
                 expect(captureException.mock.calls[0]?.[2]).toMatchObject({ suppress_analytics: true })
             }
@@ -244,6 +248,50 @@ describe('ToolExecutor metrics', () => {
             }
         }
     )
+
+    it.each([
+        {
+            status: 403,
+            code: 'permission_denied',
+            detail: 'Your organization restricts MCP access to read-only.',
+            type: 'permission',
+        },
+        { status: 429, code: 'throttled', detail: 'Request was throttled.', type: 'rate_limited' },
+        { status: 503, code: 'clickhouse_at_capacity', detail: 'Query service is busy.', type: 'rate_limited' },
+        { status: 503, code: 'query_ran_concurrently', detail: 'The query was already running.', type: 'rate_limited' },
+        { status: 503, code: 'query_capacity', detail: 'Queries are momentarily at capacity.', type: 'rate_limited' },
+        {
+            status: 513,
+            code: 'clickhouse_memory_limit_exceeded',
+            detail: 'Query exceeded its memory limit.',
+            type: 'memory_limit',
+        },
+        { status: 503, code: 'service_unavailable', detail: 'Service unavailable.', type: 'api_5xx' },
+    ])('records HTTP $status $code in tool telemetry', async ({ status, code, detail, type }) => {
+        const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+        const tool = 'execute-sql'
+        const entry = catalog.getPreBuiltEntries().find((entry) => entry.name === tool)!
+        const state = makeToolExecutorState([toolFromPreBuilt(catalog.getToolByName(tool)!, entry)])
+        state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://example.com' })
+        state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => Response.json({ code, detail }, { status, headers: { 'Retry-After': '45' } }))
+        )
+
+        const result = await executor.handleToolCall({ name: tool, arguments: { query: 'SELECT 1' } }, state)
+
+        expect(result).toMatchObject({ isError: true })
+        if (type !== 'api_5xx') {
+            expect(result).toMatchObject({ content: [{ text: expect.stringContaining(detail) }] })
+        }
+        if (status === 503) {
+            expect(result).toMatchObject({ content: [{ text: expect.stringContaining('Wait at least 45 seconds') }] })
+        }
+        expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
+        expect(trackToolCallExtras(tool)).toMatchObject({ $mcp_error_type: type })
+        expect(captureException).toHaveBeenCalledTimes(type === 'api_5xx' ? 1 : 0)
+    })
 
     describe('direct tool calls', () => {
         it('records success counter and duration timer', async () => {

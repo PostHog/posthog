@@ -211,7 +211,7 @@ describe('handleToolError with permission errors', () => {
         expect(content?.text).toContain('MCP Server')
     })
 
-    it('fingerprints per tool to avoid dogpiling multiple tools into one issue', () => {
+    it('does not capture wrapped permission denials as exceptions', () => {
         captureException.mockClear()
         const error = new PostHogPermissionError({
             detail: "API key missing required scope 'user:read'",
@@ -220,14 +220,9 @@ describe('handleToolError with permission errors', () => {
             method: 'GET',
         })
 
-        handleToolError(error, 'insights-list')
-        handleToolError(error, 'dashboards-list')
+        handleToolError(wrapError('Failed to list insights', error), 'insights-list')
 
-        const fingerprints = captureException.mock.calls.map(([, , props]) => props.$exception_fingerprint)
-        expect(fingerprints).toEqual([
-            'posthog-permission-error:insights-list:user:read',
-            'posthog-permission-error:dashboards-list:user:read',
-        ])
+        expect(captureException).not.toHaveBeenCalled()
     })
 
     it('unwraps permission errors hidden behind Error.cause', () => {

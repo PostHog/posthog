@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { PostHogApiError, wrapError } from '@/lib/errors'
+import { isExpectedApiError, PostHogApiError, wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import type { Context, ToolBase } from '@/tools/types'
@@ -130,15 +130,17 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
     } catch (error) {
         // Capture before the soft return: the graceful result bypasses `handleToolError`,
         // the path that normally surfaces 5xx-class failures to observability.
-        try {
-            const apiKey = await context.stateManager.getApiKey()
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'mcp',
-                tool: 'llma-parser-recipe-create',
-                suppress_analytics: apiKey.suppress_analytics === true,
-            })
-        } catch {
-            // Observability must never break the request.
+        if (!isExpectedApiError(error)) {
+            try {
+                const apiKey = await context.stateManager.getApiKey()
+                getPostHogClient().captureException(error, undefined, {
+                    tag: 'mcp',
+                    tool: 'llma-parser-recipe-create',
+                    suppress_analytics: apiKey.suppress_analytics === true,
+                })
+            } catch {
+                // Observability must never break the request.
+            }
         }
         // Only persistence failed — never make the agent rewrite a correct recipe.
         const message = error instanceof Error ? error.message : String(error)
