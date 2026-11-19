@@ -62,6 +62,7 @@ from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_ports,
     enforced_egress_domains,
 )
+from products.tasks.backend.logic.services.desktop_gateway_token import POSTHOG_CODE_PRODUCT
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
@@ -82,6 +83,7 @@ from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, get_bound_logger, log_with_activity_context
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
@@ -190,6 +192,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    gateway_ai_product: str | None = None
 
     @property
     def model_access(self) -> ModelAccess:
@@ -284,9 +287,11 @@ class TaskProcessingContext:
         value = (self.state or {}).get("model")
         if not isinstance(value, str):
             return None
-        if self.origin_product == Task.OriginProduct.POSTHOG_AI and not model_allowed_by_product_pin(
-            "posthog_ai", value
-        ):
+        product = self.gateway_ai_product
+        if product is None and self.origin_product == Task.OriginProduct.POSTHOG_AI:
+            product = "posthog_ai"
+        # posthog_code keeps an off-pin model so its refusal can tell the user to pick another.
+        if product and product != POSTHOG_CODE_PRODUCT and not model_allowed_by_product_pin(product, value):
             return None
         return value
 
@@ -1446,6 +1451,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
+        gateway_ai_product=resolve_sandbox_ai_product(
+            task.origin_product,
+            state.get("ai_stage"),
+            internal=task.internal,
+            billing_product=state.get("billing_product"),
+            profile_billing_product=profile.billing_product if profile else None,
+        ),
         # Memory belongs to the task's creator, so a run another person drives must not read or write it.
         persist_agent_memory_enabled=receives_agent_memory(task)
         and (actor_user is None or actor_user.id == task.created_by_id)

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.data_modeling.backend.temporal.activities import (
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,
@@ -31,8 +33,8 @@ WORKFLOWS = [MaterializeViewWorkflow, ExecuteDAGWorkflow]
 # metadata queue rather than the materialization queues. Kept as separate lists (NOT folded into
 # WORKFLOWS/ACTIVITIES above) so start_temporal_worker registers it only on the metadata queue.
 SEMANTIC_ENRICHMENT_WORKFLOWS = [EnrichViewSemanticsWorkflow]
-SEMANTIC_ENRICHMENT_ACTIVITIES = [enrich_view_semantics_activity]
-ACTIVITIES = [
+SEMANTIC_ENRICHMENT_ACTIVITIES: list[Callable[..., object]] = [enrich_view_semantics_activity]
+ACTIVITIES: list[Callable[..., object]] = [
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,
     check_team_managed_warehouse_shadow_eligibility_activity,
