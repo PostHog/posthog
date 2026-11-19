@@ -131,13 +131,17 @@ def evaluated_by_insight_stack_q(now: datetime) -> Q:
     )
 
 
+def runnable_insight_alerts_q() -> Q:
+    """The alerts the insight scheduler can ever check, whatever the time: enabled, on an insight not deleted."""
+    return Q(enabled=True) & Q(insight__deleted=False)
+
+
 def due_insight_alerts_q(now: datetime) -> Q:
     """The alerts the insight scheduler owes a check at `now`."""
     return (
-        Q(enabled=True)
+        runnable_insight_alerts_q()
         & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
-        & Q(insight__deleted=False)
         & evaluated_by_insight_stack_q(now)
     )
 

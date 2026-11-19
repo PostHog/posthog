@@ -1176,6 +1176,17 @@ class HeldAlertSearchMatch:
 
 
 @frozen
+class HeldAlertCandidate:
+    """An enabled alert whose settings the platform holds, as a source ranks it against a plan limit."""
+
+    created_at: datetime
+    # The source row's id for a copy, and the configuration's own for an alert with no source row.
+    public_id: UUID
+    has_source_row: bool
+    source_config: dict[str, Any]
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 

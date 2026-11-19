@@ -450,21 +450,22 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         limit = cls.enforced_alert_limit(organization)
         if limit is None:
             return None
-        return frozenset(alert_id for _, alert_id in cls._newest_running(team_id, organization, limit=limit))
+        return frozenset(cls._newest_running(team_id, organization, limit=limit))
 
     @classmethod
     def _newest_running(
         cls, team_id: int, organization: Organization, *, limit: int, exclude_id: UUID | None = None
-    ) -> list[tuple[datetime, UUID]]:
-        """The creation time and id of the team's newest alerts that would run, newest first, at most `limit`.
+    ) -> list[UUID]:
+        """The ids of the team's newest alerts that would run, newest first, at most `limit`.
 
         Each alert counts once, enabled by the stack that owns it: an insight row the insight stack owns, or
-        a platform alert with no insight row or whose copy the platform owns. An alert on a cadence the
-        plan no longer includes counts for nothing, because the evaluation disables it."""
+        a platform alert with no insight row or whose copy the platform owns. An alert counts only if its
+        scheduler can ever check it: not on a cadence the plan lost, and not on a deleted insight or a
+        copy whose insight row is gone."""
         # Deferred for the same reason as in `_counted`.
+        from posthog.tasks.alerts.utils import runnable_insight_alerts_q  # noqa: PLC0415
+
         from products.alerts.backend.platform_insight_alert import RECURRENCE  # noqa: PLC0415
-        from products.alerts_platform.backend.facade.api import newest_enabled_held_configurations  # noqa: PLC0415
-        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
 
         lost_intervals = [
             interval
@@ -472,28 +473,85 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             if cls.interval_entitlement_error(calculation_interval=interval, organization=organization)
         ]
         rows = (
-            cls.objects.filter(team_id=team_id, enabled=True)
+            cls.objects.filter(runnable_insight_alerts_q(), team_id=team_id)
             .exclude(owner=PlatformAlertOwner.PLATFORM.value)
             .exclude(calculation_interval__in=lost_intervals)
         )
         if exclude_id is not None:
             rows = rows.exclude(pk=exclude_id)
-        held = newest_enabled_held_configurations(
-            team_id=team_id,
-            source_kind=SourceKind.INSIGHT,
-            excluded_check_interval_minutes=[RECURRENCE[interval][0] for interval in lost_intervals],
-            exclude_public_id=exclude_id,
+        # The rows before the platform's alerts. The two reads see different snapshots, so an alert whose
+        # owner changes between them can be counted twice, which the merge below undoes, or not at all,
+        # which `is_over_plan_limit` checks again before it skips anything.
+        newest_rows = list(rows.order_by("-created_at", "-id").values_list("created_at", "id")[:limit])
+        held = cls._newest_runnable_held(
+            team_id,
+            lost_minutes=[RECURRENCE[interval][0] for interval in lost_intervals],
+            exclude_id=exclude_id,
             limit=limit,
         )
-        newest_rows = rows.order_by("-created_at", "-id").values_list("created_at", "id")[:limit]
-        return sorted([*newest_rows, *held], reverse=True)[:limit]
+        newest: list[UUID] = []
+        for _, alert_id in sorted([*newest_rows, *held], reverse=True):
+            if alert_id not in newest:
+                newest.append(alert_id)
+        return newest[:limit]
+
+    @classmethod
+    def _newest_runnable_held(
+        cls, team_id: int, *, lost_minutes: list[int], exclude_id: UUID | None, limit: int
+    ) -> list[tuple[datetime, UUID]]:
+        """The newest platform-held alerts that can run, at most `limit`: a copy whose insight row still
+        exists on a live insight, or an alert with no insight row whose insight is live."""
+        from products.alerts_platform.backend.facade.api import newest_enabled_held_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+        from products.product_analytics.backend.facade.api import live_insight_ids_by_team  # noqa: PLC0415
+
+        runnable: list[tuple[datetime, UUID]] = []
+        offset = 0
+        while len(runnable) < limit:
+            page = newest_enabled_held_configurations(
+                team_id=team_id,
+                source_kind=SourceKind.INSIGHT,
+                excluded_check_interval_minutes=lost_minutes,
+                exclude_public_id=exclude_id,
+                limit=limit,
+                offset=offset,
+            )
+            copies_with_a_row = set(
+                cls.objects.filter(
+                    team_id=team_id,
+                    id__in=[candidate.public_id for candidate in page if candidate.has_source_row],
+                    insight__deleted=False,
+                ).values_list("id", flat=True)
+            )
+            insight_ids = {candidate.source_config.get("insight_id") for candidate in page}
+            live_insights = live_insight_ids_by_team(
+                team_ids=[team_id], insight_ids=[i for i in insight_ids if isinstance(i, int)]
+            ).get(team_id, set())
+            runnable.extend(
+                (candidate.created_at, candidate.public_id)
+                for candidate in page
+                if (
+                    candidate.public_id in copies_with_a_row
+                    if candidate.has_source_row
+                    else candidate.source_config.get("insight_id") in live_insights
+                )
+            )
+            if len(page) < limit:
+                break
+            offset += limit
+        return runnable[:limit]
 
     def is_over_plan_limit(self, organization: Organization) -> bool:
         """Whether this enabled alert is skipped because its project has more enabled alerts than its plan allows."""
         if not self.enabled:
             return False
-        kept = self.alerts_kept_by_plan_limit(self.team_id, organization)
-        return kept is not None and self.id not in kept
+        # An ownership change between the ranking's two reads can leave this alert out of one ranking, so
+        # it is skipped only when a second ranking leaves it out too.
+        for _ in range(2):
+            kept = self.alerts_kept_by_plan_limit(self.team_id, organization)
+            if kept is None or self.id in kept:
+                return False
+        return True
 
     @classmethod
     def team_alert_count(cls, team_id: int) -> int:

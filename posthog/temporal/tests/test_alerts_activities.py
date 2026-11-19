@@ -6,6 +6,7 @@ import contextlib
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -41,6 +42,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
 )
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -103,6 +105,10 @@ from products.alerts.backend.facade.api import (
 )
 from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
+from products.alerts_platform.backend.facade import (
+    api as platform_api,
+    testing as platform_testing,
+)
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
@@ -627,6 +633,80 @@ class TestPrepareAlert:
         results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in alerts]
 
         assert {result.action for result in results} == {PrepareAction.EVALUATE}
+
+    async def test_alerts_on_deleted_insights_take_no_slot(self, ateam, aorganization) -> None:
+        await _set_features(aorganization, [_alerts_feature(5)])
+        healthy = [await _create_alert(ateam) for _ in range(2)]
+        on_deleted_insights = [await _create_alert(ateam, insight_deleted=True) for _ in range(5)]
+        await _set_creation_order([*healthy, *on_deleted_insights])
+
+        env = ActivityEnvironment()
+        results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in healthy]
+
+        assert {result.action for result in results} == {PrepareAction.EVALUATE}
+
+    @pytest.mark.parametrize(
+        "handed,after_the_platform_read,checked",
+        [
+            pytest.param(handed, after, checked, id=f"{handed.value}-{'after' if after else 'before'}-{checked}")
+            for handed in (PlatformAlertOwner.PLATFORM, PlatformAlertOwner.SOURCE)
+            for after in (False, True)
+            for checked in ("moved", "older")
+        ],
+    )
+    async def test_an_ownership_change_between_the_ranking_reads_skips_no_alert_within_the_limit(
+        self, ateam, aorganization, handed: PlatformAlertOwner, after_the_platform_read: bool, checked: str
+    ) -> None:
+        # Two alerts under a limit of two: a read that misses the moved alert skips it, and a read that
+        # counts it twice skips the older one.
+        await _set_features(aorganization, [_alerts_feature(2)])
+        moved = await _create_alert(ateam)
+        older = await _create_alert(ateam)
+        await _set_creation_order([older, moved])
+        previous_owner = (
+            PlatformAlertOwner.PLATFORM if handed == PlatformAlertOwner.SOURCE else PlatformAlertOwner.SOURCE
+        )
+
+        @sync_to_async
+        def _copy_with_owner() -> UUID:
+            AlertConfiguration.objects.filter(pk=moved.pk).update(owner=previous_owner.value)
+            with team_scope(ateam.id):
+                return platform_testing.create_configuration(
+                    team_id=ateam.id,
+                    name="alert",
+                    source_kind="insight",
+                    source_config={"insight_id": moved.insight_id},
+                    check_interval_minutes=60 * 24,
+                    legacy_configuration_id=moved.id,
+                    owner=previous_owner.value,
+                ).id
+
+        copy_id = await _copy_with_owner()
+        read_held = platform_api.newest_enabled_held_configurations
+        handed_over = False
+
+        def _hand_over() -> None:
+            nonlocal handed_over
+            if handed_over:
+                return
+            handed_over = True
+            AlertConfiguration.objects.filter(pk=moved.pk).update(owner=handed.value)
+            with team_scope(ateam.id):
+                platform_testing.set_owner(copy_id, handed)
+
+        def _read_with_a_handover_beside_it(**kwargs):
+            if not after_the_platform_read:
+                _hand_over()
+            held = read_held(**kwargs)
+            if after_the_platform_read:
+                _hand_over()
+            return held
+
+        alert = moved if checked == "moved" else older
+        with patch.object(platform_api, "newest_enabled_held_configurations", _read_with_a_handover_beside_it):
+            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.action == PrepareAction.EVALUATE
 
     async def test_alerts_on_a_cadence_the_plan_lost_take_no_slot(self, ateam, aorganization) -> None:
         await _set_features(aorganization, [_alerts_feature(5)])
