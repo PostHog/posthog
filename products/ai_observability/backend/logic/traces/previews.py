@@ -74,14 +74,18 @@ class PreviewReads:
     state_ids: tuple[str, ...]
 
     @classmethod
-    def of(cls, picks: Mapping[str, PreviewPicks]) -> Self:
+    def of(cls, picks: Mapping[str, PreviewPicks], *, latest_input: bool = False) -> Self:
         def ids(*roles: str | None) -> tuple[str, ...]:
             return tuple(sorted({event_id for event_id in roles if event_id is not None}))
 
         states = [picked.state for picked in picks.values()]
         return cls(
             trace_ids=tuple(picks),
-            input_ids=ids(*states, *(picked.first_generation for picked in picks.values())),
+            input_ids=ids(
+                *states,
+                *(picked.first_generation for picked in picks.values()),
+                *(picked.latest_generation for picked in picks.values() if latest_input),
+            ),
             output_ids=ids(*states, *(picked.latest_generation for picked in picks.values())),
             state_ids=ids(*states),
         )
@@ -106,7 +110,7 @@ def pick_preview_events(rows: Sequence["PreviewEventRow"]) -> dict[str, PreviewP
     }
 
 
-def _side(values: Mapping[str, "StoredValue"], keys: Sequence[str]) -> Side[Value]:
+def side_of_values(values: Mapping[str, "StoredValue"], keys: Sequence[str]) -> Side[Value]:
     # The step read shows the first key present, so an over-cap value still stands for its side and is not read.
     key = next((key for key in keys if key in values and values[key].present), None)
     if key is None:
@@ -127,8 +131,8 @@ def _source(event: "PreviewEventValues | None") -> PreviewSource | None:
     return PreviewSource(
         event_id=event.uuid,
         kind=kind,
-        input=_side(event.values, candidates.input),
-        output=_side(event.values, candidates.output),
+        input=side_of_values(event.values, candidates.input),
+        output=side_of_values(event.values, candidates.output),
     )
 
 

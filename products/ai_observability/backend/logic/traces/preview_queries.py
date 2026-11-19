@@ -12,8 +12,18 @@ from posthog.hogql_queries.ai.utils import parse_ai_property_value
 from posthog.models import Team, User
 
 from ..message_normalizer.values import Value
+from .events_fallback import FallbackWindow, events_filter
 from .previews import PreviewReads, TracePreviewSources, pick_preview_events, preview_sources, timed_out_sources
-from .trace_queries import AI_EVENTS_HAS_STATE, ai_events, column_in, event_in, read_ai_events_table, read_flag
+from .trace_queries import (
+    AI_EVENTS_HAS_STATE,
+    EVENTS_HAS_STATE,
+    ai_events,
+    column_in,
+    event_in,
+    read_ai_events_table,
+    read_flag,
+    read_shared_events_table,
+)
 from .turn import TURN_INPUT_TAIL
 
 PREVIEW_PICKS_QUERY_NAME = "ai_traces_preview_picks"
@@ -86,30 +96,30 @@ def _raw(column: str) -> ast.Expr:
     return _call("ifNull", _field(column), ast.Constant(value=""))
 
 
-def _tail_items() -> ast.Expr:
-    return _call("arraySlice", _call("JSONExtractArrayRaw", _raw("input")), ast.Constant(value=-TURN_INPUT_TAIL))
+def _tail_items(tail: int) -> ast.Expr:
+    return _call("arraySlice", _call("JSONExtractArrayRaw", _raw("input")), ast.Constant(value=-tail))
 
 
-def _per_tail_item(expr: ast.Expr) -> ast.Expr:
-    return _call("arrayMap", ast.Lambda(args=["item"], expr=expr), _tail_items())
+def _per_tail_item(expr: ast.Expr, tail: int) -> ast.Expr:
+    return _call("arrayMap", ast.Lambda(args=["item"], expr=expr), _tail_items(tail))
 
 
-def _input_tail_over_caps() -> ast.Expr:
-    return _per_tail_item(_over_cap(_field("item")))
+def _input_tail_over_caps(tail: int) -> ast.Expr:
+    return _per_tail_item(_over_cap(_field("item")), tail)
 
 
-def _input_tail() -> ast.Expr:
+def _input_tail(tail: int) -> ast.Expr:
     # An oversized item is replaced rather than dropped, so the positions stay aligned with its over-cap flags.
     item = _field("item")
-    kept_items = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value="null"), item))
-    tail = _call(
+    kept_items = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value="null"), item), tail)
+    joined = _call(
         "concat",
         ast.Constant(value="["),
         _call("arrayStringConcat", kept_items, ast.Constant(value=",")),
         ast.Constant(value="]"),
     )
     is_list = _compare(ast.CompareOperationOp.Eq, _call("JSONType", _raw("input")), ast.Constant(value="Array"))
-    return _call("if", is_list, tail, _capped(_field("input")))
+    return _call("if", is_list, joined, _capped(_field("input")))
 
 
 def _for(event_ids: Sequence[str], expr: ast.Expr, otherwise: ast.Expr) -> ast.Expr:
@@ -128,18 +138,18 @@ def _read_for(reads: PreviewReads) -> dict[str, Sequence[str]]:
     }
 
 
-def _values_select(reads: PreviewReads) -> list[ast.Expr]:
+def _values_select(reads: PreviewReads, tail: int) -> list[ast.Expr]:
     read_for = _read_for(reads)
     selected: list[ast.Expr] = [
         _field("uuid"),
         _field("event"),
         ast.Alias(
             alias="input_item_over_caps",
-            expr=_for(read_for[_TAIL_PROPERTY], _input_tail_over_caps(), ast.Array(exprs=[])),
+            expr=_for(read_for[_TAIL_PROPERTY], _input_tail_over_caps(tail), ast.Array(exprs=[])),
         ),
     ]
     for name, column in _COLUMNS.items():
-        value = _input_tail() if name == _TAIL_PROPERTY else _capped(_field(column))
+        value = _input_tail(tail) if name == _TAIL_PROPERTY else _capped(_field(column))
         # An alias named like its column would shadow the column in the over-cap check.
         selected += [
             ast.Alias(alias=f"{column}_value", expr=_for(read_for[name], value, ast.Constant(value=None))),
@@ -151,16 +161,16 @@ def _values_select(reads: PreviewReads) -> list[ast.Expr]:
     return selected
 
 
-def _events_query(trace_ids: Sequence[str], *, latest: bool) -> ast.SelectQuery:
+def _events_query(trace_ids: Sequence[str], where: ast.Expr, has_state: ast.Expr, *, latest: bool) -> ast.SelectQuery:
     # The earliest and the latest event of each name, and of each state for trace events, are all the picks choose
     # from, so a trace reads at most a few light rows however long it is.
     return ast.SelectQuery(
         select=[
             *(_field(column) for column in _EVENT_COLUMNS[:-1]),
-            ast.Alias(alias="has_state", expr=clone_expr(AI_EVENTS_HAS_STATE)),
+            ast.Alias(alias="has_state", expr=clone_expr(has_state)),
         ],
         select_from=ai_events(),
-        where=ast.And(exprs=[column_in("trace_id", trace_ids), event_in(_PICKED_EVENT_NAMES)]),
+        where=where,
         order_by=[
             ast.OrderExpr(expr=_field("timestamp"), order="DESC" if latest else "ASC"),
             ast.OrderExpr(expr=_field("uuid"), order="ASC"),
@@ -172,22 +182,26 @@ def _events_query(trace_ids: Sequence[str], *, latest: bool) -> ast.SelectQuery:
     )
 
 
-def _picks_query(trace_ids: Sequence[str]) -> ast.SelectQuery:
+def _picks_query(trace_ids: Sequence[str], where: ast.Expr, has_state: ast.Expr) -> ast.SelectQuery:
     return ast.SelectQuery(
         select=[_field(column) for column in _EVENT_COLUMNS],
         select_from=ast.JoinExpr(
             table=ast.SelectSetQuery.create_from_queries(
-                [_events_query(trace_ids, latest=False), _events_query(trace_ids, latest=True)], "UNION ALL"
+                [
+                    _events_query(trace_ids, where, has_state, latest=False),
+                    _events_query(trace_ids, where, has_state, latest=True),
+                ],
+                "UNION ALL",
             )
         ),
     )
 
 
-def _values_query(reads: PreviewReads) -> ast.SelectQuery:
+def _values_query(reads: PreviewReads, tail: int, where: ast.Expr) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=_values_select(reads),
+        select=_values_select(reads, tail),
         select_from=ai_events(),
-        where=ast.And(exprs=[column_in("trace_id", reads.trace_ids), column_in("uuid", reads.event_ids)]),
+        where=where,
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[_field("uuid")]),
         limit=ast.Constant(value=len(reads.event_ids)),
     )
@@ -201,8 +215,47 @@ def _parsed(raw: Any) -> Value:
     return None if raw is None or raw == "" else parse_ai_property_value(raw)
 
 
-def load_preview_event_rows(team: Team, user: User | None, trace_ids: Sequence[str]) -> list[PreviewEventRow]:
-    results = read_ai_events_table(PREVIEW_PICKS_QUERY_NAME, _picks_query(trace_ids), team, user, _settings())
+def _picked_events_where(trace_ids: Sequence[str], window: FallbackWindow | None) -> ast.Expr:
+    trace_filter = column_in("trace_id", trace_ids)
+    event_filter = event_in(_PICKED_EVENT_NAMES)
+    if window is None:
+        return ast.And(exprs=[trace_filter, event_filter])
+    return events_filter(trace_filter=trace_filter, event_filter=event_filter, window=window)
+
+
+def _values_where(reads: PreviewReads, window: FallbackWindow | None) -> ast.Expr:
+    trace_and_event = ast.And(exprs=[column_in("trace_id", reads.trace_ids), column_in("uuid", reads.event_ids)])
+    if window is None:
+        return trace_and_event
+    return events_filter(trace_filter=trace_and_event, event_filter=event_in(_PICKED_EVENT_NAMES), window=window)
+
+
+def _read(
+    name: str,
+    query: ast.SelectQuery,
+    team: Team,
+    user: User | None,
+    window: FallbackWindow | None,
+) -> list[Any]:
+    read = read_ai_events_table if window is None else read_shared_events_table
+    return read(name, query, team, user, _settings())
+
+
+def load_preview_event_rows(
+    team: Team,
+    user: User | None,
+    trace_ids: Sequence[str],
+    *,
+    window: FallbackWindow | None = None,
+    name: str = PREVIEW_PICKS_QUERY_NAME,
+) -> list[PreviewEventRow]:
+    """The light rows the picks choose from. With a `window`, reads the shared events table inside it instead of
+    `posthog.ai_events`."""
+    query = _picks_query(
+        trace_ids,
+        _picked_events_where(trace_ids, window),
+        AI_EVENTS_HAS_STATE if window is None else EVENTS_HAS_STATE,
+    )
     return [
         PreviewEventRow(
             trace_id=str(trace_id),
@@ -211,14 +264,22 @@ def load_preview_event_rows(team: Team, user: User | None, trace_ids: Sequence[s
             timestamp=timestamp,
             has_state=read_flag(has_state),
         )
-        for trace_id, uuid, event, timestamp, has_state in results
+        for trace_id, uuid, event, timestamp, has_state in _read(name, query, team, user, window)
     ]
 
 
-def load_preview_values(team: Team, user: User | None, reads: PreviewReads) -> dict[str, PreviewEventValues]:
+def load_preview_values(
+    team: Team,
+    user: User | None,
+    reads: PreviewReads,
+    *,
+    window: FallbackWindow | None = None,
+    name: str = PREVIEWS_QUERY_NAME,
+    tail: int = TURN_INPUT_TAIL,
+) -> dict[str, PreviewEventValues]:
     if not reads.event_ids:
         return {}
-    results = read_ai_events_table(PREVIEWS_QUERY_NAME, _values_query(reads), team, user, _settings())
+    results = _read(name, _values_query(reads, tail, _values_where(reads, window)), team, user, window)
     rows = (
         PreviewEventValues(
             uuid=str(uuid),
