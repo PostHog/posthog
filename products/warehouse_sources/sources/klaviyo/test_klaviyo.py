@@ -904,6 +904,20 @@ class TestEndpointRequestParams:
         )
         assert "page[size]" not in params
 
+    def test_incremental_events_request_oldest_first(self) -> None:
+        # The source reports sort_mode="asc" for events, so each batch's max datetime becomes the
+        # resume watermark. Without sort=datetime Klaviyo pages newest first, the watermark lands
+        # near the old end of the window, and every append run re-imports months of events.
+        result = _driver().run(
+            "events",
+            [_page({"data": [], "links": {"next": None}})],
+            incremental_field="datetime",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+        assert result.raised is None
+        assert result.params("sort") == ["datetime"]
+        assert result.params("filter") == ["greater-than(datetime,2026-03-04T02:58:14.000Z)"]
+
     @parameterized.expand([("list_profiles",), ("segment_profiles",)])
     def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
         # The fan-outs only need joined_group_at; expanding them with additional-fields would

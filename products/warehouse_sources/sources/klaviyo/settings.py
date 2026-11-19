@@ -261,6 +261,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         default_incremental_field="datetime",
         partition_key="datetime",
         default_lookback_days=365,
+        # Klaviyo returns events newest first by default, but the source reports sort_mode="asc".
+        sort="datetime",
         description="Only syncs the last 365 days on initial sync",
         incremental_fields=[
             {
