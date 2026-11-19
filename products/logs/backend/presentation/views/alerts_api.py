@@ -989,7 +989,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
-        if effective_enabled:
+        # Snoozing or renaming an enabled alert shows nothing new, so only new reads are checked.
+        starts_reading = self.instance is None or "filters" in attrs or not self.instance.enabled
+        if effective_enabled and starts_reading:
             self._require_pipeline_log_access(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
