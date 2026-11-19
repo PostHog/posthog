@@ -2,7 +2,7 @@ import fs from 'fs'
 import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
-import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+import { PROVIDER_ALIASES, normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
 import committedOpenRouterCostsRaw from '~/ingestion/pipelines/ai/costs/providers/llm-costs.json'
 import type { ModelCost, ModelCostRow } from '~/ingestion/pipelines/ai/costs/providers/types'
 
@@ -716,6 +716,14 @@ const generateCanonicalProviders = (models: ModelRow[]): void => {
         for (const providerKey of Object.keys(model.cost)) {
             providerSet.add(providerKey)
         }
+    }
+
+    // Alias targets are hand-written against this union. The feed drops a route
+    // whenever a provider goes quiet for a fetch, and a regenerated union without
+    // that key fails typecheck in `provider-matching.ts`. Seeding the targets
+    // keeps the union stable for aliases whose route is only temporarily absent.
+    for (const canonicalProvider of Object.values(PROVIDER_ALIASES)) {
+        providerSet.add(canonicalProvider)
     }
 
     // Sort deterministically: default first, then alphabetically
