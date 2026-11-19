@@ -189,6 +189,30 @@ def test_billable_rows_exported_drops_non_billable_runs(team, destination_type, 
     assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == []
 
 
+@pytest.mark.parametrize("end_inclusive,expected_total", [(True, 15), (False, 5)])
+def test_billable_rows_exported_end_bound(team, end_inclusive, expected_total):
+    export_id = _create_export(team)
+    _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, records=5)
+    _create_run(batch_export_id=export_id, finished_at=WINDOW_END, records=10)
+
+    assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END, end_inclusive=end_inclusive) == [
+        contracts.TeamTotal(team_id=team.pk, total=expected_total)
+    ]
+
+
+def test_count_billable_rows_exported_sums_the_teams_runs_since(team, organization):
+    scheduled = _create_export(team, name="scheduled")
+    on_demand = testing.create_batch_export_on_demand(team.pk, destination_type=FILE_DOWNLOAD, destination_config={})
+    _create_run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=10)
+    _create_run(on_demand_id=on_demand, finished_at=IN_WINDOW, records=7)
+    _create_run(batch_export_id=scheduled, finished_at=WINDOW_BEGIN - dt.timedelta(hours=1), records=100)
+
+    other_team = create_team(organization=organization)
+    _create_run(batch_export_id=_create_export(other_team, name="other"), finished_at=IN_WINDOW, records=100)
+
+    assert api.count_billable_rows_exported([team.pk], WINDOW_BEGIN) == 17
+
+
 def test_active_batch_exports_excludes_paused_and_deleted_exports(team):
     _create_export(team, name="running")
     _create_export(team, name="paused", paused=True)

@@ -27,6 +27,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.warehouse_sources.backend.billing import (
     FREE_HISTORICAL_WINDOW,
     FREE_PERIOD_END,
@@ -274,6 +275,15 @@ def _rows_synced_in_billing_period(
         status=ExternalDataJob.Status.COMPLETED,
     ).aggregate(total_rows=Sum(F("rows_synced") * billable_destination_multiplier()))
     rows_synced_in_billing_period = result.get("total_rows") or 0
+
+    if batch_exports_api.exports_bill_as_rows_synced(datetime.now(UTC)):
+        # Billing can send the period start without an offset. Postgres reads such a value as UTC
+        # in the query above, so compare it as UTC here too.
+        if billing_cycle_start.tzinfo is None:
+            billing_cycle_start = billing_cycle_start.replace(tzinfo=UTC)
+        rows_synced_in_billing_period += batch_exports_api.count_billable_rows_exported(
+            team_ids, max(billing_cycle_start, batch_exports_api.UNIFIED_PIPELINES_PRICING_START)
+        )
 
     if redis is not None:
         try:

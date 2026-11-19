@@ -80,6 +80,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_mcp_event_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
+    get_teams_with_rows_exported_in_period,
+    get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
     iter_billable_teams,
@@ -3128,6 +3130,92 @@ class TestExternalDataSyncUsageReport(_ThreeOrgUsageReportTest):
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["rows_exported_in_period"] == 0
         assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 0
+
+    def _create_sources_and_export_rows_around_cutover(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=3,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        for finished_at in (datetime(2027, 1, 31, 12, tzinfo=UTC), datetime(2027, 2, 1, 12, tzinfo=UTC)):
+            ExternalDataJob.objects.create(
+                team_id=3,
+                finished_at=finished_at,
+                rows_synced=10,
+                status=ExternalDataJob.Status.COMPLETED,
+                pipeline=source,
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        def create_export(destination_type: str, model: str = BatchExportModel.EVENTS) -> UUID:
+            return batch_exports_testing.create_batch_export(
+                3, name="export", destination_type=destination_type, destination_config={}, model=model
+            )
+
+        billable_id = create_export(BatchExportDestinationType.AWS_S3)
+        non_billable_ids = [
+            create_export(BatchExportDestinationType.HTTP),
+            create_export(BatchExportDestinationType.WORKFLOWS),
+            create_export(BatchExportDestinationType.AWS_S3, model=BatchExportModel.HOGQL),
+        ]
+        deleted_id = create_export(BatchExportDestinationType.AWS_S3)
+        batch_exports_testing.update_batch_export(deleted_id, team_id=3, deleted=True)
+
+        runs = [
+            (billable_id, datetime(2027, 1, 31, 12, tzinfo=UTC), 100),
+            (billable_id, datetime(2027, 2, 1, tzinfo=UTC), 200),
+            (billable_id, datetime(2027, 2, 1, 12, tzinfo=UTC), 400),
+            *((export_id, datetime(2027, 2, 1, 12, tzinfo=UTC), 5000) for export_id in [*non_billable_ids, deleted_id]),
+        ]
+        for export_id, finished_at, records in runs:
+            batch_exports_testing.create_batch_export_run(
+                batch_export_id=export_id,
+                data_interval_end=finished_at,
+                finished_at=finished_at,
+                status=BatchExportRunStatus.COMPLETED,
+                records_completed=records,
+            )
+
+    @parameterized.expand(
+        [
+            ("day_before_cutover", datetime(2027, 1, 31, tzinfo=UTC), 100, 10),
+            ("day_of_cutover", datetime(2027, 2, 1, tzinfo=UTC), 0, 10 + 200 + 400),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_batch_export_rows_bill_on_rows_synced_from_cutover(
+        self,
+        _name: str,
+        day: datetime,
+        expected_rows_exported: int,
+        expected_rows_synced: int,
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
+        self._setup_teams()
+        self._create_sources_and_export_rows_around_cutover()
+
+        period = get_previous_day(at=day + timedelta(days=1))
+        all_reports = _get_all_org_reports(period=period)
+        team_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )["teams"]["3"]
+
+        assert team_report["rows_exported_in_period"] == expected_rows_exported
+        assert team_report["rows_synced_in_period"] == expected_rows_synced
+        assert team_report["free_historical_rows_synced_in_period"] == 0
+
+    def test_batch_export_rows_split_at_cutover_in_a_period_spanning_it(self) -> None:
+        self._setup_teams()
+        self._create_sources_and_export_rows_around_cutover()
+
+        begin, end = datetime(2027, 1, 15, tzinfo=UTC), datetime(2027, 2, 1, 23, 59, 59, 999999, tzinfo=UTC)
+
+        assert get_teams_with_rows_exported_in_period(begin, end) == [{"team_id": 3, "total": 100}]
+        assert get_teams_with_rows_synced_in_period(begin, end) == [{"team_id": 3, "total": 20 + 200 + 400}]
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")

@@ -39,7 +39,11 @@ from products.batch_exports.backend import (
     destination_tests,
     filters as batch_export_filters,
 )
-from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.billing import (
+    UNIFIED_PIPELINES_PRICING_START,
+    exclude_non_billable_runs,
+    exports_bill_as_rows_synced,
+)
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     BatchExport,
@@ -58,11 +62,13 @@ if TYPE_CHECKING:
 __all__ = [
     "FAILED_BACKFILL_STATUSES",
     "MultipleBatchExportsError",
+    "UNIFIED_PIPELINES_PRICING_START",
     "backfill_batch_export",
     "cancel_batch_export_backfill",
     "cancel_batch_export_run",
     "cancel_file_download",
     "count_batch_exports_for_teams",
+    "count_billable_rows_exported",
     "count_hogql_rows",
     "create_batch_export",
     "create_batch_export_backfill",
@@ -72,6 +78,7 @@ __all__ = [
     "delete_batch_exports_for_teams",
     "describe_destination_test",
     "drop_unknown_hogql_modifiers",
+    "exports_bill_as_rows_synced",
     "find_hogql_interval_placeholders",
     "get_batch_export",
     "get_batch_export_backfill",
@@ -318,11 +325,18 @@ def get_run_failure(run_id: UUID | str, team_id: int) -> contracts.BatchExportRu
     )
 
 
-def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) -> list[contracts.TeamTotal]:
-    """Sum the rows each team exported through billable runs that finished in the period."""
+def get_teams_with_billable_rows_exported(
+    begin: dt.datetime, end: dt.datetime, *, end_inclusive: bool = True
+) -> list[contracts.TeamTotal]:
+    """Sum the rows each team exported through billable runs that finished in the period.
+
+    With `end_inclusive=False` a run that finished exactly at `end` is left out, so two windows
+    that meet at one instant count that run once.
+    """
+    finished_before = Q(finished_at__lte=end) if end_inclusive else Q(finished_at__lt=end)
     completed_runs = BatchExportRun.objects.filter(
+        finished_before,
         finished_at__gte=begin,
-        finished_at__lte=end,
         status=BatchExportRun.Status.COMPLETED,
     )
     rows = (
@@ -333,6 +347,16 @@ def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) 
         .annotate(total=Coalesce(Sum("records_completed"), 0))
     )
     return [contracts.TeamTotal(team_id=row["team_id"], total=row["total"]) for row in rows]
+
+
+def count_billable_rows_exported(team_ids: Sequence[int], since: dt.datetime) -> int:
+    """Sum the rows the teams exported through billable runs that finished at or after `since`."""
+    completed_runs = BatchExportRun.objects.filter(
+        Q(batch_export__team_id__in=team_ids) | Q(batch_export_on_demand__team_id__in=team_ids),
+        finished_at__gte=since,
+        status=BatchExportRun.Status.COMPLETED,
+    )
+    return exclude_non_billable_runs(completed_runs).aggregate(total=Coalesce(Sum("records_completed"), 0))["total"]
 
 
 def get_teams_with_active_batch_exports() -> list[contracts.TeamTotal]:

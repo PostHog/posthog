@@ -1,7 +1,7 @@
 """Tests for billing limit enforcement across batch export workflows.
 
 The `start_batch_export_run` activity raises `OverBillingLimitError` when a team
-is over its rows exported billing limit. Temporal does not propagate the original
+is over the billing limit its export rows count against. Temporal does not propagate the original
 exception class to the workflow: the workflow sees a `temporalio.exceptions.ActivityError`
 whose cause is an `ApplicationError` with `type == "OverBillingLimitError"`. These
 tests assert both the propagation semantics and that every destination workflow
@@ -13,6 +13,7 @@ import uuid
 import datetime as dt
 
 import pytest
+import time_machine
 import unittest.mock
 
 from django.conf import settings
@@ -35,6 +36,7 @@ from products.batch_exports.backend.service import (
     SnowflakeBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     is_over_billing_limit_error,
     start_batch_export_run,
@@ -47,6 +49,13 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3BatchExportWorkflow
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import SnowflakeBatchExportWorkflow
 from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
+
+from ee.billing.quota_limiting import (
+    QuotaLimitingCaches,
+    QuotaResource,
+    add_limited_team_tokens,
+    remove_limited_team_tokens,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -241,3 +250,42 @@ async def test_destination_workflow_finishes_cleanly_when_over_billing_limit(
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
     assert len(runs) == 1
     assert runs[0].status == BatchExportRun.Status.FAILED_BILLING
+
+
+@pytest.mark.parametrize(
+    "now,limited_resource,expect_failed_billing",
+    [
+        (dt.datetime(2027, 1, 31, 23, tzinfo=dt.UTC), QuotaResource.ROWS_EXPORTED, True),
+        (dt.datetime(2027, 1, 31, 23, tzinfo=dt.UTC), QuotaResource.ROWS_SYNCED, False),
+        (dt.datetime(2027, 2, 1, 1, tzinfo=dt.UTC), QuotaResource.ROWS_SYNCED, True),
+        (dt.datetime(2027, 2, 1, 1, tzinfo=dt.UTC), QuotaResource.ROWS_EXPORTED, False),
+    ],
+)
+async def test_billing_check_reads_the_quota_resource_billed_at_the_time(
+    activity_environment, team, batch_export, now, limited_resource, expect_failed_billing
+):
+    with time_machine.travel(now, tick=False), override_settings(BATCH_EXPORTS_ENABLE_BILLING_CHECK=True):
+        limited_until = int((now + dt.timedelta(days=1)).timestamp())
+        add_limited_team_tokens(
+            limited_resource, {team.api_token: limited_until}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        inputs = StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=(now - dt.timedelta(hours=1)).isoformat(),
+            data_interval_end=now.isoformat(),
+        )
+
+        try:
+            if expect_failed_billing:
+                with pytest.raises(OverBillingLimitError):
+                    await activity_environment.run(start_batch_export_run, inputs)
+            else:
+                await activity_environment.run(start_batch_export_run, inputs)
+        finally:
+            remove_limited_team_tokens(limited_resource, [team.api_token], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    assert len(runs) == 1
+    expected_status = BatchExportRun.Status.FAILED_BILLING if expect_failed_billing else BatchExportRun.Status.STARTING
+    assert runs[0].status == expected_status

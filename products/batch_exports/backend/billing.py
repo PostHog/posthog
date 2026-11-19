@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from django.db.models import Q, QuerySet
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
@@ -10,6 +12,14 @@ NON_BILLABLE_DESTINATIONS = [
 # Runs of the HogQL model are free while the model is in closed beta.
 # TODO: Remove this once the beta ends, so that its rows become billable like any other model's.
 NON_BILLABLE_MODELS = [BatchExport.Model.HOGQL]
+
+# From this instant, rows a batch export delivers bill on the warehouse `rows_synced` meter
+# instead of `rows_exported`. A run that finishes exactly at the cutover bills on `rows_synced`.
+UNIFIED_PIPELINES_PRICING_START = datetime(2027, 2, 1, tzinfo=UTC)
+
+
+def exports_bill_as_rows_synced(at: datetime) -> bool:
+    return at >= UNIFIED_PIPELINES_PRICING_START
 
 
 def exclude_non_billable_runs(runs: QuerySet[BatchExportRun]) -> QuerySet[BatchExportRun]:

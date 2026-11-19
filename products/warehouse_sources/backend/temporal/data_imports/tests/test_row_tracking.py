@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,8 @@ from posthog.models import Team
 from posthog.redis import get_async_client, get_client
 from posthog.sync import database_sync_to_async
 
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -263,7 +265,7 @@ class TestRowTracking(BaseTest):
                     await redis.delete(*keys)
 
     @contextlib.asynccontextmanager
-    async def _billing_check_environment(self, limit: int, clear_cache: bool = True):
+    async def _billing_check_environment(self, limit: int, clear_cache: bool = True, now: str = "2024-01-01 12:00:00"):
         from ee.models.license import License
 
         if clear_cache:
@@ -280,12 +282,14 @@ class TestRowTracking(BaseTest):
         with (
             override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
             self._setup_limits(limit),
-            time_machine.travel("2024-01-01 12:00:00", tick=False),
+            time_machine.travel(now, tick=False),
         ):
             yield
 
-    async def _run(self, source: ExternalDataSource, limit: int, clear_cache: bool = True) -> bool:
-        async with self._billing_check_environment(limit, clear_cache):
+    async def _run(
+        self, source: ExternalDataSource, limit: int, clear_cache: bool = True, now: str = "2024-01-01 12:00:00"
+    ) -> bool:
+        async with self._billing_check_environment(limit, clear_cache, now):
             return await will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
 
     @sync_to_async
@@ -439,6 +443,36 @@ class TestRowTracking(BaseTest):
 
         async with self._setup_redis_rows(20, team_id=another_team.pk):
             assert await self._run(source, 10) is True
+
+    @parameterized.expand(
+        [
+            ("export_before_cutover", BatchExportDestinationType.AWS_S3, datetime(2027, 1, 31, 12, tzinfo=UTC), False),
+            ("export_after_cutover", BatchExportDestinationType.AWS_S3, datetime(2027, 2, 2, 12, tzinfo=UTC), True),
+            (
+                "non_billable_export_after_cutover",
+                BatchExportDestinationType.HTTP,
+                datetime(2027, 2, 2, 12, tzinfo=UTC),
+                False,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_row_tracking_counts_export_rows_from_the_cutover(
+        self, _name, destination_type, finished_at, expected
+    ):
+        source = await self._create_source()
+        batch_export_id = await sync_to_async(batch_exports_testing.create_batch_export)(
+            self.team.pk, name="export", destination_type=destination_type, destination_config={}
+        )
+        await sync_to_async(batch_exports_testing.create_batch_export_run)(
+            batch_export_id=batch_export_id,
+            data_interval_end=finished_at,
+            finished_at=finished_at,
+            status=BatchExportRunStatus.COMPLETED,
+            records_completed=11,
+        )
+
+        assert await self._run(source, 10, now="2027-02-10 12:00:00") is expected
 
     @pytest.mark.asyncio
     async def test_row_tracking_serves_the_billing_period_sum_from_cache(self):

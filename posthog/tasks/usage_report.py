@@ -2379,7 +2379,17 @@ def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> in
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
-    return get_rows_synced_by_team(begin, end)
+    rows_synced = get_rows_synced_by_team(begin, end)
+    if not batch_exports_api.exports_bill_as_rows_synced(end):
+        return rows_synced
+
+    totals: Counter[int] = Counter()
+    for row in rows_synced:
+        totals[row["team_id"]] += row["total"] or 0
+    exports_begin = max(begin, batch_exports_api.UNIFIED_PIPELINES_PRICING_START)
+    for exported in batch_exports_api.get_teams_with_billable_rows_exported(exports_begin, end):
+        totals[exported.team_id] += exported.total
+    return [{"team_id": team_id, "total": total} for team_id, total in totals.items()]
 
 
 @timed_log()
@@ -2391,10 +2401,16 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
-    return [
-        {"team_id": row.team_id, "total": row.total}
-        for row in batch_exports_api.get_teams_with_billable_rows_exported(begin, end)
-    ]
+    # From the cutover, export rows bill on rows_synced instead (see get_teams_with_rows_synced_in_period).
+    if batch_exports_api.exports_bill_as_rows_synced(begin):
+        return []
+    if batch_exports_api.exports_bill_as_rows_synced(end):
+        rows = batch_exports_api.get_teams_with_billable_rows_exported(
+            begin, batch_exports_api.UNIFIED_PIPELINES_PRICING_START, end_inclusive=False
+        )
+    else:
+        rows = batch_exports_api.get_teams_with_billable_rows_exported(begin, end)
+    return [{"team_id": row.team_id, "total": row.total} for row in rows]
 
 
 @timed_log()

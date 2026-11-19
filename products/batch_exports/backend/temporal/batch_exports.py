@@ -25,8 +25,9 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
+from posthog.usage_ingestion.usage_keys import ROWS_SYNCED_USAGE_KEY
 
-from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.billing import exports_bill_as_rows_synced, is_billable_run
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
@@ -566,17 +567,24 @@ async def check_is_over_limit(team_id: int) -> bool:
     """
     team: Team = await Team.objects.aget(id=team_id)
 
-    # The ROWS_EXPORTED resource stores a team attribute for each team that has
+    # The quota resource stores a team attribute for each team that has
     # exceeded their quota and thus is limited. The term "attribute" refers to
     # a team identifier, which in our case is the team's API token.
-    limited_team_tokens_rows_exported = await asyncio.to_thread(
-        list_limited_team_attributes, QuotaResource.ROWS_EXPORTED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    limited_team_tokens = await asyncio.to_thread(
+        list_limited_team_attributes,
+        billed_quota_resource(dt.datetime.now(dt.UTC)),
+        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
     )
 
-    if team.api_token in limited_team_tokens_rows_exported:
+    if team.api_token in limited_team_tokens:
         return True
 
     return False
+
+
+def billed_quota_resource(at: dt.datetime) -> QuotaResource:
+    """The quota resource that export rows count against at `at`."""
+    return QuotaResource.ROWS_SYNCED if exports_bill_as_rows_synced(at) else QuotaResource.ROWS_EXPORTED
 
 
 @dataclasses.dataclass(frozen=False)
@@ -655,9 +663,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         latest_error = latest_error.replace("\x00", "")
         update_params["latest_error"] = latest_error
 
+    finished_at = dt.datetime.now(dt.UTC)
     batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
-        finished_at=dt.datetime.now(dt.UTC),
+        finished_at=finished_at,
         **update_params,
     )
 
@@ -674,7 +683,9 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                         record_id=str(batch_export_run.id),
                         producer_id="batch-exports",
                         team_id=inputs.team_id,
-                        usage_key="batch_export_rows",
+                        usage_key=ROWS_SYNCED_USAGE_KEY
+                        if exports_bill_as_rows_synced(finished_at)
+                        else "batch_export_rows",
                         unit="rows",
                         quantity=batch_export_run.records_completed,
                     )
