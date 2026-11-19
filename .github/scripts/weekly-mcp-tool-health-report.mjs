@@ -47,6 +47,9 @@ const GITHUB_ORG_TOKEN = process.env.GITHUB_ORG_TOKEN || ''
 const GITHUB_ORG = GITHUB_REPOSITORY.split('/')[0]
 // The inbox report API's cap on suggested reviewers.
 const MAX_SIGNAL_REVIEWERS = 10
+// Each report can spend about 8.5 minutes on retries, so no team starts past this budget and the
+// job's timeout-minutes leaves room for the query, one last slow report, and setup.
+const SIGNALS_BUDGET_MS = 10 * 60_000
 
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 25
@@ -356,9 +359,16 @@ function fileInboxReport(body) {
 }
 
 // One team's failure, at either step, must not keep the teams behind it from their reports.
-async function fileTeamSignals(teams, { now, membersOf = githubTeamMembers, file = fileInboxReport }) {
+async function fileTeamSignals(
+    teams,
+    { now, deadline = Date.now() + SIGNALS_BUDGET_MS, membersOf = githubTeamMembers, file = fileInboxReport }
+) {
     const filed = []
     for (const team of teams) {
+        if (Date.now() > deadline) {
+            console.warn(`signals delivery budget spent - ${team.owner} and later teams were not filed`)
+            break
+        }
         const logins = await membersOf(team.owner).catch((err) => {
             console.warn(`members of ${team.owner} unreadable, filing without reviewers: ${err.message}`)
             return []
@@ -422,8 +432,9 @@ async function main() {
     }
     const filed = await fileTeamSignals(signalTeams, { now })
     console.info(`Filed ${filed.length}/${signalTeams.length} team signals report(s).`)
-    // One team failing is logged; every team failing is a broken key, flag or consent, so fail the run.
-    if (signalTeams.length > 0 && filed.length === 0) {
+    // Every team is still attempted, but any team left without a report fails the run. A re-run that
+    // week replays the reports already filed and files the rest.
+    if (filed.length < signalTeams.length) {
         process.exitCode = 1
     }
 }

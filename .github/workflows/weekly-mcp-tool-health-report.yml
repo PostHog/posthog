@@ -36,9 +36,9 @@ permissions:
 jobs:
     report:
         runs-on: ubuntu-24.04
-        # The query's worst case is 3 attempts x 150s abort plus 2 x 30s backoffs (~8.5min). Each team
-        # inbox report then waits on a synchronous safety judge, with the same retries on failure.
-        timeout-minutes: 25
+        # The query's worst case is 3 attempts x 150s abort plus 2 x 30s backoffs (~8.5min). Inbox
+        # reports start within a 10-minute budget, and the last one can retry for another ~8.5min.
+        timeout-minutes: 30
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-
@@ -75,6 +75,8 @@ jobs:
               uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_MCP_TOOL_HEALTH_APP_ID }}
+                  # The organization installation, since reading team members needs no repository access.
+                  owner: ${{ github.repository_owner }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_MCP_TOOL_HEALTH_PRIVATE_KEY }}
                   permission-members: read
 

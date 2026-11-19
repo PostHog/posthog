@@ -199,6 +199,16 @@ describe('weekly MCP tool health report', () => {
             assert.equal(filed[0].suggested_reviewers, undefined)
         })
 
+        it('starts no team once the delivery deadline has passed', async () => {
+            const reports = await fileTeamSignals([SURVEYS], {
+                now: NOW,
+                deadline: Date.now() - 1,
+                membersOf: async () => [],
+                file: async () => ({ report_id: 'r3' }),
+            })
+            assert.deepEqual(reports, [])
+        })
+
         it('keeps filing the next team after one team fails', async () => {
             const reports = await fileTeamSignals([SURVEYS, { owner: 'team-cdp', items: [TOOL] }], {
                 now: NOW,
