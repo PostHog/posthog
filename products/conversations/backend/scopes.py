@@ -5,16 +5,17 @@ from posthog.scope_docs import ScopeDoc
 SCOPE_DOCS = (
     ScopeDoc(
         object="support_ticket",
-        name="Support ticket",
-        plural="support tickets",
-        description="Support tickets fetched through the external ticket API, used only by project secret API keys.",
+        name="External ticket API",
+        plural="tickets from the external ticket API",
+        description="Single tickets fetched through the external ticket API, for project secret API keys only.",
         group="Customers & support",
         docs_url="https://posthog.com/docs/support",
+        actions=("read",),
     ),
     ScopeDoc(
         object="ticket",
-        name="Ticket",
-        plural="tickets",
+        name="Support ticket",
+        plural="support tickets",
         description="Support tickets, including their messages, notes, status, assignment, saved views, and macros.",
         group="Customers & support",
         docs_url="https://posthog.com/docs/support",
