@@ -525,18 +525,20 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        response_format: text
         title: Get task run session logs
         description: >
             Fetch session log events emitted by the agent for a specific run, in log order. A resumed run starts with
             the events of the runs it resumed from, oldest first. Supports filtering by `event_types`, `exclude_types`
-            and an `after` timestamp, and pagination with `start`/`limit`. A page stops early when it reaches 16 MiB, so
-            read the next page from `start` plus the number of events returned, and stop when a page comes back empty.
+            and an `after` timestamp, and pagination with `start`/`limit`. Returns `entries`, `offset` (the index of the
+            first entry) and `count` (the number of matching entries). More entries remain while `offset` plus the
+            number of entries is below `count`.
         exclude_params:
             - tail_bytes
             - before
             - view
         param_overrides:
+            output:
+                input_schema: TaskRunLogEntriesOutputSchema
             start:
                 description: >
                     Zero-based index of the first event to return (default 0). With a filter, it counts only the
@@ -546,5 +548,4 @@ tools:
             limit:
                 description: Maximum number of entries to return (default 100, max 5000)
                 default: 100
-        hooks: tasks/logEntriesHooks
         feature_flag: tasks

@@ -49677,67 +49677,6 @@
             "validators": []
         }
     },
-    "tasks-runs-session-logs-retrieve": {
-        "name": "tasks-runs-session-logs-retrieve",
-        "kind": "http",
-        "requires": ["hook:tasks/logEntriesHooks"],
-        "hooks": "tasks/logEntriesHooks",
-        "uiApp": null,
-        "request": {
-            "method": "GET",
-            "path": "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/log_entries/",
-            "pathParams": ["id", "task_id"],
-            "fallbacks": [],
-            "query": [
-                {
-                    "param": "after",
-                    "key": "after",
-                    "csv": false
-                },
-                {
-                    "param": "event_types",
-                    "key": "event_types",
-                    "csv": false
-                },
-                {
-                    "param": "exclude_types",
-                    "key": "exclude_types",
-                    "csv": false
-                },
-                {
-                    "param": "limit",
-                    "key": "limit",
-                    "csv": false
-                },
-                {
-                    "param": "start",
-                    "key": "start",
-                    "csv": false
-                }
-            ],
-            "body": null,
-            "injectBody": {},
-            "softDelete": null,
-            "transformBody": false,
-            "responseType": "text"
-        },
-        "response": {
-            "list": false,
-            "filter": null,
-            "stripNulls": false,
-            "enrich": null,
-            "agentNote": null,
-            "informational": null,
-            "textInclude": []
-        },
-        "input": {
-            "aliases": {
-                "start": ["offset"]
-            },
-            "casts": {},
-            "validators": []
-        }
-    },
     "ui-customization-describe": {
         "name": "ui-customization-describe",
         "kind": "http",

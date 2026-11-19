@@ -388,7 +388,7 @@ export class ApiClient {
         query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
-        /** Per-attempt deadline for the response. Defaults to the path-based deadline. */
+        /** Per-attempt deadline for a JSON response. Defaults to the path-based deadline. */
         timeoutMs?: number
         /** Cancels the request, including any wait before a retry. */
         signal?: AbortSignal
@@ -430,10 +430,24 @@ export class ApiClient {
             ...(opts.signal ? { signal: opts.signal } : {}),
         }
 
-        const result = await this.fetchJson<T>(url, fetchOptions, {
-            timeoutMs: opts.timeoutMs,
-            parseJson: opts.responseType !== 'text',
-        })
+        if (opts.responseType === 'text') {
+            const response = await this.fetch(url, fetchOptions)
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new PostHogApiError({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText,
+                    url,
+                    method: opts.method,
+                    retryAfterSeconds:
+                        response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
+                })
+            }
+            return (await response.text()) as T
+        }
+
+        const result = await this.fetchJson<T>(url, fetchOptions, { timeoutMs: opts.timeoutMs })
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -683,11 +697,7 @@ export class ApiClient {
     private async fetchJson<T>(
         url: string,
         options?: RequestInit,
-        {
-            idempotent = false,
-            timeoutMs: timeoutOverrideMs,
-            parseJson = true,
-        }: { idempotent?: boolean; timeoutMs?: number; parseJson?: boolean } = {}
+        { idempotent = false, timeoutMs: timeoutOverrideMs }: { idempotent?: boolean; timeoutMs?: number } = {}
     ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
@@ -809,10 +819,6 @@ export class ApiClient {
 
             if (!response.ok) {
                 return { success: false, error: this.buildApiError(response, bodyText, url, method) }
-            }
-
-            if (!parseJson) {
-                return { success: true, data: bodyText as T }
             }
 
             if (!bodyText) {

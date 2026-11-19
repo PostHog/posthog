@@ -7,10 +7,9 @@ import {
     ChannelInstructionsBaseVersionSchema,
     TaskAgentCreateSchema,
     TaskAgentRunCreateSchema,
+    TaskRunLogEntriesOutputSchema,
 } from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
-import hooks_tasksRunsSessionLogsRetrieve from '@/tools/tasks/logEntriesHooks'
-import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -779,6 +778,7 @@ const TasksRunsSessionLogsRetrieveSchema = () => {
         TasksRunsLogEntriesRetrieveParams.omit({ project_id: true })
             .extend(TasksRunsLogEntriesRetrieveQueryParams.omit({ before: true, tail_bytes: true, view: true }).shape)
             .extend({
+                output: TaskRunLogEntriesOutputSchema,
                 start: TasksRunsLogEntriesRetrieveQueryParams.shape['start'].describe(
                     'Zero-based index of the first event to return (default 0). With a filter, it counts only the matching events.'
                 ),
@@ -793,25 +793,22 @@ const TasksRunsSessionLogsRetrieveSchema = () => {
 const tasksRunsSessionLogsRetrieve = (): ToolBase<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>, unknown> => ({
     name: 'tasks-runs-session-logs-retrieve',
     schema: TasksRunsSessionLogsRetrieveSchema(),
-    handler: withToolHooks(
-        hooks_tasksRunsSessionLogsRetrieve,
-        async (context: Context, params: z.infer<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<unknown>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/log_entries/`,
-                responseType: 'text',
-                query: {
-                    after: params.after,
-                    event_types: params.event_types,
-                    exclude_types: params.exclude_types,
-                    limit: params.limit,
-                    start: params.start,
-                },
-            })
-            return result
-        }
-    ),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/log_entries/`,
+            query: {
+                after: params.after,
+                event_types: params.event_types,
+                exclude_types: params.exclude_types,
+                limit: params.limit,
+                output: params.output,
+                start: params.start,
+            },
+        })
+        return result
+    },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {

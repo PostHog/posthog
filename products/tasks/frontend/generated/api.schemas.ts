@@ -6221,6 +6221,14 @@ export type TasksRunsLogEntriesRetrieveParams = {
      */
     limit?: number
     /**
+     * 'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.
+     *
+     * * `jsonl` - jsonl
+     * * `json` - json
+     * @minLength 1
+     */
+    output?: TasksRunsLogEntriesRetrieveOutput
+    /**
      * Return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. With tail_bytes, when those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start. With after, event_types or exclude_types, the index counts only the matching entries.
      * @minimum 0
      */
@@ -6239,6 +6247,14 @@ export type TasksRunsLogEntriesRetrieveParams = {
      */
     view?: TasksRunsLogEntriesRetrieveView
 }
+
+export type TasksRunsLogEntriesRetrieveOutput =
+    (typeof TasksRunsLogEntriesRetrieveOutput)[keyof typeof TasksRunsLogEntriesRetrieveOutput]
+
+export const TasksRunsLogEntriesRetrieveOutput = {
+    Jsonl: 'jsonl',
+    Json: 'json',
+} as const
 
 export type TasksRunsLogEntriesRetrieveView =
     (typeof TasksRunsLogEntriesRetrieveView)[keyof typeof TasksRunsLogEntriesRetrieveView]

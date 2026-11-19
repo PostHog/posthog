@@ -16442,7 +16442,7 @@
         "feature_flag": "tasks"
     },
     "tasks-runs-session-logs-retrieve": {
-        "description": "Fetch session log events emitted by the agent for a specific run, in log order. A resumed run starts with the events of the runs it resumed from, oldest first. Supports filtering by `event_types`, `exclude_types` and an `after` timestamp, and pagination with `start`/`limit`. A page stops early when it reaches 16 MiB, so read the next page from `start` plus the number of events returned, and stop when a page comes back empty.",
+        "description": "Fetch session log events emitted by the agent for a specific run, in log order. A resumed run starts with the events of the runs it resumed from, oldest first. Supports filtering by `event_types`, `exclude_types` and an `after` timestamp, and pagination with `start`/`limit`. Returns `entries`, `offset` (the index of the first entry) and `count` (the number of matching entries). More entries remain while `offset` plus the number of entries is below `count`.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get task run session logs",

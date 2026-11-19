@@ -28,7 +28,6 @@ export const ToolConfigSchema = z
         input_schema: z.string().optional(),
         /** Optional TypeScript type expression used for the generated handler return type and request generic. */
         response_type: z.string().optional(),
-        response_format: z.literal('text').optional(),
         enrich_url: z.string().optional(),
         list: z.boolean().optional(),
         title: z.string().optional(),
@@ -381,23 +380,6 @@ export const ToolConfigSchema = z
             '`confirmed_action` cannot be combined with `hooks` yet — the prepare and execute handlers are not wrapped.',
         path: ['confirmed_action'],
     })
-    .refine(
-        (data) =>
-            !(
-                data.response_format &&
-                (data.input_schema ||
-                    data.confirmed_action ||
-                    data.response ||
-                    data.list ||
-                    data.enrich_url ||
-                    data.agent_note)
-            ),
-        {
-            message:
-                '`response_format: text` returns the body as a string, which only `hooks` can shape. Remove `input_schema`, `confirmed_action`, `response`, `list`, `enrich_url` and `agent_note`.',
-            path: ['response_format'],
-        }
-    )
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
 

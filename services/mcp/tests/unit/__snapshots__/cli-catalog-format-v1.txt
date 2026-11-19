@@ -158,10 +158,6 @@
                     },
                     "transformBody": {
                         "type": "boolean"
-                    },
-                    "responseType": {
-                        "type": "string",
-                        "const": "text"
                     }
                 },
                 "required": [

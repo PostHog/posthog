@@ -749,9 +749,6 @@ Product teams own their definitions and control which operations are exposed as 
    A `beforeRequest` that throws stops the request, and `onError` does not see that error.
    A `transformBody` that throws stops the request and reaches `onError`. When merging stored state, send the version read with that state and surface a conflict instead of retrying a stale body.
    `hooks` cannot be combined with `confirmed_action`.
-   For an endpoint that does not answer with JSON, such as a JSONL log, set `response_format: text`.
-   The request then hands `afterResponse` the body as a string, and the hook shapes it.
-   A text response cannot use `response`, `list`, `enrich_url` or `agent_note`.
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 

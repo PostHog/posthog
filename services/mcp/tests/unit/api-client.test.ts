@@ -704,7 +704,7 @@ describe('ApiClient', () => {
 
         it.each([
             { transport: 'json' as const, attempts: 3 },
-            { transport: 'text' as const, attempts: 3 },
+            { transport: 'text' as const, attempts: 1 },
             { transport: 'sse' as const, attempts: 1 },
         ])(
             'keeps $transport transport diagnostics value-free without changing the request',

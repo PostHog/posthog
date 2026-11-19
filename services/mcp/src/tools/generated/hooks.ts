@@ -13,10 +13,9 @@ import hooks9 from '@/tools/logs/groupByRedactionHooks'
 import hooks10 from '@/tools/logs/redactCredentialsHooks'
 import hooks11 from '@/tools/replay/sessionRecordingGetHooks'
 import hooks12 from '@/tools/signals/inboxMySettingsHooks'
-import hooks13 from '@/tools/tasks/logEntriesHooks'
 import type { ToolHooks } from '@/tools/tool-hooks'
-import hooks14 from '@/tools/workflows/broadcastLinkHooks'
-import hooks15 from '@/tools/workflows/dataSuggestionCreateHooks'
+import hooks13 from '@/tools/workflows/broadcastLinkHooks'
+import hooks14 from '@/tools/workflows/dataSuggestionCreateHooks'
 
 export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
     'dataWarehouse/viewGetHooks': hooks0,
@@ -32,7 +31,6 @@ export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
     'logs/redactCredentialsHooks': hooks10,
     'replay/sessionRecordingGetHooks': hooks11,
     'signals/inboxMySettingsHooks': hooks12,
-    'tasks/logEntriesHooks': hooks13,
-    'workflows/broadcastLinkHooks': hooks14,
-    'workflows/dataSuggestionCreateHooks': hooks15,
+    'workflows/broadcastLinkHooks': hooks13,
+    'workflows/dataSuggestionCreateHooks': hooks14,
 }

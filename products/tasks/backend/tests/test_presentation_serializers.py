@@ -249,6 +249,8 @@ class TestTaskRunLogsQuerySerializer(SimpleTestCase):
             ("after_with_tail_bytes", {"after": "2026-01-01T00:00:00Z", "tail_bytes": "1"}, False),
             ("event_types_with_tail_bytes", {"event_types": "agent_message", "tail_bytes": "1"}, False),
             ("exclude_types_with_tail_bytes", {"exclude_types": "tool_call", "tail_bytes": "1"}, False),
+            ("json_page", {"output": "json", "start": "2", "limit": "10"}, True),
+            ("json_with_tail_bytes", {"output": "json", "tail_bytes": "1"}, False),
         ]
     )
     def test_query_combinations(self, _name: str, data: dict, expected_valid: bool) -> None:

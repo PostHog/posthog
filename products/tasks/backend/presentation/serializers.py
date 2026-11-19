@@ -3748,6 +3748,11 @@ class TaskRunLogsView(models.TextChoices):
     THREAD = "thread", "thread"
 
 
+class TaskRunLogsOutput(models.TextChoices):
+    JSONL = "jsonl", "jsonl"
+    JSON = "json", "json"
+
+
 TASK_RUN_LOG_PAGE_FIELDS = ("limit", "after", "event_types", "exclude_types")
 
 
@@ -3777,6 +3782,16 @@ class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
             "'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in "
             "_meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that "
             "render the conversation. It applies to the full log and to every slice."
+        ),
+    )
+    output = serializers.ChoiceField(
+        choices=TaskRunLogsOutput.choices,
+        default=TaskRunLogsOutput.JSONL,
+        required=False,
+        help_text=(
+            "'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, "
+            "offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an "
+            "object with its text in unparseable_line. Cannot be combined with tail_bytes or before."
         ),
     )
 
@@ -3832,6 +3847,8 @@ class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
             for field in TASK_RUN_LOG_PAGE_FIELDS:
                 if field in attrs:
                     raise serializers.ValidationError(f"Use {field} or tail_bytes, not both.")
+            if attrs.get("output") == TaskRunLogsOutput.JSON:
+                raise serializers.ValidationError("Use output=json or tail_bytes, not both.")
         return attrs
 
 

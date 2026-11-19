@@ -1228,7 +1228,7 @@ export const TasksRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate of a session/update notification, or else its notification method. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. A read with limit, after, event_types, exclude_types or output=json does not mark it. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate of a session/update notification, or else its notification method. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
  * @summary Get task run log entries
  */
 export const TasksRunsLogEntriesRetrieveParams = () => zod.object({
@@ -1245,6 +1245,7 @@ export const tasksRunsLogEntriesRetrieveQueryBeforeMin = 0
 
 export const tasksRunsLogEntriesRetrieveQueryLimitMax = 5000
 
+export const tasksRunsLogEntriesRetrieveQueryOutputDefault = `jsonl`
 export const tasksRunsLogEntriesRetrieveQueryStartMin = 0
 
 export const tasksRunsLogEntriesRetrieveQueryViewDefault = `full`
@@ -1267,6 +1268,12 @@ export const TasksRunsLogEntriesRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Return at most this many entries from start, which defaults to 0. A page also stops before it passes 16 MiB, so it can hold fewer entries. X-Log-Offset is the index of the first entry, and X-Log-Count is the number of entries, counting only the matching entries when a filter is given. More entries remain while X-Log-Offset plus the number of returned entries is below X-Log-Count. Cannot be combined with tail_bytes or before.'
+        ),
+    output: zod
+        .enum(['jsonl', 'json'])
+        .default(tasksRunsLogEntriesRetrieveQueryOutputDefault)
+        .describe(
+            "'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.\n\n\* `jsonl` - jsonl\n\* `json` - json"
         ),
     start: zod
         .number()
