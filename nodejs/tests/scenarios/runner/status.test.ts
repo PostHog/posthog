@@ -96,6 +96,15 @@ describe('statusOf', () => {
             'the generator offered 53 of 60 units, under minOffered 0.9',
         ],
         [
+            'a ramp that broke at a step before a later step fell short of minOffered',
+            {
+                units: { targetUnits: 60, offeredUnits: 53 },
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'writer_cpu_under broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: writer_cpu_under broke at the 2x step',
+        ],
+        [
             'a role was killed by its valve and every invariant held',
             { timeline: [killed(EMAIL_WORKER, 10, 11)], exits: [exited(EMAIL_WORKER, 10, true)] },
             'passed',
@@ -152,6 +161,102 @@ describe('statusOf', () => {
             },
             'failed',
             'pickup_p99_under broke at the 10x step, 12.3 units/s offered: hogflow 10 s',
+        ],
+        [
+            'a ramp that stopped at a harness limit in the step where a bar broke',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        passed: false,
+                        breakingPoint: { scale: 5, at: at(30), offeredPerSecond: 0, value: 10, part: 'role:x' },
+                    },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 2,
+                    reason: 'the generator offered 0 of 600 units in the 5x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 0 of 600 units in the 5x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that broke before a later step whose bar could not be judged',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        passed: false,
+                        breakingPoint: { scale: 2, at: at(30), offeredPerSecond: 2, value: 10, part: 'role:x' },
+                    },
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        passed: false,
+                        unjudged: 'no writer CPU reading in the 5x step',
+                    },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'pickup_p99_under broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: pickup_p99_under broke at the 2x step',
+        ],
+        [
+            'a ramp that stopped at a harness limit before the step whose unit broke an invariant',
+            {
+                invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that stopped at a harness limit at the step whose accepted unit never delivered',
+            {
+                convergence: { converged: false, unfinishedJobs: 1, unrecorded: ['run-1'], tookMs: 120_000 },
+                invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that held up to its ceiling',
+            { ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' } },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a ramp that stopped at a harness limit while an invariant no unit crossed failed',
+            {
+                invariants: [
+                    {
+                        name: 'resident_backlog_intact',
+                        passed: false,
+                        observed: 3,
+                        violation: '3 rows lost',
+                        unitIds: [],
+                    },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'failed',
+            'resident_backlog_intact failed: 3 rows lost',
         ],
         [
             'a bar could not be judged',

@@ -875,7 +875,9 @@ describe('runner through seed, drive and judge', () => {
             load: loadTargets,
             backlog,
             ramp,
+            stopOnBreak,
             bars = [],
+            driveFor = '2s',
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -884,7 +886,9 @@ describe('runner through seed, drive and judge', () => {
             load?: Profile['load']
             backlog?: Backlog
             ramp?: LoadedCard['card']['drive']['ramp']
+            stopOnBreak?: true
             bars?: Named[]
+            driveFor?: string
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -893,7 +897,14 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
+                drive: {
+                    ...SMOKE.card.drive,
+                    for: driveFor,
+                    minOffered: 0.5,
+                    traffic: [{ name: traffic }],
+                    ramp,
+                    stopOnBreak,
+                },
                 invariants,
                 measure: measures,
                 bars,
@@ -1509,6 +1520,53 @@ describe('runner through seed, drive and judge', () => {
             unjudged: 'no writer CPU reading off a run host in the 1x step',
             harnessLimit: expect.objectContaining({ by: 'run_host', scale: 1 }),
         })
+    }, 30_000)
+
+    it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
+        let answered = 0
+        const refusingIntake = http.createServer((_request, response) => {
+            answered += 1
+            setTimeout(() => response.writeHead(503).end(), answered === 1 ? 1_000 : 4_000)
+        })
+        await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(refusingIntake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'transactional_email', {
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                    ],
+                    driveFor: '20s',
+                    stopOnBreak: true,
+                    load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            const [first, ...later] = result.units?.steps ?? []
+            const ranMs = first.endedAt - first.startedAt
+
+            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+                ranUnderPlan: true,
+                later: [],
+                result: {
+                    status: 'invalid',
+                    ramp: {
+                        end: 'harness_limit',
+                        sustainedScale: null,
+                        broke: { scale: 1, kind: 'harness' },
+                        reason: `the load admission failed at the 1x step: the baseline was too short to measure: ${Number((ranMs / 1000).toFixed(1))}s, under the 30s minimum`,
+                    },
+                },
+            })
+        } finally {
+            refusingIntake.closeAllConnections()
+            await new Promise((resolve) => refusingIntake.close(resolve))
+        }
     }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {

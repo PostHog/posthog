@@ -54,7 +54,7 @@ Before the drive, the runner reads the topology again until every part a valve t
 
 ### Run a card in the cloud
 
-`cyclotron-failover-under-load` and `cyclotron-scale` run only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card.
+`cyclotron-failover-under-load`, `cyclotron-scale` and `cyclotron-breaking-point` run only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card.
 A controller on a person's machine starts the run and ends it:
 
 ```bash
@@ -72,7 +72,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **Each run:** one profile, one lease, one cap.
 - **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
 - **Reader capacity:** a card with a `pg.failover` valve is judged on the reader's capacity around the failover request. Other cards skip that judgment, and the reader's capacity still prices the run.
-- **Locally:** both cards are `invalid`, the failover card at its valve and the scale card at its CPU bar, because only a run host carries the run manifest.
+- **Locally:** these cards are `invalid`, the failover card at its valve and the scale and breaking point cards at their CPU bar, because only a run host carries the run manifest.
 
 ## Glossary
 
@@ -201,17 +201,21 @@ The first slice is local only, on real time.
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
-| Card                            | Traffic                                               | Valves                                                                                                                                          | Invariants                                                                                  | Failure class                                |
-| ------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                   | Baseline: proves the judging loop            |
-| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A frozen pod losing sends                    |
-| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, swept every 100 ms for 60 seconds from 10 seconds, in a 90-second drive                                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
-| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | Destination 429 and 503 retry storms         |
-| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                      | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | SES throttling                               |
-| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                    | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`      | Dropped SES feedback, so no suppression      |
-| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                 | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | A Cyclotron writer failover under load       |
-| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | Cyclotron falling behind at 10x load         |
+| Card                            | Traffic                                               | Valves                                                                                                                                                 | Invariants                                                                                           | Failure class                                |
+| ------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                            | Baseline: proves the judging loop            |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A frozen pod losing sends                    |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, swept every 100 ms for 60 seconds from 10 seconds, in a 90-second drive                                                 | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | A dropped Postgres connection stranding jobs |
+| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | Destination 429 and 503 retry storms         |
+| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                                     | SES throttling                               |
+| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                           | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`               | Dropped SES feedback, so no suppression      |
+| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | A Cyclotron writer failover under load       |
+| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact`          | Cyclotron falling behind at 10x load         |
+| `cyclotron-breaking-point`      | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x, 5x, 10x, 20x, 30x and 40x for 5 minutes each and stop at the first break, with the same bars as `cyclotron-scale` | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | The load at which Cyclotron first breaks     |
+
+A `cyclotron-breaking-point` run that holds every step through 40x ends as a ceiling at 40x, which is a valid result and not a failure of the card.
+On `cyclotron-breaking-point`, a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, and the run places the break at step N.
 
 ## Call paths
 
@@ -419,11 +423,12 @@ The schema is `Card` in `cards/schema.ts`.
 A card names its profile, its seed, the number of teams to seed, its traffic kinds and their duration, its valve entries, `convergeWithin`, its invariants and measurements, and its gates.
 `drive.minOffered` is the share of target units that must count as offered for the run to judge, 0.9 by default.
 `drive.ramp` splits the drive into steps, each with a `scale` that multiplies every traffic kind's profile rate and a `for`; the steps add up to `drive.for`, and each scales higher than the one before.
+Each step starts and ends at a fixed offset from the drive's start, so a stalled generator cannot move a later step past the drive's end.
 A card without a ramp drives at 1x throughout.
 `bars` lists pass bars that every ramp step must stay under:
 
 - `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. After the run converges, the read waits up to 5 minutes for CloudWatch to publish the drive's last whole minute, a read in flight included, and stops at once when the run is interrupted. It reads only on a run host.
-- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket breaks a bar at or under that bucket and leaves a higher bar unread, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. Each named queue's worker must answer its scrapes: one that is never scraped, or whose scrapes stop for more than 15 seconds, leaves the step unread. A scrape interval that straddles a step boundary counts in both steps, so late pickups at a step's end break that step rather than hide in the next step's larger volume.
+- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket breaks a bar at or under that bucket and leaves a higher bar unread, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. Each named queue's worker must answer its scrapes: one that is never scraped, or whose scrapes stop for more than 15 seconds, leaves the step unread. A scrape counts in the step it was taken in, so a scrape that straddles a step boundary counts in the later step only, and pickups from a higher scale never break the step below it.
 
 The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
 A ramped card is admitted on its first step, at the profile's own rates.
@@ -431,6 +436,22 @@ When the profile sets `host.cpuCeiling`, each step is also checked against it be
 A step whose run host was busy at or over the ceiling is not judged, and neither is any later step, because a saturated run host starves the roles it runs.
 A step with fewer than two host CPU samples inside it is not judged either, and each step reads only the samples inside it.
 A breaking point from an earlier step still stands.
+
+`drive.stopOnBreak: true` makes a ramp of two or more steps stop at its first break, so the run records where the system breaks rather than a pass or fail at one load.
+
+- The generator offers no unit of a step after the step's end. A unit it could not offer in time still counts as due, so a stalled generator shows as a shortfall rather than as load in the next step. A card without `stopOnBreak` keeps one schedule: a unit that fell due during a stall is offered late, up to the drive's end.
+- The generator moves to the next step at the planned boundary while the verdict of the step before is in. When it is not, the generator keeps driving the current step at its own rate until that verdict is in, so a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged. The stretched step keeps its real start and end, and `ramp_steps` says it waited. Later steps start that much later and keep their planned length.
+- After each step but the last, once 15 seconds of scrapes past its end are in, the runner judges the step's bars over the step, while the generator drives the next step. A broken bar stops the drive when the judge returns, so the drive stops no later than the end of the step after the one that broke, and the break is placed at the step that broke. The first step's admission is checked first, over the window the first step actually ran, so a ramp that fails its admission stops no later than the second step. The final judge checks the admission over the same window. A live judge that fails stops the drive as a `run_host` harness limit.
+- The final judge keeps each live break, and keeps a live pass for a step unless its own read breaks it, so a final read that fails after the drive does not undo a verdict the live judge already reached.
+- A refusal at intake over the card's `refused_at_intake` gate stops the drive inside its step, without waiting for the step to end.
+- An event counts as offered once Kafka acknowledged it by the drive's scheduled end, or by the stop when the drive stopped early, however late the generator's last timer ran. A broken bar and the ramp report the step's rate from the same count, whether the live or the final judge read the break.
+- A step whose generator offered fewer than `minOffered` of its units, or had none to offer, or whose bar could not be read, stops the drive as a harness limit: `ramp_broke_by` names the `generator` that could not offer the step, or the `run_host` that could not read it.
+- The units already in flight are still journaled, and the run converges and is judged as usual. Steps after the stop are not driven and not judged.
+- Invariants are judged after convergence. A failed invariant breaks at the step that offered the unit that took its count over its gate. Units offered at the same moment are ordered by step.
+- The run's breaking point is the earliest break across bars, gates, invariants and harness limits, and the scale before it is the last sustained scale. Within one step, a generator shortfall comes first, then a bar, then a gate or invariant, then a metric the run host could not read.
+- A first step that fails its admission is a harness limit at that step, with no sustained scale, because no scale was measured against the profile.
+- A drive that ends partway through a step, such as an interrupted one, is a harness limit at that step, never a ceiling, and that limit outranks a bar the run host could not read in the step.
+- A run that broke is `failed`, a run that held through its last step is `passed`, and a run that stopped at a harness limit with nothing broken is `invalid`. The ramp judges the bars, the invariants a unit crossed and the offered share step by step, so its end sets the status, and a later step that fell short or could not be read does not make a run that broke earlier `invalid`. An invariant no unit crossed, such as `resident_backlog_intact`, still fails the run. When `at_least_once` places a lost unit in a step, the ramp owns the convergence too, so a unit that never delivered does not make a run that stopped at a harness limit `failed`.
 
 ```yaml
 id: email-worker-killed
@@ -476,7 +497,9 @@ A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.exa
 It rejects:
 
 - unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
+- a bar declared twice on a `stopOnBreak` card, because each live verdict is looked up by the bar's name;
 - ramp steps that do not add up to `drive.for`, or a step that does not scale higher than the one before;
+- a `stopOnBreak` card with valves, because its drive can stop before they are due;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
@@ -698,7 +721,7 @@ export function drive(
 - **Intakes.** Events go to the topic the events consumer reads. Transactional sends go to cdp-api's template route.
 - **Pacing.** Each traffic kind offers `ratePerSecond` units for the drive's duration, from its profile entry. Sampling uses the card's `seed`, so two runs of one card offer the same sequence of units.
 - **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error.
-- **Load.** `offeredUnits` counts every call to a CDP role's intake, such as cdp-api, whatever it answered and whenever the answer arrived, and every event Kafka acknowledged before the drive ended. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed or late Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
+- **Load.** `offeredUnits` counts every call to a CDP role's intake, such as cdp-api, whatever it answered and whenever the answer arrived, and every event Kafka acknowledged by the drive's scheduled end. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed or late Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
 - **Follow-ups.** `bounce_followup` sends a follow-up only after its unit was accepted. It waits up to 60 seconds for cdp-api's 200 to the bounce feedback in the edge's truth, then for `Environment.groupLag` of the `cdp-ses-webhooks` group to reach zero. It stops waiting at once when the edge took the unit's send without a fault, as it does for a send that reaches SES after the runner released its faults at the drive's end. When the feedback was refused, the send went through or the bound passes, the journal records why the follow-up was not sent.
 - **Stopping.** When the drive stops, pending follow-ups send nothing, and the drive returns only after every follow-up it started has settled.
 
@@ -801,7 +824,7 @@ A property is added without a version change; a rename, a removal or a change of
 | `run_id`            | string          | The run's UUID, also the event's `uuid`                                                                                                                                    |
 | `card_id`           | string          | The card's `id`                                                                                                                                                            |
 | `card_version`      | number          | The card's `version`                                                                                                                                                       |
-| `card_hash`         | string          | SHA-256 of the card without `gates`, and the profile hash                                                                                                                  |
+| `card_hash`         | string          | SHA-256 of the card without `gates`, and the profile hash. The ramp steps are part of the card                                                                             |
 | `profile_name`      | string          | The profile's `name`                                                                                                                                                       |
 | `profile_hash`      | string          | SHA-256 of the profile                                                                                                                                                     |
 | `topology_hash`     | string or null  | 12-hex SHA-256 prefix of the processes and consumer groups by adapter and role, and databases by adapter and name. `null` when the run stopped before it read the topology |
@@ -831,7 +854,7 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 | `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                                                                    |
 | `duration_s`        | number          | Seconds from start to end                                                                                                                                                                                                                  |
 | `units_target`      | number or null  | Units the profile asked for                                                                                                                                                                                                                |
-| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                                                |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged by the drive's scheduled end                                                                                                                          |
 | `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                        |
 | `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                               |
 | `janitor_resets`    | number or null  | Jobs the janitor reset while the run was sampled; `duplicate_sends` allows one resend for each, `null` when the run stopped first                                                                                                          |
@@ -839,6 +862,21 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 | `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
 | `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                        |
 | `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                 |
+
+**Ramp**, only on a card with `drive.stopOnBreak`. A property with no value is `null`:
+
+| Property                   | Type           | Meaning                                                                                                                                          |
+| -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ramp_steps`               | array or null  | One entry per step the drive ran: its `scale`, its real `started_at` and `ended_at`, and `stretched`, why it ran past its planned end, or `null` |
+| `ramp_end`                 | string         | `broke`, `ceiling` when every step held, or `harness_limit` when the harness could not drive or read a step                                      |
+| `ramp_sustained_scale`     | number or null | The scale of the last step that held, `null` when the first step broke                                                                           |
+| `ramp_broke_scale`         | number or null | The scale of the step that broke                                                                                                                 |
+| `ramp_broke_offered_per_s` | number or null | Units offered per second in the step that broke                                                                                                  |
+| `ramp_broke_by`            | string or null | The bar, gate or invariant that broke, or `generator` or `run_host` for a harness limit                                                          |
+| `ramp_broke_kind`          | string or null | `bar`, `gate`, `invariant` or `harness`                                                                                                          |
+| `ramp_broke_part`          | string or null | The part of the system the bar read, such as `db:cyclotron` or `role:<role>`; `null` for a whole-system invariant or gate                        |
+| `ramp_broke_at`            | string or null | ISO 8601 start of the step that broke, or the bar's breaking point                                                                               |
+| `ramp_end_reason`          | string         | Why the ramp ended, in one line                                                                                                                  |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:

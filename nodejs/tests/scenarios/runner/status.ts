@@ -5,6 +5,7 @@ import type { DriveSummary } from '../generator/generator'
 import type { BarResult } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
+import type { Ramp } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
@@ -98,6 +99,7 @@ export type Verdict = {
     writer: readonly WriterSample[]
     drive: DriveWindow
     bars: BarResult[]
+    ramp?: Ramp
 }
 
 const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
@@ -167,7 +169,38 @@ function interruptionWithoutValve(
     return undefined
 }
 
-export function statusOf({
+function withRamp(
+    verdict: { status: Status; statusReason: string },
+    ramp: Ramp
+): { status: Status; statusReason: string } {
+    if (verdict.status !== 'passed' || ramp.end === 'ceiling') {
+        return verdict
+    }
+    return ramp.end === 'harness_limit'
+        ? { status: 'invalid', statusReason: `the ramp hit a harness limit: ${ramp.reason}` }
+        : { status: 'failed', statusReason: `the ramp broke: ${ramp.reason}` }
+}
+
+export function statusOf(verdict: Verdict): { status: Status; statusReason: string } {
+    if (!verdict.ramp) {
+        return unrampedStatusOf(verdict)
+    }
+    const { invariants, convergence } = verdict
+    const placesDeliveries = invariants.some(
+        ({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined
+    )
+    return withRamp(
+        unrampedStatusOf({
+            ...verdict,
+            bars: [],
+            invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
+            convergence: placesDeliveries ? { ...convergence, converged: true } : convergence,
+        }),
+        verdict.ramp
+    )
+}
+
+function unrampedStatusOf({
     admissions,
     minOffered,
     units,
@@ -179,6 +212,7 @@ export function statusOf({
     writer,
     drive,
     bars,
+    ramp,
 }: Verdict): {
     status: Status
     statusReason: string
@@ -193,7 +227,7 @@ export function statusOf({
             statusReason: refused.map(({ name, reason }) => `the ${name} admission failed: ${reason}`).join('; '),
         }
     }
-    if (units.targetUnits === 0 || units.offeredUnits < minOffered * units.targetUnits) {
+    if (units.targetUnits === 0 || (!ramp && units.offeredUnits < minOffered * units.targetUnits)) {
         return {
             status: 'invalid',
             statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,

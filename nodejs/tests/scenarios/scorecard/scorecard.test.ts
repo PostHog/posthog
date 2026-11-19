@@ -122,6 +122,16 @@ describe('scorecard', () => {
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
+                    ramp_steps: null,
+                    ramp_end: null,
+                    ramp_sustained_scale: null,
+                    ramp_broke_scale: null,
+                    ramp_broke_offered_per_s: null,
+                    ramp_broke_by: null,
+                    ramp_broke_kind: null,
+                    ramp_broke_at: null,
+                    ramp_broke_part: null,
+                    ramp_end_reason: null,
                     topology_hash: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
@@ -191,6 +201,112 @@ describe('scorecard', () => {
             unfinished_jobs: null,
             invariants_failed: [],
         })
+    })
+
+    it.each<[string, RunResult['ramp'], object]>([
+        [
+            'where it broke and what broke',
+            {
+                end: 'broke',
+                sustainedScale: 5,
+                broke: {
+                    scale: 10,
+                    offeredPerSecond: 42.5,
+                    by: 'pickup_p99_under',
+                    kind: 'bar',
+                    at: '2026-01-05T10:01:00.000Z',
+                    part: 'role:cdp-cyclotron-worker-email',
+                },
+                reason: 'pickup_p99_under broke at the 10x step',
+            },
+            {
+                ramp_steps: [
+                    {
+                        scale: 5,
+                        started_at: '2026-01-05T10:00:00.000Z',
+                        ended_at: '2026-01-05T10:01:00.000Z',
+                        stretched: null,
+                    },
+                    {
+                        scale: 10,
+                        started_at: '2026-01-05T10:01:00.000Z',
+                        ended_at: '2026-01-05T10:02:15.000Z',
+                        stretched: 'held the 10x rate past its planned end until the 5x step was judged',
+                    },
+                ],
+                ramp_end: 'broke',
+                ramp_sustained_scale: 5,
+                ramp_broke_scale: 10,
+                ramp_broke_offered_per_s: 42.5,
+                ramp_broke_by: 'pickup_p99_under',
+                ramp_broke_kind: 'bar',
+                ramp_broke_at: '2026-01-05T10:01:00.000Z',
+                ramp_broke_part: 'role:cdp-cyclotron-worker-email',
+                ramp_end_reason: 'pickup_p99_under broke at the 10x step',
+            },
+        ],
+        [
+            'the step the generator could not offer and the rate it reached',
+            {
+                end: 'harness_limit',
+                sustainedScale: 10,
+                broke: {
+                    scale: 20,
+                    offeredPerSecond: 61.5,
+                    by: 'generator',
+                    kind: 'harness',
+                    at: '2026-01-05T10:20:00.000Z',
+                    part: null,
+                },
+                reason: 'the generator offered 18450 of 24000 units in the 20x step, under minOffered 0.9',
+            },
+            {
+                ramp_end: 'harness_limit',
+                ramp_sustained_scale: 10,
+                ramp_broke_scale: 20,
+                ramp_broke_offered_per_s: 61.5,
+                ramp_broke_by: 'generator',
+                ramp_broke_kind: 'harness',
+                ramp_broke_at: '2026-01-05T10:20:00.000Z',
+                ramp_broke_part: null,
+                ramp_end_reason: 'the generator offered 18450 of 24000 units in the 20x step, under minOffered 0.9',
+            },
+        ],
+        [
+            'the ceiling it held, with empty breaking fields',
+            { end: 'ceiling', sustainedScale: 20, reason: 'every step held up to the 20x ceiling' },
+            {
+                ramp_end: 'ceiling',
+                ramp_sustained_scale: 20,
+                ramp_broke_scale: null,
+                ramp_broke_offered_per_s: null,
+                ramp_broke_by: null,
+                ramp_broke_kind: null,
+                ramp_broke_at: null,
+                ramp_broke_part: null,
+                ramp_end_reason: 'every step held up to the 20x ceiling',
+            },
+        ],
+    ])('reports a ramp run with %s, and each step it drove at its real start and end', (_story, ramp, expected) => {
+        const at = Date.parse('2026-01-05T10:00:00.000Z')
+        const units = {
+            targetUnits: 60,
+            offeredUnits: 58,
+            steps: [
+                { index: 0, scale: 5, startedAt: at, endedAt: at + 60_000, dueUnits: 30, offeredUnits: 29 },
+                {
+                    index: 1,
+                    scale: 10,
+                    startedAt: at + 60_000,
+                    endedAt: at + 135_000,
+                    dueUnits: 30,
+                    offeredUnits: 29,
+                    waitedFor: 0,
+                },
+            ],
+        }
+
+        expect(scorecardOf({ ...RESULT, ramp, units }, SMOKE, PROVENANCE)).toMatchObject(expected)
     })
 
     it('gives up when the readback never returns the event', async () => {

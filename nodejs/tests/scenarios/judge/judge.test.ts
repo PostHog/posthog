@@ -371,6 +371,25 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
     })
 
+    it('crosses the duplicate_sends gate at the step whose unit counted every extra acceptance', async () => {
+        const units = [
+            { ...offered(), unitId: UNIT, offeredAt: 1_000, step: 0 },
+            { ...offered(), unitId: 'run-a-2', offeredAt: 2_000, step: 1 },
+        ]
+        units.forEach((unit) => judge.record(unit))
+        await deliverTwice(UNIT)
+        await deliver(UNIT)
+        await deliverTwice('run-a-2')
+
+        const [result] = await judge.check([{ name: 'duplicate_sends', params: {} }], { duplicate_sends: 1 }, NO_RESETS)
+
+        expect({
+            passed: result.passed,
+            observed: result.observed,
+            crossedAtStep: units.find(({ unitId }) => unitId === result.crossedBy)?.step,
+        }).toEqual({ passed: false, observed: 3, crossedAtStep: 0 })
+    })
+
     it.each<[string, JournalEntry['kind'], JournalEntry['answer'], number | undefined, object]>([
         ['accepted', 'transactional', { accepted: true }, undefined, { passed: true, observed: 0, unitIds: [] }],
         [
