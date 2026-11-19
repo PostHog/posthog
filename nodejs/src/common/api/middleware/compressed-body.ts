@@ -143,6 +143,12 @@ function readDecoded(
             succeedOnceBothEnd()
         })
         req.on('error', () => settle({ ok: false, status: 400 }))
+        res.socket?.once('close', () => {
+            if (!settled) {
+                settled = true
+                decompressor.destroy()
+            }
+        })
     })
 }
 

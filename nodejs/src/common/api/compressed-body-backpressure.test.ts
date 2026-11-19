@@ -1,8 +1,10 @@
-import { once } from 'events'
+import { execFileSync } from 'child_process'
+import { closeSync, mkdtempSync, openSync, rmSync } from 'fs'
+import { open } from 'fs/promises'
 import http from 'http'
+import { tmpdir } from 'os'
+import path from 'path'
 import type { Application, Request, Response } from 'ultimate-express'
-import { setFlagsFromString } from 'v8'
-import { runInNewContext } from 'vm'
 import { gzipSync } from 'zlib'
 
 import { setupExpressApp } from '~/common/api/router'
@@ -23,12 +25,24 @@ describe('setupExpressApp compressed upload backpressure', () => {
         server.close()
     })
 
-    it('holds a fast compressed upload back while decoding catches up', async () => {
-        setFlagsFromString('--expose-gc')
-        const gc = runInNewContext('gc') as () => void
+    const holdThreadpool = () => {
+        const directory = mkdtempSync(path.join(tmpdir(), 'held-threadpool-'))
+        const fifo = path.join(directory, 'fifo')
+        execFileSync('mkfifo', [fifo])
+        const heldOpens = Array.from({ length: Number(process.env.UV_THREADPOOL_SIZE ?? 4) }, () => open(fifo, 'r'))
+        return async () => {
+            closeSync(openSync(fifo, 'w'))
+            await Promise.all(heldOpens.map(async (heldOpen) => (await heldOpen).close()))
+            rmSync(directory, { recursive: true })
+        }
+    }
+
+    it('stops reading a compressed upload while decoding is held up', async () => {
         const emptyMember = gzipSync('')
-        const emptyMembers = Buffer.concat(Array(Math.floor((4 * 1024 * 1024) / emptyMember.length)).fill(emptyMember))
+        const upload = Buffer.concat(Array(Math.floor((64 * 1024 * 1024) / emptyMember.length)).fill(emptyMember))
+        const releaseThreadpool = holdThreadpool()
         const req = http.request({
+            host: '127.0.0.1',
             port: (app as Application & { port: number }).port,
             path: '/echo',
             method: 'POST',
@@ -40,24 +54,18 @@ describe('setupExpressApp compressed upload backpressure', () => {
                 resolve(res.statusCode)
             })
         })
-        gc()
-        const baseline = process.memoryUsage().arrayBuffers
-        let peakGrowth = 0
-        const sampler = setInterval(() => {
-            gc()
-            peakGrowth = Math.max(peakGrowth, process.memoryUsage().arrayBuffers - baseline)
-        }, 20)
 
-        for (let sent = 0; sent < 64 * 1024 * 1024; sent += emptyMembers.length) {
-            if (!req.write(emptyMembers)) {
-                await once(req, 'drain')
-            }
+        let flushedWhileHeld: boolean
+        try {
+            const flushed = new Promise<boolean>((resolve) => req.write(upload, () => resolve(true)))
+            const stillHeld = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000))
+            flushedWhileHeld = await Promise.race([flushed, stillHeld])
+        } finally {
+            await releaseThreadpool()
         }
         req.end()
-        const statusCode = await status
-        clearInterval(sampler)
 
-        expect(statusCode).toEqual(200)
-        expect(peakGrowth).toBeLessThan(32 * 1024 * 1024)
+        expect(await status).toEqual(200)
+        expect(flushedWhileHeld).toBe(false)
     })
 })

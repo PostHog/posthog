@@ -167,8 +167,9 @@ describe('setupExpressApp request body handling', () => {
             let responded = false
             void upload.response.then(() => (responded = true))
             upload.req.write(Buffer.concat([compressors[encoding]('{"data":"x"}'), Buffer.from('x')]))
-            await supertest(app).post('/echo').send({ data: 'y' })
-            await supertest(app).post('/echo').send({ data: 'y' })
+            for (let roundTrip = 0; roundTrip < 20 && !responded; roundTrip++) {
+                await supertest(app).post('/echo').send({ data: 'y' })
+            }
 
             expect(responded).toBe(false)
             upload.req.end()
