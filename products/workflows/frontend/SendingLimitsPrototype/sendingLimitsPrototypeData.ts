@@ -378,7 +378,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
         ],
         startPerDay: null,
         verdict:
-            'Inboxes treat domains younger than 30 days as spam, so this domain is on hold until Dec 4. Test emails still work.',
+            'Inboxes treat domains younger than 30 days as spam, so this domain is on hold until Jan 3. Test emails still work.',
     },
     listed: {
         key: 'listed',
