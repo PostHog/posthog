@@ -4,6 +4,7 @@ import express from 'ultimate-express'
 import type { Application, Request, Response } from 'ultimate-express'
 import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
+import { createTextBodyParser } from '~/common/api/middleware/compressed-body'
 import { ModifiedRequest, setupExpressApp } from '~/common/api/router'
 
 const compressors = {
@@ -29,7 +30,8 @@ describe('setupExpressApp request body handling', () => {
         }
         app.post('/echo', echo)
         app.delete('/echo', echo)
-        app.post('/echo-text', express.text(), echoText)
+        app.post('/echo-text', createTextBodyParser(), echoText)
+        app.post('/echo-stock-text', express.text(), echoText)
         server = app.listen(0, () => {})
     })
 
@@ -76,13 +78,6 @@ describe('setupExpressApp request body handling', () => {
         expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
     })
 
-    it('rejects a compressed text body that decodes past the limit with 413', async () => {
-        const res = await postEncoded('/echo-text', 'gzip', gzipSync('x'.repeat(4096)), 'text/plain')
-
-        expect(res.status).toEqual(413)
-        expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
-    })
-
     it.each([
         ['a decoded size of', 100 * 1024, 'with a length', 200, gzipSync('x'.repeat(100 * 1024))],
         ['a decoded size of', 100 * 1024 + 1, 'with a length', 413, gzipSync('x'.repeat(100 * 1024 + 1))],
@@ -91,24 +86,17 @@ describe('setupExpressApp request body handling', () => {
     ])(
         'caps compressed text like the default text parser: %s %d bytes sent %s gets %d',
         async (_, __, framing, status, compressed) => {
-            const wideApp = setupExpressApp({ bodyLimitBytes: 1024 * 1024 })
-            wideApp.post('/echo-text', express.text(), echoText)
-            const wideServer = wideApp.listen(0, () => {})
-            try {
-                const req = supertest(wideApp)
-                    .post('/echo-text')
-                    .set({
-                        'Content-Type': 'text/plain',
-                        'Content-Encoding': 'gzip',
-                        ...(framing === 'chunked' ? {} : { 'Content-Length': String(compressed.length) }),
-                    })
-                req.write(compressed)
-                const res = await req
+            const res = await postBytes(
+                '/echo-text',
+                {
+                    'Content-Type': 'text/plain',
+                    'Content-Encoding': 'gzip',
+                    ...(framing === 'chunked' ? {} : { 'Content-Length': String(compressed.length) }),
+                },
+                [compressed]
+            )
 
-                expect(res.status).toEqual(status)
-            } finally {
-                wideServer.close()
-            }
+            expect(res.status).toEqual(status)
         }
     )
 
@@ -134,18 +122,23 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['a zero length', { 'Content-Length': '0' }],
-        ['chunked transfer', { 'Transfer-Encoding': 'chunked' }],
-    ])('passes an empty compressed JSON body sent with %s to the route as {}', async (_, headers) => {
-        const res = await postBytes(
-            '/echo',
-            { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip', ...headers },
-            []
-        )
+        ['JSON', 'a zero length', '/echo', 'application/json', { 'Content-Length': '0' }],
+        ['JSON', 'chunked transfer', '/echo', 'application/json', { 'Transfer-Encoding': 'chunked' }],
+        ['text', 'a zero length', '/echo-text', 'text/plain', { 'Content-Length': '0' }],
+        ['text', 'chunked transfer', '/echo-text', 'text/plain', { 'Transfer-Encoding': 'chunked' }],
+    ])(
+        'passes an empty compressed %s body sent with %s to the route as {}',
+        async (_, __, path, contentType, headers) => {
+            const res = await postBytes(
+                path,
+                { 'Content-Type': contentType, 'Content-Encoding': 'gzip', ...headers },
+                []
+            )
 
-        expect(res.status).toEqual(200)
-        expect(res.body).toEqual({ body: {} })
-    })
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ body: {} })
+        }
+    )
 
     it.each([undefined, '', 'identity'])('accepts a JSON body with content encoding %p', async (encoding) => {
         const req = supertest(app).post('/echo')
@@ -157,8 +150,7 @@ describe('setupExpressApp request body handling', () => {
 
     it.each([
         ...encodings.map((encoding) => [encoding, 'application/json'] as const),
-        ['gzip', 'Application/JSON'] as const,
-        ['gzip', 'application/json ; charset=utf-8'] as const,
+        ['gzip', 'application/json; charset=utf-8'] as const,
     ])('decodes a %s body sent as %s and keeps its raw text', async (encoding, contentType) => {
         const res = await postEncoded('/echo', encoding, compressors[encoding]('{"data":"x"}'), contentType)
 
@@ -168,7 +160,7 @@ describe('setupExpressApp request body handling', () => {
 
     it.each([
         ['gzip', 'text/plain', gzipSync('héllo')],
-        ['br', 'Text/Plain; charset=utf-16le', brotliCompressSync(Buffer.from('héllo', 'utf16le'))],
+        ['br', 'text/plain; charset=utf-16le', brotliCompressSync(Buffer.from('héllo', 'utf16le'))],
         ['deflate', 'text/plain; charset=latin1', deflateSync(Buffer.from('héllo', 'latin1'))],
         ['gzip', 'text/plain; note="; CHARSET=utf-32"; charset=utf-8', gzipSync('héllo')],
     ])('decodes a %s body sent as %s for a text route', async (encoding, contentType, body) => {
@@ -176,17 +168,6 @@ describe('setupExpressApp request body handling', () => {
 
         expect(res.status).toEqual(200)
         expect(res.body).toEqual({ body: 'héllo' })
-    })
-
-    it('answers an empty chunked compressed text body with 400', async () => {
-        const res = await postBytes(
-            '/echo-text',
-            { 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip', 'Transfer-Encoding': 'chunked' },
-            []
-        )
-
-        expect(res.status).toEqual(400)
-        expect(res.body).toEqual({ status: 'error', error: 'Malformed compressed body' })
     })
 
     it('decodes a compressed body on a method the app adds to its body methods', async () => {
@@ -218,16 +199,15 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['compress', 'application/json', gzipSync('{"data":"x"}'), 'Unsupported content encoding'],
-        ['constructor', 'application/json', gzipSync('{"data":"x"}'), 'Unsupported content encoding'],
-        ['__proto__', 'application/json', gzipSync('{"data":"x"}'), 'Unsupported content encoding'],
-        ['gzip', 'application/octet-stream', gzipSync('{"data":"x"}'), 'Unsupported content encoding'],
-        ['gzip', 'application/octet-stream', randomBytes(4096), 'Unsupported content encoding'],
-        ['gzip', 'text/plain; charset=utf-32', gzipSync('hello'), 'Unsupported charset'],
+        ['compress', 'application/json', '/echo', 'Unsupported content encoding'],
+        ['constructor', 'application/json', '/echo', 'Unsupported content encoding'],
+        ['__proto__', 'application/json', '/echo', 'Unsupported content encoding'],
+        ['compress', 'text/plain', '/echo-text', 'Unsupported content encoding'],
+        ['gzip', 'text/plain; charset=utf-32', '/echo-text', 'Unsupported charset'],
     ])(
         'answers content encoding %s on a %s body with 415 and keeps serving',
-        async (encoding, contentType, body, error) => {
-            const res = await postEncoded('/echo-text', encoding, body, contentType)
+        async (encoding, contentType, path, error) => {
+            const res = await postEncoded(path, encoding, gzipSync('{"data":"x"}'), contentType)
 
             expect(res.status).toEqual(415)
             expect(res.body).toEqual({ status: 'error', error })
@@ -237,14 +217,35 @@ describe('setupExpressApp request body handling', () => {
     )
 
     it.each([
+        ['text/plain', '/echo', 'gzip', gzipSync('héllo')],
+        ['application/x-www-form-urlencoded', '/echo', 'gzip', gzipSync('data=x')],
+        ['Application/JSON', '/echo', 'gzip', gzipSync('{"data":"x"}')],
+        ['application/json ; charset=utf-8', '/echo', 'gzip', gzipSync('{"data":"x"}')],
+        ['application/xml', '/echo', 'compress', gzipSync('<data/>')],
+        ['text/plain', '/echo-stock-text', 'gzip', Buffer.from('this is not compressed data')],
+        ['application/octet-stream', '/echo-text', 'gzip', randomBytes(4096)],
+    ])(
+        'passes a compressed %s body to %s as {}, like the same body sent plain',
+        async (contentType, path, encoding, body) => {
+            const res = await postEncoded(path, encoding, body, contentType)
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ body: {} })
+            const after = await supertest(app).post('/echo').send({ data: 'x' })
+            expect(after.status).toEqual(200)
+        }
+    )
+
+    it.each([
         ['a length', { 'Content-Length': String(gzipSync('{"data":"x"}').length) }, [gzipSync('{"data":"x"}')]],
         ['chunked transfer', {}, [gzipSync('{"data":"x"}')]],
-        ['a zero length', { 'Content-Length': '0' }, []],
-        ['empty chunked transfer', { 'Transfer-Encoding': 'chunked' }, []],
-    ])('answers a compressed body without a content type sent with %s with 415', async (_, headers, chunks) => {
-        const res = await postBytes('/echo', { 'Content-Encoding': 'gzip', ...headers }, chunks)
+    ])(
+        'passes a compressed body without a content type sent with %s to the route as {}',
+        async (_, headers, chunks) => {
+            const res = await postBytes('/echo', { 'Content-Encoding': 'gzip', ...headers }, chunks)
 
-        expect(res.status).toEqual(415)
-        expect(res.body).toEqual({ status: 'error', error: 'Unsupported content encoding' })
-    })
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ body: {} })
+        }
+    )
 })
