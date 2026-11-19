@@ -1241,6 +1241,18 @@ describe('ToolExecutor', () => {
             })
         })
 
+        it.each([
+            ['exec-write', false],
+            ['exec', true],
+        ])('answers the unlisted %s as not found before asking for a scope', async (name, splitWrites) => {
+            const result = (await executor.handleToolCall(
+                { name, arguments: { command: 'call endpoint-create {}' } },
+                makeToolExecutorState([], { useSingleExec: true, splitWrites, ...gated, supportsStepUp: true })
+            )) as any
+
+            expect(result.content[0].text).toBe(`Tool ${name} not found`)
+        })
+
         it('sends the write to exec-write instead of asking for its scope on exec-read', async () => {
             const result = (await executor.handleToolCall(
                 { name: 'exec-read', arguments: { command: 'call endpoint-create {}' } },

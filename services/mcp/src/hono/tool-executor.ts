@@ -351,8 +351,7 @@ export class ToolExecutor {
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         if (isExecDispatcher(toolName)) {
-            const unlisted = state.splitWrites ? toolName === EXEC_TOOL_NAME : toolName === EXEC_WRITE_TOOL_NAME
-            if (state.viaMcpStore || unlisted) {
+            if (state.viaMcpStore || isUnlistedExecDispatcher(toolName, state)) {
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
             return this.callExecTool(callParams, state, analyticsMeta, {
@@ -1191,8 +1190,13 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 
 // Runs first in a tool call, before analytics, guidance, interview recruitment or the tool itself,
 // so a step-up client that replays the call after re-consent repeats nothing.
+// A split connection lists `exec-read` and `exec-write` in place of `exec`; others never list `exec-write`.
+function isUnlistedExecDispatcher(toolName: string, state: ResolvedState): boolean {
+    return state.splitWrites ? toolName === EXEC_TOOL_NAME : toolName === EXEC_WRITE_TOOL_NAME
+}
+
 function challengeStepUpForGatedTool(toolName: string, args: Record<string, unknown>, state: ResolvedState): void {
-    if (!state.supportsStepUp || state.viaMcpStore) {
+    if (!state.supportsStepUp || state.viaMcpStore || isUnlistedExecDispatcher(toolName, state)) {
         return
     }
     const targetToolName =
