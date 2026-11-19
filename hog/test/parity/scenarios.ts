@@ -496,28 +496,6 @@ SCENARIOS.push(
         undefined,
         'no-sdk'
     ),
-    schema('golang-sdk-v2', 'golang', { rust: ['--sdk', 'posthog-go-v2'], hog: ['--sdk', 'posthog-go-v2'] }),
-    schema(
-        'golang-sdk-v2-old-server',
-        'golang',
-        { rust: ['--sdk', 'posthog-go-v2'], hog: ['--sdk', 'posthog-go-v2'] },
-        undefined,
-        'no-sdk'
-    ),
-    // No --sdk: the saved entry decides, so a later pull keeps the posthog-go 2.x package.
-    schema('golang-sdk-v2-saved', 'golang', { rust: [], hog: [] }, () => ({
-        'posthog.json': JSON.stringify({
-            languages: {
-                golang: {
-                    output_path: 'internal/typed/events.go',
-                    sdk: 'posthog-go-v2',
-                    schema_hash: 'hash-old',
-                    updated_at: '2026-01-01T00:00:00+00:00',
-                    event_count: 1,
-                },
-            },
-        }),
-    })),
     // No --sdk: the saved entry decides, so a later pull keeps the types-only module.
     schema('typescript-sdk-none-saved', 'typescript', { rust: [], hog: [] }, () => ({
         'posthog.json': JSON.stringify({

@@ -317,7 +317,7 @@ Point `$schema` at the published schema to get validation in your editor:
 `endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
 `hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
 A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
-A `golang` entry with `"sdk": "posthog-go-v2"` holds a package that imports posthog-go 2.x (`github.com/posthog/posthog-go/v2`). Without it, the package imports posthog-go 1.x.
+A `golang` entry with `"sdk": "posthog-go-v2"` holds a package that imports posthog-go 2.x (`github.com/posthog/posthog-go/v2`). Without it, the package imports posthog-go 1.x. posthog-cli does not know this entry: a pull with it writes the 1.x package again and drops the `sdk`.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
 `posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter hog schema`.

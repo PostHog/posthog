@@ -50,11 +50,7 @@ impl Language {
     }
 
     /// Get the message to show to the user upon completion of the command (e.g. the next steps)
-    fn next_steps_text(&self, output_path: &str, sdk: Option<Sdk>) -> String {
-        let go_install = match sdk {
-            Some(Sdk::Go(go)) => go.install_step(),
-            Some(Sdk::TypeScript(_)) | None => GoSdk::V1.install_step(),
-        };
+    fn next_steps_text(&self, output_path: &str) -> String {
         match self {
             Language::TypeScript => format!(
                 r#"
@@ -69,7 +65,7 @@ impl Language {
             Language::Golang => format!(
                 r#"
 1. Install the PostHog Go SDK if you haven't already:
-   {go_install}
+   go get github.com/posthog/posthog-go
 2. Store the generated Go code in a folder named `typed` (e.g. `/src/lib/typed`):
    mkdir -p <your-directory>/src/lib/typed
    mv {output_path} <your-directory>/src/lib/typed
@@ -110,24 +106,6 @@ You can add optional properties through the option functions:
         }
     }
 
-    /// The SDK a module is generated for when nothing chooses one.
-    fn default_sdk(&self) -> Option<Sdk> {
-        match self {
-            Language::TypeScript => Some(Sdk::TypeScript(TypeScriptSdk::PosthogJs)),
-            Language::Golang => Some(Sdk::Go(GoSdk::V1)),
-            Language::Python => None,
-        }
-    }
-
-    /// Whether posthog.json names the default SDK. TypeScript always did. Go names an SDK only
-    /// once one is chosen, so an entry written before the choice existed stays as it is.
-    fn records_default_sdk(&self) -> bool {
-        match self {
-            Language::TypeScript => true,
-            Language::Golang | Language::Python => false,
-        }
-    }
-
     /// Get all available languages
     fn all() -> Vec<Language> {
         vec![Language::TypeScript, Language::Golang, Language::Python]
@@ -144,14 +122,6 @@ You can add optional properties through the option functions:
     }
 }
 
-/// What `--sdk` and the `sdk` entry in posthog.json choose. Each language owns its choices, so a
-/// new one is added in one place and every `match` on it has to handle it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sdk {
-    TypeScript(TypeScriptSdk),
-    Go(GoSdk),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum TypeScriptSdk {
     /// A typed posthog-js instance the app imports instead of posthog-js
@@ -162,84 +132,11 @@ pub enum TypeScriptSdk {
     TypesOnly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum GoSdk {
-    /// A Go package that imports posthog-go 1.x (github.com/posthog/posthog-go)
-    #[value(name = "posthog-go")]
-    V1,
-    /// A Go package that imports posthog-go 2.x (github.com/posthog/posthog-go/v2)
-    #[value(name = "posthog-go-v2")]
-    V2,
-}
-
-impl GoSdk {
-    /// Go treats each major from 2 on as its own module, so the package imports one of these.
-    fn import_path(&self) -> &'static str {
-        match self {
-            GoSdk::V1 => "github.com/posthog/posthog-go",
-            GoSdk::V2 => "github.com/posthog/posthog-go/v2",
-        }
-    }
-
-    /// The install step shown after a pull.
-    fn install_step(&self) -> String {
-        match self {
-            GoSdk::V1 => format!(
-                "go get {}\n   > On posthog-go 2.x, pull with `--sdk posthog-go-v2` instead.",
-                self.import_path()
-            ),
-            GoSdk::V2 => format!("go get {}", self.import_path()),
-        }
-    }
-}
-
-// `--sdk` takes the choices of every language as one list.
-impl clap::ValueEnum for Sdk {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            Sdk::TypeScript(TypeScriptSdk::PosthogJs),
-            Sdk::TypeScript(TypeScriptSdk::TypesOnly),
-            Sdk::Go(GoSdk::V1),
-            Sdk::Go(GoSdk::V2),
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        match self {
-            Sdk::TypeScript(sdk) => sdk.to_possible_value(),
-            Sdk::Go(sdk) => sdk.to_possible_value(),
-        }
-    }
-}
-
-impl Sdk {
+impl TypeScriptSdk {
     fn as_str(&self) -> &'static str {
         match self {
-            Sdk::TypeScript(TypeScriptSdk::PosthogJs) => "posthog-js",
-            Sdk::TypeScript(TypeScriptSdk::TypesOnly) => "none",
-            Sdk::Go(GoSdk::V1) => "posthog-go",
-            Sdk::Go(GoSdk::V2) => "posthog-go-v2",
-        }
-    }
-
-    fn language(&self) -> Language {
-        match self {
-            Sdk::TypeScript(_) => Language::TypeScript,
-            Sdk::Go(_) => Language::Golang,
-        }
-    }
-
-    /// The error for a PostHog that predates this choice. A language's default has none: it is
-    /// what such a PostHog generates anyway, so the CLI never asks for it.
-    fn unsupported_message(&self) -> Option<&'static str> {
-        match self {
-            Sdk::TypeScript(TypeScriptSdk::PosthogJs) | Sdk::Go(GoSdk::V1) => None,
-            Sdk::TypeScript(TypeScriptSdk::TypesOnly) => Some(
-                "This PostHog instance cannot generate TypeScript types without an SDK yet. Update PostHog, or pull without --sdk none",
-            ),
-            Sdk::Go(GoSdk::V2) => Some(
-                "This PostHog instance cannot generate Go for posthog-go 2.x yet. Update PostHog, or pull with --sdk posthog-go",
-            ),
+            TypeScriptSdk::PosthogJs => "posthog-js",
+            TypeScriptSdk::TypesOnly => "none",
         }
     }
 }
@@ -247,12 +144,12 @@ impl Sdk {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Module {
     language: Language,
-    sdk: Option<Sdk>,
+    sdk: Option<TypeScriptSdk>,
 }
 
 impl Module {
     fn types_only(&self) -> bool {
-        self.sdk == Some(Sdk::TypeScript(TypeScriptSdk::TypesOnly))
+        self.sdk == Some(TypeScriptSdk::TypesOnly)
     }
 
     fn display_name(&self) -> &'static str {
@@ -271,16 +168,9 @@ impl Module {
         }
     }
 
-    /// The `sdk` to ask PostHog for, with the error for a PostHog that ignores it. A language's
-    /// default needs no query, so it also works on a PostHog that predates the choice.
-    fn requested_sdk(&self) -> Option<(Sdk, &'static str)> {
-        let sdk = self.sdk?;
-        Some((sdk, sdk.unsupported_message()?))
-    }
-
     fn next_steps_text(&self, output_path: &str) -> String {
         if !self.types_only() {
-            return self.language.next_steps_text(output_path, self.sdk);
+            return self.language.next_steps_text(output_path);
         }
         format!(
             r#"
@@ -295,10 +185,7 @@ impl Module {
     }
 
     fn definitions_url(&self) -> String {
-        let query = self
-            .requested_sdk()
-            .map(|(sdk, _)| format!("?sdk={}", sdk.as_str()))
-            .unwrap_or_default();
+        let query = if self.types_only() { "?sdk=none" } else { "" };
         format!("event_definitions/{}/{query}", self.language.as_str())
     }
 }
@@ -311,8 +198,8 @@ struct SchemaConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct LanguageConfig {
     output_path: String,
-    /// TypeScript and Go only. Kept as text, so a value this version does not know fails with a
-    /// message instead of making the whole posthog.json unreadable.
+    /// TypeScript only. Kept as text, so a value this version does not know fails with a message
+    /// instead of making the whole posthog.json unreadable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sdk: Option<String>,
     schema_hash: String,
@@ -321,20 +208,15 @@ struct LanguageConfig {
 }
 
 impl LanguageConfig {
-    /// The SDK the saved module was generated for. An entry without `sdk` has the language's
-    /// default, where the language records it.
-    fn sdk(&self, language: Language) -> Result<Option<Sdk>> {
-        let Some(value) = self.sdk.as_deref() else {
-            return Ok(language
-                .default_sdk()
-                .filter(|_| language.records_default_sdk()));
-        };
-        match <Sdk as clap::ValueEnum>::from_str(value, false) {
-            Ok(sdk) if sdk.language() == language => Ok(Some(sdk)),
-            _ => anyhow::bail!(
-                "posthog.json sets the {} sdk to \"{value}\", which this posthog-cli does not know. Update posthog-cli, or pass --sdk",
-                language.display_name()
-            ),
+    /// A posthog.json entry without `sdk` has a module that wraps posthog-js
+    fn typescript_sdk(&self) -> Result<TypeScriptSdk> {
+        match self.sdk.as_deref() {
+            None => Ok(TypeScriptSdk::PosthogJs),
+            Some(value) => <TypeScriptSdk as clap::ValueEnum>::from_str(value, false).map_err(|_| {
+                anyhow::anyhow!(
+                    "posthog.json sets the TypeScript sdk to \"{value}\", which this posthog-cli does not know. Update posthog-cli, or pass --sdk"
+                )
+            }),
         }
     }
 }
@@ -404,30 +286,25 @@ pub fn pull(
     _host: Option<String>,
     output_override: Option<String>,
     language: Option<Language>,
-    sdk: Option<Sdk>,
+    sdk: Option<TypeScriptSdk>,
 ) -> Result<()> {
     let language = match language {
         Some(language) => language,
         None => select_language()?,
     };
-    if let Some(sdk) = sdk.filter(|sdk| sdk.language() != language) {
-        anyhow::bail!(
-            "--sdk {} only applies to {}. Pass --language {} too",
-            sdk.as_str(),
-            sdk.language().display_name(),
-            sdk.language().as_str()
-        );
+    if sdk.is_some() && language != Language::TypeScript {
+        anyhow::bail!("--sdk only applies to TypeScript. Pass --language typescript too");
     }
 
     let config = SchemaConfig::load();
     let saved = config.get_language(language);
     let module = Module {
         language,
-        sdk: match (sdk, saved, language) {
-            (Some(sdk), _, _) => Some(sdk),
-            (None, Some(saved), _) => saved.sdk(language)?,
-            (None, None, Language::TypeScript) => Some(Sdk::TypeScript(select_typescript_sdk()?)),
-            (None, None, Language::Golang | Language::Python) => None,
+        sdk: match (language, sdk, saved) {
+            (Language::TypeScript, Some(sdk), _) => Some(sdk),
+            (Language::TypeScript, None, Some(saved)) => Some(saved.typescript_sdk()?),
+            (Language::TypeScript, None, None) => Some(select_typescript_sdk()?),
+            _ => None,
         },
     };
 
@@ -453,11 +330,9 @@ pub fn pull(
 
     // Check if schema has changed for this language, and that it still wraps the same SDK
     if let Some(lang_config) = saved {
-        let same_sdk = match lang_config.sdk(language) {
-            Ok(saved_sdk) => {
-                effective_sdk(language, saved_sdk) == effective_sdk(language, module.sdk)
-            }
-            Err(_) => false,
+        let same_sdk = match module.sdk {
+            Some(sdk) => lang_config.typescript_sdk().ok() == Some(sdk),
+            None => true,
         };
         if same_sdk && lang_config.schema_hash == response.schema_hash {
             info!(
@@ -599,7 +474,7 @@ pub fn status() -> Result<()> {
                 .map(|language| {
                     Module {
                         language,
-                        sdk: lang_config.sdk(language).ok().flatten(),
+                        sdk: lang_config.typescript_sdk().ok(),
                     }
                     .display_name()
                 })
@@ -649,19 +524,14 @@ fn fetch_definitions(client: &PHClient, module: Module) -> Result<DefinitionsRes
         module.display_name()
     ))?;
 
-    // A PostHog that predates an `sdk` choice ignores the query and sends the default module, without saying which SDK
-    if let Some((sdk, unsupported)) = module.requested_sdk() {
-        if json.sdk.as_deref() != Some(sdk.as_str()) {
-            anyhow::bail!(unsupported);
-        }
+    // A PostHog that predates `sdk` ignores the query and sends the posthog-js module, without saying which SDK
+    if module.types_only() && json.sdk.as_deref() != Some(TypeScriptSdk::TypesOnly.as_str()) {
+        anyhow::bail!(
+            "This PostHog instance cannot generate TypeScript types without an SDK yet. Update PostHog, or pull without --sdk none"
+        );
     }
 
     Ok(json)
-}
-
-/// An entry with no `sdk` has the same module as one that names the language's default.
-fn effective_sdk(language: Language, sdk: Option<Sdk>) -> Option<Sdk> {
-    sdk.or(language.default_sdk())
 }
 
 fn select_language() -> Result<Language> {

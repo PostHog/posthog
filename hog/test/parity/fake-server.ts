@@ -7,7 +7,7 @@ import { readJson } from '@/testing'
 // hog against it and compare the recordings. Server-side ids are derived from the request (UUIDv5),
 // so both CLIs see the same ids.
 
-// `no-sdk` is a PostHog that predates `sdk` on event_definitions/: it ignores the query.
+// `no-sdk` is a PostHog that predates `sdk` on event_definitions/typescript/: it ignores the query.
 export type Scenario =
     | 'fresh'
     | 'post-only'
@@ -272,8 +272,6 @@ export function startFakeServer(scenario: Scenario): FakeServer {
     }
 }
 
-const DEFAULT_SDKS: Record<string, string> = { typescript: 'posthog-js', golang: 'posthog-go' }
-
 // Non-ASCII names and no final newline, so a CLI that re-encodes or reformats the module fails.
 function eventDefinitions(
     language: string,
@@ -285,7 +283,7 @@ function eventDefinitions(
         content: `/**\n * GENERATED FILE - DO NOT EDIT\n * Language: ${variant}\n */\nexport type EventName = "sign up" | "café ☕"\n// end`,
         event_count: 2,
         schema_hash: `hash-${variant}`,
-        ...(namesSdk && DEFAULT_SDKS[language] ? { sdk: sdk ?? DEFAULT_SDKS[language] } : {}),
+        ...(language === 'typescript' && namesSdk ? { sdk: sdk ?? 'posthog-js' } : {}),
     }
 }
 

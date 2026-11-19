@@ -272,11 +272,10 @@ pub enum SchemaCommand {
         /// Language to generate. Without it, the CLI asks which one
         #[arg(short, long)]
         language: Option<crate::experimental::schema::Language>,
-        /// The SDK the module wraps. TypeScript: `none` generates only the event types, for
-        /// posthog-react-native, posthog-node or any other SDK. Go: `posthog-go-v2` imports
-        /// posthog-go 2.x. Stored in posthog.json
+        /// TypeScript only: the SDK the module wraps. `none` generates only the event types,
+        /// for posthog-react-native, posthog-node or any other SDK. Stored in posthog.json
         #[arg(long)]
-        sdk: Option<crate::experimental::schema::Sdk>,
+        sdk: Option<crate::experimental::schema::TypeScriptSdk>,
     },
     /// Show current schema sync status
     Status,
