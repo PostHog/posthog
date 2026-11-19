@@ -4950,10 +4950,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadWorkflow()
             } catch (error) {
                 const genericMessage = 'Publishing failed. Review the staged changes and try again.'
-                const validationDetail = error instanceof ApiError && error.status === 400 ? error.detail : null
+                const invalid = error instanceof ApiError && error.status === 400
                 // The detail can repeat step names and template text, so analytics gets the generic message.
-                lemonToast.error(validationDetail || genericMessage, { capturedMessage: genericMessage })
-                reloadKeepingEdits(values.hasUnsavedChanges, actions)
+                lemonToast.error((invalid && error.detail) || genericMessage, { capturedMessage: genericMessage })
+                // A validation error changed nothing on the server, so edits typed meanwhile stay without the
+                // banner that says someone else edited the workflow.
+                if (!invalid || !values.hasUnsavedChanges) {
+                    reloadKeepingEdits(values.hasUnsavedChanges, actions)
+                }
             } finally {
                 actions.setDraftActionPending(null)
             }

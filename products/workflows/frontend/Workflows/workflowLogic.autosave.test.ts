@@ -1626,38 +1626,44 @@ describe('workflowLogic auto-save', () => {
                 expect(logic.values.workflow.name).toBe('Renamed while publishing')
             })
 
-            it('keeps edits typed while a refused publish confirm runs, behind the conflict banner', async () => {
-                let release: () => void = () => {}
-                const held = new Promise<void>((resolve) => {
-                    release = resolve
-                })
-                useMocks(
-                    serverMocks({
-                        [PUBLISH_URL]: recordPublish(async (body) => {
-                            if (!body.confirm) {
-                                return [200, preview]
-                            }
-                            await held
-                            return [409, { detail: 'stale' }]
-                        }),
+            // A conflict means the server's draft changed, so the edits wait behind the conflict banner. A
+            // validation error changed nothing, so they stay without it.
+            it.each([
+                ['a conflict', 409, 'Publishing failed. Review the staged changes and try again.', true],
+                ['a validation error', 400, 'Fix the email step first.', false],
+            ] as const)(
+                'keeps edits typed while a publish confirm runs that fails with %s',
+                async (_, status, message, conflictBanner) => {
+                    let release: () => void = () => {}
+                    const held = new Promise<void>((resolve) => {
+                        release = resolve
                     })
-                )
-                showToasts()
-                jest.mocked(LemonDialog.open).mockRestore()
+                    useMocks(
+                        serverMocks({
+                            [PUBLISH_URL]: recordPublish(async (body) => {
+                                if (!body.confirm) {
+                                    return [200, preview]
+                                }
+                                await held
+                                return [status, { detail: status === 400 ? message : 'stale' }]
+                            }),
+                        })
+                    )
+                    showToasts()
+                    jest.mocked(LemonDialog.open).mockRestore()
 
-                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
-                await userEvent.click(await screen.findByText('Publish'))
-                logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
-                release()
-                await expectLogic(logic).toFinishAllListeners()
+                    await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                    await userEvent.click(await screen.findByText('Publish'))
+                    logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
 
-                expect(await toastShown('Publishing failed. Review the staged changes and try again.')).toBe(
-                    'error-toast'
-                )
-                expect(publishBodies).toMatchObject([{ confirm: false }, { confirm: true }])
-                expect(logic.values.externallyEdited).toBe(true)
-                expect(logic.values.workflow.name).toBe('Renamed while publishing')
-            })
+                    expect(await toastShown(message)).toBe('error-toast')
+                    expect(publishBodies).toMatchObject([{ confirm: false }, { confirm: true }])
+                    expect(logic.values.externallyEdited).toBe(conflictBanner)
+                    expect(logic.values.workflow.name).toBe('Renamed while publishing')
+                }
+            )
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))
