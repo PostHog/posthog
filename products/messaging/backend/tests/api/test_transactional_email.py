@@ -1283,6 +1283,13 @@ class TestTransactionalEmail(APIBaseTest):
                         None,
                     ),
                     (
+                        "in_year_one_east_of_utc",
+                        "0001-06-01T09:00:00+01:00",
+                        "0001-06-01T08:00:00.000Z",
+                        {"status": "queued", "scheduled_at": None},
+                        None,
+                    ),
+                    (
                         "in_microseconds",
                         "2026-11-20T08:10:00.000001Z",
                         "2026-11-20T08:10:00.001Z",

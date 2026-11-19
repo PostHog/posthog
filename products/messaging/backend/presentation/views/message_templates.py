@@ -611,13 +611,16 @@ class ScheduledAtField(serializers.DateTimeField):
     def enforce_timezone(self, value: datetime) -> datetime:
         if timezone.is_naive(value):
             self.fail("no_offset")
-        offset = value.utcoffset() or timedelta(0)
-        # In UTC these fall outside the datetimes Python holds, and DRF would answer overflow. Clamped, the seven-day
-        # check refuses the late one, and the early one is a time that passed.
-        if value.year == datetime.max.year and offset < timedelta(0):
-            return datetime.max.replace(tzinfo=UTC)
-        if value.year == datetime.min.year and offset > timedelta(0):
-            return datetime.min.replace(tzinfo=UTC)
+        try:
+            value.astimezone(UTC)
+        except OverflowError:
+            # In UTC this falls outside the datetimes Python holds, and DRF would answer overflow. Clamped, the
+            # seven-day check refuses a late one, and an early one is a time that passed.
+            return (
+                datetime.max.replace(tzinfo=UTC)
+                if value.year == datetime.max.year
+                else datetime.min.replace(tzinfo=UTC)
+            )
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
@@ -905,7 +908,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
 class SendWarningSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=SendWarningCode.choices,
-        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        help_text="What the warning is about. `sandbox_sender`: the email goes out from PostHog's sandbox sender "
         "because the project has no verified sending domain, so it only reaches members of the organization.",
     )
     message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
