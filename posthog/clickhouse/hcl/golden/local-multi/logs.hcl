@@ -3151,9 +3151,6 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
-    column "lc_warehouse_table_ids" {
-      type = "SimpleAggregateFunction(max, Array(String))"
-    }
     column "query_id" {
       type = "String"
     }

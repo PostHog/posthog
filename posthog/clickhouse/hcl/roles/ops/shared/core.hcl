@@ -402,9 +402,6 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
-    column "lc_warehouse_table_ids" {
-      type = "SimpleAggregateFunction(max, Array(String))"
-    }
     engine "buffer" {
       database   = "posthog"
       table      = "sharded_query_log_archive_v3"
@@ -811,9 +808,6 @@ database "posthog" {
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
-    }
-    column "lc_warehouse_table_ids" {
-      type = "SimpleAggregateFunction(max, Array(String))"
     }
     column "query_id" {
       type  = "String"
