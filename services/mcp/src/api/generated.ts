@@ -42917,6 +42917,11 @@ export namespace Schemas {
       span_count: number;
       /** Requests with an error status in the window. */
       error_count: number;
+      /**
+         * Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.
+         * @nullable
+         */
+      apdex: number | null;
     }
 
     export interface EndpointHealth {
