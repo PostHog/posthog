@@ -78,6 +78,12 @@ export const DependenciesResponseApi = zod.object({
         )
         .describe('One edge per caller and callee, most requests first.'),
     truncated: zod.boolean().describe('True when more edges matched than the response holds.'),
+    sampled: zod
+        .boolean()
+        .describe(
+            'True when the window held more traces than the sample reads, so the counts cover only the sampled traces.'
+        ),
+    trace_count: zod.number().describe('How many whole traces the edges were computed from.'),
     environment: zod
         .string()
         .nullable()
