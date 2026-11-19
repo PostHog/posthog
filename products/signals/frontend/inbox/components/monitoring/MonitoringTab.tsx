@@ -4,39 +4,18 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
 import { captureMonitoringAction } from '../../monitoringAnalytics'
-import { verdictsDueWithin } from '../../utils/monitoringTimeline'
 import { useMinuteClock } from '../cards/useMinuteClock'
 import { MonitoringScopeControl } from './MonitoringScopeControl'
 import { MonitoringTimeline } from './MonitoringTimeline'
-
-const DAY_MS = 86_400_000
-
-function plural(count: number, one: string, many: string): string {
-    return `${count} ${count === 1 ? one : many}`
-}
 
 export function MonitoringTab(): JSX.Element {
     const { sortedReports, page, pageLoading, loadFailed, scope } = useValues(monitoringTabLogic)
     const { loadReports, loadMore, setScope } = useActions(monitoringTabLogic)
     const now = useMinuteClock(true)
-    const beingChecked = sortedReports.filter((report) => !report.monitoring_outcome).length
-    const dueSoon = verdictsDueWithin(sortedReports, now, DAY_MS)
 
     return (
         <div className="@container mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4" data-attr="inbox-monitoring-tab">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm text-secondary">
-                    {page ? (
-                        <>
-                            <span className="font-semibold text-primary">
-                                {plural(dueSoon, 'verdict', 'verdicts')} in the next 24 hours
-                            </span>
-                            {' · '}
-                            {plural(beingChecked, 'fix', 'fixes')} being checked
-                            {page.hasMore ? ` · ${page.results.length} of ${page.count} reports loaded` : null}
-                        </>
-                    ) : null}
-                </div>
+            <div className="flex justify-end">
                 <MonitoringScopeControl />
             </div>
             {loadFailed ? (

@@ -110,13 +110,6 @@ export function sortByVerdict(reports: readonly SignalReportListApi[]): SignalRe
     return [...reports].sort((a, b) => verdictAt(a) - verdictAt(b))
 }
 
-export function verdictsDueWithin(reports: readonly SignalReportListApi[], now: number, withinMs: number): number {
-    return reports.filter((report) => {
-        const end = monitoringSpan(report)?.end
-        return !report.monitoring_outcome && end != null && end > now && end - now <= withinMs
-    }).length
-}
-
 /** A reading was due more than half an hour ago and has not run. The verdict still lands on time. */
 export function monitoringReadingOverdue(report: SignalReportListApi, now: number): boolean {
     const summary = report.monitoring_summary

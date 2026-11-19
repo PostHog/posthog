@@ -11,7 +11,6 @@ import {
     monitoringReadingOverdue,
     monitoringRowStatus,
     sortByVerdict,
-    verdictsDueWithin,
 } from './monitoringTimeline'
 
 const NOW = Date.parse('2026-11-18T17:00:00Z')
@@ -100,7 +99,6 @@ describe('monitoringTimeline', () => {
         ]
 
         expect(sortByVerdict(rows).map((row) => row.id)).toEqual(['finished', 'sooner', 'later', 'no-window'])
-        expect(verdictsDueWithin(rows, NOW, 24 * HOUR)).toBe(1)
     })
 
     test.each([
