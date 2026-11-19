@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from django.db import transaction
 from django.test import SimpleTestCase
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -17,6 +18,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest, SignalScoutRun
@@ -205,15 +207,19 @@ class TestStackPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("pipeline_list_is_inherited", False, False, "reviewer"),
-            ("pipeline_list_is_inherited_by_the_writer", False, True, "reviewer"),
-            ("user_authorization_is_inherited", True, False, "user"),
-            ("missing_authorization_is_not_granted", False, False, None),
+            ("pipeline_list_is_inherited", False, False, "reviewer", False),
+            ("pipeline_list_is_inherited_by_the_writer", False, True, "reviewer", False),
+            ("user_authorization_is_inherited", True, False, "user", False),
+            ("missing_authorization_is_not_granted", False, False, None, False),
+            ("user_authored_plan_does_not_autostart_as_reviewer", False, False, "reviewer", True),
+            ("user_authored_plan_does_not_autostart_as_user", True, False, "user", True),
         ]
     )
     def test_layers_preserve_reviewer_start_authorization(
-        self, _name: str, edited_by_user: bool, writer_enabled: bool, mode: str | None
-    ):
+        self, _name: str, edited_by_user: bool, writer_enabled: bool, mode: str | None, user_authored: bool
+    ) -> None:
+        self.parent.user_authored = user_authored
+        self.parent.save(update_fields=["user_authored"])
         authorization = (
             ImplementationAuthorization(mode="user", user_id=self.user.id)
             if mode == "user"
@@ -245,6 +251,14 @@ class TestStackPlan(BaseTest):
             for row in inherited
         )
         assert not inherited.filter(created_by__isnull=False).exists()
+        assert set(SignalReport.objects.filter(id__in=child_ids).values_list("user_authored", flat=True)) == {
+            user_authored
+        }
+        if user_authored:
+            for child_id in child_ids:
+                outcome = async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=child_id)
+                assert outcome.status == "blocked"
+                assert outcome.reason == "Reports filed by a person do not auto-start"
 
     @parameterized.expand(
         [

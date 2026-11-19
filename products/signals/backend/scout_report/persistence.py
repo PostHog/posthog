@@ -387,7 +387,9 @@ def create_scout_report(
                     report_id=report_id,
                     content=suggested_reviewers or SuggestedReviewers(root=[]),
                     attribution=attribution,
-                    implementation_authorization=ImplementationAuthorization(mode="reviewer"),
+                    implementation_authorization=ImplementationAuthorization(mode="reviewer")
+                    if created_by_id is None
+                    else None,
                     reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
