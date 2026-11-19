@@ -1885,6 +1885,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         with transaction.atomic():
             instance = self._get_locked_alert()
+            if instance.platform_owned and not instance.has_no_logs_row:
+                # The edit validates against the copy's settings, because the logs row keeps its old ones.
+                (instance,) = _shown_from_copies([instance])
             serializer = self.get_serializer(instance, data=request.data, partial=partial)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)

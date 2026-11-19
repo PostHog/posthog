@@ -2564,6 +2564,17 @@ class TestLogsAlertAPI(APIBaseTest):
             == row_before
         )
 
+    def test_a_partial_edit_validates_against_the_copy_not_the_logs_row(self) -> None:
+        created = self._owned_by_the_platform()
+        url = f"{self.base_url}{created['id']}/"
+
+        widened = self.client.patch(url, {"evaluation_periods": 3}, format="json")
+        tightened = self.client.patch(url, {"datapoints_to_alarm": 2}, format="json")
+
+        assert widened.status_code == status.HTTP_200_OK, widened.json()
+        assert tightened.status_code == status.HTTP_200_OK, tightened.json()
+        assert (self._copy_view(created["id"]).evaluation_periods, tightened.json()["datapoints_to_alarm"]) == (3, 2)
+
     @parameterized.expand(
         [
             ("backfill", lambda stale: upsert_configuration(platform_upsert_of(stale))),
