@@ -1187,6 +1187,20 @@ class Resolver(CloningVisitor):
             if not any(frame["has_from"] for frame in self._pending_scalar_ctes[capture["frame_index"] + 1 :]):
                 capture["table_bound"] = True
 
+    def _record_scalar_cte_reference(self, cte: ast.CTE) -> None:
+        binding = self._scalar_cte_scopes.get(id(cte))
+        if binding is None:
+            return
+        for frame in reversed(self._pending_scalar_ctes):
+            if frame["scope"] is binding[1]:
+                break
+            if frame["has_from"]:
+                raise QueryError(
+                    f"Scalar WITH alias '{cte.name}' references another SELECT's tables. "
+                    "Define it inside this SELECT instead."
+                )
+        self._record_scalar_table_reference()
+
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
         self._pending_scalar_ctes.append(
@@ -3019,6 +3033,8 @@ class Resolver(CloningVisitor):
         type: Optional[ast.Type] = None
 
         # If the field contains at least two parts, the first might be a table.
+        if len(node.chain) > 1 and name not in scope.tables and name in self.ctes:
+            self._record_scalar_cte_reference(self.ctes[name])
         type = lookup_table_by_name(scope, self.ctes, node)
 
         # If it's a wildcard
@@ -3063,16 +3079,7 @@ class Resolver(CloningVisitor):
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
-                binding = self._scalar_cte_scopes.get(id(cte))
-                if binding is not None and self._pending_scalar_ctes:
-                    for frame in reversed(self._pending_scalar_ctes):
-                        if frame["scope"] is binding[1]:
-                            break
-                        if frame["has_from"]:
-                            raise QueryError(
-                                f"Scalar WITH alias '{name}' references another SELECT's tables. "
-                                "Define it inside this SELECT instead."
-                            )
+                self._record_scalar_cte_reference(cte)
                 if len(node.chain) > 1:
                     raise QueryError(f"Cannot access fields on CTE {name} yet")
 
@@ -3101,8 +3108,6 @@ class Resolver(CloningVisitor):
                         else:
                             inner_type = cte.expr.type
 
-                    if binding is not None:
-                        self._record_scalar_table_reference()
                     while isinstance(inner_type, ast.FieldAliasType):
                         inner_type = inner_type.type
                     return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))

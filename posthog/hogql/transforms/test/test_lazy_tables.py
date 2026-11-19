@@ -527,6 +527,8 @@ class TestWrappedEventJoins(SimpleTestCase):
             ("subquery", "t.properties AS x, (SELECT x) AS y", "y"),
             ("intervening_from", "t.properties AS x", "(SELECT x)"),
             ("intervening_from_local_alias", "t.properties AS x", "(WITH x AS y SELECT y)"),
+            ("dotted", "t.properties AS x", "x.private_key"),
+            ("dotted_intervening_from", "t.properties AS x", "(SELECT x.private_key)"),
         ]
     )
     def test_table_bound_scalar_alias_cannot_be_inherited_by_a_different_from(
