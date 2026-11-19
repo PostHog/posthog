@@ -69,6 +69,11 @@ SERIES_VALUES_PRECOMPUTE_SUCCESS = Counter(
     "series_values_precompute_success_total",
     "Trends series values served from precompute",
 )
+SERIES_VALUES_VERIFY_FAILED = Counter(
+    "series_values_verify_failed_total",
+    "Trends series values verifications that raised and served the stored values unverified, by exception class",
+    ["error_type"],
+)
 
 VALUE_SERIES_KEY = ""
 SOURCE_COUNT_SERIES_KEY = "$source_event_count"
@@ -480,7 +485,8 @@ def closed_series_values(
             )
         except _CANCELLATION:
             raise
-        except Exception:
+        except Exception as exc:
+            SERIES_VALUES_VERIFY_FAILED.labels(error_type=type(exc).__name__).inc()
             logger.warning("series_values_verify_failed", team_id=runner.team.pk, exc_info=True)
             _retry_verification_soon(runner)
             stale_days = None
