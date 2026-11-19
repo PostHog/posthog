@@ -25,6 +25,7 @@ from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
@@ -2821,6 +2822,40 @@ class TestHogqlTableDuplicateOutputColumns:
         rows = [row for table, _ in batches for row in table.to_pylist()]
         assert len(rows) == len(events)
         assert all(row["a.event"] == row["event"] for row in rows)
+
+    # the pinned aliases sit next to the filter and the sort, so a wrong name would redirect them
+    async def test_a_join_filtered_on_a_pinned_column_materializes_the_rows_the_sql_editor_returns(
+        self, ateam: Team, clickhouse_client: ClickHouseClient
+    ) -> None:
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            end_time=dt.datetime(2024, 1, 2, tzinfo=dt.UTC),
+            count=4,
+            count_outside_range=0,
+            count_other_team=0,
+            table="sharded_events",
+        )
+        query = (
+            "SELECT a.event, b.event, a.timestamp FROM events AS a JOIN events AS b ON a.team_id = b.team_id "
+            "WHERE b.event = 'test-1' ORDER BY a.timestamp, a.event"
+        )
+
+        @contextlib.asynccontextmanager
+        async def get_test_client(**kwargs: object) -> AsyncIterator[ClickHouseClient]:
+            yield clickhouse_client
+
+        with unittest.mock.patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
+        ):
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+        editor = await database_sync_to_async(execute_hogql_query)(query, ateam)
+
+        assert [name for name, _ in batches[0][1]] == ["a.event", "event", "timestamp"]
+        materialized = [tuple(row.values()) for table, _ in batches for row in table.to_pylist()]
+        assert materialized == [tuple(row) for row in editor.results]
+        assert len(materialized) == 4
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
