@@ -65,6 +65,12 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # A present but empty http.route still outranks url.template, as the drilldown's is_not_set guard reads it.
         w.span("rest", name="PUT", env="routes", attributes={"http.route": "", "url.template": "/x/{id}"})
         w.span("rest", name="process", env="routes", attributes={"http.route": "/ignored"})
+        # Outgoing calls named only by their method take their target: the database system first, then the host.
+        w.span("rest", name="GET", env="routes", attributes={"db.system": "redis", "net.peer.name": "cache.internal"})
+        w.span(
+            "rest", name="POST", env="routes", attributes={"server.address": "profiles.internal", "url.path": "/ingest"}
+        )
+        w.span("rest", name="HEAD", env="routes", attributes={"net.peer.name": "cache.internal"})
         w.insert()
 
     def _list(self, **params) -> dict:
@@ -142,6 +148,9 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
                 "DELETE": ("DELETE", None, None, 1),
                 "PUT": ("PUT", None, None, 1),
                 "process": ("process", None, None, 1),
+                "GET redis": ("GET", "db.system", "redis", 1),
+                "POST profiles.internal": ("POST", "server.address", "profiles.internal", 1),
+                "HEAD cache.internal": ("HEAD", "net.peer.name", "cache.internal", 1),
             },
         )
 

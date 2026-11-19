@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -22,7 +23,6 @@ from products.tasks.backend.constants import (
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
@@ -1222,7 +1222,7 @@ class TestGetTaskProcessingContextActivity:
 
     SUBSCRIPTION_CASES = [
         ("claude", CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "Claude plan", "Claude"),
-        ("codex", CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "ChatGPT plan", "Codex"),
+        ("codex", None, "ChatGPT plan", "Codex"),
     ]
 
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
@@ -1236,6 +1236,9 @@ class TestGetTaskProcessingContextActivity:
                 run_id="run-id",
             )
 
+        if adapter == "codex":
+            feature_enabled_mock.assert_not_called()
+            return
         feature_enabled_mock.assert_called_once_with(
             flag_key,
             distinct_id="distinct-id",
@@ -1248,15 +1251,20 @@ class TestGetTaskProcessingContextActivity:
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
     @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
     def test_subscription_model_access_never_changes_requested_billing(
-        self, adapter: str, flag_key: str, plan_name: str, runtime_name: str, flag_value: object
+        self, adapter: str, flag_key: str | None, plan_name: str, runtime_name: str, flag_value: object
     ) -> None:
+        expected_error = (
+            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable")
+            if adapter == "claude"
+            else nullcontext()
+        )
         with (
             patch(
                 FEATURE_ENABLED_TARGET,
                 return_value=flag_value,
                 side_effect=flag_value if isinstance(flag_value, Exception) else None,
             ),
-            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable"),
+            expected_error,
         ):
             _ensure_subscription_allowed(
                 adapter=adapter,
@@ -1267,7 +1275,9 @@ class TestGetTaskProcessingContextActivity:
             )
 
     @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
-    def test_subscription_rejects_a_pi_task(self, adapter: str, flag_key: str, plan_name: str, runtime_name: str):
+    def test_subscription_rejects_a_pi_task(
+        self, adapter: str, flag_key: str | None, plan_name: str, runtime_name: str
+    ):
         with pytest.raises(ProcessTaskFatalError, match=f"requires the {runtime_name} runtime"):
             _ensure_subscription_allowed(
                 adapter=adapter,
