@@ -59,6 +59,9 @@ def resolve_request_attribution(
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise ValidationError("Cannot attribute a write to an anonymous user.")
     agent_name = resolve_external_agent_name(request)
+    # Reviewer rules must still treat sandbox writes as automatic proposals.
+    if agent_name is None and task_id is not None:
+        agent_name = "PostHog task"
     if agent_name is not None:
         return ArtefactAttribution.from_agent(user_id, agent_name)
     return ArtefactAttribution.from_user(user_id)

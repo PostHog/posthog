@@ -1410,8 +1410,10 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if adapter != "leave":
             assert "Added: `added-reviewer`" in notes[0].content
 
-    @parameterized.expand([False, True])
-    def test_post_reviewer_payload_uses_shared_writer_after_human_edit(self, task_header: bool) -> None:
+    @parameterized.expand([(False, True), (True, True), (True, False)])
+    def test_post_reviewer_payload_uses_shared_writer_after_human_edit(
+        self, task_header: bool, mcp_headers: bool
+    ) -> None:
         human_reviewer = self._create_org_member("human-reviewer@example.com", github_login="human-reviewer")
         automatic_reviewer = self._create_org_member(
             "automatic-reviewer@example.com", github_login="automatic-reviewer"
@@ -1419,6 +1421,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         report = self._create_report()
         reviewers_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
         task = Task.objects.create(team=self.team, title="Example agent task") if task_header else None
+        headers = {"X-PostHog-Task-Id": str(task.id)} if task else {}
+        if mcp_headers:
+            headers.update({"X-PostHog-Client": "mcp", "X-PostHog-Mcp-Client-Name": "test-agent"})
 
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
@@ -1442,9 +1447,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                     "expected_reviewers": state,
                 },
                 format="json",
-                HTTP_X_POSTHOG_CLIENT="mcp",
-                HTTP_X_POSTHOG_MCP_CLIENT_NAME="test-agent",
-                headers={"X-PostHog-Task-Id": str(task.id)} if task else {},
+                headers=headers,
             )
 
         assert automatic_edit.status_code == status.HTTP_201_CREATED, automatic_edit.json()
