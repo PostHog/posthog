@@ -6015,13 +6015,13 @@ Diffed against: <https://docs.honeybadger.io/api/>
 - [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
 - [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
 - [x] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
-- [ ] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium)
-- [ ] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium)
+- [x] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium). Added as `notices_per_day` (incremental on `day` via `start`; first sync reads 30 days).
+- [x] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium). Added as `notices_by_class` (full refresh, rolling 30-day window).
 - [x] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium). Added as `check_ins` (full refresh).
 - [x] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium). Added as `alarm_history` (fan-out over alarms, full refresh; off by default).
 - [x] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium). Added as `comments` (fan-out over `faults`, full refresh; off by default).
-- [ ] `teams/{id}/team_members` — membership table resolving assignee/owner references (low)
-- [ ] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low)
+- [x] `teams/{id}/team_members` — membership table resolving assignee/owner references (low). Added as `team_members` (fan-out over teams, full refresh; off by default).
+- [x] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low). Added as `accounts` and `account_users` (fan-out over accounts; off by default), both full refresh.
 
 Note: Static endpoint list; source dir products/warehouse_sources/sources/honeybadger has no dynamic table discovery. Enumerated every /v2/ path across the api/faults, api/projects, api/uptime, api/check-ins, api/comments, api/alarms, api/environments, api/teams, api/accounts, api/insights, api/dashboards, api/status-pages and api/streams doc pages.
 
