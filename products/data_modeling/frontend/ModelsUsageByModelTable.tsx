@@ -135,7 +135,7 @@ export function ModelsUsageByModelTable({
                                         className="min-w-32 max-w-96 break-all @min-[48rem]/main-content:min-w-40"
                                     >
                                         {row.deleted || !nodeId ? (
-                                            <Text variant="muted" render={<span />}>
+                                            <Text size="xs" variant="muted" render={<span />}>
                                                 {row.name}
                                                 {row.deleted ? ' (deleted)' : ''}
                                             </Text>
