@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_backend Nullable(String),
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
+    -- True when the row's events fail the team's test-account filters. Evaluated by the writer, so a
+    -- read with test-account filtering on keeps the rows where it is false.
+    is_test_account Bool,
+    -- The path columns with the team's path cleaning rules applied by the writer. Empty when the team
+    -- has no rules, because the raw columns already hold the answer.
+    pathname_cleaned String,
+    entry_pathname_cleaned String,
+    end_pathname_cleaned String,
 
     -- Aggregate states: unique persons, unique sessions and total pageviews.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -89,7 +97,9 @@ def SHARDED_WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
     # whole parts atomically once all their rows expire. `job_id` is in ORDER BY
     # so distinct compute jobs coexist (the read path filters to the fresh
     # job_ids); every dimension is in ORDER BY so the ReplacingMergeTree never
-    # collapses rows that differ only by a dimension. `allow_nullable_key=1` lets
+    # collapses rows that differ only by a dimension. The cleaned path columns
+    # stay out of the key: one job applies one rule set, so within a job they
+    # are a function of the raw path columns. `allow_nullable_key=1` lets
     # the nullable EU metadata columns participate in the sort key.
     return (
         WEB_STATS_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL
@@ -152,7 +162,8 @@ ORDER BY (
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type,
+    is_test_account
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1

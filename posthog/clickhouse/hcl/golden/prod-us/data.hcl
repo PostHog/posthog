@@ -6886,6 +6886,15 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "is_test_account" {
+      type = "Bool"
+    }
+    column "entry_pathname_cleaned" {
+      type = "String"
+    }
+    column "end_pathname_cleaned" {
+      type = "String"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -7546,6 +7555,18 @@ database "posthog" {
     }
     column "channel_type" {
       type = "LowCardinality(String)"
+    }
+    column "is_test_account" {
+      type = "Bool"
+    }
+    column "pathname_cleaned" {
+      type = "String"
+    }
+    column "entry_pathname_cleaned" {
+      type = "String"
+    }
+    column "end_pathname_cleaned" {
+      type = "String"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"

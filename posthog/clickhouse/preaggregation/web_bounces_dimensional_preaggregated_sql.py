@@ -61,6 +61,13 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_backend Nullable(String),
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
+    -- True when the row's events fail the team's test-account filters. Evaluated by the writer, so a
+    -- read with test-account filtering on keeps the rows where it is false.
+    is_test_account Bool,
+    -- The path columns with the team's path cleaning rules applied by the writer. Empty when the team
+    -- has no rules, because the raw columns already hold the answer.
+    entry_pathname_cleaned String,
+    end_pathname_cleaned String,
 
     -- Aggregate states for bounce-rate and session-duration metrics.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -140,7 +147,8 @@ ORDER BY (
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type,
+    is_test_account
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
