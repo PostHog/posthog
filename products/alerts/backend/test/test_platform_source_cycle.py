@@ -189,6 +189,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     "team_id": self.team.id,
                     "source_kind": SourceKind.INSIGHT,
                     "next_check_at": CUTOFF - timedelta(minutes=1),
+                    "owner": PlatformAlertOwner.PLATFORM,
                     **copied,
                     **overrides,
                 }
@@ -374,15 +375,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             False,
         )
 
-    @parameterized.expand(
-        [
-            ("source_owned", "source", False),
-            ("platform_owned", "platform", True),
-        ]
-    )
-    def test_a_firing_records_what_production_sends_beside_it(self, _name: str, owner: str, wants_chart: bool) -> None:
+    def test_a_firing_records_what_production_sends_beside_it(self) -> None:
         alert = self._alert()
-        configuration = self._copy(alert, owner=owner)
+        configuration = self._copy(alert)
         expected = {
             "breaches": ["above 100"],
             "insight_name": alert.insight.name,
@@ -395,7 +390,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "insight_interval": "day",
             "tags": [],
             "team_name": self.team.name,
-            **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
+            CHART_PENDING_KEY: str(alert.id),
         }
 
         with patch(f"{_MODULE}.render_alert_insight_chart_or_raise") as render:
@@ -734,23 +729,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, was_firing, owned, paged through, breaks, (incident_actions, sends_messages) or no delivery
-            ("source_owned", False, False, None, False, None),
-            ("platform_owned", False, True, None, False, ({}, True)),
-            ("platform_owned_resolve", True, True, None, False, None),
-            ("paged_firing", False, True, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", True, True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", True, True, "hog_function", True, ({}, True)),
-            ("paged_but_source_owned", False, False, "hog_function", False, None),
-            ("paged_firing_with_no_row", False, True, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve_with_no_row", True, True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
+            # name, was_firing, paged through, breaks, (incident_actions, sends_messages) or no delivery
+            ("platform_owned", False, None, False, ({}, True)),
+            ("platform_owned_resolve", True, None, False, None),
+            ("paged_firing", False, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, "hog_function", True, ({}, True)),
+            ("paged_firing_with_no_row", False, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve_with_no_row", True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
         ]
     )
     def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
         self,
         _name: str,
         was_firing: bool,
-        owned: bool,
         paged: str | None,
         breaks: bool,
         delivered: tuple[dict[str, IncidentAction], bool] | None,
@@ -774,7 +766,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 ),
             )
         else:
-            configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
+            configuration = self._copy(alert)
         if paged == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
@@ -809,7 +801,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     str(configuration.id),
                     str(configuration.id if paged == "platform" else alert.id),
                     {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
-                    owned,
+                    True,
                     *delivered,
                 )
             ]
@@ -829,6 +821,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         ] == expected
         # A native message links to the alert on its insight, where the insight stack's messages link.
         assert all(delivery.source_alert_url == alert_url for delivery in self.deliveries)
+
+    def test_a_copy_insight_owns_is_skipped_without_a_query_and_stays_enabled(self) -> None:
+        configuration = self._copy(self._alert(), owner=PlatformAlertOwner.SOURCE)
+
+        outcome, query = self._evaluate(
+            configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
+        )
+
+        query.assert_not_called()
+        assert outcome is not None
+        assert (outcome.groups[0].kind, outcome.disable, list(self.deliveries)) == (AlertEventKind.CHECK, False, [])
 
     def test_a_snoozed_alert_is_recorded_without_a_query(self) -> None:
         configuration = self._copy(self._alert(snoozed_until=CUTOFF + timedelta(hours=1)))
@@ -1213,7 +1216,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 exclude=(admitted,),
             )
         )
-        assert replanned == [AdmittedInsightCheck(configuration_id=str(second.id), real_time=True)]
+        assert replanned == [
+            AdmittedInsightCheck(configuration_id=str(second.id), real_time=True, owned_by_platform=True)
+        ]
 
     def _investigated_alert(self, **overrides: Any) -> tuple[AlertConfiguration, PlatformConfigurationSnapshot]:
         alert = self._alert(

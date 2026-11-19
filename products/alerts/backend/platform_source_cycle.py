@@ -686,6 +686,10 @@ def _decide(
     uses_llm_detector: bool,
 ) -> PlatformAlertOutcome | None:
     snapshot = _snapshot(check)
+    if not check.owned_by_platform:
+        # The insight cutover is final, so a copy insight owns is a leftover shadow copy. Its edits
+        # never reach it, so it would check settings its alert no longer has.
+        return _skipped(check, snapshot, now=now)
     # Built from the copy alone, so an insight row that is switched off, edited or deleted changes
     # nothing here. The copy's own `enabled` already decided that the check is due.
     alert = checked_alert(check)
