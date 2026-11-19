@@ -124,14 +124,14 @@ export interface hogFlowEditorNotificationTestLogicActions {
         errorObject?: any
     } // membersLogic
     loadAllMembersSuccess: (
-        members: OrganizationMemberType[],
+        members: OrganizationMemberType[] | null,
         payload?:
             | {
                   value: true
               }
             | undefined
     ) => {
-        members: OrganizationMemberType[]
+        members: OrganizationMemberType[] | null
         payload?: {
             value: true
         }

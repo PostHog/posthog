@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='get_persons_by_uuids' */\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "properties?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_identified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_user_id",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      false,
+      true,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "3375dfdfc21e140f5f3ec3bfee35a836cfa0aa12b39922b774b0653e45ee2846"
+}

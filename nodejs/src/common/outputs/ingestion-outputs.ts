@@ -51,9 +51,9 @@ export class IngestionOutputs<O extends string> {
      * @param timeoutMs - Timeout for each topic metadata check.
      * @returns Output names whose topics failed the check.
      */
-    async checkTopics(timeoutMs = 10000): Promise<string[]> {
+    async checkTopics(timeoutMs = 10000, only?: O[]): Promise<string[]> {
         const failures: string[] = []
-        for (const outputName in this.outputs) {
+        for (const outputName of only ?? (Object.keys(this.outputs) as O[])) {
             try {
                 await this.outputs[outputName].checkTopicExists(timeoutMs)
             } catch {

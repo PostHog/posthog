@@ -9,11 +9,28 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
 import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
-import { AnomalyRow } from './AnomalyRow'
+import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
 export function AnomaliesTab(): JSX.Element {
-    const { anomalies, anomaliesLoading, loadingMore, loadError, series, hasMore } = useValues(anomaliesTabLogic)
-    const { loadAnomalies, loadMoreAnomalies, reportInsightOpened } = useActions(anomaliesTabLogic)
+    const {
+        anomalies,
+        anomaliesLoading,
+        loadingMore,
+        loadError,
+        series,
+        insightGroups,
+        expandedInsightIds,
+        hasMore,
+        seriesRatings,
+    } = useValues(anomaliesTabLogic)
+    const {
+        loadAnomalies,
+        loadMoreAnomalies,
+        reportInsightOpened,
+        toggleInsightExpanded,
+        rateSeries,
+        reportCreateAlertOpened,
+    } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
     const scoredThrough = series
@@ -69,13 +86,18 @@ export function AnomaliesTab(): JSX.Element {
                         )}
                     </div>
                     <div className="flex flex-col gap-2">
-                        {series.map((row, index) => (
-                            <AnomalyRow
-                                key={`${row.insight_id}-${row.series_key}-${row.interval}`}
-                                series={row}
+                        {insightGroups.map((group, index) => (
+                            <AnomalyInsightGroup
+                                key={group.insightId}
+                                group={group}
+                                expanded={!!expandedInsightIds[group.insightId]}
                                 dateFrom={anomalies.date_from}
                                 dateTo={anomalies.date_to}
-                                onOpenInsight={() => reportInsightOpened(row, index)}
+                                seriesRatings={seriesRatings}
+                                onToggleExpanded={() => toggleInsightExpanded(group.insightId, index)}
+                                onOpenInsight={(row) => reportInsightOpened(row, index)}
+                                onRateSeries={(row, rating) => rateSeries(row, rating, index)}
+                                onCreateAlert={(row) => reportCreateAlertOpened(row, index)}
                             />
                         ))}
                     </div>

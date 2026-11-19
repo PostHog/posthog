@@ -227,7 +227,13 @@ class CuratedGitHubSource:
         )
 
     def pr_source(self) -> str:
-        return f"({pull_requests.build_query(self._tables.pull_requests)})"
+        return (
+            f"({pull_requests.build_query(self._tables.pull_requests, has_body=self._tables.pull_requests_have_body)})"
+        )
+
+    @property
+    def pull_requests_have_body(self) -> bool:
+        return self._tables.pull_requests_have_body
 
     def run_source(
         self,
