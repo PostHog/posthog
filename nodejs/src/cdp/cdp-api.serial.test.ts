@@ -72,7 +72,6 @@ import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/postho
 import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
 import { createIdempotencyValkeyPool, requestFingerprint } from './services/hogflows/idempotency-keys'
-import { transactionalPushFingerprint } from './services/hogflows/transactional-push'
 import {
     ATTACHMENT_CONTENT_ID_MAX_LENGTH,
     ATTACHMENT_CONTENT_TYPE_MAX_LENGTH,
@@ -80,6 +79,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { transactionalPushFingerprint } from './services/hogflows/transactional-push'
 import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
