@@ -71,12 +71,19 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                         </span>
                     </li>
                 ))}
+                {other && (
+                    <li
+                        className="MCPWrapped__rise grid grid-cols-[1.75rem_1fr_auto] items-center gap-x-2 text-sm tabular-nums opacity-75"
+                        style={{ animationDelay: `${named.length * 80}ms` }}
+                    >
+                        <span className="flex size-7 items-center justify-center rounded-full bg-white/20 text-base font-bold">
+                            +
+                        </span>
+                        <span className="truncate">{otherLabel}</span>
+                        <span>{formatPercent(other.share)}</span>
+                    </li>
+                )}
             </ol>
-            {other && (
-                <p className="MCPWrapped__rise m-0 text-sm opacity-75">
-                    {otherLabel}: {formatPercent(other.share)}
-                </p>
-            )}
         </WrappedCard>
     )
 }
