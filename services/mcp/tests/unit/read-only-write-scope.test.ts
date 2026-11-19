@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { getToolDefinitions } from '@/tools/toolDefinitions'
 
-// `readOnlyHint` is what `?readonly=true` connections and client write gates trust, so a
-// read-only tool that needs a write scope must be reviewed: either it is a read behind a
-// write-scoped API, or it writes and is mislabelled.
+// Read-only connections and client write gates trust `readOnlyHint`, so each read-only tool needing a write scope is reviewed here.
 const REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS: Record<string, string> = {
-    'external-data-schemas-destinations-retrieve': 'GET; the write scope belongs to the PATCH on the same action',
+    'external-data-schemas-destinations-retrieve':
+        'GET; the write scope belongs to the PATCH on the same action. It may create the default warehouse row, which every sync creates anyway',
     'external-data-sources-destinations-retrieve': 'GET; the write scope belongs to the PATCH on the same action',
     'feature-flags-copy-dependencies-check': 'Previews a copy and saves nothing; scoped like the copy it previews',
     'file-download-batch-exports-count-rows-create': 'Counts rows only; the write scope guards query cost',
@@ -33,7 +32,6 @@ describe('read-only tools that require a write scope', () => {
             .filter(([, definition]) => definition.annotations.readOnlyHint)
             .filter(([, definition]) => (definition.required_scopes ?? []).some((scope) => scope.endsWith(':write')))
             .map(([name]) => name)
-            // A typed-confirm `-prepare` only stashes its arguments; its `-execute` twin does the write.
             .filter((name) => !(name.endsWith('-prepare') && definitions[name.replace(/-prepare$/, '-execute')]))
             .filter((name) => !(name in REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS))
 

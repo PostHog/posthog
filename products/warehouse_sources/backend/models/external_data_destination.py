@@ -170,7 +170,7 @@ def get_or_create_warehouse_destination(team_id: int) -> ExternalDataDestination
     return destination
 
 
-def resolve_destinations(schema: "ExternalDataSchema", *, create_default: bool = True) -> list[ExternalDataDestination]:  # type: ignore[name-defined] # noqa: F821
+def resolve_destinations(schema: "ExternalDataSchema") -> list[ExternalDataDestination]:  # type: ignore[name-defined] # noqa: F821
     """Resolve where one schema's rows should be written.
 
     Schema-level links win over source-level links whenever any exist, so clearing a
@@ -196,11 +196,4 @@ def resolve_destinations(schema: "ExternalDataSchema", *, create_default: bool =
     )
     if links:
         return [link.destination for link in links if link.enabled and not link.destination.deleted]
-    if not create_default:
-        warehouse = (
-            ExternalDataDestination.objects.for_team(team_id)
-            .filter(type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, deleted=False)
-            .first()
-        )
-        return [warehouse] if warehouse else []
     return [get_or_create_warehouse_destination(team_id)]
