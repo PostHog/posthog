@@ -166,6 +166,7 @@ function requestContextFromValues(values: {
     searchQuery: string
     activeSourceProductFilter: string[]
     activeScoutFilter: string[]
+    activeTagFilter: string[]
     priorityFilter: SignalReportPriority[]
     activeSortField: InboxSortField
     activeSortDirection: InboxSortDirection
@@ -177,6 +178,7 @@ function requestContextFromValues(values: {
             appliedInboxSearch(values.searchQuery) !== undefined ||
             values.activeSourceProductFilter.length > 0 ||
             values.activeScoutFilter.length > 0 ||
+            values.activeTagFilter.length > 0 ||
             values.priorityFilter.length > 0 ||
             values.activeCreatedWindow !== null,
         sortField: values.activeSortField,
@@ -252,6 +254,7 @@ export interface reportListLogicValues {
     activeSortDirection: InboxSortDirection // inboxFiltersLogic
     activeSortField: InboxSortField // inboxFiltersLogic
     activeSourceProductFilter: string[] // inboxFiltersLogic
+    activeTagFilter: string[] // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     isScopedToMe: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
@@ -334,6 +337,15 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     sourceFilterAvailabilityChanged: () => {
         value: true
+    } // inboxFiltersLogic
+    tagFilterAvailabilityChanged: () => {
+        value: true
+    } // inboxFiltersLogic
+    setTagFilter: (tags: string[]) => {
+        tags: string[]
+    } // inboxFiltersLogic
+    toggleTag: (tag: string) => {
+        tag: string
     } // inboxFiltersLogic
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
@@ -520,6 +532,7 @@ export interface reportListLogicMeta {
             activeSortDirection: InboxSortDirection,
             activeSourceProductFilter: string[],
             activeScoutFilter: string[],
+            activeTagFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
             scope: InboxScope,
@@ -592,6 +605,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'activeSortDirection',
                 'activeSourceProductFilter',
                 'activeScoutFilter',
+                'activeTagFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
             ],
@@ -612,6 +626,9 @@ export const reportListLogic = kea<reportListLogicType>([
                 'toggleScout',
                 'setSourceFilter',
                 'sourceFilterAvailabilityChanged',
+                'toggleTag',
+                'setTagFilter',
+                'tagFilterAvailabilityChanged',
                 'needsYouScopeAvailabilityChanged',
                 'togglePriority',
                 'setPriorityFilter',
@@ -894,6 +911,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.activeSortDirection,
                 s.activeSourceProductFilter,
                 s.activeScoutFilter,
+                s.activeTagFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
                 s.scope,
@@ -907,6 +925,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 sortDirection: import('./inboxFiltersLogic').InboxSortDirection,
                 sourceProductFilter: string[],
                 scoutFilter: string[],
+                tagFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
                 scope: InboxScope,
@@ -921,6 +940,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     ...buildSignalReportListSortParams(sortField, sortDirection),
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
+                    tags: tagFilter.length > 0 ? tagFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
                     // `suggested_reviewers` only filters. These make `sort=personal` read the teammate's ranking.
@@ -1181,6 +1201,9 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleScout: () => actions.refresh(),
         setSourceFilter: () => actions.refresh(),
         sourceFilterAvailabilityChanged: () => actions.refresh(),
+        toggleTag: () => actions.refresh(),
+        setTagFilter: () => actions.refresh(),
+        tagFilterAvailabilityChanged: () => actions.refresh(),
         needsYouScopeAvailabilityChanged: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),

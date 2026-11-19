@@ -96,7 +96,10 @@ export function isDefaultStateFilter(stateFilter: InboxReportSectionKey[]): bool
 }
 
 // Query-param keys that mirror the filter state so a view can be shared via URL.
-const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'priority', 'state', 'sort', 'search', 'created'] as const
+const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'tags', 'priority', 'state', 'sort', 'search', 'created'] as const
+
+// The list API rejects a request with more tags than a report can carry (`SignalReport.MAX_TAGS`).
+export const INBOX_TAG_FILTER_MAX = 10
 
 // Every product the backend knows, because the Source filter offers each configured product and not
 // only the products with a toolbar entry.
@@ -149,6 +152,7 @@ export interface InboxFilterState {
     scope: InboxScope
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: SignalReportPriority[]
     stateFilter: InboxReportSectionKey[]
     sortField: InboxSortField
@@ -190,10 +194,10 @@ function parseStateParam(raw: unknown): InboxReportSectionKey[] {
     return parsed.length > 0 ? parsed : DEFAULT_STATE_FILTER
 }
 
-// Scout skill names are team-specific and dynamic, so there is no static valid set to check a
-// shared link against — accept any non-empty comma-separated slugs; an unknown scout simply
+// Scout skill names and report tags are team-specific and dynamic, so there is no static valid set
+// to check a shared link against. Accept any non-empty comma-separated slugs, because an unknown value
 // matches no reports server-side.
-function parseScoutParam(raw: unknown): string[] {
+function parseSlugListParam(raw: unknown): string[] {
     if (typeof raw !== 'string' || raw.length === 0) {
         return []
     }
@@ -224,7 +228,8 @@ export function parseFilterSearchParams(
     return {
         scope: parseScopeParam(searchParams.scope),
         sourceProductFilter: parseListParam(searchParams.source, VALID_SOURCE_VALUES),
-        scoutFilter: parseScoutParam(searchParams.scout),
+        scoutFilter: parseSlugListParam(searchParams.scout),
+        tagFilter: [...new Set(parseSlugListParam(searchParams.tags))].slice(0, INBOX_TAG_FILTER_MAX),
         priorityFilter: parseListParam(searchParams.priority, VALID_PRIORITIES) as SignalReportPriority[],
         stateFilter: parseStateParam(searchParams.state),
         sortField,
@@ -268,6 +273,9 @@ export function filterSearchParams(values: InboxFilterState): Record<string, str
     }
     if (values.scoutFilter.length > 0) {
         params.scout = values.scoutFilter.join(',')
+    }
+    if (values.tagFilter.length > 0) {
+        params.tags = values.tagFilter.join(',')
     }
     if (values.priorityFilter.length > 0) {
         params.priority = values.priorityFilter.join(',')
@@ -353,6 +361,7 @@ export interface inboxFiltersLogicValues {
     activeSortDirection: InboxSortDirection
     activeSortField: InboxSortField
     activeSourceProductFilter: string[]
+    activeTagFilter: string[]
     availableReviewers: InboxReviewerOption[]
     availableReviewersLoading: boolean
     createdWindow: InboxCreatedWindow | null
@@ -386,6 +395,8 @@ export interface inboxFiltersLogicValues {
         | 'outcome-monitoring'
         | 'resolved'
     )[]
+    tagFilter: string[]
+    tagFilterAvailable: boolean
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -477,7 +488,13 @@ export interface inboxFiltersLogicActions {
     setSourceFilter: (selection: InboxSourceSelection | null) => {
         selection: InboxSourceSelection | null
     }
+    setTagFilter: (tags: string[]) => {
+        tags: string[]
+    }
     sourceFilterAvailabilityChanged: () => {
+        value: true
+    }
+    tagFilterAvailabilityChanged: () => {
         value: true
     }
     togglePriority: (priority: SignalReportPriority) => {
@@ -488,6 +505,9 @@ export interface inboxFiltersLogicActions {
     }
     toggleSourceProduct: (source: string) => {
         source: string
+    }
+    toggleTag: (tag: string) => {
+        tag: string
     }
     toggleState: (state: InboxReportSectionKey) => {
         state:
@@ -509,6 +529,7 @@ export interface inboxFiltersLogicMeta {
             searchQuery: string,
             activeSourceProductFilter: string[],
             activeScoutFilter: string[],
+            activeTagFilter: string[],
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
@@ -537,6 +558,8 @@ export interface inboxFiltersLogicMeta {
         sourceFilterAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSourceProductFilter: (sourceProductFilter: string[], sourceFilterAvailable: boolean) => string[]
         activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
+        tagFilterAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        activeTagFilter: (tagFilter: string[], tagFilterAvailable: boolean) => string[]
         visibleStateFilter: (
             stateFilter: (
                 | 'closed'
@@ -565,7 +588,8 @@ export interface inboxFiltersLogicMeta {
             activeCreatedWindow: InboxCreatedWindow | null,
             activeSortField: InboxSortField,
             activeSourceProductFilter: string[],
-            activeScoutFilter: string[]
+            activeScoutFilter: string[],
+            activeTagFilter: string[]
         ) => number
     }
 }
@@ -623,6 +647,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Fires when the Source filter flag changes while a stored selection exists, so the lists
         // reload with or without that selection.
         sourceFilterAvailabilityChanged: true,
+        // A chip toggles one tag; the Tags menu replaces the whole selection.
+        toggleTag: (tag: string) => ({ tag }),
+        setTagFilter: (tags: string[]) => ({ tags }),
+        // Like `sourceFilterAvailabilityChanged`, for the Tags filter flag.
+        tagFilterAvailabilityChanged: true,
         // Fires when the Needs you flag changes while the Needs you scope is stored, so the lists
         // reload with the scope they now apply.
         needsYouScopeAvailabilityChanged: true,
@@ -671,6 +700,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sortDirection: values.activeSortDirection,
                 sourceProductFilter: values.activeSourceProductFilter,
                 scoutFilter: values.activeScoutFilter,
+                tagFilter: values.activeTagFilter,
                 priorityFilter: values.priorityFilter,
                 stateFilter: values.stateFilter,
                 searchQuery: values.searchQuery,
@@ -710,6 +740,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             clearScoutFilter: () => captureQueryChange('scout'),
             setSourceFilter: ({ selection }) =>
                 captureQueryChange(selection?.kind === 'scout' ? 'scout' : 'source_product'),
+            toggleTag: () => captureQueryChange('tags'),
+            setTagFilter: () => captureQueryChange('tags'),
             togglePriority: () => captureQueryChange('priority'),
             setPriorityFilter: () => captureQueryChange('priority'),
             toggleState: () => captureQueryChange('state'),
@@ -834,6 +866,22 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 clearFilters: () => [],
             },
         ],
+        // Report tag slugs. A report matches when it carries any of them.
+        tagFilter: [
+            [] as string[],
+            { persist: true },
+            {
+                toggleTag: (state, { tag }) =>
+                    state.includes(tag)
+                        ? state.filter((t) => t !== tag)
+                        : state.length < INBOX_TAG_FILTER_MAX
+                          ? [...state, tag]
+                          : state,
+                setTagFilter: (_, { tags }) => tags.slice(0, INBOX_TAG_FILTER_MAX),
+                setFilters: (_, { filters }) => filters.tagFilter,
+                clearFilters: () => [],
+            },
+        ],
         priorityFilter: [
             [] as SignalReportPriority[],
             { persist: true },
@@ -868,6 +916,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 s.searchQuery,
                 s.activeSourceProductFilter,
                 s.activeScoutFilter,
+                s.activeTagFilter,
                 s.priorityFilter,
                 s.activeCreatedWindow,
             ],
@@ -875,12 +924,14 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 searchQuery: string,
                 sourceProductFilter: string[],
                 scoutFilter: string[],
+                tagFilter: string[],
                 priorityFilter: SignalReportPriority[],
                 activeCreatedWindow: InboxCreatedWindow | null
             ): boolean =>
                 appliedInboxSearch(searchQuery) !== undefined ||
                 sourceProductFilter.length > 0 ||
                 scoutFilter.length > 0 ||
+                tagFilter.length > 0 ||
                 priorityFilter.length > 0 ||
                 activeCreatedWindow !== null,
         ],
@@ -967,6 +1018,15 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (scoutFilter: string[], sourceFilterAvailable: boolean): string[] =>
                 sourceFilterAvailable ? scoutFilter : [],
         ],
+        tagFilterAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_TAG_FILTER],
+        ],
+        // Like the source selection, a stored or shared tag selection does nothing while its flag is off.
+        activeTagFilter: [
+            (s) => [s.tagFilter, s.tagFilterAvailable],
+            (tagFilter: string[], tagFilterAvailable: boolean): string[] => (tagFilterAvailable ? tagFilter : []),
+        ],
         // The stored state filter can name states the current user cannot see: a staff-only state
         // from a shared link, or one persisted before staff access changed. The list and the filter
         // control read this narrowed view, so a hidden state can never strand the list on a
@@ -986,6 +1046,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 s.activeSortField,
                 s.activeSourceProductFilter,
                 s.activeScoutFilter,
+                s.activeTagFilter,
             ],
             (
                 visibleStateFilter: InboxReportSectionKey[],
@@ -993,7 +1054,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 activeCreatedWindow: InboxCreatedWindow | null,
                 activeSortField: InboxSortField,
                 activeSourceProductFilter: string[],
-                activeScoutFilter: string[]
+                activeScoutFilter: string[],
+                activeTagFilter: string[]
             ): number => {
                 const defaultCreatedWindow = isRankingSortField(activeSortField) ? MODEL_SORT_DEFAULT_WINDOW : null
                 return [
@@ -1001,6 +1063,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                     priorityFilter.length > 0,
                     activeCreatedWindow !== null && activeCreatedWindow !== defaultCreatedWindow,
                     activeSourceProductFilter.length > 0 || activeScoutFilter.length > 0,
+                    activeTagFilter.length > 0,
                 ].filter(Boolean).length
             },
         ],
@@ -1025,6 +1088,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             const hasSelection = values.sourceProductFilter.length > 0 || values.scoutFilter.length > 0
             if (wasAvailable !== undefined && available !== wasAvailable && hasSelection) {
                 actions.sourceFilterAvailabilityChanged()
+            }
+        },
+        tagFilterAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
+            if (wasAvailable !== undefined && available !== wasAvailable && values.tagFilter.length > 0) {
+                actions.tagFilterAvailabilityChanged()
             }
         },
         needsYouScopeAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
@@ -1057,6 +1125,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             toggleScout: toUrl,
             clearScoutFilter: toUrl,
             setSourceFilter: toUrl,
+            toggleTag: toUrl,
+            setTagFilter: toUrl,
             togglePriority: toUrl,
             setPriorityFilter: toUrl,
             toggleState: toUrl,
@@ -1093,6 +1163,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 values.scope !== parsed.scope ||
                 !sameSet(values.sourceProductFilter, parsed.sourceProductFilter) ||
                 !sameSet(values.scoutFilter, parsed.scoutFilter) ||
+                !sameSet(values.tagFilter, parsed.tagFilter) ||
                 !sameSet(values.priorityFilter, parsed.priorityFilter) ||
                 !sameSet(values.stateFilter, parsed.stateFilter) ||
                 values.sortField !== parsed.sortField ||

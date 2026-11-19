@@ -31,6 +31,7 @@ const DEFAULT_STATE: InboxFilterState = {
     scope: 'for-you',
     sourceProductFilter: [],
     scoutFilter: [],
+    tagFilter: [],
     priorityFilter: [],
     stateFilter: ['monitoring', 'needs-decision'],
     sortField: 'recommended',
@@ -91,13 +92,14 @@ describe('inboxFiltersLogic', () => {
 
         it.each<[string, InboxFilterState, Record<string, string>]>([
             [
-                'scope + sources + scouts + priorities + states + custom sort + search',
+                'scope + sources + scouts + tags + priorities + states + custom sort + search',
                 {
                     scope: 'entire-project',
                     sourceProductFilter: ['error_tracking', 'github'],
                     // Scout slugs are team-specific and dynamic, so they round-trip without a
                     // static valid-set check — unlike sources.
                     scoutFilter: ['signals-scout-error-tracking', 'my-custom-scout'],
+                    tagFilter: ['billing', 'on-call'],
                     priorityFilter: ['P0', 'P2'],
                     stateFilter: ['monitoring', 'resolved'],
                     sortField: 'created_at',
@@ -109,6 +111,7 @@ describe('inboxFiltersLogic', () => {
                     scope: 'entire-project',
                     source: 'error_tracking,github',
                     scout: 'signals-scout-error-tracking,my-custom-scout',
+                    tags: 'billing,on-call',
                     priority: 'P0,P2',
                     state: 'monitoring,resolved',
                     sort: 'created_at:desc',
@@ -336,23 +339,36 @@ describe('inboxFiltersLogic', () => {
             }
         )
 
-        it('ignores a stored source selection while the flag is off and reloads when the flag changes', async () => {
-            logic.actions.setFilters({ ...DEFAULT_STATE, scoutFilter: ['my-custom-scout'] })
+        it.each([
+            [
+                'source',
+                FEATURE_FLAGS.INBOX_SOURCE_FILTER,
+                { scoutFilter: ['my-custom-scout'] },
+                'activeScoutFilter',
+                'sourceFilterAvailabilityChanged',
+            ],
+            [
+                'tag',
+                FEATURE_FLAGS.INBOX_TAG_FILTER,
+                { tagFilter: ['billing'] },
+                'activeTagFilter',
+                'tagFilterAvailabilityChanged',
+            ],
+        ] as const)(
+            'ignores a stored %s selection while the flag is off and reloads when the flag changes',
+            async (_name, flag, stored, activeKey, availabilityAction) => {
+                const [storedValue] = Object.values(stored)
+                logic.actions.setFilters({ ...DEFAULT_STATE, ...stored })
 
-            expect(logic.values).toMatchObject({
-                scoutFilter: ['my-custom-scout'],
-                activeScoutFilter: [],
-                hasActiveFilters: false,
-            })
+                expect(logic.values).toMatchObject({ ...stored, [activeKey]: [], hasActiveFilters: false })
 
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
-                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                await expectLogic(logic, () => {
+                    featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
                 })
-            })
-                .toDispatchActions(['sourceFilterAvailabilityChanged'])
-                .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
-        })
+                    .toDispatchActions([availabilityAction])
+                    .toMatchValues({ [activeKey]: storedValue, hasActiveFilters: true })
+            }
+        )
 
         it('keeps a monitoring URL selection visible without a browser rollout flag', async () => {
             router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })

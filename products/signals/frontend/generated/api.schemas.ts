@@ -8279,6 +8279,11 @@ export interface SignalReportSourceMetadataResponseApi {
     readonly reports: readonly SignalReportSourceMetadataApi[]
 }
 
+export interface SignalReportTagOptionsApi {
+    /** The team's most-used report tags, most-used first, counted over its newest reports. Empty when no report has tags. */
+    tags: string[]
+}
+
 /**
  * * `active` - Active
  * * `revoked` - Revoked

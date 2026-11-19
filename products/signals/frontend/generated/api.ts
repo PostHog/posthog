@@ -136,6 +136,7 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportTagOptionsApi,
     SignalReportTaskActionListResponseApi,
     SignalReportTaskActionRunRequestApi,
     SignalReportTaskActionRunResponseApi,
@@ -1908,6 +1909,23 @@ export const signalsReportsSourceMetadataCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportSourceMetadataRequestApi),
+    })
+}
+
+export const getSignalsReportsTagOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/tag_options/`
+}
+
+/**
+ * @summary List the team's most-used report tags
+ */
+export const signalsReportsTagOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportTagOptionsApi> => {
+    return apiMutator<SignalReportTagOptionsApi>(getSignalsReportsTagOptionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

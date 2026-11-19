@@ -258,6 +258,7 @@ from products.signals.backend.report_search import (
     search_enabled as report_search_enabled,
     search_reports,
 )
+from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     IMPLEMENT_RUN_ACTIVE_DETAIL,
@@ -354,6 +355,7 @@ from products.signals.backend.serializers import (
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
+    SignalReportTagOptionsSerializer,
     SignalReportTaskActionErrorSerializer,
     SignalReportTaskActionListResponseSerializer,
     SignalReportTaskActionRunRequestSerializer,
@@ -3942,6 +3944,14 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             return serializer.data
+
+    @extend_schema(
+        summary="List the team's most-used report tags",
+        responses={200: SignalReportTagOptionsSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="tag_options", required_scopes=["inbox:read"])
+    def tag_options(self, request, **kwargs):
+        return Response(SignalReportTagOptionsSerializer({"tags": team_tag_vocabulary(self.team.id)}).data)
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",

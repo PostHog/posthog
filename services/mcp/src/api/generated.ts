@@ -118626,6 +118626,11 @@ export namespace Schemas {
       readonly task_id: string | null;
     }
 
+    export interface SignalReportTagOptions {
+      /** The team's most-used report tags, most-used first, counted over its newest reports. Empty when no report has tags. */
+      tags: string[];
+    }
+
     /**
      * One report action that starts an agent run, with whether the report offers it now.
      */

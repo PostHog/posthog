@@ -212,6 +212,7 @@ const ReportRow = memo(function ReportRow({
     personalSort,
     timestampField,
     hideOwnClaim,
+    showTags,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
@@ -220,6 +221,7 @@ const ReportRow = memo(function ReportRow({
     personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
+    showTags: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -231,6 +233,7 @@ const ReportRow = memo(function ReportRow({
                 personalSort={personalSort}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
+                showTags={showTags}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -275,6 +278,7 @@ export function ReportsTab(): JSX.Element {
         activeScope: scope,
         activeSortField,
         activeSortDirection,
+        tagFilterAvailable,
     } = useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
@@ -492,6 +496,7 @@ export function ReportsTab(): JSX.Element {
                                 personalSort={personalOrder}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
+                                showTags={tagFilterAvailable}
                             />
                         </Fragment>
                     ))}
