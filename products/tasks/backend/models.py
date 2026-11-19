@@ -2296,11 +2296,6 @@ class TaskSession(TeamScopedRootMixin, UUIDModel):
             task=task,
         )
 
-    def read_jsonl(self) -> str:
-        if self.object_storage_key is None:
-            return ""
-        return object_storage.read(self.object_storage_key, missing_ok=True) or ""
-
     def tag_object(self) -> None:
         if self.object_storage_key is None:
             return
@@ -4489,17 +4484,6 @@ class SandboxSnapshot(UUIDModel):
     def update_status(self, status: Status):
         self.status = status
         self.save(update_fields=["status"])
-
-    @classmethod
-    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
-        return (
-            cls.objects.filter(
-                integration_id=integration_id,
-                status=cls.Status.COMPLETE,
-            )
-            .order_by("-created_at")
-            .first()
-        )
 
     @classmethod
     def get_latest_snapshot_with_repos(

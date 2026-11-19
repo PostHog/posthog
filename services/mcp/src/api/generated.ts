@@ -2427,6 +2427,7 @@ export namespace Schemas {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -2488,6 +2489,7 @@ export namespace Schemas {
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
       BusinessKnowledge: 'business_knowledge',
+      Canvas: 'canvas',
       CodeReviewApproval: 'code_review_approval',
       CustomerAnalytics: 'customer_analytics',
       CustomerJourney: 'customer_journey',
@@ -2552,6 +2554,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
        * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
@@ -2826,6 +2829,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
        * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
@@ -2915,6 +2919,7 @@ export namespace Schemas {
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
+       * * `canvas` - canvas
        * * `code_review_approval` - code_review_approval
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
@@ -24644,6 +24649,129 @@ export namespace Schemas {
       unavailable_reason: CITimingUnavailableReasonEnum | null;
     }
 
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedCompareDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type CachedTileInsightResultActionNames = {[key: string]: string} | null;
+
+    /**
+     * The result fields of an insight tile, without the insight's own metadata.
+     *
+     * Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
+     * endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
+     */
+    export interface CachedTileInsightResult {
+      readonly id: number;
+      readonly result: unknown;
+      /** @nullable */
+      readonly hasMore: boolean | null;
+      /** @nullable */
+      readonly columns: readonly string[] | null;
+      /** @nullable */
+      readonly types: readonly unknown[] | null;
+      /**
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
+      readonly timezone: string | null;
+      /**
+         *
+       *     The datetime this insight's results were generated.
+       *     If added to one or more dashboards the insight can be refreshed separately on each.
+       *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+       *     (see from_dashboard query parameter).
+       *
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      /**
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
+      readonly cache_target_age: string | null;
+      /**
+         *
+       *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+       *     by querying the database.
+       *
+         * @nullable
+         */
+      readonly next_allowed_client_refresh: string | null;
+      readonly is_cached: boolean;
+      readonly query_status: unknown;
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_date_range: CachedTileInsightResultResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range: CachedTileInsightResultResolvedCompareDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names: CachedTileInsightResultActionNames;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
+    }
+
+    /**
+     * * `hit` - Hit
+     * * `miss` - Miss
+     * * `forbidden` - Forbidden
+     * * `not_found` - Not found
+     */
+    export type CachedTileStatusEnum = typeof CachedTileStatusEnum[keyof typeof CachedTileStatusEnum];
+
+
+    export const CachedTileStatusEnum = {
+      Hit: 'hit',
+      Miss: 'miss',
+      Forbidden: 'forbidden',
+      NotFound: 'not_found',
+    } as const;
+
+    export interface CachedTileResult {
+      /** Dashboard tile ID. */
+      id: number;
+      /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+       *
+       * * `hit` - Hit
+       * * `miss` - Miss
+       * * `forbidden` - Forbidden
+       * * `not_found` - Not found */
+      status: CachedTileStatusEnum;
+      /** The cached result. Present only when status is 'hit'. */
+      insight?: CachedTileInsightResult;
+    }
+
+    export interface CachedTilesResponse {
+      /** One entry per requested tile ID, in request order. */
+      results: CachedTileResult[];
+    }
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -25126,6 +25254,11 @@ export namespace Schemas {
      * A canvas document. Version/build content hangs off the source and build endpoints.
      */
     export interface Canvas {
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly id: string;
       readonly name: string;
       /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).
@@ -28291,6 +28424,13 @@ export namespace Schemas {
       Code: 'code',
       Slack: 'slack',
     } as const;
+
+    export interface ClaimCoupon {
+      /** Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access. */
+      code?: string;
+      /** Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign. */
+      campaign_slug?: string;
+    }
 
     export interface TagCount {
       /** The tag value. */
@@ -34167,6 +34307,28 @@ export namespace Schemas {
     }
 
     /**
+     * One value an account held for a custom property (read shape).
+     */
+    export interface CustomPropertyValueHistoryEntry {
+      /** The value, typed per the property's data type. */
+      readonly value: string | number | boolean;
+      /** When the account got this value. */
+      readonly set_at: string;
+      /**
+         * ID of the user who set this value. Null when a sync or the system set it.
+         * @nullable
+         */
+      readonly set_by_id: number | null;
+      /**
+         * When the next value replaced this one. Null for the current value, and for a value that was cleared with no value after it.
+         * @nullable
+         */
+      readonly replaced_at: string | null;
+      /** Whether this is the account's value now. */
+      readonly is_current: boolean;
+    }
+
+    /**
      * One suggested filter value for a custom property.
      */
     export interface CustomPropertyValueSuggestion {
@@ -39281,6 +39443,62 @@ export namespace Schemas {
       deployment_count: number;
     }
 
+    export interface DeploymentVersion {
+      /** The service.version resource attribute. */
+      version: string;
+      /** First span of this version in the window. */
+      first_seen: string;
+      /** Last span of this version in the window. */
+      last_seen: string;
+      /** Requests counted in the window. */
+      requests: number;
+      /** Requests with an error status. */
+      error_count: number;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /**
+         * The version first seen just before this one. Null for the oldest.
+         * @nullable
+         */
+      previous_version: string | null;
+      /**
+         * Error rate minus the previous version's, as a fraction.
+         * @nullable
+         */
+      error_rate_change: number | null;
+      /**
+         * Change in p95 from the previous version, in percent.
+         * @nullable
+         */
+      p95_change_pct: number | null;
+      /** True for the version first seen most recently. */
+      active: boolean;
+    }
+
+    export interface DeploymentsResponse {
+      /** One row per version, oldest first. */
+      results: DeploymentVersion[];
+      /** The service the versions belong to. */
+      service: string;
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface DepotCIRepoUsage {
       /** Repository the Depot source syncs, as lowercase 'owner/name'. */
       repo: string;
@@ -42700,8 +42918,20 @@ export namespace Schemas {
     export interface EndpointHealth {
       /** The service.name resource attribute. */
       service_name: string;
-      /** The entry span name, for example the HTTP route or the job name. */
+      /** The endpoint label: the entry span name, or "<METHOD> <route>" when the span name is only an HTTP method and the span carries a route. */
       endpoint: string;
+      /** The raw entry span name the row counts, for tracing filters. */
+      span_name: string;
+      /**
+         * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+         * @nullable
+         */
+      route_attribute: string | null;
+      /**
+         * The route appended to the span name, or null.
+         * @nullable
+         */
+      route: string | null;
       /**
          * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
          * @nullable
@@ -61202,6 +61432,8 @@ export namespace Schemas {
       /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
       key: string;
       level: MarketingAnalyticsRecommendationLevel;
+      /** True when the monthly impact is under 1% of the ad account's monthly spend. */
+      minor?: boolean | null;
       reason: string;
       /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
       resolution?: MarketingAnalyticsRecommendationResolution | null;
@@ -61249,7 +61481,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
-      /** Google Ads ad table, used to read the ad copy of each ad group. */
+      /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
       adTable?: string | null;
       /** Google Ads daily campaign conversions split by conversion action. */
       campaignConversionActionTable?: string | null;
@@ -68254,10 +68486,10 @@ export namespace Schemas {
       readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
-         * Optional note describing what changed in this version. Set when the version is published.
-         * @nullable
+         * Optional note on where this skill came from, such as written from scratch or ported from another skill. Stored on version 1 and shown in the version history.
+         * @maxLength 400
          */
-      readonly version_description: string | null;
+      version_description?: string;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -133843,6 +134075,17 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type AccountsCustomPropertyValuesHistoryRetrieveParams = {
+    /**
+     * ID of the custom property definition to read the history of.
+     */
+    definition: string;
+    /**
+     * Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.
+     */
+    since?: string;
+    };
+
     export type AccountsNotebooksListParams = {
     /**
      * Only return notebooks created by these user IDs (repeat the param per user).
@@ -135681,6 +135924,28 @@ export namespace Schemas {
     service?: string;
     };
 
+    export type ApmDeploymentsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * The service to list versions for.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string;
+    };
+
     export type ApmEndpointTimeSpentListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -135691,7 +135956,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * The endpoint's entry span name, as listed by apm/endpoints.
+     * The endpoint label, as listed by apm/endpoints.
      * @minLength 1
      * @maxLength 2000
      */
@@ -137829,6 +138094,21 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DashboardsCachedTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
+    /**
+     * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
+     */
+    tile_ids: string;
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
+    };
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
@@ -147173,6 +147453,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -147468,6 +147752,10 @@ export namespace Schemas {
      * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
      */
     include_unlisted?: boolean;
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean;
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */

@@ -561,6 +561,8 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The HogQL parser npm version check uses a shallow sparse checkout and reads changed paths through the pull request API.
+Its package version check reads `package.json` and the npm registry, so neither step needs source history.
 Rust parser wheel builds retain the entire `rust/` workspace so Cargo can resolve every member, plus the root `.gitignore` so Cargo can list source distribution files in a blobless checkout.
 The parser npm workflow's WASM build needs only `common/hogql_parser/` and `.github/actions/setup-emsdk/`; its CMake build downloads the ANTLR runtime separately.
 The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.

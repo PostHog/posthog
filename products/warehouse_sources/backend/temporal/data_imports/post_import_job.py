@@ -33,6 +33,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
+from products.managed_warehouse.backend.facade.access import data_imports_ducklake_copy_enabled
 from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -162,8 +163,11 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
     return bool(gate.team is not None and _statistics_stale(gate.team_id, gate.schema.table))
 
 
-def _always(gate: PostImportGateContext) -> bool:
-    return True
+def _ducklake_copy_gate(gate: PostImportGateContext) -> bool:
+    # Checked before the child starts, so a team without the flag pays for no child workflow.
+    return gate.team is not None and data_imports_ducklake_copy_enabled(
+        team_id=gate.team_id, team_uuid=gate.team.uuid, organization_id=gate.team.organization_id
+    )
 
 
 def _table_size_gate(gate: PostImportGateContext) -> bool:
@@ -349,7 +353,7 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
     PostImportStep(key=TABLE_SIZE_STEP, enabled=_table_size_gate, start=_start_table_size),
-    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
+    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_ducklake_copy_gate, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
     PostImportStep(key=SOURCE_CLEANUP_STEP, enabled=_source_cleanup_gate, start=_start_source_cleanup),
 )
