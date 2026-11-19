@@ -269,8 +269,11 @@ When the step fires while the scout ran from a workflow in the last 30 minutes, 
 A later run takes every waiting trigger: the next due scheduled run, or one extra workflow-triggered run once the cooldown has passed.
 That run sees all the notes in one section, one line per trigger with the time it arrived, and handles each subject first.
 A scheduled run that took the triggers still runs its routine afterwards.
-A scout keeps at most 20 waiting triggers, and a trigger whose note matches one already waiting is not added.
+A scout keeps at most 20 waiting triggers by default, and a trigger whose note matches one already waiting is not added.
+A trigger that waits longer than 24 hours by default is dropped instead of run, so a scout that was paused does not work through stale subjects when it resumes.
+`scout-metadata-get` reports the project's actual cap, wait limit, and whether queuing is on.
 The step's hidden `when_busy` input set to `skip` keeps the old behavior, where a busy scout skips the trigger.
+When the project has queuing turned off, every busy scout skips the trigger, whatever `when_busy` says.
 
 **Incremental state needs a full pass.**
 A run that skipped its routine or cut it short must leave cursors, baselines, and "last swept" markers as they were, and write memory only about the subject it handled.

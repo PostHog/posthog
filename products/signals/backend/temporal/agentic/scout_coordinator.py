@@ -202,6 +202,7 @@ class DrainPendingTriggersOutput:
     dispatched: int = 0
     deferred: int = 0
     dropped: int = 0
+    expired: int = 0
 
 
 @frozen
@@ -302,16 +303,21 @@ async def drain_pending_workflow_triggers_activity(input: DrainPendingTriggersIn
     except Exception:
         logger.exception("signals_scout coordinator: draining pending workflow triggers failed")
         return DrainPendingTriggersOutput()
-    if summary.lanes:
+    if summary.lanes or summary.expired:
         logger.info(
             "signals_scout coordinator: drained pending workflow triggers",
             lanes=summary.lanes,
             dispatched=summary.dispatched,
             deferred=summary.deferred,
             dropped=summary.dropped,
+            expired_count=summary.expired,
         )
     return DrainPendingTriggersOutput(
-        lanes=summary.lanes, dispatched=summary.dispatched, deferred=summary.deferred, dropped=summary.dropped
+        lanes=summary.lanes,
+        dispatched=summary.dispatched,
+        deferred=summary.deferred,
+        dropped=summary.dropped,
+        expired=summary.expired,
     )
 
 

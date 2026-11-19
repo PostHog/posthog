@@ -194,7 +194,17 @@ WORKFLOW_RUN_COOLDOWN_S = 30 * 60
 
 # Cap on the fires one scout keeps queued while it is busy. Each one renders a line in the run that
 # drains them, so the cap also bounds that prompt section. The oldest fire drops first when full.
+# The default; a team's effective cap resolves through `team_limits.resolve_workflow_trigger_queue_limits`
+# (`max_pending_workflow_triggers`), clamped to the ceiling so a flag edit cannot crowd out the run's
+# own instructions.
 MAX_PENDING_WORKFLOW_TRIGGERS = 20
+MAX_PENDING_WORKFLOW_TRIGGERS_CEILING = 50
+
+# How long a queued fire waits before it is dropped instead of run, so a scout that is paused or over
+# quota for days does not run every stale fire when it resumes. The default; teams override it with
+# `pending_workflow_trigger_ttl_hours`, clamped to the ceiling so no fire waits indefinitely.
+PENDING_WORKFLOW_TRIGGER_TTL_HOURS = 24
+PENDING_WORKFLOW_TRIGGER_TTL_HOURS_CEILING = 7 * 24
 
 # How a queued fire without a note renders, so the run still sees that an event fired.
 QUEUED_TRIGGER_NO_NOTE_LINE = "an event fired with no note"

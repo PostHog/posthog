@@ -61,6 +61,7 @@ from products.signals.backend.scout_harness.team_limits import (
     BackgroundBudget,
     BackgroundEnrollment,
     Enrollment,
+    WorkflowTriggerQueueLimits,
     _default_team_config,
     _enrolled_team_ids,
     _parse_background,
@@ -78,6 +79,7 @@ from products.signals.backend.scout_harness.team_limits import (
     max_enabled_scouts_for_team,
     parse_background_lanes,
     resolve_max_enabled_scouts,
+    resolve_workflow_trigger_queue_limits,
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     COORDINATOR_INTERVAL_MINUTES,
@@ -2725,6 +2727,40 @@ def test_resolve_withheld_skills(team_configs, default_cfg, expected):
 )
 def test_resolve_github_read_access(team_configs, default_cfg, expected):
     assert _resolve_github_read_access(7, team_configs, default_cfg) is expected
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, WorkflowTriggerQueueLimits(queue_enabled=True, max_pending=20, ttl_hours=24)),
+        (
+            {7: {"max_pending_workflow_triggers": 5, "pending_workflow_trigger_ttl_hours": 2}},
+            {"max_pending_workflow_triggers": 10, "pending_workflow_trigger_ttl_hours": 6},
+            WorkflowTriggerQueueLimits(queue_enabled=True, max_pending=5, ttl_hours=2),
+        ),
+        # A malformed team value falls through to the fleet default, not to the constant.
+        (
+            {7: {"max_pending_workflow_triggers": "5", "pending_workflow_trigger_ttl_hours": 0}},
+            {"max_pending_workflow_triggers": 10, "pending_workflow_trigger_ttl_hours": 6},
+            WorkflowTriggerQueueLimits(queue_enabled=True, max_pending=10, ttl_hours=6),
+        ),
+        # Above the ceiling clamps rather than falls through, so a generous override still applies.
+        (
+            {},
+            {"max_pending_workflow_triggers": 500, "pending_workflow_trigger_ttl_hours": 10_000},
+            WorkflowTriggerQueueLimits(queue_enabled=True, max_pending=50, ttl_hours=168),
+        ),
+        ({}, {"queue_workflow_triggers": False}, WorkflowTriggerQueueLimits(queue_enabled=False)),
+        (
+            {7: {"queue_workflow_triggers": True}},
+            {"queue_workflow_triggers": False},
+            WorkflowTriggerQueueLimits(queue_enabled=True),
+        ),
+        ({7: {"queue_workflow_triggers": "false"}}, {}, WorkflowTriggerQueueLimits(queue_enabled=True)),
+    ],
+)
+def test_resolve_workflow_trigger_queue_limits(team_configs, default_cfg, expected):
+    assert resolve_workflow_trigger_queue_limits(7, team_configs, default_cfg) == expected
 
 
 def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:
