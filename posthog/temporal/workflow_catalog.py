@@ -12,6 +12,8 @@ from pathlib import Path
 
 from temporalio.workflow import _Definition
 
+from posthog.temporal.common.registration import combined_registration
+
 CATALOG_PATH = Path(__file__).with_name("workflow_catalog.json")
 
 UNKNOWN_PRODUCT = "unknown"
@@ -41,10 +43,11 @@ def task_queue_setting_names() -> list[str]:
 
     tree = ast.parse(inspect.getsource(start_temporal_worker))
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "_task_queue_specs" for target in node.targets
-        ):
-            assert isinstance(node.value, ast.List)
+        targets = (
+            node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        )
+        if any(isinstance(target, ast.Name) and target.id == "_task_queue_specs" for target in targets):
+            assert isinstance(node, ast.Assign | ast.AnnAssign) and isinstance(node.value, ast.List)
             return [ast.unparse(spec.elts[0]).removeprefix("settings.") for spec in node.value.elts]  # type: ignore[attr-defined]
     raise LookupError("_task_queue_specs not found in start_temporal_worker")
 
@@ -55,11 +58,15 @@ def build_catalog() -> list[dict[str, str]]:
     queue_names = task_queue_setting_names()
     if len(queue_names) != len(_task_queue_specs):
         raise ValueError("_task_queue_specs must be a list literal so its queue settings can be read")
+    bindings = [
+        *((queue_name, spec[1]) for queue_name, spec in zip(queue_names, _task_queue_specs)),
+        *((binding.queue_setting, binding.workflows) for binding in combined_registration().queues),
+    ]
 
     classes: dict[str, type] = {}
     queues: dict[str, set[str]] = collections.defaultdict(set)
-    for queue_name, spec in zip(queue_names, _task_queue_specs):
-        for workflow in spec[1]:
+    for queue_name, workflows in bindings:
+        for workflow in workflows:
             name = workflow_type(workflow)
             if classes.setdefault(name, workflow) is not workflow:
                 raise ValueError(f"workflow type {name!r} is defined by more than one class")

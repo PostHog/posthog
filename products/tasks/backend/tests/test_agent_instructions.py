@@ -183,12 +183,12 @@ class TestAgentInstructionsAPI(APIBaseTest):
             (
                 "signals/config",
                 "research_instructions",
-                "steering instructions or implementation repositories",
+                "steering instructions, implementation repositories, or default custom images",
             ),
             (
                 "signals/config",
                 "implementation_repositories",
-                "steering instructions or implementation repositories",
+                "steering instructions, implementation repositories, or default custom images",
             ),
         ]
     )

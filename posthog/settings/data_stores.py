@@ -341,6 +341,9 @@ CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "a
 # registry can say where a storage table lives; whether a given deployment can reach it is
 # decided by probing the hosts, not by comparing this against the handle's cluster.
 CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
+# The cluster that stores sharded_flag_evaluations. The deletion registry builds a handle for it, like the events
+# cluster above. Probing the hosts decides whether a deployment can reach it.
+CLICKHOUSE_FLAGS_CLUSTER: str = os.getenv("CLICKHOUSE_FLAGS_CLUSTER", "flags")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
@@ -819,6 +822,12 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.
+CACHES["survey_site_snapshot"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Destination replay claims must read what they wrote: a replica that still serves an
 # expired or released claim would let a second sender queue the same replay.
 CACHES["cdp_invocation_replay"] = {
@@ -866,6 +875,21 @@ CACHES["admin_console_results"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The Distinct ID usage report caches ClickHouse rows that staff reload during incidents. JSON, so a read never
+# unpickles a value someone with Redis write access placed under the key.
+CACHES["distinct_id_usage_report"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
+# A data deletion stats fetch holds a lease with an owner token. The worker must read the lease the console just
+# wrote, and a lagging replica would make it skip a valid fetch as superseded.
+CACHES["data_deletion_stats"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 # AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
 # job as unknown, and the client treats that as expired, so read from the writer.
 CACHES["aeo_prompt_suggestions"] = {
@@ -877,6 +901,14 @@ CACHES["aeo_prompt_suggestions"] = {
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},
+}
+
+# A pending WorkOS Radar login attempt is read when the session signs in, seconds after the password step wrote it.
+# Read from the writer, and give up fast, so the optional report never holds a login.
+CACHES["radar_login_attempt"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -947,12 +979,16 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
+    CACHES["survey_site_snapshot"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["distinct_id_usage_report"] = CACHES["default"]
+    CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["radar_login_attempt"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

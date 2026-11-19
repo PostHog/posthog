@@ -17,10 +17,10 @@ import pyarrow.ipc as ipc
 from rich.console import Console
 
 from posthog.integrations import IntegrationManager
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
@@ -29,6 +29,7 @@ from products.batch_exports.backend.service import (
     DatabricksBatchExportInputs,
     get_batch_export_model,
 )
+from products.batch_exports.backend.temporal.batch_exports import with_inserted_at_field
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
@@ -465,26 +466,20 @@ class BatchExportsDebugger:
                 )
                 parameters["lookback_days"] = lookback_days
 
-            fields = default_fields_for_destination(batch_export_run.parent.destination.type)
+            fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
 
-            if "_inserted_at" not in [field["alias"] for field in fields]:
-                control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-            else:
-                control_fields = []
-
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
-            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and batch_exports_read_new_events_table()
 
             filters_str = ""
             if filters is not None and len(filters) > 0:
                 filters_str, extra_query_parameters = compose_filters_clause(
-                    filters, team_id=team_id, values=extra_query_parameters
+                    filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
                 )
 
             if native_source:
-                query = native_events_export_query(query_fields, filters_str)
+                query = native_events_export_query(fields, filters_str)
             else:
+                query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
                 if filters_str:
                     filters_str = f"AND {filters_str}"
                 query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")

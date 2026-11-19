@@ -1,11 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { setAuthProvider } from '@/api/client'
+import type { IssueSort } from '@/api/errorTracking'
 import type { ProjectScope } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
+import { setAnalyticsClient } from '@/lib/analytics'
 
+import { ErrorsListScreen } from './ErrorsListScreen'
 import { useIssuesList } from './hooks'
 import { filterRows, type IssueFilter } from './issueModel'
 
@@ -15,7 +19,20 @@ jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
     useDataMode: () => 'live',
 }))
-jest.mock('@/features/views/useViewsAccess', () => ({ reportScopeError: jest.fn() }))
+jest.mock('@/features/views/useViewsAccess', () => ({
+    reportScopeError: jest.fn(),
+    useFeatureAccess: () => ({ state: 'ok' }),
+}))
+jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))
+jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'))
+jest.mock('expo-router', () => ({
+    Stack: {
+        Toolbar: { Menu: () => null, Icon: () => null, Label: () => null, MenuAction: () => null, Button: () => null },
+    },
+    useRouter: () => ({ canGoBack: () => true, back: jest.fn(), push: jest.fn() }),
+    useFocusEffect: jest.fn(),
+    useIsFocused: () => true,
+}))
 
 function response(body: unknown, status = 200): Response {
     return { ok: status < 400, status, headers: new Headers(), text: async () => JSON.stringify(body) } as Response
@@ -41,10 +58,11 @@ beforeEach(() => {
 })
 afterEach(() => {
     setAuthProvider(null)
+    setAnalyticsClient(null)
     jest.restoreAllMocks()
 })
 
-test('requests small counts-only pages, follows nextOffset, keeps data on failure and refreshes one page', async () => {
+test('requests small pages with hourly buckets, follows nextOffset, keeps data on failure and refreshes one page', async () => {
     const bodies: Record<string, unknown>[] = []
     let failNext = true
     globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
@@ -63,15 +81,16 @@ test('requests small counts-only pages, follows nextOffset, keeps data on failur
         return response({ results: [{ id: 'first' }], hasMore: true, nextOffset: 40 })
     }) as typeof fetch
     const { client, wrapper } = setup()
-    const { result, unmount } = renderHook(() => useIssuesList('24h', 'all'), { wrapper })
+    const { result, unmount } = renderHook(() => useIssuesList('24h', 'all', 'users'), { wrapper })
     try {
         await waitFor(() => expect(result.current.hasMore).toBe(true))
         expect(bodies).toHaveLength(1)
         expect(bodies[0]).toMatchObject({
             limit: 15,
             offset: 0,
-            volumeResolution: 0,
+            volumeResolution: 24,
             orderBy: 'users',
+            orderDirection: 'DESC',
             dateRange: { date_from: '-24h' },
         })
         act(() => {
@@ -121,7 +140,7 @@ test('New and Spiking can find matches on later pages without eager paging or tr
     }) as typeof fetch
     const { client, wrapper } = setup()
     const { result, rerender, unmount } = renderHook(
-        ({ filter }: { filter: IssueFilter }) => useIssuesList('24h', filter),
+        ({ filter }: { filter: IssueFilter }) => useIssuesList('24h', filter, 'users'),
         {
             wrapper,
             initialProps: { filter: 'new' },
@@ -150,7 +169,7 @@ test('New and Spiking can find matches on later pages without eager paging or tr
     }
 })
 
-test('resets pagination when changing range, assignment or project', async () => {
+test('resets pagination when changing range, sort, assignment or project', async () => {
     const requests: { url: URL; body: Record<string, unknown> }[] = []
     globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
         if (!url.includes('query/issues/')) {
@@ -161,25 +180,82 @@ test('resets pagination when changing range, assignment or project', async () =>
     }) as typeof fetch
     const { client, wrapper } = setup()
     const { result, rerender, unmount } = renderHook(
-        ({ window, filter }: { window: '24h' | '7d'; filter: IssueFilter }) => useIssuesList(window, filter),
-        { wrapper, initialProps: { window: '24h', filter: 'all' } }
+        ({ window, filter, sort }: { window: '24h' | '7d'; filter: IssueFilter; sort: IssueSort }) =>
+            useIssuesList(window, filter, sort),
+        { wrapper, initialProps: { window: '24h', filter: 'all', sort: 'users' } }
     )
     try {
         await waitFor(() => expect(result.current.data?.[0]?.id).toBe('issue-1'))
-        rerender({ window: '7d', filter: 'all' })
+        rerender({ window: '7d', filter: 'all', sort: 'users' })
         await waitFor(() => expect(result.current.data?.[0]?.id).toBe('issue-2'))
-        expect(requests[1]?.body).toMatchObject({ offset: 0, dateRange: { date_from: '-7d' } })
-        rerender({ window: '7d', filter: 'mine' })
-        await waitFor(() => expect(result.current.data?.[0]?.id).toBe('issue-3'))
-        expect(requests[2]?.body).toMatchObject({ offset: 0, assignee: { type: 'user', id: 7 } })
-        mockScope = { ...mockScope, projectId: 3 }
-        rerender({ window: '7d', filter: 'mine' })
+        expect(requests[1]?.body).toMatchObject({ offset: 0, dateRange: { date_from: '-7d' }, volumeResolution: 28 })
+        rerender({ window: '7d', filter: 'all', sort: 'sessions' })
         expect(result.current.data).toBeUndefined()
+        await waitFor(() => expect(result.current.data?.[0]?.id).toBe('issue-3'))
+        expect(requests[2]?.body).toMatchObject({ offset: 0, orderBy: 'sessions' })
+        rerender({ window: '7d', filter: 'mine', sort: 'sessions' })
         await waitFor(() => expect(result.current.data?.[0]?.id).toBe('issue-4'))
-        expect(requests[3]?.url.pathname).toContain('/projects/3/')
-        expect(requests[3]?.body.offset).toBe(0)
+        expect(requests[3]?.body).toMatchObject({ offset: 0, assignee: { type: 'user', id: 7 } })
+        mockScope = { ...mockScope, projectId: 3 }
+        rerender({ window: '7d', filter: 'mine', sort: 'sessions' })
+        expect(result.current.data).toBeUndefined()
+        await waitFor(() => expect(result.current.data?.[0]?.id).toBe('issue-5'))
+        expect(requests[4]?.url.pathname).toContain('/projects/3/')
+        expect(requests[4]?.body.offset).toBe(0)
     } finally {
         unmount()
+        client.clear()
+    }
+})
+
+test('a sort picked in the sheet reloads the first page in that order and reports the change', async () => {
+    const bodies: Record<string, unknown>[] = []
+    globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+        if (!url.includes('query/issues/')) {
+            return response({ results: [] })
+        }
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return response({
+            results: [
+                {
+                    id: `issue-${bodies.length}`,
+                    name: 'OperationalError',
+                    aggregations: { users: 3, sessions: 0, occurrences: 1234, volumeRange: [0, 2, 5] },
+                },
+            ],
+            hasMore: false,
+        })
+    }) as typeof fetch
+    const capture = jest.fn()
+    setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+    const { client, wrapper } = setup()
+    render(
+        <SafeAreaProvider
+            initialMetrics={{
+                frame: { x: 0, y: 0, width: 390, height: 844 },
+                insets: { top: 44, bottom: 34, left: 0, right: 0 },
+            }}
+        >
+            <ErrorsListScreen chrome="stack" />
+        </SafeAreaProvider>,
+        { wrapper }
+    )
+    try {
+        const first = await screen.findByTestId('issue-row-issue-1')
+        expect(within(first).getByText('1.23K')).toBeOnTheScreen()
+        expect(within(first).getByText('–')).toBeOnTheScreen()
+        fireEvent.press(screen.getByTestId('errors-sort-trigger'))
+        fireEvent.press(screen.getByTestId('errors-sort-sessions'))
+        await screen.findByTestId('issue-row-issue-2')
+        expect(bodies[1]).toMatchObject({ offset: 0, orderBy: 'sessions', orderDirection: 'DESC' })
+        expect(capture).toHaveBeenCalledWith('mobile_errors_sort_changed', {
+            sort: 'sessions',
+            previous: 'users',
+            window: '24h',
+        })
+        expect(screen.getByText('Most sessions first')).toBeOnTheScreen()
+    } finally {
+        screen.unmount()
         client.clear()
     }
 })

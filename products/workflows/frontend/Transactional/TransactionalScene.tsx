@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
+import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
@@ -54,6 +55,7 @@ export function TransactionalScene(): JSX.Element {
                 actions={<TransactionalSceneActions tab={currentTab} />}
             />
             <EmailSuspensionBanner />
+            <EngagementEventsBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
         </SceneContent>
     )

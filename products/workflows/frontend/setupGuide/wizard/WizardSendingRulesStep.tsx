@@ -154,7 +154,7 @@ export function WizardSendingRulesStep(): JSX.Element {
             <LemonDivider className="my-0" />
             <SendingRule
                 title="Engagement events"
-                description="Capture sends, opens, clicks and bounces as PostHog events, so you can use them in insights and funnels. These events count toward your event usage."
+                description="Capture sends, opens, clicks and bounces as PostHog events, so you can use them in insights and funnels. These events count toward your event usage and are billed like any other event. Turn this off to stop capturing them."
             >
                 <LemonSwitch
                     checked={shownEngagementEvents}

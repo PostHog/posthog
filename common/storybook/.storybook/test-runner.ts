@@ -1,5 +1,4 @@
 import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
-import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +9,8 @@ import type { SnapshotTheme, SupportedBrowserName, ViewportWidthName } from '~/@
 // Storybook 10 loads this config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+type StoryContext = Awaited<ReturnType<typeof getStoryContext>>
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -22,7 +23,7 @@ const VIEWPORT_WIDTHS = {
 
 const RETRY_TIMES = 2
 // A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
-// changing, which then keeps its last capture.
+// changing; readiness stories fail instead of keeping an unstable capture.
 const MAX_SNAPSHOT_CAPTURES = 4
 const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
@@ -55,6 +56,9 @@ const NAVIGATION_ATTEMPTS = 3
 const NAVIGATION_LIVENESS_TIMEOUT_MS = 10000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+// The jest environment replaces a page that stops responding. A retry on the new page must not ask the
+// preview to remount the story, because that preview has not rendered it and does not answer the request.
+const STORY_VISITED_BY_PAGE = new WeakMap<Page, string>()
 
 // Storybook channel events that mean a forced remount's play function failed. Shared between the
 // in-page listener (which also waits for the success event, `storyRendered`) and the outer check
@@ -155,7 +159,7 @@ export default {
         // does NOT re-run loaders or the play function — the retry would just re-snapshot the
         // page the failed attempt left behind. Force a full remount so retries start fresh,
         // and surface the replayed play function's error if it throws again.
-        if (ATTEMPT_COUNT_PER_ID[context.id]) {
+        if (STORY_VISITED_BY_PAGE.get(page) === context.id) {
             const remountResult = await page
                 .evaluate(
                     ({ storyId, failureEvents }) => {
@@ -240,6 +244,7 @@ export default {
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        STORY_VISITED_BY_PAGE.set(page, context.id)
         // The generated test also calls postVisit when the story or its play function already
         // failed (so configs can do failure handling — our jest environment takes the failure
         // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
@@ -248,6 +253,11 @@ export default {
             return
         }
         const storyContext = await getStoryContext(page, context)
+        if (storyContext.parameters?.testOptions?.waitForSceneReady !== false) {
+            sceneReadyStories.set(page, storyContext.id)
+        } else {
+            sceneReadyStories.delete(page)
+        }
         const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
@@ -517,6 +527,35 @@ async function waitForChartCanvasesPainted(page: Page): Promise<void> {
         .catch(() => {})
 }
 
+const sceneReadyStories = new WeakMap<Page, string>()
+
+async function waitForSceneReady(page: Page): Promise<string | null> {
+    const storyId = sceneReadyStories.get(page)
+    if (!storyId) {
+        return null
+    }
+    try {
+        const handle = await page.waitForFunction((id) => {
+            const readiness = window.__STORYBOOK_SCENE_READINESS__
+            if (readiness?.storyId !== id) {
+                return false
+            }
+            const version = readiness.getReadyVersion()
+            return version === null ? false : { version: `${readiness.instanceId}:${version}` }
+        }, storyId)
+        const readiness = await handle.jsonValue()
+        await handle.dispose()
+        if (!readiness) {
+            throw new Error('Scene readiness resolved without a ready version')
+        }
+        return readiness.version
+    } catch (error) {
+        throw new Error(`Story "${storyId}" did not signal scene readiness. Check its pending content holds.`, {
+            cause: error,
+        })
+    }
+}
+
 async function takeSnapshotWithTheme(
     page: Page,
     context: TestContext,
@@ -530,6 +569,8 @@ async function takeSnapshotWithTheme(
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
+
+    await waitForSceneReady(page)
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -658,8 +699,11 @@ async function takeSnapshotWithTheme(
             // if content keeps changing, that's okay - we'll proceed anyway
         })
 
-    // final wait for any remaining renders
-    await page.waitForTimeout(1000)
+    if (sceneReadyStories.has(page)) {
+        await waitForSceneReady(page)
+    } else {
+        await page.waitForTimeout(1000)
+    }
 
     await waitForChartCanvasesPainted(page)
 
@@ -812,6 +856,7 @@ async function expectLocatorToMatchStorySnapshot(
 
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
+        runInProcess: true,
         customSnapshotIdentifier,
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
@@ -842,6 +887,7 @@ async function takeSettledSnapshotImage(
     if (loaderWaitTimeout !== null) {
         await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
+    let previousVersion = await waitForSceneReady(page)
     let previous = await takeSnapshotImage(locator, context, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
         await page.waitForTimeout(RECAPTURE_SETTLE_MS)
@@ -850,12 +896,18 @@ async function takeSettledSnapshotImage(
         if (loaderWaitTimeout !== null) {
             await waitForEveryLoaderHidden(page, loaderWaitTimeout)
         }
+        const version = await waitForSceneReady(page)
         const image = await takeSnapshotImage(locator, context, options)
+        const versionAfterCapture = await waitForSceneReady(page)
         const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
-        if (image.equals(previous) && !loaderShowed) {
+        if (image.equals(previous) && !loaderShowed && previousVersion === version && version === versionAfterCapture) {
             return image
         }
         previous = image
+        previousVersion = version
+    }
+    if (sceneReadyStories.has(page)) {
+        throw new Error(`Story "${context.id}" (${theme}) did not settle after ${MAX_SNAPSHOT_CAPTURES} captures.`)
     }
     // eslint-disable-next-line no-console
     console.warn(

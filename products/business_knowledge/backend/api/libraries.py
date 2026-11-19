@@ -20,6 +20,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..github_repos import selected_repositories
+from ..key_libraries import key_library_id
 from ..libraries import (
     LibraryNotFound,
     LibraryRejected,
@@ -51,6 +52,7 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     # access to one source passes the list check for a member whose resource-level access is "none".
     requires_resource_level_access = True
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # Every action listed here must apply the key's library limit from `key_libraries`.
     psak_allowed_actions = ["list", "retrieve"]
     permission_classes = [
         IsAuthenticated,
@@ -82,7 +84,8 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
         operation_id="business_knowledge_libraries_list",
     )
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        libraries = list_libraries(self.team_id)
+        limit = key_library_id(request)
+        libraries = [library for library in list_libraries(self.team_id) if limit is None or library.id == limit]
         repos = visible_repos(self.team_id, [library.id for library in libraries], self._allowlist())
         return Response(
             KnowledgeLibrarySerializer(
@@ -110,6 +113,9 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
         operation_id="business_knowledge_libraries_retrieve",
     )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        limit = key_library_id(request)
+        if limit is not None and _parse_library_id(pk) != limit:
+            raise exceptions.NotFound()
         return Response(self._one(self._get(pk)))
 
     @validated_request(

@@ -252,4 +252,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the waitlist signup was created.",
         },
     },
+    "event_series_overrides": {
+        "description": "An override that changes the ticket prices, quantities or statuses of some occurrences of an event series.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-event-series-override-list",
+        "columns": {
+            "id": "A unique identifier for the override.",
+            "event_series_id": "ID of the event series that the override belongs to.",
+            "name": "Name of the override.",
+            "created_at": "When the override was created.",
+            "max_sellable_tickets": "Maximum number of sellable tickets.",
+            "override_lines": "The ticket types or ticket groups that the override changes, with their price, quantity and status.",
+        },
+    },
+    "checkout_forms": {
+        "description": "A checkout form that holds the custom questions asked at checkout.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-checkout-form-list",
+        "columns": {
+            "id": "A unique identifier for the checkout form.",
+            "checkout_form_elements": "IDs of the custom form elements on the checkout form.",
+            "created_at": "Unix timestamp when the checkout form was created.",
+            "event_series_id": "ID of the event series that the checkout form is associated with. Null if none.",
+        },
+    },
+    "checkout_form_elements": {
+        "description": "A custom question on a checkout form, with its possible answers.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-checkout-form-elements-by-custom-form-id",
+        "columns": {
+            "id": "A unique identifier for the checkout form element.",
+            "checkout_form_id": "ID of the checkout form that the element belongs to.",
+            "question": "The question to be answered.",
+            "type": "The type of the element: multiCheckbox, radio, select, termsCheckbox or termsSignature.",
+            "options": "The possible answers for the element.",
+            "per_ticket": "Whether the question is asked once per ticket ('true') or once per order ('false').",
+            "required": "Whether an answer to the question is required ('true' or 'false').",
+            "terms_and_conditions": "The HTML content of a terms and conditions element. Null for other element types.",
+        },
+    },
 }

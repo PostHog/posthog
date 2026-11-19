@@ -31,8 +31,6 @@ describe('PostgresPersonMerge merge events', () => {
             version: 0,
             is_identified: false,
             is_user_id: null,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             last_seen_at: null,
             ...overrides,
         }

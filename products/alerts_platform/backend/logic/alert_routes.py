@@ -7,8 +7,11 @@ from uuid import UUID
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models import Team
 
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
+from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
+from products.alerts_platform.backend.facade.contracts import ROUTING_FLAG, AlertDestinationData, AlertEventKind
+from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert
 
 logger = structlog.get_logger(__name__)
@@ -39,6 +42,41 @@ def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[Routed
 
 def has_enabled_routes(team_id: int) -> bool:
     return AlertRoute.objects.for_team(team_id).filter(enabled=True, receiver__enabled=True).exists()
+
+
+def has_incident_route(team_id: int) -> bool:
+    """Whether an enabled route of the team reaches an enabled incident manager receiver. Most teams have
+    none, and this answers that without a flag evaluation or a decrypt."""
+    return (
+        AlertRoute.objects.for_team(team_id)
+        .filter(enabled=True, receiver__enabled=True, receiver__type__in=INCIDENT_DESTINATION_TYPES)
+        .exists()
+    )
+
+
+def routes_reach_incident_receiver(*, team_id: int) -> bool:
+    """Whether a route can send this team's alerts to an incident manager, so that a firing that opens
+    or closes needs a delivery even when the alert has no incident manager of its own.
+
+    Each group routes on its own labels, which the source does not know when it decides, so any
+    enabled route to an enabled incident receiver counts. Keeping a trigger or resolve costs at most a
+    delivery that routing declines, while one dropped here is gone for good.
+    """
+    if not has_incident_route(team_id):
+        return False
+    team = Team.objects.filter(id=team_id).first()
+    return team is not None and _routing_may_be_enabled(team)
+
+
+def _routing_may_be_enabled(team: Team) -> bool:
+    """Fails open, as delivery does for incident actions, for the reason `routes_reach_incident_receiver` gives."""
+    try:
+        return team_flag_enabled(ROUTING_FLAG, team) is not False
+    except Exception:
+        logger.warning(
+            "alerts_platform_routing_flag_check_failed_keeping_incident_actions", team_id=team.id, exc_info=True
+        )
+        return True
 
 
 def routed_label_names(team_id: int) -> frozenset[str]:

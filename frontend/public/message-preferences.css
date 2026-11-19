@@ -592,6 +592,12 @@
         -moz-user-select: none;
         user-select: none;
     }
+    .group-data-all-off\:opacity-60:is(:where(.group)[data-all-off] *) {
+        opacity: 60%;
+    }
+    .peer-disabled\:cursor-not-allowed:is(:where(.peer):disabled ~ *) {
+        cursor: not-allowed;
+    }
     .checked\:translate-x-full:checked {
         --tw-translate-x: 100%;
         translate: var(--tw-translate-x) var(--tw-translate-y);
@@ -618,6 +624,9 @@
                 var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow),
                 var(--tw-ring-shadow), var(--tw-shadow);
         }
+    }
+    .disabled\:cursor-not-allowed:disabled {
+        cursor: not-allowed;
     }
     @media (width >= 40rem) {
         .sm\:px-6 {

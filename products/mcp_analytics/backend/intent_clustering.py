@@ -26,6 +26,7 @@ where a ``$mcp_tools_list`` catalog was observed, how often agents discover the
 tool when it is advertised.
 """
 
+import re
 import math
 import asyncio
 import hashlib
@@ -62,7 +63,12 @@ EMBEDDING_PREFIX = "User intent: "
 # identical text embedded as an intent and as a description never collides.
 DESCRIPTION_EMBEDDING_PREFIX = "Tool description: "
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_TOP_N_INTENTS = 1000
+# Intents that reach embedding and clustering. Average-linkage clustering is
+# O(n²) in time and memory: on 1536-d vectors 5,000 intents cluster in ~17s
+# with ~250 MB of distance matrix, while 10,000 take ~70s and ~1 GB, too close
+# to the compute activity budget. The prior value was 1000; the corpus caps
+# below (sessions, calls per tool) scale with this one.
+DEFAULT_TOP_N_INTENTS = 5000
 # Cosine distance at which agglomerative merging stops. 0.2 left >90% of clusters
 # as singletons on production intents, because same-topic paraphrases of free
 # text sit around 0.25-0.45 apart on this model. 0.4 merges paraphrases while
@@ -84,6 +90,14 @@ MAX_RECURRING_INTENTS = 50
 # The exclusion set is fetched wider than the display list, so a team with more
 # recurring texts than the table shows doesn't leak the rest back into the corpus.
 MAX_RECURRING_EXCLUSIONS = 500
+# Cosine distance under which two recurring texts count as one automation worded
+# two ways. Much tighter than DEFAULT_DISTANCE_THRESHOLD: merging hides entries,
+# so only near-paraphrases should join.
+RECURRING_MERGE_DISTANCE = 0.2
+# The merge is optional, so it gives up well inside the compute activity budget
+# when the embedding worker stalls instead of failing the whole recompute.
+RECURRING_MERGE_TIMEOUT_SECONDS = 60
+MAX_SAMPLE_VARIANTS = 5
 
 # Mirrors the capture-side clip in services/mcp (MAX_CAPTURED_DESCRIPTION_LENGTH);
 # re-applied here because external SDKs may stamp longer values.
@@ -111,7 +125,7 @@ MAX_OVERLAP_TOOLS_PER_CLUSTER = 20
 NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
 
 # Embedding cache + concurrency
-# 1536-d float32 embedding = 6144 bytes. 500-intent corpus × 6144 ≈ 3 MB/team.
+# 1536-d float32 embedding = 6144 bytes. 5,000-intent corpus × 6144 ≈ 31 MB/team.
 # Cap concurrent embedding worker requests so we don't dogpile when a team's
 # corpus has hundreds of misses on first run while staying well under any
 # per-team rate limit on the embedding provider.
@@ -174,6 +188,9 @@ class RecurringIntent:
     session_count: int
     call_count: int
     error_count: int
+    # Every wording merged into this entry, most common first, intent_text included.
+    # Empty for an unmerged entry, whose only wording is intent_text.
+    variants: tuple[str, ...] = ()
 
 
 # Intent corpus -----------------------------------------------------------
@@ -182,8 +199,8 @@ class RecurringIntent:
 # below have to fit inside it before any of the budget goes to the dominant
 # tools, and the per-tool call cap (below) stops the extra sessions from
 # belonging only to those tools. The IN-tuple stays sane because per-session
-# queries chunk the ids.
-MAX_CORPUS_SESSIONS = 6000
+# queries chunk the ids (CORPUS_SESSION_CHUNK_SIZE).
+MAX_CORPUS_SESSIONS = 15000
 
 # Each tool keeps at least this many sessions in the corpus, so a low/mid-volume
 # tool (logs/tracing/metrics) survives sampling instead of being erased by the
@@ -196,7 +213,7 @@ MIN_SESSIONS_PER_TOOL = 400
 # No tool may contribute more than this many attributed calls to the corpus.
 # Stops one dominant tool from occupying the entire intent space; the freed
 # budget is what lets mid/low tools cluster into real themes rather than noise.
-MAX_CALLS_PER_TOOL = 1500
+MAX_CALLS_PER_TOOL = 7500
 
 # Sender-controlled tool names only ever expand the ``_SESSION_TOOLS_SQL``
 # buckets. One session honestly uses a handful of distinct tools, so bound how
@@ -209,6 +226,23 @@ MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET = 500
 # (one-plus rows per corpus session). Cap explicitly at the HogQL per-query
 # maximum so results are never silently truncated.
 MAX_QUERY_ROWS = 50_000
+
+# Per-session queries run over the corpus ids in chunks of this size, so the
+# inlined IN-tuple stays small and each chunk's rows fit under MAX_QUERY_ROWS.
+CORPUS_SESSION_CHUNK_SIZE = 2000
+
+# Only a session's first calls enter the corpus. Without this bound a few long
+# sessions fill MAX_QUERY_ROWS, and the ORDER BY session_id cut then drops
+# whole sessions by id. Chunk size x this bound must stay within
+# MAX_QUERY_ROWS so a chunk can never be truncated.
+MAX_CALLS_PER_SESSION = 25
+
+# Chunking bounds each query, not the rows retained across chunks: the corpus
+# can reach MAX_CORPUS_SESSIONS x MAX_CALLS_PER_SESSION rows before the per-tool
+# cap and the intent cap run. Intents and tool names are sender-controlled, so
+# stop fetching chunks once their retained text passes this many characters.
+# Real one- or two-sentence intents stay well under it at the full row count.
+MAX_CORPUS_TEXT_CHARS = 100_000_000
 
 # Event-sourced intents are free text written by the calling agent — clip them
 # so one oversized value can't blow up embedding requests (the worker's model
@@ -275,6 +309,7 @@ WHERE event = {event}
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
     AND notEmpty({tool_expr_where})
 ORDER BY session_id, timestamp
+LIMIT {max_calls_per_session} BY session_id
 LIMIT {max_rows}
 """
 
@@ -349,16 +384,31 @@ LIMIT {max_rows}
 # ASCII whitespace that Python's str.strip() removes.
 _INTENT_WHITESPACE = " \t\n\r\x0b\x0c"
 
-# A session's first intent, normalized the way ``_normalize_intent`` normalizes
-# ``fetch_session_calls`` rows: clipped, trimmed, and skipping the summariser
-# placeholder. Recurrence is counted and excluded on this key, so spellings the
-# corpus would merge are also counted together against the threshold.
+# Automations embed a fresh run ID in every intent ("Scout run <uuid>"), so
+# without masking each run is its own text and never reaches the threshold.
+# UUIDs, long hex IDs and long digit runs become one placeholder. Alternation
+# order matters: both re2 and Python take the first branch that matches at a
+# position, so a UUID is masked whole before its hex groups could be.
+RECURRING_ID_PATTERN = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[0-9]{6,}"
+)
+RECURRING_ID_PLACEHOLDER = "<id>"
+_RECURRING_ID_RE = re.compile(RECURRING_ID_PATTERN)
+
+# A session's first intent, normalized the way ``_recurring_key`` normalizes
+# ``fetch_session_calls`` rows: clipped, trimmed, skipping the summariser
+# placeholder, and with run IDs masked. Recurrence is counted and excluded on
+# this key, so texts that differ only by an ID count together against the threshold.
 _FIRST_INTENT_SQL = """
-argMinIf(
-    trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws}),
-    timestamp,
-    trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws})
-        NOT IN ('', {no_intent_fallback})
+replaceRegexpAll(
+    argMinIf(
+        trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws}),
+        timestamp,
+        trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws})
+            NOT IN ('', {no_intent_fallback})
+    ),
+    {id_pattern},
+    {id_placeholder}
 )
 """
 
@@ -409,6 +459,8 @@ def _first_intent_expr() -> ast.Expr:
             "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
             "intent_ws": ast.Constant(value=_INTENT_WHITESPACE),
             "no_intent_fallback": ast.Constant(value=NO_INTENT_RECORDED_FALLBACK),
+            "id_pattern": ast.Constant(value=RECURRING_ID_PATTERN),
+            "id_placeholder": ast.Constant(value=RECURRING_ID_PLACEHOLDER),
         },
     )
 
@@ -447,14 +499,46 @@ def sample_corpus_sessions(
     return [str(row[0]) for row in _run_corpus_query(team, query) if row[0]]
 
 
+# ``(session_id, tool, raw_intent, is_error)``, as returned by ``fetch_session_calls``.
+SessionCallRow = tuple[str, str, str, bool]
+
+
 def fetch_session_calls(
     team: Team,
     session_ids: list[str],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
 ) -> list[tuple[str, str, str, bool]]:
-    """Return ``(session_id, tool, raw_intent, is_error)`` rows in call order."""
-    if not session_ids:
-        return []
+    """Return ``(session_id, tool, raw_intent, is_error)`` rows in call order.
+
+    At most ``MAX_CALLS_PER_SESSION`` calls per session, queried in chunks of
+    ``CORPUS_SESSION_CHUNK_SIZE`` sessions. Stops before the next chunk once the
+    retained text reaches ``MAX_CORPUS_TEXT_CHARS``.
+    """
+    rows: list[SessionCallRow] = []
+    text_chars = 0
+    chunks = _chunked(session_ids)
+    for fetched, chunk in enumerate(chunks):
+        if text_chars >= MAX_CORPUS_TEXT_CHARS:
+            logger.warning(
+                "mcpa.intent_clustering.session_calls_text_budget_reached",
+                team_id=team.id,
+                max_text_chars=MAX_CORPUS_TEXT_CHARS,
+                skipped_chunks=len(chunks) - fetched,
+            )
+            break
+        chunk_rows = _fetch_session_calls_chunk(team, chunk, lookback_days)
+        text_chars += sum(len(tool) + len(intent) for _, tool, intent, _ in chunk_rows)
+        rows.extend(chunk_rows)
+    return rows
+
+
+def _chunked(session_ids: list[str]) -> list[list[str]]:
+    return [
+        session_ids[i : i + CORPUS_SESSION_CHUNK_SIZE] for i in range(0, len(session_ids), CORPUS_SESSION_CHUNK_SIZE)
+    ]
+
+
+def _fetch_session_calls_chunk(team: Team, session_ids: list[str], lookback_days: int) -> list[SessionCallRow]:
     query = parse_select(
         _SESSION_CALLS_SQL,
         placeholders={
@@ -464,6 +548,7 @@ def fetch_session_calls(
             "session_ids": _session_ids_tuple(session_ids),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+            "max_calls_per_session": ast.Constant(value=MAX_CALLS_PER_SESSION),
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
             "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
         },
@@ -485,15 +570,16 @@ def fetch_session_calls(
     return rows
 
 
-# ``(session_id, tool, raw_intent, is_error)``, as returned by ``fetch_session_calls``.
-SessionCallRow = tuple[str, str, str, bool]
-
-
 def _normalize_intent(raw: str) -> str:
     text = str(raw or "").strip()
     if text == NO_INTENT_RECORDED_FALLBACK:
         return ""
     return text[:MAX_INTENT_TEXT_LENGTH]
+
+
+def _recurring_key(raw: str) -> str:
+    """The text recurrence is counted on: ``_normalize_intent`` with run IDs masked, matching ``_FIRST_INTENT_SQL``."""
+    return _RECURRING_ID_RE.sub(RECURRING_ID_PLACEHOLDER, _normalize_intent(raw))
 
 
 def fetch_recurring_intents(
@@ -502,7 +588,10 @@ def fetch_recurring_intents(
     min_sessions: int = RECURRING_MIN_SESSIONS,
     limit: int = MAX_RECURRING_EXCLUSIONS,
 ) -> list[RecurringIntent]:
-    """Intent texts that open ``min_sessions`` or more sessions in the window, by session count desc."""
+    """Intent texts that open ``min_sessions`` or more sessions in the window, by session count desc.
+
+    Texts are returned with run IDs masked (``RECURRING_ID_PLACEHOLDER``), the same key exclusion matches on.
+    """
     query = parse_select(
         _RECURRING_INTENTS_SQL,
         placeholders={
@@ -518,7 +607,7 @@ def fetch_recurring_intents(
     # merge any rows that normalization collapses together.
     merged: dict[str, list[int]] = {}
     for row in _run_corpus_query(team, query):
-        text = _normalize_intent(row[0])
+        text = _recurring_key(row[0])
         if not text:
             continue
         totals = merged.setdefault(text, [0, 0, 0])
@@ -533,6 +622,62 @@ def fetch_recurring_intents(
     return out
 
 
+def recurring_exclusion_texts(recurring: Sequence[RecurringIntent]) -> set[str]:
+    """Every wording of every recurring entry, so a merged entry excludes all its variants."""
+    return {text for r in recurring for text in (r.variants or (r.intent_text,))}
+
+
+async def merge_reworded_recurring(
+    team: Team, recurring: list[RecurringIntent], max_distance: float = RECURRING_MERGE_DISTANCE
+) -> list[RecurringIntent]:
+    """Merge recurring texts that word the same automation step differently.
+
+    Greedy, most common first: a text joins the first group whose leading wording is
+    within ``max_distance`` (cosine) of it, otherwise it starts a group. Comparing to the
+    leader only stops near-matches chaining into unrelated texts. Falls back to the
+    exact-text list when embedding fails or runs past ``RECURRING_MERGE_TIMEOUT_SECONDS``, so a
+    worker outage never fails the recompute.
+    """
+    if len(recurring) < 2:
+        return recurring
+    try:
+        embeddings, valid = await asyncio.wait_for(
+            embed_texts_async(team, [r.intent_text for r in recurring]), timeout=RECURRING_MERGE_TIMEOUT_SECONDS
+        )
+    except Exception:
+        logger.warning("mcpa.intent_clustering.recurring_merge_unavailable", team_id=team.id, exc_info=True)
+        return recurring
+    if len(valid) < 2:
+        return recurring
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    unit = embeddings / np.where(norms == 0, 1.0, norms)
+    groups: list[list[int]] = []  # indexes into `recurring`; the first is the leader
+    leader_rows: list[int] = []  # row in `unit` per group
+    unembedded = set(range(len(recurring))) - set(valid)
+    for row, idx in enumerate(valid):
+        distances = 1.0 - unit[leader_rows] @ unit[row] if leader_rows else np.array([])
+        if len(distances) and distances.min() < max_distance:
+            groups[int(distances.argmin())].append(idx)
+        else:
+            groups.append([idx])
+            leader_rows.append(row)
+    groups.extend([i] for i in sorted(unembedded))
+    merged: list[RecurringIntent] = []
+    for members in groups:
+        items = [recurring[i] for i in members]
+        merged.append(
+            RecurringIntent(
+                intent_text=items[0].intent_text,
+                session_count=sum(r.session_count for r in items),
+                call_count=sum(r.call_count for r in items),
+                error_count=sum(r.error_count for r in items),
+                variants=tuple(r.intent_text for r in items),
+            )
+        )
+    merged.sort(key=lambda r: (-r.session_count, r.intent_text))
+    return merged
+
+
 def exclude_recurring_sessions(rows: list[SessionCallRow], recurring_texts: Collection[str]) -> list[SessionCallRow]:
     """Drop every call of a session whose first intent is a recurring text.
 
@@ -545,7 +690,7 @@ def exclude_recurring_sessions(rows: list[SessionCallRow], recurring_texts: Coll
     for session_id, _, raw_intent, _ in rows:
         if session_id in first_intent:
             continue
-        text = _normalize_intent(raw_intent)
+        text = _recurring_key(raw_intent)
         if text:
             first_intent[session_id] = text
     excluded = {sid for sid, text in first_intent.items() if text in recurring_texts}
@@ -556,34 +701,39 @@ def fetch_advertised_tools(
     team: Team,
     session_ids: list[str],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    keep_tools: Collection[str] | None = None,
 ) -> dict[str, set[str]]:
     """Return ``{session_id: advertised tool names}`` for sessions with a tools-list event.
 
     Sessions with no ``$mcp_tools_list`` event are absent from the result, not
     empty — absence means "advertisement unknown", which callers must exclude
     from discovery denominators rather than treat as "nothing advertised".
+
+    ``keep_tools`` narrows each session's catalog to those names. A session whose
+    catalog has none of them stays in the result with an empty set, so it still
+    counts as advertised. Catalogs are sender-controlled and wide, so retaining
+    them whole across every corpus session can exhaust worker memory.
     """
-    if not session_ids:
-        return {}
-    query = parse_select(
-        _SESSION_ADVERTISED_TOOLS_SQL,
-        placeholders={
-            "event": ast.Constant(value=MCP_TOOLS_LIST_EVENT),
-            "session_ids": _session_ids_tuple(session_ids),
-            "lookback_days": ast.Constant(value=lookback_days),
-            "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
-            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
-            "max_tools_per_list": ast.Constant(value=MAX_TOOLS_PER_ADVERTISED_LIST),
-            "max_list_events": ast.Constant(value=MAX_ADVERTISED_LIST_EVENTS_PER_SESSION),
-            "max_advertised_tools": ast.Constant(value=MAX_ADVERTISED_TOOLS_PER_SESSION),
-        },
-    )
     out: dict[str, set[str]] = {}
-    for row in _run_corpus_query(team, query):
-        session_id = str(row[0] or "")
-        tools = {str(tool) for tool in (row[1] or []) if tool}
-        if session_id and tools:
-            out[session_id] = tools
+    for chunk in _chunked(session_ids):
+        query = parse_select(
+            _SESSION_ADVERTISED_TOOLS_SQL,
+            placeholders={
+                "event": ast.Constant(value=MCP_TOOLS_LIST_EVENT),
+                "session_ids": _session_ids_tuple(chunk),
+                "lookback_days": ast.Constant(value=lookback_days),
+                "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+                "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+                "max_tools_per_list": ast.Constant(value=MAX_TOOLS_PER_ADVERTISED_LIST),
+                "max_list_events": ast.Constant(value=MAX_ADVERTISED_LIST_EVENTS_PER_SESSION),
+                "max_advertised_tools": ast.Constant(value=MAX_ADVERTISED_TOOLS_PER_SESSION),
+            },
+        )
+        for row in _run_corpus_query(team, query):
+            session_id = str(row[0] or "")
+            tools = {str(tool) for tool in (row[1] or []) if tool}
+            if session_id and tools:
+                out[session_id] = tools if keep_tools is None else tools.intersection(keep_tools)
     return out
 
 
@@ -1644,6 +1794,8 @@ def _serialize_recurring(recurring: list[RecurringIntent] | None) -> list[dict[s
             "call_count": r.call_count,
             "error_count": r.error_count,
             "error_rate_pct": _pct(r.error_count, r.call_count),
+            "variant_count": max(len(r.variants), 1),
+            "sample_variants": list(r.variants[:MAX_SAMPLE_VARIANTS]) if len(r.variants) > 1 else [],
         }
         for r in (recurring or [])[:MAX_RECURRING_INTENTS]
     ]

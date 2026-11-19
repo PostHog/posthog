@@ -2,14 +2,17 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.amazon_ads._config import AmazonAdsSourceConfig
 from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
+    AMAZON_ADS_HOSTS,
     AmazonAdsResumeConfig,
     amazon_ads_source,
     validate_credentials as validate_amazon_ads_credentials,
 )
 from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
+    HISTORY_INCREMENTAL_FIELDS,
     REPORT_INCREMENTAL_FIELDS,
     REPORT_LOOKBACK_SECONDS,
+    AmazonAdsEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
@@ -32,6 +35,25 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
+def _schema(endpoint: str, config: AmazonAdsEndpointConfig) -> SourceSchema:
+    if config.report is not None:
+        return SourceSchema(
+            name=endpoint,
+            supports_incremental=True,
+            supports_append=False,
+            incremental_fields=REPORT_INCREMENTAL_FIELDS,
+            default_incremental_lookback_seconds=REPORT_LOOKBACK_SECONDS,
+        )
+    if config.history:
+        return SourceSchema(
+            name=endpoint,
+            supports_incremental=True,
+            supports_append=False,
+            incremental_fields=HISTORY_INCREMENTAL_FIELDS,
+        )
+    return SourceSchema(name=endpoint, supports_incremental=False, supports_append=False, incremental_fields=[])
+
+
 @SourceRegistry.register
 class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConfig]):
     codebase_detection = detect(env=("^AMAZON_ADS_",), pypi=("python-amazon-ad-api",))
@@ -46,10 +68,23 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
         return ExternalDataSourceType.AMAZONADS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # The unified Ads API rejects the targets query with a 400 rather than an empty page when
+        # the profile has no Sponsored Brands or Sponsored Display campaigns to scope it to, so a
+        # retry gets the same rejection every time. sb_targets and sd_targets share this path and
+        # can't be told apart from the URL alone.
+        targets_query_bad_request_message = (
+            "Amazon Ads rejected the Sponsored Brands/Sponsored Display targets request for this "
+            "profile with a 400 error, so PostHog stopped retrying it. This can happen when the "
+            "profile has no Sponsored Brands or Sponsored Display campaigns."
+        )
         return {
             "400 Client Error: Bad Request for url: https://api.amazon.com/auth/o2/token": "Amazon Ads authentication failed. Your refresh token may be invalid or revoked — please check your Login with Amazon credentials.",
             "401 Client Error: Unauthorized for url: https://api.amazon.com/auth/o2/token": "Amazon Ads authentication failed. Please check your Login with Amazon client ID and secret.",
             "403 Client Error: Forbidden for url: https://advertising-api": "Amazon Ads denied access. Please check that your Login with Amazon application has Advertising API access and the right region.",
+            **{
+                f"Bad Request for url: {host}/adsApi/v1/query/targets": targets_query_bad_request_message
+                for host in AMAZON_ADS_HOSTS.values()
+            },
         }
 
     @property
@@ -60,7 +95,7 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
             label="Amazon Ads",
             caption="""Connect your Amazon Ads account to pull your advertising entity data into the PostHog Data warehouse.
 
-You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, and daily Sponsored Products campaign performance are synced from every profile the token can access.""",
+You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, daily Sponsored Products campaign performance, change history and invoices are synced from every profile the token can access, along with your advertising accounts.""",
             iconPath="/static/services/amazon_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-ads",
             releaseStatus=ReleaseStatus.GA,
@@ -123,16 +158,7 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         # Entity lists have no updated-since filter, so they are full refresh only. Report tables
         # are windowed on `date`, and Amazon restates recent days as attribution lands, so they
         # carry a lookback wide enough to re-read what it revises.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=config.report is not None,
-                supports_append=False,
-                incremental_fields=REPORT_INCREMENTAL_FIELDS if config.report is not None else [],
-                default_incremental_lookback_seconds=REPORT_LOOKBACK_SECONDS if config.report is not None else None,
-            )
-            for endpoint, config in AMAZON_ADS_ENDPOINTS.items()
-        ]
+        schemas = [_schema(endpoint, config) for endpoint, config in AMAZON_ADS_ENDPOINTS.items()]
 
         if names is not None:
             names_set = set(names)

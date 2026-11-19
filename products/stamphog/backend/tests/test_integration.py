@@ -35,6 +35,7 @@ from products.stamphog.backend.facade.enums import (
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
 from products.stamphog.backend.logic import gateway_tokens
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -46,7 +47,6 @@ from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
-    PendingCheck,
     pending_attestation_checks,
     process_inbox_pr_review,
     request_manual_review,
@@ -769,7 +769,7 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
     # The record names the marker and the type, and nothing from the sandbox. Anyone with
-    # stamphog:read can read run.error, and this phase reads an untrusted PR head.
+    # code_review_approval:read can read run.error, and this phase reads an untrusted PR head.
     assert run.error == "SandboxPhaseError: the sandbox phase failed with RuntimeError"
     assert "modal refused the box" not in (run.error or "")
     # The marker only saves a run from a second bill while the policy excludes it and retries the rest.
@@ -835,7 +835,7 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
 
 def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
     # PyYAML names the bad tag on its first line, and run.error keeps that line. Anyone with
-    # stamphog:read can read it without access to the repository the policy file comes from.
+    # code_review_approval:read can read it without access to the repository the policy file comes from.
     with pytest.raises(RuntimeError) as raised:
         activities._checked_repo_policy_yaml("acme/widgets", "!a-private-internal-tag {}\n")
 
@@ -1767,7 +1767,7 @@ def test_fetch_review_context_reports_transient_github_errors_only_on_final_atte
     [
         ("sandbox exploded", "sandbox exploded"),
         # A multi-line raw error (e.g. a yaml.YAMLError echoing .stamphog/policy.yml source lines) must
-        # be reduced to its first line — run.error and the event are exposed to stamphog:read, so the
+        # be reduced to its first line — run.error and the event are exposed to code_review_approval:read, so the
         # continuation lines could leak repository file content.
         ("bad policy at line 3\n  secret_token: sk-live-leak\n  more source", "bad policy at line 3"),
     ],
@@ -1777,7 +1777,7 @@ def test_fetch_review_context_reports_transient_github_errors_only_on_final_atte
 def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_error, expected_stored) -> None:
     # Hosted failures used to be visible only in worker logs; the dashboards need the
     # stamphog_review_failed event next to the review-completed ones. The stored error is scrubbed to
-    # its first line so raw exception text can't leak repo file content to stamphog:read.
+    # its first line so raw exception text can't leak repo file content to code_review_approval:read.
     repo_config = _repo_config(team.id)
     repo_config.routing_mode = RoutingMode.FALLBACK
     repo_config.save()

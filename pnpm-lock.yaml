@@ -123,6 +123,8 @@ catalogs:
 
 overrides:
   axios: ^1.15.0
+  prosemirror-view: '>=1.42.3'
+  prosemirror-model: '>=1.25.12'
   '@modelcontextprotocol/sdk': ^1.29.0
   '@types/react': 18.3.31
   '@types/react-dom': 18.3.7
@@ -195,12 +197,14 @@ patchedDependencies:
   '@connectrpc/connect-node@2.1.1': a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
   avsc@5.7.9: 4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f
   dayjs@1.11.11: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
+  fast-zlib@2.0.1: 3f98c7cbd54ca4c7adaacc8be1443cf70bb97b751dd26ec5f5501b4f8b8d22ba
   heatmap.js@2.0.5: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
   html-to-image@1.11.13: f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e
   jest-junit@16.0.0: b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811
   kea@4.0.0-pre.6: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
   react-draggable@4.5.0: b88af139afc5e153f59c5614bc991ce1404e950acff31e86a86d2f81bcf659e6
   react-grid-layout@2.3.0: 0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615
+  ultimate-express@2.0.13: d4de41f6dc04219ff31bc17bac2eb6537102d90e3f9173a974056dc8d9778b4f
   v86@0.5.458: 567937f0364248ae4346886b1da715b6e5a29dd6835c33b66f3264a6bb95d37f
 
 importers:
@@ -708,6 +712,9 @@ importers:
       '@posthog/products-dashboards':
         specifier: workspace:*
         version: link:../products/dashboards
+      '@posthog/products-dashboards-v2':
+        specifier: workspace:*
+        version: link:../products/dashboards_v2
       '@posthog/products-data-catalog':
         specifier: workspace:*
         version: link:../products/data_catalog
@@ -1017,6 +1024,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.2.1(vite@8.1.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.6.1)(less@4.9.1(supports-color@10.2.2))(sass-embedded@1.70.0)(sass@1.107.1)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+      '@workos/radar-signals':
+        specifier: 0.0.1
+        version: 0.0.1(react@18.3.1)
       '@xterm/addon-fit':
         specifier: 0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0)
@@ -1828,8 +1838,8 @@ importers:
         specifier: ^10.4.0
         version: 10.4.0
       posthog-node:
-        specifier: 5.74.0
-        version: 5.74.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+        specifier: 6.0.4
+        version: 6.0.4(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -1865,7 +1875,7 @@ importers:
         version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
       ultimate-express:
         specifier: 2.0.13
-        version: 2.0.13
+        version: 2.0.13(patch_hash=d4de41f6dc04219ff31bc17bac2eb6537102d90e3f9173a974056dc8d9778b4f)
       undici:
         specifier: ^8.12.3
         version: 8.12.3
@@ -3396,6 +3406,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.2
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -3454,6 +3467,52 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.8
         version: 14.6.8(@testing-library/dom@10.4.2)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@26.6.6)(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/dashboards_v2:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
+      '@types/react':
+        specifier: 18.3.31
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.31)
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      react-grid-layout:
+        specifier: ^2.3.0
+        version: 2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '>=9.3.4'
+        version: 10.4.2
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@26.6.6)(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
@@ -3654,6 +3713,9 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.2
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -3675,12 +3737,18 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      msw:
+        specifier: '*'
+        version: 2.14.7(@types/node@26.6.6)(typescript@6.0.3)
       posthog-js:
         specifier: 'catalog:'
         version: 1.450.0(@types/react@18.3.31)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
+      storybook:
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@monaco-editor/react':
         specifier: 4.7.0
@@ -4675,9 +4743,18 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/user-event':
+        specifier: ^14.6.8
+        version: 14.6.8(@testing-library/dom@10.4.2)
+      html-to-image:
+        specifier: ^1.11.13
+        version: 1.11.13(patch_hash=f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      react-toastify:
+        specifier: ^10.0.6
+        version: 10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       storybook:
         specifier: 'catalog:'
         version: 10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5000,6 +5077,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5624,6 +5704,9 @@ importers:
       '@posthog/react':
         specifier: 'catalog:'
         version: 1.11.3(@types/react@18.3.31)(posthog-js@1.450.0(@types/react@18.3.31)(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -6066,6 +6149,33 @@ importers:
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
+      '@tiptap/core':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/pm@3.20.6)
+      '@tiptap/extension-color':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/extension-text-style@3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6)))
+      '@tiptap/extension-document':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
+      '@tiptap/extension-text-style':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
+      '@tiptap/extensions':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
+      '@tiptap/pm':
+        specifier: 3.20.6
+        version: 3.20.6
+      '@tiptap/react':
+        specifier: 3.20.6
+        version: 3.20.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@tiptap/starter-kit':
+        specifier: 3.20.6
+        version: 3.20.6
+      '@tiptap/suggestion':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -6263,6 +6373,9 @@ importers:
       pino-pretty:
         specifier: ^13.2.0
         version: 13.2.0
+      testcontainers:
+        specifier: ^12.2.1
+        version: 12.2.1(supports-color@10.2.2)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -6291,8 +6404,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@1.2.2
-        version: '@posthog/mcp@1.2.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.74.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2))'
+        specifier: npm:@posthog/mcp@1.3.0
+        version: '@posthog/mcp@1.3.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@6.0.4(@opentelemetry/api@1.9.1)(rxjs@7.8.2))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -6330,8 +6443,8 @@ importers:
         specifier: 4.14.0
         version: 4.14.0
       posthog-node:
-        specifier: ^5.74.0
-        version: 5.74.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+        specifier: ^6.0.4
+        version: 6.0.4(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
       prom-client:
         specifier: ^15.1.3
         version: 15.1.3
@@ -6339,8 +6452,8 @@ importers:
         specifier: ^1.3.1
         version: 1.3.1
       prosemirror-model:
-        specifier: ^1.25.2
-        version: 1.25.2
+        specifier: '>=1.25.12'
+        version: 1.25.12
       prosemirror-transform:
         specifier: ^1.10.4
         version: 1.10.4
@@ -12017,11 +12130,11 @@ packages:
   '@posthog/browser-common@0.12.0':
     resolution: {integrity: sha512-P1CubrDp1xwYi2DQxjzJITEeMJpZ7qYcbHuhtXLHgkG8bE6gLy0JwkykjRtEFbElvJNbHQO1jQi7Cbb3JyazNw==}
 
-  '@posthog/core@1.67.3':
-    resolution: {integrity: sha512-BAVJB+ADAjFNBVZKCRbMi5+WMJaSFHHIEId0/ebvAwhOVIMmK4mVrktGGjx9zJBHLe82JdQVVRhpaOwLgoBMgA==}
-
   '@posthog/core@1.68.0':
     resolution: {integrity: sha512-5kjPcLquzj47qBGn52+7RRXrJJvrTHaRKgxV9izYPFzoVFEftFqSXYZF/ug+yialxDU73dR9apyi+mSaAeaXPw==}
+
+  '@posthog/core@1.69.1':
+    resolution: {integrity: sha512-36hlJRZlVh5d+yBOmqObT162SrqNes9yY4x4wLDXVSu5Dzdt19KNxQ136cd37+U0yABZVx7ehjtWslyn1iG+0Q==}
 
   '@posthog/hedgehog-mode@0.0.63':
     resolution: {integrity: sha512-e323bc717Xk0IA8w2IFv5+q/xki7Z2rcNA0SAEAXp/uXBnYv8kq0s7f6JvTIvTDdoZRHzH5Z18Ao9WYT0ZE4Dg==}
@@ -12048,13 +12161,13 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@1.2.2':
-    resolution: {integrity: sha512-rO8KP8ZvknCWudkvdPMedJ5aZA1v0D06zjMHJXuLQ8g0doNngEYJ2l8ffNOPyQ+rOTli0Q2PlFXYRim5arzRtg==}
+  '@posthog/mcp@1.3.0':
+    resolution: {integrity: sha512-uExbF86RfZqgd0FUbv7HEcRXUD3o63Ln1EAEnjmmjZ3QELqviYT0DeHncOennayG9dkP1wBri62EWt5qlkVj9Q==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
       '@modelcontextprotocol/server': '>=2.0.0'
-      posthog-node: ^5.0.0
+      posthog-node: ^5.0.0 || ^6.0.0
     peerDependenciesMeta:
       '@modelcontextprotocol/sdk':
         optional: true
@@ -12073,9 +12186,6 @@ packages:
 
   '@posthog/siphash@1.1.3':
     resolution: {integrity: sha512-nEFExVAIrA4cV0PiZaBY5ci4yaTu76cUFvhk+LWpuR7NUORRCZJI34tDc84Ph0yxE/qncye25d8ERGVS71JJLw==}
-
-  '@posthog/types@1.425.0':
-    resolution: {integrity: sha512-VaAlT5cl2wQ8mRkC3agp32YqI1HCZyeDE9qc5cziXgtbqK8kGeodhqZpJgSIPz0wAl3yRtKN4yOL+d7wxDRPww==}
 
   '@posthog/types@1.425.1':
     resolution: {integrity: sha512-mh7jyQ5lN+XCeOnMdYkBEFtO/G0TxeLOKTWNH6E6OZjxS4nVM0Tb2xQt+FG5DCFM9qzL2HmuX6A793TwlJVDvw==}
@@ -15407,6 +15517,14 @@ packages:
 
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
+
+  '@workos/radar-signals@0.0.1':
+    resolution: {integrity: sha512-GTFjAl+4kwDgycRVoRFSQdZ2Eog9/dZynaX5m2CE5JNMkoQ2I+n/K5qjHvrMysMh2N/GSSd7eYIgCk2HAfXzhg==}
+    peerDependencies:
+      react: 18.3.1
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@xmldom/xmldom@0.8.15':
     resolution: {integrity: sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA==}
@@ -21796,8 +21914,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.74.0:
-    resolution: {integrity: sha512-lAnGzPVobruQ7rZe45kzcXKZAcCK3J+1dMNS3WOOdx9mnM4ECRc2WRxBdS1ncBO/h/vDtHIEmcuIr/LUxxze5w==}
+  posthog-node@6.0.4:
+    resolution: {integrity: sha512-jl3NX7LNWu5il7Rqmpoj/tUGLLEyUw4d7ym3lgZ5VHcSz35UK4SPoKTR9S+RAVBxGBRo6mzUPYyk/ZLCyuFNcQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -21949,8 +22067,8 @@ packages:
   prosemirror-menu@1.2.5:
     resolution: {integrity: sha512-qwXzynnpBIeg1D7BAtjOusR+81xCp53j7iWu/IargiRZqRjGIlQuu1f3jFi+ehrHhWMLoyOQTSRx/IWZJqOYtQ==}
 
-  prosemirror-model@1.25.2:
-    resolution: {integrity: sha512-BVypCAJ4SL6jOiTsDffP3Wp6wD69lRhI4zg/iT8JXjp3ccZFiq5WyguxvMKmdKFC3prhaig7wSr8dneDToHE1Q==}
+  prosemirror-model@1.25.12:
+    resolution: {integrity: sha512-Ue2gTmXMa7EhpLNhC7J+h4+ykD8ha12K6rrZFFKKJHBForfIStw5gJ6Zrf1mqqAa9NmpmEB4wp9bKmA4eUVjWg==}
 
   prosemirror-schema-basic@1.2.4:
     resolution: {integrity: sha512-ELxP4TlX3yr2v5rM7Sb70SqStq5NvI15c0j9j/gjsrO5vaw+fnnpovCLEGIcpeGfifkuqJwl4fon6b+KdrODYQ==}
@@ -21967,15 +22085,15 @@ packages:
   prosemirror-trailing-node@3.0.0:
     resolution: {integrity: sha512-xiun5/3q0w5eRnGYfNlW1uU9W6x5MoFKWwq/0TIRgt09lv7Hcser2QYV8t4muXbEr+Fwo0geYn79Xs4GKywrRQ==}
     peerDependencies:
-      prosemirror-model: ^1.22.1
+      prosemirror-model: '>=1.25.12'
       prosemirror-state: ^1.4.2
-      prosemirror-view: ^1.33.8
+      prosemirror-view: '>=1.42.3'
 
   prosemirror-transform@1.10.4:
     resolution: {integrity: sha512-pwDy22nAnGqNR1feOQKHxoFkkUtepoFAd3r2hbEDsnf4wp57kKA36hXsB3njA9FtONBEwSDnDeCiJe+ItD+ykw==}
 
-  prosemirror-view@1.40.1:
-    resolution: {integrity: sha512-pbwUjt3G7TlsQQHDiYSupWBhJswpLVB09xXm1YiJPdkjkh9Pe7Y51XdLh5VWIZmROLY8UpUpG03lkdhm9lzIBA==}
+  prosemirror-view@1.42.9:
+    resolution: {integrity: sha512-bKbfzeKZOu2H2JQU2TaJmYu6EBcor3VnGIR4jR31cbEt1ztUnfUB6bKGV1+fJzOJdrVWR+tRU0208zM3oQx4wA==}
 
   proto3-json-serializer@2.0.2:
     resolution: {integrity: sha512-SAzp/O4Yh02jGdRc+uIrGoe87dkN/XtwxfZ4ZyafJHymd79ozp5VG5nyZ7ygqPM5+cpLDjjGnYFUkngonyDPOQ==}
@@ -24442,8 +24560,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.535.0:
-    resolution: {integrity: sha512-dyecz94Tbm62UZDbdotYOONS2OeEpl2m3NuhJqvK7us3uh53Sfu6BdN+IRPJhNDU+e7elyfAjfPwS9e1OgytQA==}
+  unlayer-types@1.537.0:
+    resolution: {integrity: sha512-50B9H7Pk0O9HZPyv8PsYxU+1dyNMJ5sWq271zAgUlRQ5ND+j4E6WytseO2EeXqJdEhSCwVTEX7OTDoCMQjakfw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -32025,11 +32143,11 @@ snapshots:
       dompurify: 3.4.13
       preact: 10.29.3
 
-  '@posthog/core@1.67.3':
-    dependencies:
-      '@posthog/types': 1.425.0
-
   '@posthog/core@1.68.0':
+    dependencies:
+      '@posthog/types': 1.425.1
+
+  '@posthog/core@1.69.1':
     dependencies:
       '@posthog/types': 1.425.1
 
@@ -32060,10 +32178,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@1.2.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.74.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2))':
+  '@posthog/mcp@1.3.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@6.0.4(@opentelemetry/api@1.9.1)(rxjs@7.8.2))':
     dependencies:
-      '@posthog/core': 1.67.3
-      posthog-node: 5.74.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+      '@posthog/core': 1.69.1
+      posthog-node: 6.0.4(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6)
 
@@ -32075,8 +32193,6 @@ snapshots:
       '@types/react': 18.3.31
 
   '@posthog/siphash@1.1.3': {}
-
-  '@posthog/types@1.425.0': {}
 
   '@posthog/types@1.425.1': {}
 
@@ -34382,14 +34498,14 @@ snapshots:
       prosemirror-keymap: 1.2.3
       prosemirror-markdown: 1.13.2
       prosemirror-menu: 1.2.5
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-schema-basic: 1.2.4
       prosemirror-schema-list: 1.5.1
       prosemirror-state: 1.4.3
       prosemirror-tables: 1.7.1
-      prosemirror-trailing-node: 3.0.0(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)
+      prosemirror-trailing-node: 3.0.0(prosemirror-model@1.25.12)(prosemirror-state@1.4.3)(prosemirror-view@1.42.9)
       prosemirror-transform: 1.10.4
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
 
   '@tiptap/react@3.20.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
@@ -35754,6 +35870,10 @@ snapshots:
   '@webgpu/types@0.1.72': {}
 
   '@workflow/serde@4.1.0': {}
+
+  '@workos/radar-signals@0.0.1(react@18.3.1)':
+    optionalDependencies:
+      react: 18.3.1
 
   '@xmldom/xmldom@0.8.15': {}
 
@@ -38796,7 +38916,7 @@ snapshots:
       path-expression-matcher: 1.5.0
       strnum: 2.1.2
 
-  fast-zlib@2.0.1: {}
+  fast-zlib@2.0.1(patch_hash=3f98c7cbd54ca4c7adaacc8be1443cf70bb97b751dd26ec5f5501b4f8b8d22ba): {}
 
   fastest-levenshtein@1.0.16: {}
 
@@ -44248,9 +44368,9 @@ snapshots:
       '@types/react': 18.3.31
       react: 18.3.1
 
-  posthog-node@5.74.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
+  posthog-node@6.0.4(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.68.0
+      '@posthog/core': 1.69.1
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       rxjs: 7.8.2
@@ -44389,7 +44509,7 @@ snapshots:
 
   prosemirror-commands@1.7.1:
     dependencies:
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.3
       prosemirror-transform: 1.10.4
 
@@ -44397,20 +44517,20 @@ snapshots:
     dependencies:
       prosemirror-state: 1.4.3
       prosemirror-transform: 1.10.4
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
 
   prosemirror-gapcursor@1.3.2:
     dependencies:
       prosemirror-keymap: 1.2.3
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.3
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
 
   prosemirror-history@1.4.1:
     dependencies:
       prosemirror-state: 1.4.3
       prosemirror-transform: 1.10.4
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
       rope-sequence: 1.3.3
 
   prosemirror-inputrules@1.5.0:
@@ -44427,7 +44547,7 @@ snapshots:
     dependencies:
       '@types/markdown-it': 14.1.2
       markdown-it: 14.1.1
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
 
   prosemirror-menu@1.2.5:
     dependencies:
@@ -44436,49 +44556,49 @@ snapshots:
       prosemirror-history: 1.4.1
       prosemirror-state: 1.4.3
 
-  prosemirror-model@1.25.2:
+  prosemirror-model@1.25.12:
     dependencies:
       orderedmap: 2.1.0
 
   prosemirror-schema-basic@1.2.4:
     dependencies:
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
 
   prosemirror-schema-list@1.5.1:
     dependencies:
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.3
       prosemirror-transform: 1.10.4
 
   prosemirror-state@1.4.3:
     dependencies:
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-transform: 1.10.4
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
 
   prosemirror-tables@1.7.1:
     dependencies:
       prosemirror-keymap: 1.2.3
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.3
       prosemirror-transform: 1.10.4
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
 
-  prosemirror-trailing-node@3.0.0(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1):
+  prosemirror-trailing-node@3.0.0(prosemirror-model@1.25.12)(prosemirror-state@1.4.3)(prosemirror-view@1.42.9):
     dependencies:
       '@remirror/core-constants': 3.0.0
       escape-string-regexp: 4.0.0
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.3
-      prosemirror-view: 1.40.1
+      prosemirror-view: 1.42.9
 
   prosemirror-transform@1.10.4:
     dependencies:
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
 
-  prosemirror-view@1.40.1:
+  prosemirror-view@1.42.9:
     dependencies:
-      prosemirror-model: 1.25.2
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.3
       prosemirror-transform: 1.10.4
 
@@ -45087,7 +45207,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.535.0
+      unlayer-types: 1.537.0
 
   react-grid-layout@2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -47343,7 +47463,7 @@ snapshots:
   uglify-js@3.19.3:
     optional: true
 
-  ultimate-express@2.0.13:
+  ultimate-express@2.0.13(patch_hash=d4de41f6dc04219ff31bc17bac2eb6537102d90e3f9173a974056dc8d9778b4f):
     dependencies:
       '@types/express': 4.17.25
       accepts: 1.3.8
@@ -47354,7 +47474,7 @@ snapshots:
       encodeurl: 2.0.0
       etag: 1.8.1
       fast-querystring: 1.1.2
-      fast-zlib: 2.0.1
+      fast-zlib: 2.0.1(patch_hash=3f98c7cbd54ca4c7adaacc8be1443cf70bb97b751dd26ec5f5501b4f8b8d22ba)
       fresh: 0.5.2
       mime-types: 2.1.35
       ms: 2.1.3
@@ -47485,7 +47605,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.535.0: {}
+  unlayer-types@1.537.0: {}
 
   unpipe@1.0.0: {}
 

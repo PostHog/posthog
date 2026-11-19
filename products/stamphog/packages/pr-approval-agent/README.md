@@ -381,6 +381,12 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
+A category's `match.edit_paths` patterns deny like `match.paths`, except for a file whose change only adds lines: a modified or new file with no deleted line.
+A rename, a copy, a deletion, a type change or a binary file always matches.
+A file that only `edit_paths` let through still gets an agent review, so it never rides the allow-list to a T0 approval.
+That PR's ownership is read at the merge base, so a rule it adds cannot make its author an owner of the code it changes.
+The deny-list gate message names the files that matched each category, so a refused author knows which change to look at.
+
 Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
 
 A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
@@ -394,11 +400,21 @@ The `stamphog_policy` category cannot carry the key, because a team that may app
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
 A deny category can be lifted by a CI check that the policy names under `attestations`.
-Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files` and the `publisher_files` the check runs from.
+Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files`.
+The check name and App identify the publisher, and the categories and paths are what the policy lets it lift.
+An entry may also say what the publisher runs from, in one of two ways, never both.
+`issuer` names a manifest the publisher owns, such as `tools/change-prover/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
+A path that ends in `/` is a directory, pinned by its git tree id, and any other path is a file, pinned by its blob id.
+The manifest must cover itself, hold at most 32 unique plain paths, and stay under 16 KiB. A missing or invalid manifest makes the entry lift nothing.
+The manifest path must match a `stamphog_policy` path pattern, or the policy fails to load, because the manifest decides what a proof pins.
+`publisher_files` lists those paths in the policy itself instead.
 The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
 The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
 Those files still count toward every other deny category.
-An entry with `publisher_files` accepts only a result that pins those files to blob shas, and only while the default branch still holds every blob the result pins, so a proof made by an older publisher or under older rules lifts nothing.
+A lifted file never rides the allow-list or the test-only route to a T0 approval, because an attestation lifts the deny, not the review.
+An entry may set `title`, a pattern for the PR titles its publisher posts a result for, such as `^Revert` for a revert proof.
+A PR whose title does not match never waits for that check.
+An entry that pins its publisher accepts only a result whose `blobs` hold every one of those paths, and only while the default branch still holds every object the result pins, so a proof made by an older publisher or under older rules lifts nothing.
 The shipped default names no attestation.
 This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
 The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
@@ -410,7 +426,7 @@ A retry against the now-classified head commit reviews it properly.
 
 A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
 The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
-That gate refuses the PR unless an attestation that declares `publisher_files` proved every file in it, because a bot carries no author trust for a file no such check covers.
+That gate refuses the PR unless an attestation that pins its publisher proved every file in it, because a bot carries no author trust for a file no such check covers.
 A pending attestation of that kind makes the gate wait like a deny.
 
 ### Ownership
@@ -420,6 +436,7 @@ The sources are declared in `policy.yml` under `ownership:` and read from the ch
 A file's owning teams are the union across all sources.
 A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
 Pin the version, because a new release can change how paths resolve.
+A PR that only adds lines to an ownership file has its ownership read at the merge base, which needs an `owners-yaml` release newer than 0.3.0. With 0.3.0 that PR's review gets no ownership context, and every other review works as before.
 In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.

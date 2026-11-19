@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 
 import psycopg
+import structlog
 from psycopg import errors as pg_errors
 
 from posthog.integrations import IntegrationRecord
@@ -14,6 +15,8 @@ from posthog.models.integration.postgres import MISSING_CERT_PATH
 
 from products.warehouse_sources.backend.facade.destinations import probe_motherduck_destination
 from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
+
+logger = structlog.get_logger(__name__)
 
 CONNECT_TIMEOUT_SECONDS = 5
 STATEMENT_TIMEOUT_MILLISECONDS = 5_000
@@ -96,8 +99,8 @@ def _query_deadline(connection: psycopg.Connection, timeout_seconds: float) -> I
 def check_postgres_destination(integration: IntegrationRecord, config: dict[str, str] | None) -> None:
     """Connect to the destination with a short timeout and check that a writer can create tables.
 
-    Raises `DestinationConnectionCheckError`. The writer runs `CREATE SCHEMA IF NOT EXISTS`, so a
-    schema that does not exist yet needs the CREATE privilege on the database instead.
+    Raises `DestinationConnectionCheckError`. The writer creates a schema that does not exist yet,
+    so a missing schema needs the CREATE privilege on the database instead.
     """
     config = config or {}
     database = config.get("database") or DEFAULT_DATABASE
@@ -123,6 +126,10 @@ def check_postgres_destination(integration: IntegrationRecord, config: dict[str,
                 port=authority.port,
                 sslmode=tls.ssl_mode,
                 sslrootcert=ssl_root_cert,
+                # Web pods run with an unreadable HOME, so libpq's default ~/.postgresql client cert
+                # lookup fails with "Permission denied" before the TLS handshake starts.
+                sslcert=MISSING_CERT_PATH,
+                sslkey=MISSING_CERT_PATH,
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
                 options=f"-c statement_timeout={STATEMENT_TIMEOUT_MILLISECONDS}",
                 autocommit=True,
@@ -148,6 +155,13 @@ def check_postgres_destination(integration: IntegrationRecord, config: dict[str,
     except pg_errors.InsufficientPrivilege as error:
         raise DestinationConnectionCheckError(CheckFailure.MISSING_PRIVILEGE) from error
     except (psycopg.Error, HostNotAllowedError) as error:
+        # The user sees one generic message, so the driver's reason is only in this log.
+        logger.warning(
+            "postgres_destination_check_unreachable",
+            team_id=integration.team_id,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
         raise DestinationConnectionCheckError(CheckFailure.UNREACHABLE) from error
 
 

@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from enum import StrEnum
 from typing import Literal, get_args
 
 from prometheus_client import Counter, Histogram
@@ -24,6 +25,16 @@ MetricRunOutcome = Literal[
 DefinitionKindLabel = Literal["hogql", "insight", "node", "markdown", "none"]
 
 RelationshipProbeOutcome = Literal["ok", "join_invalid", "query_performance", "capacity", "cancelled", "error"]
+
+
+class DatabaseBuildTrigger(StrEnum):
+    METRIC_ACCESS = "data_catalog_metric_access"
+    USAGE_ACCESS = "data_catalog_usage_access"
+    USAGE_TABLE_SOURCES = "data_catalog_usage_table_sources"
+    METRIC_LINEAGE = "data_catalog_metric_lineage"
+    RELATIONSHIP_TABLES = "data_catalog_relationship_tables"
+    RELATIONSHIP_PROBE = "data_catalog_relationship_probe"
+
 
 METRIC_RUNS_COUNTER = Counter(
     "posthog_data_catalog_metric_runs_total",

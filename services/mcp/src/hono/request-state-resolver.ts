@@ -38,7 +38,12 @@ import type {
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import {
+    MCP_CURSOR_EXEC_MODE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_INBOX_FIRST_FLAG,
+    MCP_TIME_SERIES_CHARTS_FLAG,
+} from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -55,6 +60,7 @@ import {
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
+import { resolveProjectSecretKeyProjectId } from './project-secret-key-project'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -201,6 +207,15 @@ export class RequestStateResolver {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
+        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
+        if (usesProjectSecretKey) {
+            // The key decides the project. An ID the caller sent is dropped, so it cannot pin another one.
+            props.projectId = await resolveProjectSecretKeyProjectId(props, reqCtx.tokenCache)
+            props.organizationId = undefined
+            requestContext.projectId = props.projectId
+            requestContext.organizationId = undefined
+        }
+
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
         reqCtx.setPinnedContext(pinned)
@@ -222,7 +237,8 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, and MCP_INBOX_FIRST_FLAG a prompt section.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
+        // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
@@ -232,6 +248,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
+                MCP_TIME_SERIES_CHARTS_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -239,7 +256,6 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
             usesProjectSecretKey
                 ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
@@ -559,7 +575,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent, guidance and Inbox-first experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance, Inbox-first and chart experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -568,6 +584,7 @@ export class RequestStateResolver {
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
                             key !== MCP_INBOX_FIRST_FLAG &&
+                            key !== MCP_TIME_SERIES_CHARTS_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),

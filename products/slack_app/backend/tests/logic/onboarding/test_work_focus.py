@@ -30,6 +30,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     WorkFocusTransientError,
     find_and_send_daily_focus,
     find_and_send_work_focus,
+    start_work_focus,
     work_focus_blocks,
 )
 from products.slack_app.backend.models import SlackDailyFocus, SlackSettings, SlackUserProfileCache
@@ -130,6 +131,8 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         patch(f"{WORK_FOCUS}.consume", return_value=allowed) as bucket,
         patch(f"{WORK_FOCUS}.refund") as refunded,
         patch(f"{WORK_FOCUS}.capture_slack_event"),
+        # The first work focus rolls out with the daily one; a test that needs it off turns it off.
+        patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True) as daily_flag,
         patch("posthog.models.integration.slack.WebClient") as bot_client,
     ):
         search_client.return_value.api_call.side_effect = _search(found=6)
@@ -151,6 +154,7 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
             "bucket": bucket,
             "refund": refunded,
             "bot": bot_client.return_value,
+            "daily_flag": daily_flag,
         }
 
 
@@ -185,7 +189,8 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert CHATTER not in written_from and "bot noise" not in written_from
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert dm["channel"] == SLACK_USER_ID
-    assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"] * 2
+    # The daily flag is on, so the first DM also turns the daily one on and carries its footer.
+    assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"] * 2 + [DAILY_FOCUS_OFF_ACTION_ID]
     shown = all_block_text(dm["blocks"])
     assert "Looks like your week is about churn and signups." in shown
     # The DM stays short: no message previews, and the full request rides in the button.
@@ -260,6 +265,34 @@ def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
     assert slack["search"].return_value.api_call.called is (reason == "model_failed")
     slack["bot"].chat_postMessage.assert_not_called()
     assert resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID) is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("flag_on", [True, False], ids=["flag on", "flag off"])
+def test_the_first_work_focus_rolls_out_with_the_daily_work_focus_flag(
+    flag_on: bool, org_team_user, link_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, user = org_team_user
+    row = Integration.objects.create(
+        team=team,
+        kind="slack",
+        integration_id=SLACK_TEAM_ID,
+        config={"scope": "chat:write,im:history"},
+        sensitive_config={"access_token": "xoxb-test"},
+    )
+    integration = require_workspace_integration(row.id, SLACK_TEAM_ID)
+    link_user(user, user_scopes="search:read.public")
+    slack["daily_flag"].return_value = flag_on
+
+    with patch(f"{WORK_FOCUS}._start_workflow") as started:
+        start_work_focus(integration, SLACK_USER_ID)
+    outcome = find_and_send_work_focus(integration, SLACK_USER_ID)
+
+    assert started.called is flag_on
+    # A run queued before the flag went off sends nothing and stores nothing, so a later trigger can still run it.
+    assert outcome == ("sent" if flag_on else "flag_off")
+    assert slack["search"].return_value.api_call.called is flag_on
+    assert (resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID) is not None) is flag_on
 
 
 @pytest.mark.django_db

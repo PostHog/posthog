@@ -16,7 +16,7 @@ from django.test import SimpleTestCase
 
 import httpx
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
@@ -147,6 +147,22 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def _keep_the_team_on_insight(self) -> None:
         create_insight_alert(self.team, name="Kept on insight", enabled=False)
 
+    def test_validate_uses_loaded_alert_without_refetching(self) -> None:
+        alert = create_insight_alert(self.team, created_by=self.user)
+        serializer = AlertSerializer(
+            instance=alert,
+            context={
+                "get_team": lambda: self.team,
+                "request": mock.Mock(user=self.user, successful_authenticator=None),
+            },
+        )
+        with self.assertNumQueries(0):
+            assert serializer.validate({"name": "Renamed alert"}) == {"name": "Renamed alert"}
+
+        alert.config = {"type": "TrendsAlertConfig", "series_index": 99}
+        with self.assertNumQueries(0), pytest.raises(serializers.ValidationError):
+            serializer.validate({"name": "Renamed alert"})
+
     def test_create_and_delete_alert(self) -> None:
         self._keep_the_team_on_insight()
         creation_request = {
@@ -173,6 +189,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "insight_display_name": mock.ANY,
             "llm_detector_available": None,
             "pagerduty_available": False,
+            "destination_count": 0,
             "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
@@ -3432,6 +3449,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             ),
             ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
+            ("unknown_model", {"type": "llm", "model": "claude-opus-5-5"}, "claude-haiku-5-5, gpt-6-luna"),
             ("removed_threshold", {"type": "llm", "threshold": 0.7}, "Invalid detector configuration"),
             ("removed_window", {"type": "llm", "window": 90}, "Invalid detector configuration"),
             ("forecast_empty_side", {"type": "forecast", "above": {}}, "above needs at least one condition"),
@@ -3912,7 +3930,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         def answer(request: httpx.Request, **_kwargs: Any) -> httpx.Response:
             body = json.loads(request.content)
-            quantiles = {"0.05": [80.0], "0.5": [100.0], "0.95": [120.0]}
+            quantiles = {"0.01": [80.0], "0.5": [100.0], "0.99": [120.0]}
             return httpx.Response(
                 200, json={"predictions": [{"item_id": item["item_id"], **quantiles} for item in body["inputs"]]}
             )
@@ -3932,8 +3950,8 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert body["scores"] == [None] * 34
         unscored, scored = [None] * 30, [100.0] * 4
         assert body["forecast"] == {
-            "lower_quantile": 0.05,
-            "upper_quantile": 0.95,
+            "lower_quantile": 0.01,
+            "upper_quantile": 0.99,
             "expected": unscored + scored,
             "lower": unscored + [80.0] * 4,
             "upper": unscored + [120.0] * 4,

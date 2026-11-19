@@ -818,6 +818,10 @@ class TestPostgresSourceNonRetryableErrors:
                 'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
                 "temporarily unavailable",
             ),
+            (
+                "canceling statement due to lock timeout",
+                "lock timeout",
+            ),
         ],
     )
     def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
@@ -2325,6 +2329,24 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Metadata-probe statement timeout should not be non-retryable: {error_msg}"
 
+    def test_lock_timeout_is_classified_retryable(self, source):
+        # `_has_duplicate_primary_keys`'s pre-read probe re-raises `LockNotAvailable` immediately
+        # (no in-process retry), and `get_rows`'s server-cursor DECLARE and keyset-page reads
+        # re-raise the same raw error once their own bounded in-process retry budget is spent.
+        # Without this classification, every one of those floods error tracking at `exception`
+        # level (see `_handle_import_error`) instead of being treated as the self-recovering
+        # condition it is.
+        error_msg = "canceling statement due to lock timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Lock timeout should be classified retryable: {error_msg}"
+
+    def test_lock_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to lock timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Lock timeout should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -2821,6 +2843,10 @@ class TestIsConnectionDroppedError:
             # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
             # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
+            # The bare-atom sibling of the above: some Supavisor versions report the same pool
+            # checkout/backend-connect timeout with the reason atom alone, not wrapped in the
+            # `{:error, ...}` tuple. Same transient pooler class; reconnect must catch it.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: :timeout"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(

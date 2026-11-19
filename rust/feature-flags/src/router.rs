@@ -198,13 +198,10 @@ impl State {
         );
     }
 
-    /// Stamps a project secret API key when the `phs_` token resolved to one. A team-level secret
-    /// token carries no key id, so it records nothing.
-    pub(crate) async fn record_project_secret_key_usage(&self, key_id: Option<String>) {
-        if let Some(key_id) = key_id {
-            self.record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
-                .await;
-        }
+    /// Stamps the project secret API key a `phs_` token resolved to (#66179).
+    pub(crate) async fn record_project_secret_key_usage(&self, key_id: String) {
+        self.record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
+            .await;
     }
 }
 

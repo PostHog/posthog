@@ -237,6 +237,9 @@ DEVEX_LENS_NAME = "devex"
 DEVEX_OWNER_TEAM = "team-devex"
 # Not in FLASH_LENSES, because that table feeds the fan-out and the fingerprint of every single-agent turn.
 DEVEX_LENS = FlashLens(pass_number=2003, prompt_file="lens_devex.md", source="flash-lens-devex")
+# The devex lens posts in its own lane: at most this many findings, must-fix included, none of them in a slot of the
+# turn cap or the pull request's finding budget. A routed turn then posts the same other findings as an unrouted one.
+DEVEX_LENS_MAX_FINDINGS = 2
 
 # One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
 # at once by default, so a larger PR would lose the lenses past that.

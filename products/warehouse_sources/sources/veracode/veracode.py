@@ -20,7 +20,12 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     retry_with_deadline,
 )
-from products.warehouse_sources.sources.veracode.settings import PAGE_SIZE, VERACODE_ENDPOINTS, VeracodeEndpointConfig
+from products.warehouse_sources.sources.veracode.settings import (
+    FAN_OUT_PARENTS,
+    PAGE_SIZE,
+    VERACODE_ENDPOINTS,
+    VeracodeEndpointConfig,
+)
 
 # Region -> REST API host. Veracode isolates data per region, and the signing host must match the
 # host the request is actually sent to, so the region choice picks both.
@@ -60,7 +65,8 @@ class VeracodeReportError(Exception):
 class VeracodeResumeConfig:
     # Next zero-based HAL page to fetch. For fan-out endpoints this is the page within `app_guid`.
     page: int = 0
-    # Fan-out only: the application GUID currently being processed. None for top-level endpoints.
+    # Fan-out only: the parent currently being processed (an application GUID, or an SCA workspace id).
+    # None for top-level endpoints. The name predates workspace fan-out and is kept for saved states.
     app_guid: str | None = None
     # Reporting API only: the submitted report that `page` reads from.
     report_id: str | None = None
@@ -186,7 +192,7 @@ def _total_pages(data: dict) -> int:
 
 
 def _build_url(region: str | None, path: str, params: dict[str, Any]) -> str:
-    query = urlencode({k: v for k, v in params.items() if v is not None})
+    query = urlencode({k: v for k, v in params.items() if v is not None}, doseq=True)
     return f"{_base_url(region)}{path}?{query}"
 
 
@@ -215,18 +221,20 @@ def _application_params(
     return params
 
 
-def _iter_application_guids(
-    session: requests.Session, region: str | None, logger: FilteringBoundLogger
+def _iter_parent_ids(
+    session: requests.Session, region: str | None, logger: FilteringBoundLogger, parent: str
 ) -> Iterator[str]:
-    """Page through /applications and yield each application GUID (drives fan-out endpoints)."""
+    """Page through a parent endpoint and yield the id of each row (drives fan-out endpoints)."""
+    parent_config = VERACODE_ENDPOINTS[parent]
+    id_field = FAN_OUT_PARENTS[parent].id_field
     page = 0
     while True:
-        url = _build_url(region, VERACODE_ENDPOINTS["applications"].path, {"size": PAGE_SIZE, "page": page})
+        url = _build_url(region, parent_config.path, {"size": PAGE_SIZE, **parent_config.extra_params, "page": page})
         data = _fetch_page(session, url, logger)
-        for item in data.get("_embedded", {}).get("applications", []):
-            guid = item.get("guid")
-            if guid:
-                yield guid
+        for item in data.get("_embedded", {}).get(parent_config.embedded_key, []):
+            parent_id = item.get(id_field)
+            if parent_id:
+                yield str(parent_id)
         page += 1
         if page >= _total_pages(data):
             break
@@ -268,14 +276,17 @@ def _iter_fan_out_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[VeracodeResumeConfig],
     config: VeracodeEndpointConfig,
+    parent: str,
     params: dict[str, Any],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Iterate every application and page through the per-application child endpoint.
+    """Iterate every parent row and page through the per-parent child endpoint.
 
-    Each child row is stamped with `application_guid` so the composite primary key is unique across
-    the whole table (child ids are only unique within their parent application).
+    Each child row is stamped with the parent id (`application_guid` or `workspace_id`) so the
+    composite primary key is unique across the whole table (child ids are only unique within their
+    parent).
     """
-    app_guids = list(_iter_application_guids(session, region, logger))
+    child_key = FAN_OUT_PARENTS[parent].child_key
+    app_guids = list(_iter_parent_ids(session, region, logger, parent))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     remaining = app_guids
@@ -286,7 +297,7 @@ def _iter_fan_out_rows(
         logger.debug(f"Veracode: resuming {config.name} from app_guid={resume.app_guid}, page={resume_page}")
 
     for index, app_guid in enumerate(remaining):
-        path = config.path.format(application_guid=app_guid)
+        path = config.path.format(**{child_key: app_guid})
         page = resume_page
         resume_page = 0  # only the resumed-into application uses the saved page
 
@@ -295,7 +306,7 @@ def _iter_fan_out_rows(
                 url = _build_url(region, path, {**params, "page": page})
                 data = _fetch_page(session, url, logger)
                 items = [data] if config.single_object else data.get("_embedded", {}).get(config.embedded_key, [])
-                rows = [{**row, "application_guid": app_guid} for row in items]
+                rows = [{**row, child_key: app_guid} for row in items]
 
                 page += 1
                 has_more = not config.single_object and page < _total_pages(data)
@@ -308,10 +319,10 @@ def _iter_fan_out_rows(
                 if not has_more:
                     break
         except requests.HTTPError as exc:
-            # An application deleted between enumeration and this fetch 404s. Skip it rather than
-            # failing the whole sync. Any other HTTP error is re-raised.
+            # A parent deleted between enumeration and this fetch 404s. Skip it rather than failing the
+            # whole sync. Any other HTTP error is re-raised.
             if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Veracode: application {app_guid} not found while fetching {config.name}, skipping")
+                logger.warning(f"Veracode: {parent} row {app_guid} not found while fetching {config.name}, skipping")
             else:
                 raise
 
@@ -468,9 +479,15 @@ def get_rows(
         )
         return
 
-    if config.fan_out_over_applications:
+    if config.fan_out_parent is not None:
         yield from _iter_fan_out_rows(
-            session, region, logger, resumable_source_manager, config, {"size": PAGE_SIZE, **config.extra_params}
+            session,
+            region,
+            logger,
+            resumable_source_manager,
+            config,
+            config.fan_out_parent,
+            {"size": PAGE_SIZE, **config.extra_params},
         )
         return
 

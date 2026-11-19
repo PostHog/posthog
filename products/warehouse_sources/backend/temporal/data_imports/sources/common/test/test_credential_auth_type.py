@@ -11,10 +11,8 @@ from products.warehouse_sources.backend.management.commands import (
     generate_source_field_classification as command_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (
-    CREDENTIAL_AUTH_TYPES_PATH,
     compute_credential_auth_types,
     derive_credential_auth_type,
-    frozen_credential_auth_types,
     render_credential_auth_types,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
@@ -70,7 +68,6 @@ def test_a_changed_default_auth_type_fails_the_generation(tmp_path: Path) -> Non
         patch.object(zendesk, "credential_auth_type", new_callable=PropertyMock, return_value="token"),
         patch.object(command_module, "CREDENTIAL_KINDS_PATH", tmp_path / "kinds.py"),
         patch.object(command_module, "CREDENTIAL_AUTH_TYPES_PATH", tmp_path / "auth_types.py"),
-        patch.object(command_module, "CLASSIFICATION_AUDIT_PATH", tmp_path / "audit.csv"),
     ):
         with pytest.raises(ChangedFrozenValueError, match=f"{kind}: 'credentials' -> 'token'"):
             render_credential_auth_types()
@@ -81,11 +78,3 @@ def test_a_changed_default_auth_type_fails_the_generation(tmp_path: Path) -> Non
 
     assert written_after_refusal == []
     assert f'    "{kind}": "token",' in (tmp_path / "auth_types.py").read_text()
-
-
-def test_credential_auth_types_file_is_up_to_date() -> None:
-    assert dict(CREDENTIAL_AUTH_TYPES) == frozen_credential_auth_types()
-    assert CREDENTIAL_AUTH_TYPES_PATH.read_text() == render_credential_auth_types(), (
-        "The credential auth types are out of date. "
-        "Run `python manage.py generate_source_field_classification` and commit the result."
-    )

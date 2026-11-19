@@ -37,13 +37,13 @@ SKIPPED_DIRS = {"node_modules", ".git", "dist", ".venv", "target", ".flox", "bui
 EXPECTED_MAJORS = {
     "posthoganalytics": 7,
     "posthog": 7,
-    "posthog-node": 5,
+    "posthog-node": 6,
     "posthog-js": 1,
     "@posthog/react": 1,
     "posthog-js-lite": 4,
     "posthog-react-native": 4,
-    "posthog-rs": 0,
-    "posthog-go": 1,
+    "posthog-rs": 1,
+    "posthog-go": 2,
 }
 NPM_SDKS = ("posthog-node", "posthog-js", "@posthog/react", "posthog-js-lite", "posthog-react-native")
 NPM_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
@@ -53,6 +53,8 @@ NPM_WORKSPACES = (
     ("products/desktop/", "products/desktop/pnpm-workspace.yaml", "products/desktop/pnpm-lock.yaml"),
     ("", "pnpm-workspace.yaml", "pnpm-lock.yaml"),
 )
+# The desktop app is its own pnpm workspace with its own release, so it moves to posthog-node 6 in a separate migration PR.
+NPM_EXPECTED_MAJOR_OVERRIDES = {("products/desktop/", "posthog-node"): 5}
 
 # Wrapper packages that depend on an SDK. A routine wrapper release can raise its peer
 # range to the next SDK major, which is the same breaking change through a side door.
@@ -69,13 +71,13 @@ PYTHON_PINS = (
     ("tools/infra-scripts/clitools/requirements.txt", "posthog", None),
 )
 
-# (manifest, TOML path to the dependency table, lockfile). posthog-rs is 0.x, so Cargo
-# already treats every minor as breaking and the bot bumps those routinely; the guard
-# holds only the major, which keeps 1.0 out until its migration.
+# (manifest, TOML path to the dependency table, lockfile). The guard holds only the major.
 RUST_PINS = (
     ("rust/Cargo.toml", ("workspace", "dependencies"), "rust/Cargo.lock"),
     ("cli/Cargo.toml", ("dependencies",), "cli/Cargo.lock"),
 )
+# posthog-rs publishes as `posthog` since 1.0 and keeps `posthog-rs` as a compatibility crate.
+RUST_CRATES = ("posthog", "posthog-rs")
 
 GO_MODULE = "github.com/posthog/posthog-go"
 GO_MANIFEST = "bin/hobby-installer/go.mod"
@@ -182,6 +184,12 @@ def npm_workspace_for(manifest: str) -> tuple[str, str]:
     raise AssertionError("unreachable: the root workspace matches every path")
 
 
+def npm_expected_major(path: str, package: str) -> int:
+    """The major `package` is held to in the pnpm workspace that owns `path`."""
+    prefix = next(prefix for prefix, _workspace_file, _lock in NPM_WORKSPACES if path.startswith(prefix))
+    return NPM_EXPECTED_MAJOR_OVERRIDES.get((prefix, package), EXPECTED_MAJORS[package])
+
+
 def npm_manifests(root: Path) -> list[tuple[str, str, str, str]]:
     """Every (manifest, section, package, spec) under root that names an npm SDK."""
     found = []
@@ -244,31 +252,34 @@ def _lock_package_major(lock_path: Path, package: str) -> int:
     return _major(next(p["version"] for p in packages if p["name"] == package))
 
 
+def _lock_package_majors(lock_path: Path, packages: tuple[str, ...]) -> set[int]:
+    entries = tomllib.loads(lock_path.read_text(encoding="utf-8"))["package"]
+    return {_major(p["version"]) for p in entries if p["name"] in packages}
+
+
 def check_node(root: Path) -> list[str]:
     problems = []
     for manifest, section, package, spec in npm_manifests(root):
         workspace_file, _lock = npm_workspace_for(manifest)
-        expected = EXPECTED_MAJORS[package]
+        expected = npm_expected_major(manifest, package)
         if spec == "catalog:":
             spec = pnpm_catalog(root / workspace_file).get(package, "")
         if not npm_pinned_to(spec, expected):
             problems.append(
                 f"{manifest} [{section}]: {package} declares {spec!r}, which is not pinned to major {expected}. {MIGRATION_HINT}"
             )
-    for _prefix, workspace_file, lock in NPM_WORKSPACES:
+    for prefix, workspace_file, lock in NPM_WORKSPACES:
         catalog = pnpm_catalog(root / workspace_file)
-        for package in NPM_SDKS:
-            if package in catalog and not npm_pinned_to(catalog[package], EXPECTED_MAJORS[package]):
-                problems.append(
-                    f"{workspace_file} catalog: {package} is {catalog[package]!r}, expected major {EXPECTED_MAJORS[package]}"
-                )
         lock_text = (root / lock).read_text(encoding="utf-8")
         for package in NPM_SDKS:
-            resolved = pnpm_lock_majors(lock_text, package)
-            if resolved and resolved != {EXPECTED_MAJORS[package]}:
+            expected = npm_expected_major(prefix, package)
+            if package in catalog and not npm_pinned_to(catalog[package], expected):
                 problems.append(
-                    f"{lock} resolves {package} to majors {sorted(resolved)}, expected {{{EXPECTED_MAJORS[package]}}}"
+                    f"{workspace_file} catalog: {package} is {catalog[package]!r}, expected major {expected}"
                 )
+            resolved = pnpm_lock_majors(lock_text, package)
+            if resolved and resolved != {expected}:
+                problems.append(f"{lock} resolves {package} to majors {sorted(resolved)}, expected {{{expected}}}")
     for lock, package, peer in NODE_WRAPPER_PEERS:
         lock_text = (root / lock).read_text(encoding="utf-8")
         ranges = pnpm_lock_peer_ranges(lock_text, package, peer)
@@ -327,22 +338,33 @@ def check_python(root: Path) -> list[str]:
 
 def check_rust(root: Path) -> list[str]:
     problems = []
-    expected = EXPECTED_MAJORS["posthog-rs"]
     for manifest, table, lock in RUST_PINS:
+        expected = EXPECTED_MAJORS["posthog-rs"]
         data = tomllib.loads((root / manifest).read_text(encoding="utf-8"))
         for key in table:
             data = data[key]
-        dependency = data["posthog-rs"]
-        requirement = dependency if isinstance(dependency, str) else dependency["version"]
-        try:
-            major = cargo_requirement_major(requirement)
-        except ValueError as err:
-            problems.append(f"{manifest}: {err}")
+        declared = [(name, data[name]) for name in RUST_CRATES if name in data]
+        if not declared:
+            problems.append(f"{manifest} declares neither of {', '.join(RUST_CRATES)}")
             continue
-        if major != expected:
-            problems.append(f"{manifest}: posthog-rs = {requirement!r}, expected major {expected}. {MIGRATION_HINT}")
-        if _lock_package_major(root / lock, "posthog-rs") != expected:
-            problems.append(f"{lock} resolves posthog-rs outside major {expected}")
+        for name, dependency in declared:
+            # A git dependency must still carry `version`, so the major stays readable.
+            requirement = dependency if isinstance(dependency, str) else dependency.get("version")
+            if requirement is None:
+                problems.append(f"{manifest}: {name} has no version requirement; add `version` beside `git`")
+                continue
+            try:
+                major = cargo_requirement_major(requirement)
+            except ValueError as err:
+                problems.append(f"{manifest}: {err}")
+                continue
+            if major != expected:
+                problems.append(f"{manifest}: {name} = {requirement!r}, expected major {expected}. {MIGRATION_HINT}")
+        resolved = _lock_package_majors(root / lock, RUST_CRATES)
+        if resolved != {expected}:
+            problems.append(
+                f"{lock} resolves {'/'.join(RUST_CRATES)} to majors {sorted(resolved)}, expected {{{expected}}}"
+            )
     return problems
 
 
