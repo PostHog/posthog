@@ -36,6 +36,8 @@ from products.messaging.backend.provider_imports.sendgrid_handlebars import (
 )
 
 _MAX_NOTED_TAGS = 5
+_MIN_OUTPUT_BUDGET = 1_000_000
+_OUTPUT_GROWTH_LIMIT = 20
 _ISO_FORMAT = "%Y-%m-%dT%H:%M:%S.%LZ"
 # Handlebars also encodes = and `, so a value in an unquoted attribute can't add an attribute of its own.
 _HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
@@ -127,8 +129,13 @@ class _Frame:
 # Conversion -----------------------------------------------------------------------------------------------------------
 
 
+class _OutputTooLarge(Exception):
+    pass
+
+
 class _Converter:
-    def __init__(self, is_html: bool, contact_fields: bool) -> None:
+    def __init__(self, is_html: bool, contact_fields: bool, budget: int = 0) -> None:
+        self._budget = budget
         self.is_html = is_html
         self.contact_fields = contact_fields
         self.unsupported: list[str] = []
@@ -145,6 +152,15 @@ class _Converter:
         return "".join(self.node(node, frames) for node in nodes)
 
     def node(self, node: object, frames: tuple[_Frame, ...]) -> str:
+        if isinstance(node, _Block):
+            return self.block(node, frames)
+        converted = self._leaf(node, frames)
+        self._budget -= len(converted)
+        if self._budget < 0:
+            raise _OutputTooLarge
+        return converted
+
+    def _leaf(self, node: object, frames: tuple[_Frame, ...]) -> str:
         if isinstance(node, _Text):
             # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
             text = node.text.replace("{%", '{{ "{%" }}')
@@ -154,8 +170,6 @@ class _Converter:
             return node.liquid
         if isinstance(node, _Output):
             return self.output(node, frames)
-        if isinstance(node, _Block):
-            return self.block(node, frames)
         raise TypeError(type(node).__name__)
 
     def literal(self, tag: str) -> str:
@@ -564,9 +578,10 @@ def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
 
 
 def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Converter]:
-    converter = _Converter(is_html, contact_fields)
     # The placeholders below are marked with NUL, which an email can't hold, so a source with one can't fake them.
     source = (source or "").replace("\x00", "")
+    # Nested blocks repeat their whole path in every value inside them, so output can grow much faster than input.
+    converter = _Converter(is_html, contact_fields, budget=max(_MIN_OUTPUT_BUDGET, _OUTPUT_GROWTH_LIMIT * len(source)))
     if not source:
         return "", converter
     with_asm = _convert_asm_placeholders(source)
@@ -575,7 +590,13 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
     except (_Malformed, _Unconvertible):
         return _literal_everything(source, converter, is_html), converter
     frames = (_Frame(prefix="variables"),)
-    converted = _restore_asm(converter.nodes(tree, frames), is_html, converter)
+    try:
+        converted = _restore_asm(converter.nodes(tree, frames), is_html, converter)
+    except _OutputTooLarge:
+        converter = _Converter(is_html, contact_fields)
+        converter.unsupported.append("this template's tags, which nest too deeply to convert")
+        literal = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source)
+        return _convert_asm_tags(literal, is_html, converter), converter
     # A note names the tag as the person wrote it, not with the placeholder set aside while parsing.
     converter.unsupported = [
         _ASM_PLACEHOLDER_PATTERN.sub(lambda match: match.group(1), tag) for tag in converter.unsupported

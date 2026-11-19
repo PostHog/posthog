@@ -228,5 +228,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert converted.html == "<!--İ-->{% raw %}{{ person.properties.secret }}{% endraw %}"
 
+    def test_deeply_nested_blocks_that_would_blow_up_stay_as_text_with_a_note(self) -> None:
+        path = "a" * 1900
+        source = "".join(f"{{{{#with {path}}}}}" for _ in range(40)) + "{{this}}" * 500 + "{{/with}}" * 40
+
+        converted = convert_version({"html_content": source, "generate_plain_content": False})
+
+        assert len(converted.html) < 1_000_000
+        assert "nest too deeply" in " ".join(converted.notes)
+
     def test_many_unclosed_tags_convert_quickly(self) -> None:
         assert convert_version({"html_content": "{{" * 200_000, "generate_plain_content": False}).html
