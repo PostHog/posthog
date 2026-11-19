@@ -5,14 +5,17 @@ The check reads the PR from GitHub at the head it is asked about and runs the en
 pre-check on it (``run_engine_pregate``), outside any review run. It writes nothing to GitHub, creates
 no run, starts no review and emits no analytics event.
 
-The answer maps the pre-check's finality onto three values:
+The pre-check runs as if every prerequisite passes (not a draft, no merge conflict, no requested
+changes), because the author or a reviewer clears those. The answer maps its finality onto three values:
 
 - ``needs_human=True``: the pre-check is final, its verdict is REFUSED, and a size, deny-list or tier
   gate failed. No stamphog review can approve that head.
-- ``needs_human=False``: the pre-check is final for another reason (only a prerequisite failed, a
-  bot author, a WAIT for a pending attestation), or every gate passed.
+- ``needs_human=False``: the pre-check is final with none of those gates failed (a WAIT for a
+  pending attestation), or every gate passed and no input the pre-check cannot read could add a
+  failure.
 - None: the check cannot tell. Every input the pre-check cannot trust, a pre-check that is not
-  final for any reason other than "no gate failed", and every error give None.
+  final for any reason other than "no gate failed", a bot author that the engine refuses without
+  running the gates, and every error give None.
 """
 
 from __future__ import annotations
@@ -26,8 +29,10 @@ import structlog
 
 from products.stamphog.backend.facade.contracts import ApprovalGateCheck
 from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
+from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.engine_pregate import (
     PregateOutcome,
+    engine_default_policy_text,
     engine_gate_inputs,
     fetch_folder_policy_files,
     pregate_skip_reason,
@@ -38,6 +43,7 @@ from products.stamphog.backend.logic.installations import reviewable_repo_config
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
+    STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
@@ -45,12 +51,12 @@ from products.stamphog.backend.temporal.constants import (
 
 logger = structlog.get_logger(__name__)
 
-# The engine's names for the gates that refuse a PR for what it changes. A failing prerequisite (a
-# draft, a merge conflict, requested changes) refuses too, but the author or a reviewer clears it,
-# so it does not mean that only a person can approve the change.
+# The engine's names for the gates that refuse a PR for what it changes.
 _HUMAN_GATES = frozenset({"size", "deny-list", "tier"})
 # The not_final_reason the engine gives when no gate failed (`_not_final_reason` in review_local.py).
 _NO_FAILING_GATE = "no_failing_gate"
+# The policy key that exempts a deny category's owning teams. The `extend_exempt_author_teams` overlay key contains it.
+_EXEMPT_TEAMS_KEY = "exempt_author_teams"
 _READ_WORKERS = 8
 
 
@@ -60,6 +66,15 @@ class _Unknown(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+def _policy_may_exempt_teams(policy_files: dict[str, str]) -> bool:
+    """False only when neither the engine's default policy nor the repository's policy.yml names a team exemption.
+
+    A plain text match, so a YAML comment that names the key counts too. That costs an answer, never a wrong one.
+    """
+    texts = (engine_default_policy_text(), policy_files.get(STAMPHOG_POLICY_ENTRYPOINT, ""))
+    return any(_EXEMPT_TEAMS_KEY in text for text in texts)
 
 
 def check_approval_gates(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> ApprovalGateCheck | None:
@@ -92,7 +107,6 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
 
         pr_future = submit(client.get_pr, repo, pr_number)
         files_future = submit(client.get_pr_files, repo, pr_number)
-        reviews_future = submit(client.get_pr_reviews, repo, pr_number)
         check_runs_future = submit(get_check_runs_with_pins, client, repo, head_sha)
         policy_futures = {
             path: submit(client.get_default_branch_file, repo, path)
@@ -106,26 +120,33 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         author = (pr.get("user") or {}).get("login") or ""
         if not author:
             raise _Unknown("no_author")
+        # The review passes the same login, so the engine runs every gate for a bot the policy admits.
+        admission = admitted_bot_author(repo_config, pr)
         base_sha = (pr.get("base") or {}).get("sha") or ""
         # An object-form attestation proves one merge base, so a deny lift needs the PR's own.
         merge_base_future = submit(client.get_merge_base_sha, repo, base_sha, head_sha)
-        # A deny category can exempt the teams that own it. A failed lookup reads as "on no team",
-        # which denies an exempt author, so it gives None here rather than an empty list.
         author_teams_future = submit(client.find_user_team_slugs, repo.split("/")[0], author)
         folder_policy_future = submit(fetch_folder_policy_files, client, repo, head_sha, files)
 
+        policy_files = {path: text for path, future in policy_futures.items() if (text := future.result()) is not None}
         author_team_slugs = author_teams_future.result()
         if author_team_slugs is None:
-            raise _Unknown("author_teams_unknown")
+            # A deny category can exempt the teams that own it, and a failed lookup reads as "on no team", which
+            # denies an exempt author. Without an exemption in the policy, the teams decide no gate.
+            if _policy_may_exempt_teams(policy_files):
+                raise _Unknown("author_teams_unknown")
+            author_team_slugs = []
         # Without the folder files the size gate budgets differently from the sandbox.
         folder_policy_files = folder_policy_future.result()
         if folder_policy_files is None:
             raise _Unknown("folder_policy_files_unknown")
-        policy_files = {path: text for path, future in policy_futures.items() if (text := future.result()) is not None}
         invocation = build_reviewer_invocation(
-            pr=pr,
+            # No prerequisite input fails, as the module docstring says. A failing prerequisite would also make the
+            # engine's refusal final over a deny that a pending attestation can still lift (`_denial_is_final` in
+            # review_local.py).
+            pr={**pr, "draft": False, "mergeable_state": "clean"},
             files=files,
-            reviews=reviews_future.result(),
+            reviews=[],
             check_runs=check_runs_future.result(),
             author_team_slugs=author_team_slugs,
             base_sha=base_sha,
@@ -143,6 +164,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
             # The pre-check only reads the context. The command these build is never run.
             engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
             context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+            admitted_bot=admission["login"] if admission else "",
         )
     finally:
         # A failed read raises out of its result() above. The other reads are abandoned rather than awaited.
@@ -171,6 +193,10 @@ def _gate_check(outcome: PregateOutcome) -> ApprovalGateCheck:
         return ApprovalGateCheck(needs_human=False, failed_gates=())
     if verdict != "REFUSED":
         raise _Unknown(f"final_verdict:{verdict}")
+    # The bot-author refusal runs no gate. Stamphog still reviews some of these PRs with every gate, under the
+    # self-driving inbox carve-out, which this check does not resolve.
+    if not result.get("gates"):
+        raise _Unknown("bot_author")
     failed_gates = tuple(
         gate["gate"]
         for gate in result.get("gates") or []

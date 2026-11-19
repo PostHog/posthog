@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import caches
 from django.http import HttpResponse
@@ -507,7 +507,6 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("draft", "flash", "draft", False),
             ("switch_off", "flash", "switch_off", False),
             ("head_already_reviewed", "flash", "head_already_reviewed", False),
-            # A later Standard attempt reused the run index of the Deep attempt that failed.
             ("deep_attempt_replaced_by_a_standard_attempt", "flash", "deep_turn_exists", False),
             ("deep_turn_failed_before_it_started", "flash", "deep_turn_exists", False),
             ("deep_request_running_before_its_marker", "flash", "deep_turn_exists", False),
@@ -562,6 +561,7 @@ class TestAuthoredPRReviewTask(BaseTest):
                 side_effect=RuntimeError("Temporal did not answer") if setup == "queue_unreadable" else None,
                 return_value=queued,
             ),
+            patch(_QUEUE_ROUTING) as report_to_stamphog,
         ):
             process_authored_pr_event.run(**event)
 
@@ -578,6 +578,9 @@ class TestAuthoredPRReviewTask(BaseTest):
         else:
             gate_check.assert_not_called()
         assert _mode_count(expected_mode, expected_reason) - before == 1.0
+        # A Deep turn starts no silent stamphog review, so stamphog routes the ready head now instead of after the turn.
+        reported = [call(team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA)]
+        assert report_to_stamphog.call_args_list == (reported if expected_mode == "full" else [])
 
     @parameterized.expand(
         [

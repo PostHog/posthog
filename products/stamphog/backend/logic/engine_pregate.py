@@ -235,6 +235,11 @@ def engine_gate_inputs(
     return context, tree_files
 
 
+def engine_default_policy_text() -> str:
+    """The policy.yml the engine ships, which a repository's own policy.yml overlays."""
+    return (ENGINE_DIR / _ENGINE_DEFAULTS_SUBDIR / "policy.yml").read_text()
+
+
 def engine_source_files() -> dict[str, str]:
     """The engine's Python modules and its shipped default policy files, by path under the engine directory."""
     if not ENGINE_DIR.is_dir():

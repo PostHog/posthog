@@ -727,6 +727,11 @@ _GATE_CHECK_PR = 120
 _GATE_CHECK_HEAD = "sha-gate-check"
 _GATE_CHECK_AUTHOR = "devex-dev"
 _EXEMPT_INFRA_POLICY = "version: 1\ndeny:\n    infra_cicd:\n        exempt_author_teams: ['team-infra']\n"
+_GATE_CHECK_BOT_PR = {
+    "user": {"login": "renovate[bot]", "type": "Bot", "id": 29139614},
+    "head": {"sha": _GATE_CHECK_HEAD, "ref": "renovate/deps", "repo": {"full_name": REPO}},
+}
+_ADMITS_RENOVATE_POLICY = "version: 1\nbot_authors:\n    - {name: renovate, login: 'renovate[bot]', id: 29139614}\n"
 _CHANGES_REQUESTED = {
     "user": {"login": "maintainer"},
     "state": "CHANGES_REQUESTED",
@@ -782,12 +787,12 @@ class _GateCheckScenario:
             _GateCheckScenario(files=[_api_file("posthog/migrations/0999_add_col.py")], expect=_NO_HUMAN_NEEDED),
             id="pending-attestation",
         ),
-        # A failing prerequisite will not clear when the check reports, so the deny stands.
+        # The author or the reviewer clears the requested changes, and the check can still lift the deny.
         pytest.param(
             _GateCheckScenario(
                 files=[_api_file("posthog/migrations/0999_add_col.py")],
                 reviews=(_CHANGES_REQUESTED,),
-                expect=_NEEDS_HUMAN_FOR_DENY,
+                expect=_NO_HUMAN_NEEDED,
             ),
             id="pending-attestation-after-changes-requested",
         ),
@@ -815,9 +820,34 @@ class _GateCheckScenario:
             ),
             id="author-on-an-exempt-team",
         ),
+        # No deny category exempts a team, so the failed lookup changes no gate.
         pytest.param(
-            _GateCheckScenario(files=[_api_file("terraform/main.tf")], author_teams=None, expect=None),
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], author_teams=None, expect=_NEEDS_HUMAN_FOR_DENY),
             id="author-teams-unreadable",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_api_file("terraform/main.tf")], policy=_EXEMPT_INFRA_POLICY, author_teams=None, expect=None
+            ),
+            id="author-teams-unreadable-under-a-team-exemption",
+        ),
+        # The manifest scripts scan needs git, and in the sandbox it can still add a deny.
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("package.json")], expect=None),
+            id="dependency-manifest-without-its-lockfile",
+        ),
+        pytest.param(
+            _GateCheckScenario(
+                files=[_big_api_file("lib/big.py", 1300)],
+                pr_changes=_GATE_CHECK_BOT_PR,
+                policy=_ADMITS_RENOVATE_POLICY,
+                expect=ApprovalGateCheck(needs_human=True, failed_gates=("size",)),
+            ),
+            id="bot-the-policy-admits",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_big_api_file("lib/big.py", 1300)], pr_changes=_GATE_CHECK_BOT_PR, expect=None),
+            id="bot-the-policy-does-not-admit",
         ),
         pytest.param(
             _GateCheckScenario(

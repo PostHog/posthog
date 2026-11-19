@@ -426,20 +426,33 @@ class TestTrackReviewCompleted(BaseTest):
         # Each push reports the draft state of its own head.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
 
-    def test_the_gate_lets_an_automatic_deep_turn_review_the_whole_pr(self) -> None:
+    @parameterized.expand(
+        [
+            ("ready", False, {"draft": False}, (False, "no_rule_matched")),
+            # The PR turned back into a draft while its Deep turn waited in the queue.
+            ("turned_back_into_a_draft", True, {"draft": True}, (True, "draft")),
+            ("marked_ready_while_the_turn_runs", True, {"draft": False}, (False, "no_rule_matched")),
+        ]
+    )
+    def test_the_gate_lets_an_automatic_deep_turn_review_the_whole_pr_unless_it_is_a_draft(
+        self, _name: str, fetched_draft: bool, live_pr: dict[str, object], expected: tuple[bool, str]
+    ) -> None:
         report_id = self._review_report()
         persist_pr_snapshot(
             team_id=self.team.id,
             report_id=report_id,
             head_sha="sha1",
-            pr_metadata=_pr_metadata(),
+            pr_metadata=_pr_metadata(draft=fetched_draft),
             pr_comments=[],
             pr_files=[PRFile(filename="a.py", status="modified", additions=3, deletions=1)],
         )
+        live = MagicMock()
+        live.return_value.json.return_value = live_pr
 
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.github_api_request", live),
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = PushGateDecision(skip=True, would_skip=True, reason="merge_only")
@@ -456,8 +469,11 @@ class TestTrackReviewCompleted(BaseTest):
                 )
             )
 
-        assert (decision.skip, decision.delta_review) == (False, False)
+        assert ((decision.skip, decision.reason), decision.delta_review) == (expected, False)
         capture.assert_not_called()
+        # A skip ends the turn before any stage that returns the report to rest.
+        status = ReviewReport.objects.for_team(self.team.id).get(id=report_id).status
+        assert status == (ReviewReport.Status.IDLE if decision.skip else ReviewReport.Status.ACTIVE)
 
     @parameterized.expand(
         [
