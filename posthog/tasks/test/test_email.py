@@ -65,6 +65,7 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.fixtures import create_app_metric2
+from posthog.test.project_access import enable_access_control
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -2699,6 +2700,27 @@ class TestEmailSendingNoticeDelivery(APIBaseTest):
         send(team_id=self.team.id, **kwargs)
 
         assert self.delivered_to() == [self.user.email]
+
+    def test_reaches_an_active_project_admin_granted_by_an_access_rule(self) -> None:
+        enable_access_control(self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        for email, is_active in (("rule-admin@posthog.com", True), ("deactivated-rule-admin@posthog.com", False)):
+            user = self._create_user(email, is_active=is_active, level=OrganizationMembership.Level.MEMBER)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+                access_level="admin",
+            )
+        self._create_user("plain-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        mail.outbox.clear()
+
+        send_email_sending_suspended(team_id=self.team.id, reason="Bounces", suspended_at="2026-01-05T07:15:00")
+
+        assert self.delivered_to() == sorted([self.user.email, "rule-admin@posthog.com"])
 
     def test_sends_nothing_when_every_admin_is_deactivated(self) -> None:
         self.user.is_active = False
