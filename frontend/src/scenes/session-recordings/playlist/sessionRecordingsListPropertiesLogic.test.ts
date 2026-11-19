@@ -134,22 +134,30 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('loads properties', async () => {
-        const issuedQueries: string[] = []
-        useQueryMocks((query) => {
-            issuedQueries.push(query)
-            return { results: [S1_BASE_ROW, S2_BASE_ROW] }
-        })
-
         await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
-        expect(issuedQueries).toHaveLength(1)
-        expect(issuedQueries[0]).toContain("'$pageview'")
-        expect(issuedQueries[0]).not.toContain("'$feature_flag_called'")
         expect(logic.values).toMatchObject({
             recordingProperties: EXPECTED_RECORDING_PROPERTIES,
             recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
+        })
+    })
+
+    it('reads the event list from the taxonomy after it loads, not when the module loads', async () => {
+        // The jest setup fills the shared taxonomy, so load a fresh copy that starts empty, as on a page load.
+        await jest.isolateModulesAsync(async () => {
+            const {
+                buildPropertiesQuery,
+            }: typeof import('./sessionRecordingsListPropertiesLogic') = require('./sessionRecordingsListPropertiesLogic')
+            const {
+                loadCoreFilterDefinitions,
+            }: typeof import('~/taxonomy/loadCoreFilterDefinitions') = require('~/taxonomy/loadCoreFilterDefinitions')
+            await loadCoreFilterDefinitions()
+
+            const query = buildPropertiesQuery(['s1'], mockSessons[0].start_time, mockSessons[0].end_time, [])
+            expect(query).toContain("'$pageview'")
+            expect(query).not.toContain("'$feature_flag_called'")
         })
     })
 
