@@ -21,6 +21,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV
 
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
@@ -2441,10 +2442,13 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             ("failed_lookup", False, True, "reviewer"),
             ("failed_lookup_user", False, True, "user"),
             ("failed_lookup_user", False, True, "reviewer"),
+            ("sandbox_post", False, True),
+            ("sandbox_put", False, True),
+            ("sandbox_deferred", False, True),
         ]
     )
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_reviewer_post_autostart_uses_authenticated_principal(
+    def test_reviewer_api_autostart_uses_authenticated_principal(
         self, scenario: str, writer_enabled: bool, caller_eligible: bool, previous_mode: str = "user"
     ) -> None:
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
@@ -2477,7 +2481,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             SignalReportArtefact.objects.create(team=self.team, report=report, type=kind, content=json.dumps(content))
         task = self._create_task()
         expected_reviewers: dict[str, str | None] = {"reviewers_id": None, "corrections_id": None}
-        if scenario.startswith("failed_lookup"):
+        if scenario.startswith("failed_lookup") or scenario == "sandbox_put":
             previous = SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
@@ -2492,6 +2496,15 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             )
             SignalReportArtefact.objects.filter(id=previous.id).update(created_at=timezone.now() - timedelta(minutes=1))
             expected_reviewers["reviewers_id"] = str(previous.id)
+
+        headers = (
+            {"X-PostHog-Task-Id": str(task.id)}
+            if scenario not in {"failed_lookup_user", "sandbox_post", "sandbox_put"}
+            else {}
+        )
+        if scenario.startswith("sandbox"):
+            self.client.logout()
+            headers.update(self._sandbox_token_header(task=task))
 
         def create_task(*, team: Team, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
             implementation = Task.objects.create(
@@ -2515,10 +2528,12 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                 side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
             ),
             patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
-            self.captureOnCommitCallbacks(execute=scenario != "deferred"),
+            self.captureOnCommitCallbacks(execute=not scenario.endswith("deferred")),
         ):
-            response = self.client.post(
-                self._list_url(str(report.id)),
+            response = (self.client.put if scenario == "sandbox_put" else self.client.post)(
+                f"{self._list_url(str(report.id))}{expected_reviewers['reviewers_id']}/"
+                if scenario == "sandbox_put"
+                else self._list_url(str(report.id)),
                 {
                     "artefact_type": "suggested_reviewers",
                     "content": [{"github_login": "example-reviewer"}],
@@ -2528,22 +2543,25 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                     "implementation_authorization": {"mode": "reviewer"},
                 },
                 format="json",
-                headers={"X-PostHog-Task-Id": str(task.id)} if scenario != "failed_lookup_user" else {},
+                headers=headers,
             )
 
-            if scenario == "deferred":
+            if scenario.endswith("deferred"):
                 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 
                 async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=str(report.id))
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.status_code == (status.HTTP_200_OK if scenario == "sandbox_put" else status.HTTP_201_CREATED), (
+            response.json()
+        )
         assert list(
             Task.objects.filter(team=self.team).exclude(id=task.id).values_list("created_by_id", flat=True)
-        ) == ([self.user.id] if caller_eligible else [])
+        ) == ([self.user.id] if caller_eligible and not scenario.startswith("sandbox") else [])
 
-    def _sandbox_token_header(self) -> dict[str, str]:
+    def _sandbox_token_header(self, *, task: Task | None = None) -> dict[str, str]:
         application = OAuthApplication.objects.create(
             name="Sandbox app",
+            client_id=SIGNALS_APP_CLIENT_ID_DEV,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -2557,7 +2575,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             token="pha_sandbox_note_mention_token",
             expires=timezone.now() + timedelta(hours=1),
             scope="inbox:write task:write",
-            sandbox_task_id=self._create_task().id,
+            sandbox_task_id=(task or self._create_task()).id,
         )
         return {"Authorization": f"Bearer {token.token}"}
 

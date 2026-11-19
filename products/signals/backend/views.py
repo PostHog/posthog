@@ -6662,7 +6662,9 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
             reviewer_edit=edit,
-            implementation_authorization=ImplementationAuthorization(mode="user", user_id=user_id),
+            implementation_authorization=None
+            if is_sandbox_origin_request(request)
+            else ImplementationAuthorization(mode="user", user_id=user_id),
             reevaluate_autostart=edit.action not in {"remove", "confirm"}
             and any(
                 not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
@@ -7642,7 +7644,9 @@ class SignalReportArtefactViewSet(
                         if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
-                        implementation_authorization=ImplementationAuthorization(mode="user", user_id=request.user.id),
+                        implementation_authorization=None
+                        if is_sandbox_origin_request(request)
+                        else ImplementationAuthorization(mode="user", user_id=request.user.id),
                     )
                     if artefact.id != previous:
                         self._schedule_suggested_reviewer_telemetry(

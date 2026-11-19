@@ -476,6 +476,7 @@ Stack layers inherit the parent reviewer version, authorization, and reviewer co
 After creation, each layer keeps its own reviewer state. Later plan edits do not replace an existing layer's reviewers or corrections.
 Reports filed by a person and their stack layers require an explicit implementation request.
 Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
+Sandbox API writes do not grant permission to start implementation.
 An ineligible caller never falls back to a named reviewer or another member.
 Startup reads the authorization and reviewer content from the same version, including on deferred retries.
 Unchanged automatic proposals preserve the current version's authorization.
