@@ -3811,7 +3811,7 @@ class TestCurrentAliasUsage(APIBaseTest):
     ) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         foreign_team = create_team(organization=create_organization(name="Foreign"))
-        key_scoping = {
+        scoping_by_kind: dict[str | None, dict[str, list[int] | list[str]]] = {
             None: {},
             "own_team": {"scoped_teams": [self.team.id]},
             "other_team": {"scoped_teams": [other_team.id]},
@@ -3820,9 +3820,11 @@ class TestCurrentAliasUsage(APIBaseTest):
                 "scoped_organizations": [str(self.organization.id)],
             },
             "own_organization": {"scoped_organizations": [str(self.organization.id)]},
-        }[key_scope]
+        }
         token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"], **key_scoping)
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(token), scopes=["*"], **scoping_by_kind[key_scope]
+        )
         self.client.logout()
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
