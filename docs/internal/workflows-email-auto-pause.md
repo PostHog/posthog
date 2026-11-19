@@ -30,6 +30,11 @@ Every number is a `WORKFLOW_EMAIL_AUTO_PAUSE_*` or `WORKFLOW_EMAIL_WARN_*` setti
 Warnings repeat at most once per `WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS` (default 7) per workflow.
 Batch job metrics count toward their parent workflow, and discovery gates sum at the team level so a breach split across many small batch jobs still surfaces.
 
+Feedback arrives hours or days after the send it belongs to.
+So a rate must also cross against the larger of two send counts: the window's own, and the sends of the equal window just before it.
+Late bounces from a large send the day before then cannot pause a workflow that is quiet now, and a workflow that sends steadily keeps its full rate.
+The volume gates and the reason the customer reads use the window's own sends.
+
 The detector also judges the whole project.
 When the project's unpaused workflows together pass both volume gates and a rate, it pauses (or warns) each of them whose own rate is at that rate, even when that workflow is under the volume gates alone.
 A workflow under the rate keeps sending.
@@ -51,6 +56,10 @@ Staff admin actions write regardless of the flag, which is the intended dogfood 
 3. Validate the machinery with one staff pause on an internal workflow: worker skip, admin email, banner, resume.
 4. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=true` per region via `posthog/charts`.
 5. To back out, unset the flag; existing pauses stay until resumed.
+
+`WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS` takes a comma-separated list of workflow ids that stay in dry run while the flag is on.
+The detector still logs their breaches, with `mode="exempt"`, and writes nothing.
+Use it for a workflow whose email must not stop, such as sign-in verification codes.
 
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.
 
