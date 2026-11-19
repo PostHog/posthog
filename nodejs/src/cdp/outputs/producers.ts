@@ -252,21 +252,25 @@ export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarp
     }
 }
 
-// The cyclotron producer's connection settings, so the intake producer needs no deploy config of its own. Its two
-// limits stay separate because they would change every other output on that producer.
+// The cyclotron producer's settings, apart from the ones a route's answer waits on: it barely lingers, because a
+// route's produce holds a request open. The intake consumer's dead letters share the producer and its settings.
 export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP = {
     ...WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
+    'linger.ms': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_LINGER_MS',
     'message.max.bytes': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES',
     'message.timeout.ms': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_TIMEOUT_MS',
 } as const satisfies Partial<Record<AllowedConfigKey, string>>
 
 export type KafkaWarpstreamCyclotronIntakeProducerEnvConfig = {
+    KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_LINGER_MS: string
     KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES: string
     KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_TIMEOUT_MS: string
 }
 
 export function getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig(): KafkaWarpstreamCyclotronIntakeProducerEnvConfig {
     return {
+        // Long enough to batch a burst of sends, short enough not to show in a route's answer.
+        KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_LINGER_MS: '5',
         // The intake topics' max.message.bytes, above the encoder's cap, so every message it accepts can be produced.
         KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES: '2000000',
         // The routes' ack deadline, so a run answered with a 503 stops retrying instead of landing minutes later.

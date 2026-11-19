@@ -5586,6 +5586,45 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         ]
         assert response.json()["source_column_metadata_available"] is False
 
+    @parameterized.expand(
+        [
+            ("stale_column_dropped", ["email", "total"], ["email", "total", "id"], 200, ["email", "id"]),
+            ("only_stale_column_left", ["total"], ["total"], 400, ["total"]),
+            ("new_unknown_column_rejected", ["total"], ["email", "nope"], 400, ["total"]),
+        ]
+    )
+    def test_enabled_columns_save_drops_stored_columns_the_source_lost(
+        self,
+        _name: str,
+        stored: list[str],
+        sent: list[str],
+        expected_status: int,
+        expected_enabled_columns: list[str],
+    ):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            enabled_columns=stored,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ]
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": sent}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.enabled_columns == expected_enabled_columns
+
     def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)

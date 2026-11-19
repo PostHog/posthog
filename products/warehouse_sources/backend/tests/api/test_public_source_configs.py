@@ -11,11 +11,13 @@ from django_redis.pool import ConnectionFactory
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.settings.data_stores import WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG
 
 from products.warehouse_sources.backend.cache import WarehouseSourceCatalogConnectionFactory
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.presentation.views.public_source_configs import (
+    PublicSourceConfigsIPThrottle,
     build_source_configs,
     shared_catalog_cache_key,
     tracer,
@@ -194,6 +196,27 @@ class TestPublicSourceConfigs(APIBaseTest):
         data = response.json()
         assert isinstance(data, dict)
         assert len(data) > 0
+
+    @parameterized.expand(
+        [
+            ("shared_burst_bucket_full", BurstRateThrottle, status.HTTP_200_OK),
+            ("shared_sustained_bucket_full", SustainedRateThrottle, status.HTTP_200_OK),
+            ("own_bucket_full", PublicSourceConfigsIPThrottle, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_anonymous_requests_use_their_own_throttle_bucket(
+        self, _name: str, throttle: type, expected_second_status: int, _rate_limit_enabled
+    ):
+        self.client.logout()
+        caches["default"].clear()
+        self.addCleanup(caches["default"].clear)
+        with patch.object(throttle, "rate", "1/minute"):
+            first = self.client.get("/api/public_source_configs/", REMOTE_ADDR="203.0.113.7")
+            second = self.client.get("/api/public_source_configs/", REMOTE_ADDR="203.0.113.7")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == expected_second_status
 
     def test_every_config_has_tables_array(self):
         response = self.client.get("/api/public_source_configs/")

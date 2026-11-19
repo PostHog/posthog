@@ -15,6 +15,8 @@ from products.warehouse_sources.sources.anthropic.anthropic import (
     AnthropicResumeConfig,
     _analytics_windows,
     _claude_code_start_day,
+    _flatten_analytics_artifact_activity,
+    _flatten_analytics_chat_project,
     _flatten_analytics_entity_usage,
     _flatten_analytics_user_activity,
     _flatten_rbac_role_permission,
@@ -140,6 +142,16 @@ class TestReportPagination:
 
 
 class TestEntityPagination:
+    def test_organization_object_body_becomes_one_row(self) -> None:
+        org = {"id": "12345678-1234-5678-1234-567812345678", "name": "Example Org", "type": "organization"}
+        result = _driver().run("organization", [ScriptedResponse(json=org)])
+
+        assert result.raised is None
+        assert result.rows == [org]
+        assert len(result.requests) == 1
+        # The endpoint takes no list parameters.
+        assert result.requests[0].query == {}
+
     def test_resumes_from_saved_after_id(self) -> None:
         result = _driver().run(
             "users",
@@ -773,12 +785,41 @@ class TestFlattenAnalyticsEntityUsage:
         assert len({same_day["id"], next_day["id"], other_skill["id"]}) == 3
 
 
+class TestFlattenAnalyticsProjectAndArtifact:
+    @parameterized.expand(
+        [
+            ("creator_known", {"id": "user_1", "type": "user", "email_address": "dev@example.com"}),
+            ("creator_gone", None),
+        ]
+    )
+    def test_chat_project_keeps_creator_columns(self, _name: str, created_by: dict[str, Any] | None) -> None:
+        row = _flatten_analytics_chat_project(
+            date(2026, 3, 4), {"project_id": "claude_proj_1", "message_count": 3, "created_by": created_by}
+        )
+        assert "created_by" not in row
+        assert row["created_by_id"] == (created_by or {}).get("id")
+        assert row["created_by_email_address"] == (created_by or {}).get("email_address")
+
+    def test_artifact_id_differs_by_shared_flag_and_type(self) -> None:
+        base = {"artifact_type": "text/markdown", "is_shared": False, "artifacts_created_count": 2}
+        day = date(2026, 3, 4)
+        ids = {
+            _flatten_analytics_artifact_activity(day, base)["id"],
+            _flatten_analytics_artifact_activity(day, {**base, "is_shared": True})["id"],
+            _flatten_analytics_artifact_activity(day, {**base, "artifact_type": "image/svg+xml"})["id"],
+            _flatten_analytics_artifact_activity(date(2026, 3, 5), base)["id"],
+        }
+        assert len(ids) == 4
+
+
 class TestAnalyticsBreakdownFanOut:
     @parameterized.expand(
         [
             ("analytics_connector_usage", "connector_name", "atlassian"),
             ("analytics_plugin_usage", "plugin_name", "serena"),
             ("analytics_skill_usage", "skill_name", "writing-tests"),
+            ("analytics_chat_project_usage", "project_id", "claude_proj_1"),
+            ("analytics_artifact_activity", "artifact_type", "text/markdown"),
         ]
     )
     def test_fans_out_one_dated_request_per_day(self, endpoint: str, name_field: str, name: str) -> None:

@@ -3,6 +3,7 @@
 Pure: no database and no Celery, so a blocking check inside validation can reuse it.
 """
 
+import re
 import json
 import time
 import hashlib
@@ -27,6 +28,9 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 # The state limit of the ml_inference decide API, which asks the same model.
 MAX_STATE_CHARS = 65_536
 _TRUNCATED_MARKER = " [truncated]"
+# Padding would fill the state and hide how large the input is, so a long run collapses to one unit and its count.
+# The repeat is possessive because a greedy one keeps backtracking state for every repeat of a megabyte run.
+_REPEATED_RUN = re.compile(r"(.{1,8}?)\1{63,}+", re.DOTALL)
 
 _FRAMING = (
     "The state is the configuration of a data pipeline function that a customer saved. The function runs on "
@@ -46,13 +50,21 @@ QUESTIONS: dict[str, DecisionQuestion] = {
     ),
     "malformed_payload": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function build malformed, oversized, or probing payloads that are meant "
-        "to break, crash, or test the limits of the systems that process them later?",
+        instructions=f"{_FRAMING} Does the function build payloads that are meant to break, crash, or test the "
+        "limits of the systems that process them later? Examples are malformed JSON, huge or deeply nested "
+        "structures, invalid encodings, and boundary or fuzzing values. Answer yes only when the structure, size, "
+        "encoding or values of the payload are chosen for that. Message text that only describes security events, "
+        "attacks, probing or abuse is ordinary content, not a probing payload.",
     ),
-    "unrelated_destination": DecisionQuestion(
+    "runtime_escape": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function send event or person data to a host that is unrelated to the "
-        "integration it claims to be, such as a template for one service that posts to an arbitrary other domain?",
+        instructions=f"{_FRAMING} Do the code or the inputs reach a prototype or a constructor, the global object, "
+        "eval, import, require or process, or the internals of the Liquid template engine? Examples are "
+        "`event.constructor.constructor('return 1')()`, `'abc'.constructor`, `person.constructor`, `print(process)`, "
+        "`{% include 'constructor' %}` and `{{ forloop.constructor }}`. Answer yes only when one of these is "
+        "actually reached. A name inside a string counts only when the string is used to reach it, as the include "
+        "tag does. Printing, arithmetic, other string literals, odd or alarming-sounding strings and simple test "
+        "code are not escape attempts, even when they serve no purpose.",
     ),
     "normal_integration": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
@@ -97,10 +109,13 @@ class HogFunctionContent:
 class Thresholds:
     alert: float = 0.5
     block: float = 0.9
+    control: float = 0.7
 
     def __post_init__(self) -> None:
         if not 0 <= self.alert <= self.block <= 1:
             raise ValueError("thresholds are probabilities from 0 to 1, with alert at or below block")
+        if not 0 <= self.control <= 1:
+            raise ValueError("the control threshold is a probability from 0 to 1")
 
 
 @frozen
@@ -113,10 +128,6 @@ class AbuseVerdict:
     model: str
     latency_ms: float
     input_tokens: int
-
-    @property
-    def label(self) -> str:
-        return "would_block" if self.would_block else "alert" if self.would_alert else "clean"
 
 
 def public_inputs(inputs: object, inputs_schema: object) -> dict[str, JsonValue]:
@@ -201,7 +212,8 @@ def content_hash(content: HogFunctionContent) -> str:
 
 
 def build_state(content: HogFunctionContent) -> tuple[dict[str, JsonValue], bool]:
-    """The state Jev reads, capped at the decide limit. Also says whether a field was cut to fit."""
+    """The state Jev reads, with repeated runs collapsed and capped at the decide limit. Also says whether a field
+    was cut to fit."""
     state: dict[str, JsonValue] = {
         "function_type": content.type,
         "template_id": content.template_id,
@@ -215,7 +227,22 @@ def build_state(content: HogFunctionContent) -> tuple[dict[str, JsonValue], bool
         # The masking hash is a Hog expression that runs before the function.
         "masking": content.masking,
     }
-    return _fit(state)
+    return _fit({key: _collapse_runs(value) for key, value in state.items()})
+
+
+def _collapse_runs(value: JsonValue) -> JsonValue:
+    if isinstance(value, str):
+        return _REPEATED_RUN.sub(_run_marker, value)
+    if isinstance(value, dict):
+        return {key: _collapse_runs(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_collapse_runs(item) for item in value]
+    return value
+
+
+def _run_marker(run: re.Match[str]) -> str:
+    unit = run.group(1)
+    return f"[{json.dumps(unit, ensure_ascii=False)} repeated {len(run.group(0)) // len(unit)} times]"
 
 
 def _encoded_size(value: JsonValue) -> int:
@@ -276,13 +303,20 @@ def classify(
     return AbuseVerdict(
         scores=scores,
         risk_score=risk_score,
-        would_alert=risk_score >= thresholds.alert,
+        would_alert=_would_alert(scores, risk_score, thresholds),
         would_block=risk_score >= thresholds.block,
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,
         input_tokens=result.input_tokens,
     )
+
+
+def _would_alert(scores: Mapping[str, float], risk_score: float, thresholds: Thresholds) -> bool:
+    if risk_score < thresholds.alert:
+        return False
+    looks_like_a_normal_integration = scores[CONTROL_QUESTION] >= thresholds.control
+    return not looks_like_a_normal_integration or risk_score >= thresholds.block
 
 
 def _scores(answers: Mapping[str, object]) -> dict[str, float]:

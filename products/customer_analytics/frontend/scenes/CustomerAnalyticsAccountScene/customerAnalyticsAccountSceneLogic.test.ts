@@ -5,16 +5,24 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import {
+    accountNotebooksLogic,
+    NOTES_PER_PAGE,
+} from 'products/customer_analytics/frontend/components/Accounts/accountNotebooksLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
     accountsByExternalIdRetrieve,
+    accountsCustomPropertyValuesList,
+    accountsNotebooksList,
     accountsPartialUpdate,
     accountsPresenceCreate,
+    accountsRelationshipsList,
     accountsRetrieve,
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -28,8 +36,11 @@ import { parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsByExternalIdRetrieve: jest.fn(),
+    accountsCustomPropertyValuesList: jest.fn(),
+    accountsNotebooksList: jest.fn(),
     accountsPartialUpdate: jest.fn(),
     accountsPresenceCreate: jest.fn(),
+    accountsRelationshipsList: jest.fn(),
     accountsRetrieve: jest.fn(),
 }))
 
@@ -39,6 +50,9 @@ const mockAccountsByExternalIdRetrieve = accountsByExternalIdRetrieve as jest.Mo
 const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 const mockAccountsPresenceCreate = accountsPresenceCreate as jest.MockedFunction<typeof accountsPresenceCreate>
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
+const mockAccountsCustomPropertyValuesList = jest.mocked(accountsCustomPropertyValuesList)
+const mockAccountsNotebooksList = jest.mocked(accountsNotebooksList)
+const mockAccountsRelationshipsList = jest.mocked(accountsRelationshipsList)
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
 const ACCOUNT_VIEW_TAB = 'view:11111111-2222-4333-8444-555555555555'
@@ -719,5 +733,127 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(router.values.currentLocation.searchParams).toEqual(searchParams)
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
         })
+    })
+
+    describe('agent writes', () => {
+        const OTHER_ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000002'
+        const renamedAccount: AccountApi = { ...account, name: 'Renamed by the agent', tags: ['renewal'] }
+        let shared: ReturnType<typeof accountPropertyDataLogic.build>
+        let notes: ReturnType<typeof accountNotebooksLogic.build>
+        let otherAccountNotes: ReturnType<typeof accountNotebooksLogic.build>
+
+        beforeEach(async () => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mockAccountsCustomPropertyValuesList.mockResolvedValue([])
+            mockAccountsRelationshipsList.mockResolvedValue([])
+            mockAccountsNotebooksList.mockResolvedValue({ results: [], count: 60, next: null, previous: null })
+            shared = accountPropertyDataLogic({ projectId: PROJECT_ID, accountId: ACCOUNT_ID })
+            shared.mount()
+            notes = accountNotebooksLogic({ accountId: ACCOUNT_ID })
+            notes.mount()
+            otherAccountNotes = accountNotebooksLogic({ accountId: OTHER_ACCOUNT_ID })
+            otherAccountNotes.mount()
+            mountLogic()
+            shared.actions.loadPropertyData()
+            notes.actions.setSearchTerm('renewal')
+            await expectLogic(notes).toFinishAllListeners()
+            notes.actions.setPage(2)
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(shared).toFinishAllListeners()
+            await expectLogic(notes).toFinishAllListeners()
+            await expectLogic(otherAccountNotes).toFinishAllListeners()
+            jest.clearAllMocks()
+        })
+
+        afterEach(() => {
+            shared.unmount()
+            notes.unmount()
+            otherAccountNotes.unmount()
+        })
+
+        it('shows the saved account everywhere after the agent updates its fields', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockAccountsRetrieve.mockResolvedValue(renamedAccount)
+
+            logic.actions.refreshAfterAgentWrite({ kind: 'account', accountId: ACCOUNT_ID })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.account).toEqual(renamedAccount)
+            expect(shared.values.account).toEqual(renamedAccount)
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.AgentWriteRefreshed, { kind: 'account' })
+        })
+
+        it('keeps a save made on the page while the agent refresh is in flight', async () => {
+            const savedAccount: AccountApi = { ...account, name: 'Saved on the page' }
+            const pending = createDeferred<AccountApi>()
+            mockAccountsRetrieve.mockReturnValueOnce(pending.promise)
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('website_domain', 'draft.example.com')
+
+            logic.actions.refreshAfterAgentWrite({ kind: 'account', accountId: ACCOUNT_ID })
+            try {
+                await waitFor(() => expect(mockAccountsRetrieve).toHaveBeenCalledTimes(1))
+                accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID, savedAccount)
+            } finally {
+                pending.resolve(renamedAccount)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.account).toEqual(savedAccount)
+            expect(logic.values.accountForm.website_domain).toBe('draft.example.com')
+        })
+
+        it('keeps the loaded account and tells the user when the agent refresh fails', async () => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+            mockAccountsRetrieve.mockRejectedValue(new ApiError('Server error', 500))
+
+            logic.actions.refreshAfterAgentWrite({ kind: 'account', accountId: ACCOUNT_ID })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.account).toEqual(account)
+            expect(toastError).toHaveBeenCalledWith(
+                "Couldn't refresh this account. Reload the page to see the latest changes."
+            )
+        })
+
+        it.each(['custom_property', 'relationships'] as const)(
+            'reloads the shared property data after an agent %s write',
+            async (kind) => {
+                logic.actions.refreshAfterAgentWrite({ kind, accountId: ACCOUNT_ID })
+                await expectLogic(shared).toFinishAllListeners()
+
+                expect(mockAccountsCustomPropertyValuesList).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
+                expect(mockAccountsRelationshipsList).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
+                expect(mockAccountsRetrieve).not.toHaveBeenCalled()
+            }
+        )
+
+        it('reloads the notes of this account on the page and search the user left them on', async () => {
+            logic.actions.refreshAfterAgentWrite({ kind: 'notes', accountId: ACCOUNT_ID })
+            await expectLogic(notes).toFinishAllListeners()
+
+            expect(mockAccountsNotebooksList).toHaveBeenCalledTimes(1)
+            expect(mockAccountsNotebooksList).toHaveBeenCalledWith(
+                expect.any(String),
+                ACCOUNT_ID,
+                expect.objectContaining({ offset: NOTES_PER_PAGE, search: 'renewal' })
+            )
+        })
+
+        it.each(['account', 'custom_property', 'relationships', 'notes'] as const)(
+            'leaves the page alone after an agent %s write to another account',
+            async (kind) => {
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+                logic.actions.refreshAfterAgentWrite({ kind, accountId: OTHER_ACCOUNT_ID })
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(otherAccountNotes).toFinishAllListeners()
+
+                expect(mockAccountsRetrieve).not.toHaveBeenCalled()
+                expect(mockAccountsCustomPropertyValuesList).not.toHaveBeenCalled()
+                expect(mockAccountsRelationshipsList).not.toHaveBeenCalled()
+                expect(mockAccountsNotebooksList).not.toHaveBeenCalled()
+                expect(capture).not.toHaveBeenCalledWith(AccountsEvents.AgentWriteRefreshed, expect.anything())
+            }
+        )
     })
 })

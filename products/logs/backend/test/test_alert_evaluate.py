@@ -85,7 +85,7 @@ from products.logs.backend.temporal.batch_slot import LogsBatchSlot
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
-_NATIVE: dict[str, Any] = {"legacy_configuration_id": None, "destinations_owner": "platform"}
+_NATIVE: dict[str, Any] = {"legacy_configuration_id": None}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 # Settings a check reads from the logs alert rather than from its platform copy.
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")

@@ -1437,7 +1437,8 @@ def test_create_records_a_per_run_custom_image_boot_fallback(
     assert result.custom_image_fallback_reason == expected_reason
 
 
-def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
+@pytest.mark.parametrize("observe", [False, True])
+def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, observe: bool):
     # The prepare output carries no template on purpose: a prepare activity claimed by an
     # older worker during a rolling deploy returns the old shape.
     context = TaskProcessingContext(
@@ -1449,7 +1450,9 @@ def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
         github_integration_id=123,
         repository="posthog/posthog",
         distinct_id="distinct-id",
-        state={"await_user_message": True, "sandbox_template": "autoresearch_base"},
+        state={"await_user_message": True, "sandbox_template": "default_base" if observe else "autoresearch_base"},
+        use_modal_vm_sandbox=observe,
+        agent_egress_observation_config="/run/egress/observation.json" if observe else None,
     )
     create = mocker.Mock(
         side_effect=SandboxRateLimitedError("Sandbox control plane is rate limited", {"operation": "create"})
@@ -1467,4 +1470,8 @@ def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
             CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
         )
 
-    assert create.call_args.args[0].template == SandboxTemplate.AUTORESEARCH_BASE
+    config = create.call_args.args[0]
+    assert config.template == (SandboxTemplate.VM_BASE if observe else SandboxTemplate.AUTORESEARCH_BASE)
+    assert config.agent_egress_observation is observe
+    assert config.outbound_domain_allowlist is None
+    assert config.block_network is False

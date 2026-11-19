@@ -53,6 +53,8 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.ai_observability.backend.facade.clustering_runtime import scope_key
+
 logger = structlog.get_logger(__name__)
 
 
@@ -191,6 +193,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     event_filters=inputs.event_filters,
                     job_id=inputs.job_id,
                     job_name=inputs.job_name,
+                    job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
@@ -241,6 +244,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     session_id=f"{trace_id}:session",
                     clustering_run_id=compute_result.clustering_run_id,
                     clustering_job_id=inputs.job_id,
+                    job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
                 )
             ],
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
@@ -303,6 +307,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     ),
                     job_id=inputs.job_id,
                     job_name=inputs.job_name,
+                    job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
                     cluster_metrics=cluster_metrics,
                 )
             ],

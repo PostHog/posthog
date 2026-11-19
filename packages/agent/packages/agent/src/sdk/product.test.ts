@@ -92,7 +92,7 @@ describe("buildPullRequestFooter", () => {
         automated: true,
         sources: [{ label: "Slack thread", url: "https://example.com/t" }],
       },
-      "*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](https://example.com/t)*",
+      "*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](https://example.com/t)*",
     ],
   ] as const)("formats the %s footer", (_name, options, footer, expected) => {
     expect(buildPullRequestFooter(launch(options), footer)).toBe(expected);

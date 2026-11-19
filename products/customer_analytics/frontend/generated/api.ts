@@ -34,6 +34,7 @@ import type {
     AccountViewsDestroyParams,
     AccountsAutomationsListParams,
     AccountsByExternalIdRetrieveParams,
+    AccountsCustomPropertyValuesHistoryRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
@@ -63,6 +64,7 @@ import type {
     CustomPropertySourcesRunsListParams,
     CustomPropertySyncTriggerResponseApi,
     CustomPropertyValueApi,
+    CustomPropertyValueHistoryEntryApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
     CustomerAnalyticsExternalAccountRetrieveParams,
@@ -657,6 +659,41 @@ export const accountsCustomPropertyValuesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(customPropertyValueWriteApi),
     })
+}
+
+export const getAccountsCustomPropertyValuesHistoryRetrieveUrl = (
+    projectId: string,
+    accountId: string,
+    params: AccountsCustomPropertyValuesHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/history/`
+}
+
+export const accountsCustomPropertyValuesHistoryRetrieve = async (
+    projectId: string,
+    accountId: string,
+    params: AccountsCustomPropertyValuesHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<CustomPropertyValueHistoryEntryApi[]> => {
+    return apiMutator<CustomPropertyValueHistoryEntryApi[]>(
+        getAccountsCustomPropertyValuesHistoryRetrieveUrl(projectId, accountId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAccountsNotebooksListUrl = (
