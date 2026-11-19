@@ -66,19 +66,51 @@ function refuse(res: Response, status: number, error: string): void {
 
 type Decoded = { ok: true; bytes: Buffer } | { ok: false; status: 400 | 413 }
 
-function readDecoded(req: Request, createDecompressor: () => Transform, limitBytes: number): Promise<Decoded> {
+type UwsBackedRequest = Request & { _res: { pause(): void; resume(): void } }
+type AbortableResponse = Response & { aborted?: boolean }
+
+function readDecoded(
+    req: Request,
+    res: Response,
+    createDecompressor: () => Transform,
+    limitBytes: number
+): Promise<Decoded> {
     ;(req as BodyState).bodyRead = true
     return new Promise((resolve) => {
         const decompressor = createDecompressor()
+        const transport = (req as UwsBackedRequest)._res
         const decoded: Buffer[] = []
         let decodedBytes = 0
         let receivedBytes = 0
+        let decodingEnded = false
+        let requestEnded = false
+        let paused = false
         let settled = false
+        const pause = (): void => {
+            if (!paused) {
+                paused = true
+                req.pause()
+                transport.pause()
+            }
+        }
+        const resume = (): void => {
+            if (paused && !(res as AbortableResponse).aborted) {
+                paused = false
+                transport.resume()
+                req.resume()
+            }
+        }
         const settle = (result: Decoded): void => {
             if (!settled) {
                 settled = true
+                resume()
                 decompressor.destroy()
                 resolve(result)
+            }
+        }
+        const succeedOnceBothEnd = (): void => {
+            if (decodingEnded && requestEnded) {
+                settle({ ok: true, bytes: Buffer.concat(decoded) })
             }
         }
         decompressor.on('data', (chunk: Buffer) => {
@@ -88,21 +120,27 @@ function readDecoded(req: Request, createDecompressor: () => Transform, limitByt
             }
             decoded.push(chunk)
         })
+        decompressor.on('drain', resume)
         decompressor.on('error', () => settle({ ok: false, status: 400 }))
-        decompressor.on('end', () => settle({ ok: true, bytes: Buffer.concat(decoded) }))
+        decompressor.on('end', () => {
+            decodingEnded = true
+            succeedOnceBothEnd()
+        })
         req.on('data', (chunk: Buffer) => {
-            if (!settled) {
-                receivedBytes += chunk.length
-                decompressor.write(chunk)
+            receivedBytes += chunk.length
+            if (!settled && !decodingEnded && !decompressor.write(chunk)) {
+                pause()
             }
         })
         req.on('end', () => {
+            requestEnded = true
             if (receivedBytes === 0) {
                 return settle({ ok: true, bytes: Buffer.alloc(0) })
             }
-            if (!settled) {
+            if (!settled && !decodingEnded) {
                 decompressor.end()
             }
+            succeedOnceBothEnd()
         })
         req.on('error', () => settle({ ok: false, status: 400 }))
     })
@@ -124,7 +162,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
             ;(req as BodyState).bodyRead = true
             return next()
         }
-        readDecoded(req, createDecompressor, limitBytes)
+        readDecoded(req, res, createDecompressor, limitBytes)
             .then((decoded) => {
                 if (!decoded.ok) {
                     return decoded.status === 413 ? next(tooLarge()) : refuse(res, 400, 'Malformed compressed body')
@@ -146,7 +184,7 @@ export function createTextBodyParser(): RequestHandler {
         if (encoding === 'identity') {
             return parseIdentityText(req, res, next)
         }
-        if (!req.body) {
+        if (req.body === undefined) {
             req.body = {}
         }
         if (mediaTypeOf(req) !== TEXT_MEDIA_TYPE || req.headers['content-length'] === '0' || !readsBody(req)) {
@@ -159,7 +197,7 @@ export function createTextBodyParser(): RequestHandler {
         if (Number(req.headers['content-length'] ?? 0) > DEFAULT_TEXT_PARSER_LIMIT_BYTES) {
             return refuse(res, 413, 'Request entity too large')
         }
-        readDecoded(req, createDecompressor, DEFAULT_TEXT_PARSER_LIMIT_BYTES)
+        readDecoded(req, res, createDecompressor, DEFAULT_TEXT_PARSER_LIMIT_BYTES)
             .then((decoded) => {
                 if (!decoded.ok) {
                     return decoded.status === 413

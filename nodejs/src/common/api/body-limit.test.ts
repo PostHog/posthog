@@ -7,6 +7,7 @@ import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
 import { createTextBodyParser } from '~/common/api/middleware/compressed-body'
 import { ModifiedRequest, setupExpressApp } from '~/common/api/router'
+import { parseJSON } from '~/common/utils/json-parse'
 
 const compressors = {
     gzip: gzipSync,
@@ -46,6 +47,24 @@ describe('setupExpressApp request body handling', () => {
         const req = supertest(app).post(path).set(headers)
         chunks.forEach((chunk) => req.write(chunk))
         return req
+    }
+
+    const openCompressedUpload = (path: string, contentType: string, encoding = 'gzip') => {
+        const req = http.request({
+            port: (app as Application & { port: number }).port,
+            path,
+            method: 'POST',
+            headers: { 'Content-Type': contentType, 'Content-Encoding': encoding, 'Transfer-Encoding': 'chunked' },
+        })
+        const response = new Promise<{ status: number | undefined; body: string }>((resolve) => {
+            req.on('response', (res) => {
+                const chunks: Buffer[] = []
+                res.on('data', (chunk: Buffer) => chunks.push(chunk))
+                res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }))
+            })
+            req.on('error', () => resolve({ status: undefined, body: '' }))
+        })
+        return { req, response }
     }
 
     const postEncoded = (path: string, encoding: string, body: Buffer, contentType = 'application/json') =>
@@ -132,26 +151,30 @@ describe('setupExpressApp request body handling', () => {
         'answers a %s body that decodes past its limit with 413 before the upload ends',
         async (_, path, contentType, text) => {
             const compressed = gzipSync(text)
-            const status = await new Promise<number | undefined>((resolve) => {
-                const req = http.request({
-                    port: (app as Application & { port: number }).port,
-                    path,
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': contentType,
-                        'Content-Encoding': 'gzip',
-                        'Transfer-Encoding': 'chunked',
-                    },
-                })
-                req.on('response', (res) => {
-                    resolve(res.statusCode)
-                    req.destroy()
-                })
-                req.on('error', () => resolve(undefined))
-                req.write(compressed.subarray(0, compressed.length - 8))
-            })
+            const upload = openCompressedUpload(path, contentType)
+            upload.req.write(compressed.subarray(0, compressed.length - 8))
+            const { status } = await upload.response
+            upload.req.destroy()
 
             expect(status).toEqual(413)
+        }
+    )
+
+    it.each(['deflate', 'br'] as const)(
+        'passes a decoded %s body to the route only once the upload ends',
+        async (encoding) => {
+            const upload = openCompressedUpload('/echo', 'application/json', encoding)
+            let responded = false
+            void upload.response.then(() => (responded = true))
+            upload.req.write(Buffer.concat([compressors[encoding]('{"data":"x"}'), Buffer.from('x')]))
+            await supertest(app).post('/echo').send({ data: 'y' })
+            await supertest(app).post('/echo').send({ data: 'y' })
+
+            expect(responded).toBe(false)
+            upload.req.end()
+            const res = await upload.response
+            expect(res.status).toEqual(200)
+            expect(parseJSON(res.body)).toEqual({ body: { data: 'x' }, rawBody: '{"data":"x"}' })
         }
     )
 
@@ -220,6 +243,13 @@ describe('setupExpressApp request body handling', () => {
 
         expect(res.status).toEqual(200)
         expect(res.body).toEqual({ body: 'héllo' })
+    })
+
+    it.each([false, null])('keeps a decoded JSON body of %s on a text route', async (value) => {
+        const res = await postEncoded('/echo-text', 'gzip', gzipSync(String(value)))
+
+        expect(res.status).toEqual(200)
+        expect(res.body).toEqual({ body: value })
     })
 
     it('decodes a compressed body on a method the app adds to its body methods', async () => {
