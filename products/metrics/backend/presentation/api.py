@@ -98,6 +98,13 @@ class MetricAttributeScope(models.TextChoices):
     AUTO = "auto", "auto"
 
 
+# Same name and choices as `matchedOn` on the logs and traces attribute endpoints,
+# so that all three share the `MatchedOnEnum` schema component.
+class MatchedOn(models.TextChoices):
+    KEY = "key", "key"
+    VALUE = "value", "value"
+
+
 class MetricQueryAggregation(models.TextChoices):
     NONE = "none", "none"
     SUM = "sum", "sum"
@@ -1193,9 +1200,9 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     )
     value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
     matchedOn = serializers.ChoiceField(
-        choices=["value"],
+        choices=MatchedOn.choices,
         required=False,
-        help_text="Present when the key matched through one of its values rather than its name.",
+        help_text="Set to 'value' when the key matched through one of its values. Absent when its name matched.",
     )
     matchedValue = serializers.CharField(
         required=False,

@@ -131202,12 +131202,15 @@ export namespace Schemas {
       name: string;
       /** Number of distinct values for this attribute in recent data. */
       value_count: number;
-      /** Present when the key matched through one of its values rather than its name. */
-      matchedOn?: 'value';
+      /** Set to 'value' when the key matched through one of its values. Absent when its name matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn?: MatchedOnEnum;
       /**
-       * One value that matched the search; only set when matchedOn is 'value'.
-       * @nullable
-       */
+         * One value that matched the search; only set when matchedOn is 'value'.
+         * @nullable
+         */
       matchedValue?: string | null;
     }
 
@@ -145718,6 +145721,10 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    /**
+     * Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue.
+     */
+    search_values?: boolean;
     };
 
     export type MetricsDashboardTemplatesListParams = {
