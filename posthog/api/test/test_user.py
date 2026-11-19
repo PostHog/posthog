@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 import datetime
@@ -21,6 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
+import responses
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -2293,8 +2295,18 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
+    @override_settings(
+        CLOUD_DEPLOYMENT="US",
+        POSTHOG_HOST="https://us.posthog.com",
+        POSTHOG_PROJECT_ID=2,
+        POSTHOG_USER_DELETION_API_KEY="phs_fake_deletion_key",
+    )
+    @responses.activate
     @patch("posthoganalytics.capture")
     def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+        responses.post(
+            "https://us.posthog.com/api/projects/2/persons/bulk_delete/", json={"deletion_errors": []}, status=202
+        )
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -2307,9 +2319,18 @@ class TestUserAPI(APIBaseTest):
 
         assert not OrganizationMembership.objects.filter(user=user).exists()
 
-        response = self.client.delete(f"/api/users/@me/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/users/@me/")
+            assert not responses.calls
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
+        assert len(responses.calls) == 1
+        assert responses.calls[0].request.headers["Authorization"] == "Bearer phs_fake_deletion_key"
+        assert json.loads(responses.calls[0].request.body) == {
+            "distinct_ids": [user.distinct_id],
+            "delete_events": True,
+            "delete_recordings": True,
+        }
 
         mock_capture.assert_called_once_with(
             distinct_id=user.distinct_id,

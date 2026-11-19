@@ -1,0 +1,17 @@
+hoglint: this commit is blocked: 1 other problem.
+This change adds 3 lines to hoglint.ledger, with no policy change.
+  public-surface products.event_definitions.backend.models.event_definition.EventDefinition products.visual_review.backend.logic.shadow_probe import  0 -> 1
+  public-surface products.event_definitions.backend.models.property_definition.PropertyDefinition products.visual_review.backend.logic.shadow_probe import  0 -> 1
+  public-surface products.event_definitions.backend.models.schema.EventSchema products.visual_review.backend.logic.plain_probe import  0 -> 1
+  needs a person: new debt needs a person. Remove the lines and fix the findings, or stop and tell the person.
+new findings (0)
+advisory rows (898)
+  request-path: ee.settings reaches products.actions.backend.facade.api.find_action_team_id: ee.settings -> posthog.middleware.AuthenticationMiddleware -> products.actions.backend.facade.api.find_action_team_id
+    at ee/settings.py:64
+unknowns (137)
+  get-model [inherited, not-modelled] posthog/admin/console/organization_deletion_panels.py:64: model-label 'apps.get_model' did not resolve
+  get-model [inherited, not-modelled] posthog/api/file_system/access_levels.py:134: model-label 'apps.get_model' did not resolve
+unknowns attributed against HEAD (tree f42d2b09c9b3, stored summary): 0 introduced, 0 ambiguous, 137 inherited
+level isolated: 25 pass, 74 fail
+10148 findings accepted by the ledger
+What the hook checks and what to do: hoglint help hook.
