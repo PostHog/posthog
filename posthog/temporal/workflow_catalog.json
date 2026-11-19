@@ -1295,6 +1295,11 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "signal-spend-cleanup",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "signals-custom-agent",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"

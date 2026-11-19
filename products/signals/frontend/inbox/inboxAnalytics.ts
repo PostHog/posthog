@@ -185,6 +185,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
+ * `select_pull_request` is a pull request line chosen in the Status section of a report with several.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -214,6 +215,7 @@ export type InboxReportActionType =
     | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
+    | 'select_pull_request'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -500,6 +502,7 @@ export function captureInboxViewed(params: {
         personal_list_age_minutes: status?.age_minutes ?? null,
         personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
         personal_list_fallback_reason: status?.fallback_reason ?? null,
+        personal_list_building: status?.building ?? null,
         for_you_report_count: params.forYouReportCount,
         sort_field: params.sortField,
         ranker_id: params.rankerId,

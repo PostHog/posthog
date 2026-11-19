@@ -150,7 +150,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
 
     @parameterized.expand(PROFILES)
     def test_personal_mcp_matches_master(self, _key: str, profile: TaskProfile) -> None:
-        self.assertEqual(profile.personal_mcp, include_personal_mcp_for_task(_task(profile)))
+        self.assertEqual(profile.personal_mcp, include_personal_mcp_for_task(_task(profile), None))
 
     @parameterized.expand(PROFILES)
     def test_inherit_user_defaults_matches_master(self, _key: str, profile: TaskProfile) -> None:

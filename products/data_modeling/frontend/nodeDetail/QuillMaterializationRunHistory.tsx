@@ -45,6 +45,7 @@ import {
     computeJobDuration,
     getMaterializationStatusMessage,
     jobLogsWindow,
+    jobsPageRowRange,
 } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
@@ -225,8 +226,12 @@ export function QuillMaterializationRunHistory({
 
     const jobs = jobsPage > 1 && runHistoryError ? [] : (jobsPageResults?.results ?? [])
     const count = jobsPageResults?.count ?? 0
-    const firstRow = count === 0 ? 0 : (jobsPage - 1) * DEFAULT_JOBS_PAGE_SIZE + 1
-    const lastRow = Math.min(firstRow + jobs.length - 1, count)
+    const { firstRow, lastRow, countLabel } = jobsPageRowRange(
+        jobsPageResults,
+        jobsPage,
+        DEFAULT_JOBS_PAGE_SIZE,
+        jobs.length
+    )
     const showLoader = runHistoryLoading && (jobsPage > 1 || !jobsPageResults?.results?.length)
     const refreshRuns = (): void =>
         jobsPage > 1
@@ -369,7 +374,7 @@ export function QuillMaterializationRunHistory({
             {(count > 0 || jobsPage > 1) && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <Text size="xs" variant="muted" render={<span className="tabular-nums" />}>
-                        {count > 0 ? `${firstRow}-${lastRow} of ${count} runs` : ''}
+                        {count > 0 ? `${firstRow}-${lastRow} of ${countLabel} runs` : ''}
                     </Text>
                     <div className="flex items-center gap-2">
                         <Button

@@ -388,7 +388,7 @@ Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, incl
 
 ## Aiven — gaps
 
-Today (13): `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `services`, `user_group_members`, `user_groups`
+Today (16): `billing_group_credits`, `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `service_integrations`, `service_plans`, `services`, `user_group_members`, `user_groups`
 
 Diffed against: <https://api.aiven.io/doc/openapi.json>
 
@@ -396,12 +396,12 @@ Diffed against: <https://api.aiven.io/doc/openapi.json>
 - [x] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
 - [x] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
 - [x] `GET /project/{project}/events` — project/service audit and state-change history (high)
-- [ ] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium)
-- [ ] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium)
+- [x] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium). Added as `billing_group_credits` (fan-out over billing groups).
+- [x] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium). Added as `service_plans` from `GET /project/{project}/service_types`, which returns every service type with its plans in one call. No separate service types table: the plan rows carry `service_type`, and `/service-types` returns an object keyed by type, not a list.
 - [ ] `GET /project/{project}/service/{service_name}/tags and /project/{project}/tags` — tag dimensions used for cost and ownership attribution (medium)
 - [ ] `GET /project/{project}/service/{service_name}/backups` — backup history per service for retention/RPO analysis (medium)
-- [ ] `GET /project/{project}/service/{service_name}/integration` — service-to-service integration edges (metrics/log shipping topology) (medium)
-- [ ] `GET /organization/{organization_id}/tickets` — support ticket volume per org/project (medium)
+- [x] `GET /project/{project}/service/{service_name}/integration` — service-to-service integration edges (metrics/log shipping topology) (medium). Added as `service_integrations` (fan-out over project services).
+- [ ] `GET /organization/{organization_id}/tickets` — support ticket volume per org/project (medium). Skipped: the current spec has no ticket paths, only a "Support ticket" tag description.
 - [ ] `GET /project/{project}/alerts and /project/{project}/service/{service_name}/alerts` — open service alerts as an operational health table (low)
 - [ ] `GET /organization/{organization_id}/emissions` — carbon emissions reporting per organization (low)
 
@@ -7456,10 +7456,10 @@ Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-
 - [ ] `GET /creatives` — lookup resolving the creative id referenced by campaigns we already sync (high). Skipped: the API has no list operation for creatives, only create and get-by-id.
 - [x] `GET /billing_groups` — lookup resolving billing_group_id present on every mailpiece, needed for cost attribution (high). Added as `billing_groups`.
 - [x] `GET /uploads and /uploads/{upl_id}/report` — campaign audience uploads plus per-upload success/failure report (high). Added `uploads`. `/uploads/{upl_id}/report` skipped: Lob gates it behind a per-account feature flag, and its rows echo the raw audience CSV.
-- [ ] `GET /snap_packs` — a first-class mailpiece type missing alongside letters/postcards/self_mailers (medium)
-- [ ] `GET /booklets` — a first-class mailpiece type missing from the current set (medium)
-- [ ] `GET /cards and /cards/{card_id}/orders` — card inventory plus order line items (spend and quantity) (medium)
-- [ ] `GET /templates/{tmpl_id}/versions` — template version lookup resolving the version id stamped on each mailpiece (medium)
+- [x] `GET /snap_packs` — a first-class mailpiece type missing alongside letters/postcards/self_mailers (medium). Added as `snap_packs` (incremental on `date_created`).
+- [x] `GET /booklets` — a first-class mailpiece type missing from the current set (medium). Added as `booklets` (incremental on `date_created`).
+- [x] `GET /cards and /cards/{card_id}/orders` — card inventory plus order line items (spend and quantity) (medium). Added `cards` and `card_orders` (full refresh, fan-out per card).
+- [x] `GET /templates/{tmpl_id}/versions` — template version lookup resolving the version id stamped on each mailpiece (medium). Added as `template_versions` (full refresh, fan-out per template).
 - [ ] `GET /links` — tracked link definitions that resolve click/scan attribution (medium)
 - [ ] `GET /buckslips and /buckslips/{buckslip_id}/orders` — buckslip inserts and their orders, same shape as cards (low)
 - [ ] `GET /informed_delivery_campaigns` — USPS Informed Delivery campaign records tied to mailpieces (low)
@@ -13714,11 +13714,11 @@ Diffed against: <https://docs.zero.inc/llms.txt>
 - [x] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high) → `lists`
 - [x] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high) → `quotes` (line items stay a nested array column)
 - [x] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high) → `sequence_enrollments`
-- [ ] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium)
+- [x] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium) → `sequences`
 - [x] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium) → `sequence_steps`
-- [ ] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium)
-- [ ] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium)
-- [ ] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium)
+- [x] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium) → `products` (price variants stay a nested array column)
+- [x] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium) → `custom_activities`
+- [x] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium) → `custom_activity_types`
 
 Note: Used the official documentation index and parsed OpenAPI operation blocks from the linked resource pages. Current references are under /developers/api/, while the source records older /features/api/ documentation paths. New collections support workspace filters; quote line items and product prices are nested arrays. Excluded views, column configuration, files, and sequence progress summaries whose counts overlap enrollment records.
 
