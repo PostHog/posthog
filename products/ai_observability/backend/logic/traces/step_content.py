@@ -184,7 +184,7 @@ def _team_recipe_or_json_side(
             shown = value
         return _ReadSide(
             side=contracts.TraceJsonSide(kind="json", value=shown),
-            reading=SideReading(recognized=not _is_unreadable_json(value)),
+            reading=SideReading(recognized=not _is_unreadable_json(shown)),
         )
 
     return _guarded(build, kind, value, team_id=team_id)

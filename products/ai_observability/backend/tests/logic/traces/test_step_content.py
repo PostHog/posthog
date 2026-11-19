@@ -398,6 +398,7 @@ AGENT_SAID = {"who": "agent", "said": "Hi"}
             (True, True),
         ),
         ("span output that is plain text", "span", AGENT_SAID, "done", RecipeNormalizer, (False, True)),
+        ("span output that is JSON text", "span", AGENT_SAID, '{"said": "done"}', RecipeNormalizer, (False, False)),
         ("span output that is a number", "span", AGENT_SAID, 42, RecipeNormalizer, (False, True)),
         ("span output that is an empty object", "span", AGENT_SAID, {}, RecipeNormalizer, (False, True)),
         ("span output that is an array", "span", AGENT_SAID, [1, 2], RecipeNormalizer, (False, False)),
