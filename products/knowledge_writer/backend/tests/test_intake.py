@@ -35,7 +35,11 @@ from products.knowledge_writer.backend.logic.docs_pages import (
     WRITER_QUOTES_PATH,
 )
 from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
-from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS, change_manifest_script
+from products.knowledge_writer.backend.logic.launch import (
+    CHECK_SCRIPT_ATTACHMENT_NAME,
+    WRITER_IDLE_TIMEOUT_SECONDS,
+    change_check_script,
+)
 from products.knowledge_writer.backend.logic.pull_requests import (
     DRAFT_EVENT,
     LINK_BACK_START,
@@ -614,11 +618,14 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
     assert run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert run.state["include_live_context"] is False
-    (attachment,) = run.artifacts
-    assert run.state["pending_user_artifact_ids"] == [attachment["id"]]
+    attachment_by_name = {attachment["name"]: attachment for attachment in run.artifacts}
+    assert run.state["pending_user_artifact_ids"] == [attachment["id"] for attachment in run.artifacts]
     assert WRITER_QUOTES_PATH in run.state["pending_user_message"]
-    assert attachment["name"] == SOURCE_DIFF_ATTACHMENT_NAME
-    assert object_storage.read(attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
+    check_attachment = attachment_by_name[CHECK_SCRIPT_ATTACHMENT_NAME]
+    assert CHECK_SCRIPT_ATTACHMENT_NAME in run.state["pending_user_message"]
+    assert BASE_SHA in object_storage.read(check_attachment["storage_path"])
+    diff_attachment = attachment_by_name[SOURCE_DIFF_ATTACHMENT_NAME]
+    assert object_storage.read(diff_attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
 
@@ -1569,8 +1576,12 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if quote_by_line is not None:
         (tmp_path / WRITER_QUOTES_PATH).write_text(json.dumps(quote_by_line))
 
+    check_script = tmp_path / ".posthog" / "attachments" / "run" / "check" / CHECK_SCRIPT_ATTACHMENT_NAME
+    check_script.parent.mkdir(parents=True)
+    check_script.write_text(change_check_script(base, ("contents/docs",), "/docs/", routed_page_keys))
+
     check = subprocess.run(
-        ["bash", "-c", change_manifest_script(base, ("contents/docs",), "/docs/", routed_page_keys)],
+        ["python3", str(check_script.relative_to(tmp_path))],
         cwd=tmp_path,
         env=git_env,
         capture_output=True,
