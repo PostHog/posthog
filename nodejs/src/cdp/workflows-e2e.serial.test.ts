@@ -2224,6 +2224,74 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(conversionCount()).toBe(1)
             }, 5000)
         })
+
+        it('counts a conversion on the goal a run enrolled with after the flow changed goal, with lookups gated on pinned goals', async () => {
+            const flow = await createWorkflowFlow(
+                {
+                    actions: {
+                        trigger: trigger(),
+                        delay: { type: 'delay', config: { delay_duration: '5m' } },
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'exit', type: 'continue' },
+                    ],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: { filters: [], bytecode: [], events: [eventNameFilter('old_goal')] } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+            // The worker records the goal alongside the watcher it writes.
+            await waitForExpect(async () => {
+                const goals = await cyclotronPool.query(
+                    'SELECT goal FROM conversion_watcher_goals WHERE function_id = $1',
+                    [flow.id]
+                )
+                expect(goals.rows).toEqual([{ goal: { events: [eventNameBytecode('old_goal')] } }])
+            }, 5000)
+            // Edited to a new goal over an hour ago, so the matcher trusts the goals table for this team.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET conversion = $1, updated_at = NOW() - INTERVAL '2 hours' WHERE id = $2`,
+                [JSON.stringify({ filters: [], bytecode: [], events: [eventNameFilter('new_goal')] }), flow.id],
+                'editHogFlowGoal'
+            )
+            const janitor = new CyclotronV2Janitor({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL } })
+            expect(await janitor.syncConversionWatcherGoals()).toBe(true)
+            await janitor.stop()
+            const gated = new CdpHogflowSubscriptionMatcherConsumer(
+                { ...hub, CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' },
+                deps
+            )
+            await (gated as any).refreshWatcherState()
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.metric_name === 'conversion')
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            try {
+                // The run is judged by the goal it enrolled with, not the flow's current one.
+                await gated.processBatch([createGlobals({ event: 'new_goal' }), createGlobals({ event: 'unrelated' })])
+                expect(conversionCount()).toBe(0)
+                await gated.processBatch([createGlobals({ event: 'old_goal' })])
+
+                await waitForExpect(() => {
+                    expect(conversionCount()).toBe(1)
+                }, 5000)
+                const watchers = await cyclotronPool.query(
+                    'SELECT count(*)::int AS n FROM conversion_watchers WHERE function_id = $1',
+                    [flow.id]
+                )
+                expect(watchers.rows[0].n).toBe(0)
+            } finally {
+                await gated.stop().catch(() => {})
+            }
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {

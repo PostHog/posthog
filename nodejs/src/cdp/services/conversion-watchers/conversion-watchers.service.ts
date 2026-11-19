@@ -17,6 +17,11 @@ const counterConversionWatchersFailed = new Counter({
     help: 'Watcher rows dropped because the insert failed. Each one is a run whose conversion can never be counted, so the conversion rate under-reports by exactly this much.',
 })
 
+const counterConversionWatcherGoalsFailed = new Counter({
+    name: 'cdp_conversion_watcher_goals_failed',
+    help: 'Watcher rows whose goal could not be recorded in conversion_watcher_goals. The watcher is still written, and the janitor records its goal on its next sync.',
+})
+
 const gaugeConversionWatchersPending = new Gauge({
     name: 'cdp_conversion_watchers_pending_rows',
     help: 'Watcher rows queued in memory waiting for the next flush. Resets to 0 after each flush.',
@@ -109,6 +114,14 @@ export class ConversionWatchersService {
 
         for (let offset = 0; offset < rows.length; offset += INSERT_CHUNK_SIZE) {
             const chunk = rows.slice(offset, offset + INSERT_CHUNK_SIZE)
+            // Before the watchers, so the matcher never sees a watcher whose goal it has not been told about.
+            try {
+                await this.upsertGoals(pool, chunk)
+            } catch (err) {
+                counterConversionWatcherGoalsFailed.inc(chunk.length)
+                logger.error('⚠️', 'Failed to record conversion watcher goals', { err, count: chunk.length })
+                captureException(err)
+            }
             try {
                 await this.insertChunk(pool, chunk)
                 counterConversionWatchersInserted.inc(chunk.length)
@@ -121,6 +134,27 @@ export class ConversionWatchersService {
                 captureException(err)
             }
         }
+    }
+
+    // DISTINCT ON keeps one row per goal, since ON CONFLICT cannot update a row twice in one statement, and its
+    // ORDER BY takes the row locks in key order so two writers cannot deadlock.
+    private async upsertGoals(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {
+        await pool.query(
+            `INSERT INTO conversion_watcher_goals AS g (team_id, function_id, goal_hash, goal, expires_at)
+             SELECT DISTINCT ON (team_id, function_id, md5(goal::text))
+                    team_id, function_id, md5(goal::text), goal, expires_at
+             FROM unnest($1::int[], $2::uuid[], $3::jsonb[], $4::timestamptz[]) AS u(team_id, function_id, goal, expires_at)
+             ORDER BY team_id, function_id, md5(goal::text), expires_at DESC
+             ON CONFLICT (team_id, function_id, goal_hash)
+             DO UPDATE SET expires_at = EXCLUDED.expires_at
+             WHERE g.expires_at < EXCLUDED.expires_at`,
+            [
+                rows.map((row) => row.team_id),
+                rows.map((row) => row.function_id),
+                rows.map((row) => JSON.stringify(row.goal)),
+                rows.map((row) => row.expires_at),
+            ]
+        )
     }
 
     private async insertChunk(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {

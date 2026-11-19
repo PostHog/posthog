@@ -79,6 +79,11 @@ export type CdpConfig = ClickhouseConfig & {
     //   "shadow"  - every event is still looked up, and the metrics count what "on" would skip.
     //   "on"      - only events that pass some filter are looked up.
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: string
+    // Whether the matcher checks events against the goals of live conversion watchers before looking the watchers up.
+    //   "off"     - goal lookups work as before.
+    //   "shadow"  - lookups work as before, and the metrics count what "on" would skip.
+    //   "on"      - only events that could meet a watcher's goal are looked up, while the goals table is in sync.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
@@ -414,6 +419,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 0,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'off',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'off',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,

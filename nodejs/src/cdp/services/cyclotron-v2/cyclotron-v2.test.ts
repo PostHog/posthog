@@ -4921,6 +4921,53 @@ describe('Cyclotron V2', () => {
 
             await janitor.stop()
         })
+
+        it('records the goal of every live watcher, stamps the sync, and sweeps goals no watcher holds', async () => {
+            // A watcher written without its goal row, as by a writer on the previous release. Without the sync the
+            // matcher would skip every event that meets this goal and the run would never convert.
+            const functionId = uuidv7()
+            const watcherGoal = { events: [['_H', 1, 32, 'signed_up', 32, 'event', 1, 1, 11]] }
+            const watcherExpiresAt = new Date(Date.now() + 3_600_000)
+            const insertWatcher = async (goal: object, expiresAt: Date): Promise<void> => {
+                const id = uuidv7()
+                await assertPool.query(
+                    `INSERT INTO conversion_watchers (id, team_id, function_id, run_id, distinct_id, goal, expires_at)
+                     VALUES ($1, 1, $2, $1, $3, $4, $5)`,
+                    [id, functionId, `goal-sync-${id}`, JSON.stringify(goal), expiresAt]
+                )
+            }
+            await insertWatcher(watcherGoal, watcherExpiresAt)
+            await insertWatcher(watcherGoal, new Date(Date.now() + 60_000))
+            await insertWatcher({ events: [['_H', 1, 32, 'long_gone']] }, new Date(Date.now() - 3_600_000))
+            const insertGoal = async (goal: object, expiresAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO conversion_watcher_goals (team_id, function_id, goal_hash, goal, expires_at)
+                     VALUES (1, $1, md5($2::jsonb::text), $2::jsonb, $3)`,
+                    [functionId, JSON.stringify(goal), expiresAt]
+                )
+            }
+            const recentlyExpiredGoal = { events: [['_H', 1, 32, 'recently_expired']] }
+            await insertGoal({ events: [['_H', 1, 32, 'expired']] }, new Date(Date.now() - 3_600_000))
+            // Kept past its expiry, like the watchers, while the matcher may still hold an event for it.
+            await insertGoal(recentlyExpiredGoal, new Date(Date.now() - 60_000))
+            const startedAt = Date.now()
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            await janitor.runOnce()
+            await janitor.stop()
+
+            const goals = await assertPool.query(
+                `SELECT goal, expires_at, goal_hash = md5(goal::text) AS hash_matches
+                 FROM conversion_watcher_goals WHERE function_id = $1 ORDER BY expires_at`,
+                [functionId]
+            )
+            expect(goals.rows).toEqual([
+                { goal: recentlyExpiredGoal, expires_at: expect.any(String), hash_matches: true },
+                { goal: watcherGoal, expires_at: watcherExpiresAt.toISOString(), hash_matches: true },
+            ])
+            const sync = await assertPool.query(`SELECT synced_at FROM conversion_watcher_goals_sync`)
+            expect(new Date(sync.rows[0].synced_at).getTime()).toBeGreaterThanOrEqual(startedAt - 1000)
+        })
     })
 
     describe('dropped Postgres connections', () => {

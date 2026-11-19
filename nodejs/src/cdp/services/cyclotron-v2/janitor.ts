@@ -72,6 +72,21 @@ const conversionWatchersSweptCounter = new Counter({
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
+const conversionWatcherGoalsSweptCounter = new Counter({
+    name: 'cdp_conversion_watcher_goals_swept',
+    help: 'Expired conversion_watcher_goals rows deleted: goals no live watcher holds any more.',
+})
+
+const conversionWatcherGoalsSyncedCounter = new Counter({
+    name: 'cdp_conversion_watcher_goals_synced',
+    help: 'conversion_watcher_goals rows the janitor sync added or extended. Writers record goals themselves, so this stays near 0 unless a writer skipped one.',
+})
+
+const conversionWatcherGoalsSyncFailedCounter = new Counter({
+    name: 'cdp_conversion_watcher_goals_sync_failed',
+    help: 'Failed conversion_watcher_goals syncs. The matcher stops trusting the goals table once the last sync is too old.',
+})
+
 const idempotencyKeysSweptCounter = new Counter({
     name: 'cdp_cyclotron_v2_idempotency_keys_swept',
     help: 'Expired idempotency key rows deleted by the janitor.',
@@ -95,6 +110,13 @@ const queueOldestDueAgeGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+// Writers record a goal with every watcher. The sync also covers watchers written by a process that does not, such
+// as one still on the previous release, and its timestamp tells the matcher the goals table is complete.
+const CONVERSION_WATCHER_GOALS_SYNC_INTERVAL_MS = 5 * 60 * 1000
+const CONVERSION_WATCHER_GOALS_SYNC_RETRY_MS = 60 * 1000
+// Longer than the watchers' own sweep grace, so a goal row never goes before a watcher that holds it.
+const CONVERSION_WATCHER_GOALS_SWEEP_GRACE_SECONDS = 600
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -114,6 +136,7 @@ export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
     private tickInFlight = false
+    private goalsSyncDueAt = 0
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -185,6 +208,13 @@ export class CyclotronV2Janitor {
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
         await this.sweepExpiredConversionWatchers()
+        await this.sweepExpiredConversionWatcherGoals()
+        if (Date.now() >= this.goalsSyncDueAt) {
+            const synced = await this.syncConversionWatcherGoals()
+            this.goalsSyncDueAt =
+                Date.now() +
+                (synced ? CONVERSION_WATCHER_GOALS_SYNC_INTERVAL_MS : CONVERSION_WATCHER_GOALS_SYNC_RETRY_MS)
+        }
         await this.sweepExpiredIdempotencyKeys()
 
         // Each stage is isolated, so a failure on one query (a statement timeout on cyclotron_jobs) never
@@ -533,6 +563,100 @@ export class CyclotronV2Janitor {
         // The matcher can hold an event for a moment before looking it up, and judges it by when it
         // arrived, so a watcher has to outlive its expiry by longer than that hold.
         return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter, '', 300)
+    }
+
+    // The table holds a few hundred rows, so one unbatched delete is enough. A writer extending a row's expiry
+    // meanwhile holds its lock, and the delete re-checks the expiry once that lock is released.
+    async sweepExpiredConversionWatcherGoals(): Promise<number> {
+        try {
+            const result = await this.pool.query(
+                `DELETE FROM conversion_watcher_goals WHERE expires_at <= NOW() - make_interval(secs => $1)`,
+                [CONVERSION_WATCHER_GOALS_SWEEP_GRACE_SECONDS]
+            )
+            const deleted = result.rowCount ?? 0
+            conversionWatcherGoalsSweptCounter.inc(deleted)
+            return deleted
+        } catch (err) {
+            logger.error('CyclotronV2Janitor sweep failed', { table: 'conversion_watcher_goals', error: String(err) })
+            captureException(err)
+            return 0
+        }
+    }
+
+    /**
+     * Records the goal of every live watcher in conversion_watcher_goals, then stamps the sync time.
+     *
+     * Everything runs in one transaction, and NOW() is when it began, so the stamp promises only what the scan
+     * saw: every watcher committed before it. The scan groups by a hash of the goal and keeps one watcher id per
+     * group, so it aggregates in memory instead of sorting every goal; the goals themselves are then read by id.
+     * A sampled watcher claimed in between leaves its goal unread, and the stamp is skipped so the matcher does
+     * not trust a table that may lack it. The insert's ORDER BY takes row locks in the same order as the
+     * writers' upsert, so the two cannot deadlock. Returns false when the stamp was not written; a failure is
+     * reported and swallowed like the sweeps, and the matcher falls back to the old lookups once the stamp is old.
+     */
+    async syncConversionWatcherGoals(): Promise<boolean> {
+        let client
+        try {
+            client = await this.pool.connect()
+            await client.query('BEGIN')
+            await client.query(`SET LOCAL statement_timeout = '120s'`)
+            const live = await client.query<{
+                team_id: number
+                function_id: string
+                goal_hash: string
+                expires_at: string
+                sample_id: string
+            }>(
+                // As text, since a JS Date drops the microseconds and would end the row just before its last watcher.
+                `SELECT team_id, function_id, md5(goal::text) AS goal_hash, MAX(expires_at)::text AS expires_at,
+                        MIN(id::text) AS sample_id
+                 FROM conversion_watchers
+                 WHERE expires_at > NOW() - make_interval(secs => $1)
+                 GROUP BY team_id, function_id, md5(goal::text)`,
+                [CONVERSION_WATCHER_GOALS_SWEEP_GRACE_SECONDS]
+            )
+            const samples = await client.query<{ id: string; goal: string }>(
+                `SELECT id::text AS id, goal::text AS goal FROM conversion_watchers WHERE id = ANY($1::uuid[])`,
+                [live.rows.map((row) => row.sample_id)]
+            )
+            const goalById = new Map(samples.rows.map((row) => [row.id, row.goal]))
+            const found = live.rows.filter((row) => goalById.has(row.sample_id))
+            const result = await client.query(
+                `INSERT INTO conversion_watcher_goals AS g (team_id, function_id, goal_hash, goal, expires_at)
+                 SELECT team_id, function_id, goal_hash, goal::jsonb, expires_at
+                 FROM unnest($1::int[], $2::uuid[], $3::text[], $4::text[], $5::timestamptz[])
+                     AS u(team_id, function_id, goal_hash, goal, expires_at)
+                 ORDER BY team_id, function_id, goal_hash
+                 ON CONFLICT (team_id, function_id, goal_hash)
+                 DO UPDATE SET expires_at = EXCLUDED.expires_at
+                 WHERE g.expires_at < EXCLUDED.expires_at`,
+                [
+                    found.map((row) => row.team_id),
+                    found.map((row) => row.function_id),
+                    found.map((row) => row.goal_hash),
+                    found.map((row) => goalById.get(row.sample_id)),
+                    found.map((row) => row.expires_at),
+                ]
+            )
+            const complete = found.length === live.rows.length
+            if (complete) {
+                await client.query(
+                    `INSERT INTO conversion_watcher_goals_sync (id, synced_at) VALUES (TRUE, NOW())
+                     ON CONFLICT (id) DO UPDATE SET synced_at = EXCLUDED.synced_at`
+                )
+            }
+            await client.query('COMMIT')
+            conversionWatcherGoalsSyncedCounter.inc(result.rowCount ?? 0)
+            return complete
+        } catch (err) {
+            await client?.query('ROLLBACK').catch(() => {})
+            conversionWatcherGoalsSyncFailedCounter.inc()
+            logger.error('CyclotronV2Janitor conversion watcher goals sync failed', { error: String(err) })
+            captureException(err)
+            return false
+        } finally {
+            client?.release()
+        }
     }
 
     // Keeps a key while its job exists, so a repeat cannot insert a second job with the same id.

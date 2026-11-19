@@ -128,10 +128,15 @@ const realSinks = (): {
     )
     const pool = new Pool({ connectionString: CYCLOTRON_DATABASE_URL })
     const runIds = (runs: CyclotronJobInvocationResult[]): string[] => runs.map((run) => run.invocation.id)
+    const functionIds = (runs: CyclotronJobInvocationResult[]): string[] => runs.map((run) => run.invocation.functionId)
     const delivered = async (runs: CyclotronJobInvocationResult[]): Promise<Record<string, unknown[]>> => {
         const watchers = await pool.query(
             'SELECT run_id FROM conversion_watchers WHERE run_id = ANY($1) ORDER BY distinct_id',
             [runIds(runs)]
+        )
+        const goals = await pool.query(
+            'SELECT function_id, goal FROM conversion_watcher_goals WHERE function_id = ANY($1) ORDER BY function_id',
+            [functionIds(runs)]
         )
         return {
             [APP_METRICS_OUTPUT]: recording.produced(APP_METRICS_OUTPUT),
@@ -142,11 +147,13 @@ const realSinks = (): {
             [EMAIL_STATUS_OUTPUT]: recording.produced(EMAIL_STATUS_OUTPUT),
             capture: mockInternalFetch.mock.calls.map(([, init]) => parseJSON(String(init?.body))),
             conversion_watchers: watchers.rows,
+            conversion_watcher_goals: goals.rows,
         }
     }
     const cleanup = async (runs: CyclotronJobInvocationResult[]): Promise<void> => {
         await service.stop()
         await pool.query('DELETE FROM conversion_watchers WHERE run_id = ANY($1)', [runIds(runs)])
+        await pool.query('DELETE FROM conversion_watcher_goals WHERE function_id = ANY($1)', [functionIds(runs)])
         await pool.end()
     }
     return { service, delivered, cleanup }
@@ -231,6 +238,7 @@ describe('InvocationResultsService', () => {
                     [EMAIL_STATUS_OUTPUT]: [],
                     capture: [],
                     conversion_watchers: [],
+                    conversion_watcher_goals: [],
                 })
             } finally {
                 await cleanup(runs)
@@ -295,6 +303,9 @@ describe('InvocationResultsService', () => {
                         { api_key: team.api_token, distinct_id: run.capturedPostHogEvents[0].distinct_id },
                     ]),
                     conversion_watchers: eachRun((run) => [{ run_id: run.invocation.id }]),
+                    conversion_watcher_goals: expect.arrayContaining(
+                        eachRun((run) => [{ function_id: run.invocation.functionId, goal: { events: [] } }])
+                    ),
                 })
             } finally {
                 await cleanup(runs)
