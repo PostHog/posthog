@@ -339,6 +339,14 @@ class ProviderContactsResult:
     chunks: int = 0
 
 
+class ContactsCaptureFailed(Exception):
+    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
+
+
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
 @frozen
 class ContactChunkOutcome:
     """What sending one stored part of a provider list did."""

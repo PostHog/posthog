@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.capture import CaptureInternalResult
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -20,7 +21,6 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import list_cohort_member_ids
 from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import (
     ContactChunkOutcome,
@@ -310,7 +310,12 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             self.team.id, first.cohort_id, again.storage_prefix, again.chunks
         )
 
-        assert list_cohort_member_ids(self.team.id, first.cohort_id) == [people[name].id for name in members]
+        in_clickhouse = sync_execute(
+            "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": first.cohort_id},
+        )
+        assert {row[0] for row in in_clickhouse} == {people[name].uuid for name in members}
+        assert Cohort.objects.get(id=first.cohort_id).count == len(members)
         assert filled == ContactsCohortFilled(members=len(members), removed=3 - len(members))
 
     @patch.object(provider_contacts, "capture_batch_internal")

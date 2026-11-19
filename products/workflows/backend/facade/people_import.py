@@ -2,6 +2,7 @@
 
 from products.workflows.backend.facade.contracts import (
     ContactChunkOutcome,
+    ContactsCaptureFailed,
     ContactsCohortFilled,
     PeopleImportInvalid,
     ProviderContactsResult,
@@ -12,7 +13,6 @@ from products.workflows.backend.services.people_import import (
     start_people_import,
 )
 from products.workflows.backend.services.provider_contacts import (
-    ContactsCaptureFailed,
     discard_staged_contacts,
     fail_contacts_cohort,
     fill_contacts_cohort,

@@ -19,6 +19,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.cohorts.backend.facade.api import find_cohort_ref_by_description, replace_static_cohort_members
 from products.workflows.backend.facade.contracts import (
     ContactChunkOutcome,
+    ContactsCaptureFailed,
+    ContactsCleanupFailed,
     ContactsCohortFilled,
     PeopleImportInvalid,
     ProviderContactsResult,
@@ -47,14 +49,6 @@ WAIT_FOR_PEOPLE_SECONDS = 600
 WAIT_FIRST_DELAY_SECONDS = 2
 WAIT_MAX_DELAY_SECONDS = 30
 _STORAGE_FOLDER = "workflows_provider_contacts"
-
-
-class ContactsCaptureFailed(Exception):
-    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
-
-
-class ContactsCleanupFailed(Exception):
-    """Object storage kept some of the parts an import stored."""
 
 
 def stage_provider_contacts(
