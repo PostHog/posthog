@@ -23,6 +23,7 @@ export type JournalEntry = {
     kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
+    step?: number
     answer: IntakeAnswer
     expect: { deliveries: string[] }
     followUp?: FollowUpAnswer

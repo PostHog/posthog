@@ -5,7 +5,7 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { SeedState, drive } from './generator'
+import { SeedState, StepGate, drive } from './generator'
 import type { OfferContext } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
@@ -48,6 +48,16 @@ function cardWith({
     } satisfies LoadedCard
 }
 
+function rampedCard(
+    ratePerSecond: number,
+    ramp: NonNullable<LoadedCard['card']['drive']['ramp']>,
+    driveFor: string,
+    stopOnBreak?: true
+): LoadedCard {
+    const plain = cardWith({ ratePerSecond, driveFor })
+    return { ...plain, card: { ...plain.card, drive: { ...plain.card.drive, ramp, stopOnBreak } } }
+}
+
 function startDrive(
     loaded: LoadedCard,
     produce: Produce,
@@ -56,9 +66,13 @@ function startDrive(
         signal = NEVER_ABORTED,
         cdpApi = CDP_API,
         sesFeedback = NO_FEEDBACK,
+        halt,
+        gate,
     }: {
         teamIds?: number[]
         signal?: AbortSignal
+        halt?: AbortSignal
+        gate?: StepGate
         cdpApi?: OfferContext['cdpApi']
         sesFeedback?: OfferContext['sesFeedback']
     } = {}
@@ -71,6 +85,8 @@ function startDrive(
         cdpApi,
         sesFeedback,
         runId: 'run-a',
+        halt,
+        gate,
     })
     return { driving, journal }
 }
@@ -95,14 +111,19 @@ describe('drive', () => {
         jest.useRealTimers()
     })
 
-    it.each<[string, number, (kafka: ReturnType<typeof heldKafka>) => void, Summary]>([
-        ['every produce acknowledged', 100, (kafka) => kafka.acknowledge(), { targetUnits: 5, offeredUnits: 5 }],
+    it.each<[string, number, (kafka: ReturnType<typeof heldKafka>) => void, Partial<Summary>]>([
+        [
+            'every produce acknowledged',
+            100,
+            (kafka) => kafka.acknowledge(),
+            { targetUnits: 5, offeredUnits: 5, steps: [expect.objectContaining({ offeredUnits: 5 })] },
+        ],
         ['every produce rejected', 100, (kafka) => kafka.reject(), { targetUnits: 5, offeredUnits: 0 }],
         [
             'every produce acknowledged after the window',
             101,
             (kafka) => kafka.acknowledge(),
-            { targetUnits: 5, offeredUnits: 0 },
+            { targetUnits: 5, offeredUnits: 0, steps: [expect.objectContaining({ offeredUnits: 0 })] },
         ],
     ])(
         'counts a unit as offered once Kafka acknowledged it inside the window: %s',
@@ -113,9 +134,26 @@ describe('drive', () => {
             await jest.advanceTimersByTimeAsync(answeredAtMs)
             answer(kafka)
 
-            expect(await driving).toEqual(expected)
+            expect(await driving).toMatchObject(expected)
         }
     )
+
+    it('counts no acknowledgement that arrived after the drive was due to end, though its last timer woke late', async () => {
+        const kafka = heldKafka()
+        const startedAt = Date.now()
+        const { driving } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), kafka.produce)
+
+        await jest.advanceTimersByTimeAsync(90)
+        jest.setSystemTime(startedAt + 150)
+        kafka.acknowledge()
+        await jest.advanceTimersByTimeAsync(10)
+
+        expect(await driving).toMatchObject({
+            targetUnits: 5,
+            offeredUnits: 0,
+            steps: [expect.objectContaining({ dueUnits: 5, offeredUnits: 0 })],
+        })
+    })
 
     it.each<[string, Produce, object]>([
         [
@@ -248,7 +286,7 @@ describe('drive', () => {
             await jest.advanceTimersByTimeAsync(100)
             held.forEach((response) => response.writeHead(status).end('{}'))
 
-            expect(await driving).toEqual({ targetUnits: 2, offeredUnits: 2 })
+            expect(await driving).toMatchObject({ targetUnits: 2, offeredUnits: 2 })
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -270,10 +308,87 @@ describe('drive', () => {
         kafka.acknowledge()
         await jest.advanceTimersByTimeAsync(0)
 
-        expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toEqual({
+        expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toMatchObject({
             summary: { targetUnits: 5, offeredUnits: 2 },
             journaled: ['run-a-1', 'run-a-2'],
         })
+    })
+
+    it('stops offering at a halt, still journals the units in flight, and counts only the units due before it', async () => {
+        const kafka = heldKafka()
+        const halt = new AbortController()
+        const { driving, journal } = startDrive(cardWith({ ratePerSecond: 10, driveFor: '1s' }), kafka.produce, {
+            halt: halt.signal,
+        })
+        let summary: Summary | undefined
+        void driving.then((ended) => (summary = ended))
+
+        await jest.advanceTimersByTimeAsync(450)
+        halt.abort()
+        kafka.acknowledge()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect({ summary, journaled: journal.length }).toMatchObject({
+            summary: { targetUnits: 5, offeredUnits: 5 },
+            journaled: 5,
+        })
+    })
+
+    it.each<[string, true | undefined, object]>([
+        [
+            'a card that stops on a break keeps every step to its planned window and counts the overdue units as due',
+            true,
+            {
+                steps: [
+                    { fromMs: 0, toMs: 1000, dueUnits: 4, offeredUnits: 1 },
+                    { fromMs: 1000, toMs: 2000, dueUnits: 40, offeredUnits: 40 },
+                ],
+                lastOfferMs: 1975,
+                overdueOfferedAtMs: [],
+            },
+        ],
+        [
+            'a card that does not stop on a break offers the overdue units late, as one schedule',
+            undefined,
+            {
+                steps: [
+                    { fromMs: 0, toMs: 1000, dueUnits: 4, offeredUnits: 4 },
+                    { fromMs: 1000, toMs: 2000, dueUnits: 40, offeredUnits: 40 },
+                ],
+                lastOfferMs: 1975,
+                overdueOfferedAtMs: [1350, 1350, 1350],
+            },
+        ],
+    ])('after a stall across a step boundary, %s', async (_story, stopOnBreak, expected) => {
+        const ramped = rampedCard(
+            4,
+            [
+                { scale: 1, for: '1s' },
+                { scale: 10, for: '1s' },
+            ],
+            '2s',
+            stopOnBreak
+        )
+        const startedAt = Date.now()
+        const { driving, journal } = startDrive(ramped, ACKNOWLEDGED)
+
+        await jest.advanceTimersByTimeAsync(0)
+        jest.setSystemTime(startedAt + 1100)
+        await jest.advanceTimersByTimeAsync(2000)
+        const { steps } = await driving
+
+        expect({
+            steps: steps.map(({ startedAt: from, endedAt: to, dueUnits, offeredUnits }) => ({
+                fromMs: from - startedAt,
+                toMs: to - startedAt,
+                dueUnits,
+                offeredUnits,
+            })),
+            lastOfferMs: Math.max(...journal.map(({ offeredAt }) => offeredAt)) - startedAt,
+            overdueOfferedAtMs: journal
+                .filter(({ step, offeredAt }) => step === 0 && offeredAt - startedAt >= 1000)
+                .map(({ offeredAt }) => offeredAt - startedAt),
+        }).toEqual(expected)
     })
 
     it('keeps the window open until the drive duration ends, after its last unit was offered', async () => {
@@ -285,10 +400,59 @@ describe('drive', () => {
         const beforeTheEnd = summary
         await jest.advanceTimersByTimeAsync(1)
 
-        expect({ beforeTheEnd, summary }).toEqual({
+        expect({ beforeTheEnd, summary }).toMatchObject({
             beforeTheEnd: undefined,
             summary: { targetUnits: 2, offeredUnits: 2 },
         })
+    })
+
+    it.each<[string, LoadedCard, (halt: AbortController, startedAt: number) => void, object]>([
+        [
+            'its timer fired 1 ms early',
+            cardWith({ ratePerSecond: 50, driveFor: '100ms' }),
+            (_halt, startedAt) => jest.setSystemTime(startedAt + 89),
+            { lasted: 100, due: 5, offered: 5, overlapping: 0 },
+        ],
+        [
+            'the drive was halted',
+            cardWith({ ratePerSecond: 50, driveFor: '100ms' }),
+            (halt) => halt.abort(),
+            { lasted: 90, due: 5, offered: 5, overlapping: 0 },
+        ],
+        [
+            'its timer fired 1 ms early before the next step of a ramp',
+            rampedCard(
+                50,
+                [
+                    { scale: 1, for: '100ms' },
+                    { scale: 2, for: '100ms' },
+                ],
+                '200ms'
+            ),
+            (_halt, startedAt) => jest.setSystemTime(startedAt + 89),
+            { lasted: 100, due: 5, offered: 5, overlapping: 0 },
+        ],
+    ])('ends a step at its planned end unless the drive stopped it: %s', async (_story, loaded, act, expected) => {
+        const halt = new AbortController()
+        const startedAt = Date.now()
+        const { driving, journal } = startDrive(loaded, ACKNOWLEDGED, { halt: halt.signal })
+
+        await jest.advanceTimersByTimeAsync(90)
+        act(halt, startedAt)
+        await jest.advanceTimersByTimeAsync(250)
+
+        const { steps } = await driving
+        const [step] = steps
+        expect({
+            lasted: step.endedAt - step.startedAt,
+            due: step.dueUnits,
+            offered: step.offeredUnits,
+            overlapping: journal.filter(({ step: index, offeredAt }) =>
+                steps.some(
+                    (other) => other.index !== index && offeredAt >= other.startedAt && offeredAt < other.endedAt
+                )
+            ).length,
+        }).toEqual(expected)
     })
 
     it('ends at an interrupt between units without waiting for the next unit', async () => {
@@ -303,7 +467,7 @@ describe('drive', () => {
         interrupt.abort()
         await jest.advanceTimersByTimeAsync(0)
 
-        expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toEqual({
+        expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toMatchObject({
             summary: { targetUnits: 60, offeredUnits: 1 },
             journaled: ['run-a-1'],
         })
@@ -363,7 +527,7 @@ describe('drive', () => {
 
         expect(journal).toHaveLength(Date.now() - startedAt + 1)
         await jest.advanceTimersByTimeAsync(1000)
-        expect(await driving).toEqual({ targetUnits: 1000, offeredUnits: 1000 })
+        expect(await driving).toMatchObject({ targetUnits: 1000, offeredUnits: 1000 })
     })
 
     it('picks the same teams for the same seed and other teams for another seed', async () => {

@@ -89,7 +89,7 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
 export type Verdict = {
     admissions: Admission[]
     minOffered: number
-    units: DriveSummary
+    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits'>
     down: string[]
     convergence: Convergence
     invariants: InvariantResult[]

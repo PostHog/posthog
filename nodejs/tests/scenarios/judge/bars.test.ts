@@ -100,10 +100,22 @@ const HELD: BarResult[] = [
 const broke = (bar: 0 | 1, scale: number, atS: number, value: number, key?: string, offered = scale): BarResult => ({
     ...HELD[bar],
     passed: false,
-    breakingPoint: { scale, at: iso(atS), offeredPerSecond: offered, ...(key && { key }), value },
+    breakingPoint: {
+        scale,
+        at: iso(atS),
+        offeredPerSecond: offered,
+        ...(key && { key }),
+        value,
+        part: bar === 0 ? 'db:cyclotron' : `role:cdp-cyclotron-worker-${key}`,
+    },
 })
 
-const unjudged = (bar: 0 | 1, why: string): BarResult => ({ ...HELD[bar], passed: false, unjudged: why })
+const unjudged = (bar: 0 | 1, why: string): BarResult => ({
+    ...HELD[bar],
+    passed: false,
+    unjudged: why,
+    harnessLimit: expect.objectContaining({ by: why.startsWith('the drive ended') ? 'generator' : 'run_host' }),
+})
 
 describe('judgeBars', () => {
     it.each<[string, Partial<BarEvidence>, BarResult[]]>([
@@ -142,7 +154,7 @@ describe('judgeBars', () => {
                 {
                     ...HELD[0],
                     passed: false,
-                    breakingPoint: { scale: 10, at: iso(150), offeredPerSecond: 0, value: 90 },
+                    breakingPoint: { scale: 10, at: iso(150), offeredPerSecond: 0, value: 90, part: 'db:cyclotron' },
                 },
                 HELD[1],
             ],
@@ -192,7 +204,7 @@ describe('judgeBars', () => {
             [HELD[0], broke(1, 10, 60, 10, 'email')],
         ],
         [
-            'a scrape after the step boundary reported late pickups from the end of the 1x step',
+            'a scrape that straddles the step boundary counts in the step it was taken in, so its late pickups leave the 1x step held',
             {
                 samples: scrapedEvery5s(
                     120,
@@ -200,7 +212,7 @@ describe('judgeBars', () => {
                     { offsetS: -3 }
                 ),
             },
-            [HELD[0], broke(1, 1, 0, 10, 'email')],
+            [HELD[0], broke(1, 10, 60, 10, 'email')],
         ],
         [
             'jobs due in the 10x step were picked up late after the drive ended',
@@ -260,6 +272,28 @@ describe('judgeBars', () => {
                 unjudged(0, 'fewer than two host CPU samples in the 1x step'),
                 unjudged(1, 'fewer than two host CPU samples in the 1x step'),
             ],
+        ],
+        [
+            'the live judge saw the writer CPU break at the 10x step, and the final CPU read failed',
+            {
+                writerCpu: { unread: 'CloudWatch returned no datapoints' },
+                settled: new Map([
+                    [0, HELD],
+                    [1, [broke(0, 10, 60, 85), HELD[1]]],
+                ]),
+            },
+            [broke(0, 10, 60, 85), HELD[1]],
+        ],
+        [
+            'the live judge passed every step, and the final CPU read failed',
+            {
+                writerCpu: { unread: 'CloudWatch returned no datapoints' },
+                settled: new Map([
+                    [0, HELD],
+                    [1, HELD],
+                ]),
+            },
+            HELD,
         ],
         [
             'the drive was interrupted before its 10x step',

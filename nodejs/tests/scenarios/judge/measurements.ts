@@ -403,7 +403,13 @@ export type Baseline = {
     hostBusyShare?: number
 }
 
-export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvidence): Baseline {
+export function baselineOf({
+    samples,
+    queue,
+    host,
+    drive,
+    timeline,
+}: Pick<MeasureEvidence, 'samples' | 'queue' | 'host' | 'drive' | 'timeline'>): Baseline {
     const { baseline } = phasesOf(drive, timeline)
     const length = seconds(baseline.to - baseline.from)
     const scraped = scrapedSeconds(samples, baseline)
@@ -625,7 +631,12 @@ export function hostSampleOf(at: number, procStat: string): HostSample | undefin
     return { at, busyTicks: totalTicks - ticks[3] - ticks[4], totalTicks }
 }
 
-export type Sampler = { sampledFrom: number; taken(): readonly MetricSample[]; stop(): Promise<Sampled> }
+export type Sampler = {
+    sampledFrom: number
+    taken(): readonly MetricSample[]
+    host(): readonly HostSample[]
+    stop(): Promise<Sampled>
+}
 
 type Target = ReplicaOf & { metricsUrl: string }
 
@@ -704,6 +715,7 @@ export async function startSampler(
     return {
         sampledFrom,
         taken: () => samples,
+        host: () => host,
         stop: () =>
             (stopping ??= (async () => {
                 stopped.abort()
