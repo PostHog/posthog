@@ -5,7 +5,9 @@ _INITIATOR_PLACEHOLDER = "<original user message was here>"
 # The Slack app sends this title when the mention carried no text; the request is then the
 # message, inside the block, from the person its role line names as having tagged the app.
 _EMPTY_REQUEST = "Task from Slack"
-_MENTIONER_ROLE = "tagged the posthog app: "
+# Role lines the Slack app writes at the start of a header line. Display names cannot hold a newline,
+# so a name that repeats this wording cannot start a line.
+_MENTIONER_ROLES = ("Tagged the PostHog app: ", "Thread started by and tagged the PostHog app: ")
 
 
 @frozen
@@ -21,10 +23,11 @@ class SplitPrompt:
 
 
 def _mentioner(header: str) -> str:
-    start = header.lower().find(_MENTIONER_ROLE)
-    if start < 0:
-        return ""
-    return header[start + len(_MENTIONER_ROLE) :].split("\n")[0].rsplit(" (", 1)[0]
+    for line in header.split("\n"):
+        for role in _MENTIONER_ROLES:
+            if line.startswith(role):
+                return line.removeprefix(role).rsplit(" (", 1)[0]
+    return ""
 
 
 def _thread_messages(block: str) -> tuple[str, list[ThreadMessage]]:
@@ -65,9 +68,9 @@ def split_thread_context(text: str) -> SplitPrompt:
         thread.extend(messages)
         rest = rest[:start] + rest[end + len(closing) :]
     request = rest.strip()
-    if request == _EMPTY_REQUEST and thread:
+    mentioned = [i for i, message in enumerate(thread) if mentioner and message.author == mentioner]
+    if request == _EMPTY_REQUEST and mentioned:
         # Replies posted after the mention can follow it in the block, so the last message is not
-        # always the request.
-        mentioned = [i for i, message in enumerate(thread) if message.author == mentioner]
-        request = thread.pop(mentioned[-1] if mentioned else -1).body
+        # always the request. Without the mentioner's message, no one else's words stand in for it.
+        request = thread.pop(mentioned[-1]).body
     return SplitPrompt(request=request, thread=tuple(thread))
