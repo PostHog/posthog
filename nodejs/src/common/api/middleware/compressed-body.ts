@@ -131,13 +131,10 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
         if (encoding === 'identity' || !readsBody(req)) {
             return next()
         }
-        if (mediaTypeOf(req) !== JSON_MEDIA_TYPE) {
+        if (mediaTypeOf(req) !== JSON_MEDIA_TYPE || !decompressorFor(encoding)) {
             req.body = {}
             ;(req as BodyState).bodyRead = true
             return next()
-        }
-        if (!decompressorFor(encoding)) {
-            return refuse(res, 415, 'Unsupported content encoding')
         }
         readBody(req, res, (error, decoded) => {
             try {

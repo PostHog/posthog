@@ -199,10 +199,9 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['compress', 'application/json', '/echo', 'Unsupported content encoding'],
-        ['constructor', 'application/json', '/echo', 'Unsupported content encoding'],
-        ['__proto__', 'application/json', '/echo', 'Unsupported content encoding'],
         ['compress', 'text/plain', '/echo-text', 'Unsupported content encoding'],
+        ['constructor', 'text/plain', '/echo-text', 'Unsupported content encoding'],
+        ['__proto__', 'text/plain', '/echo-text', 'Unsupported content encoding'],
         ['gzip', 'text/plain; charset=utf-32', '/echo-text', 'Unsupported charset'],
     ])(
         'answers content encoding %s on a %s body with 415 and keeps serving',
@@ -222,10 +221,13 @@ describe('setupExpressApp request body handling', () => {
         ['Application/JSON', '/echo', 'gzip', gzipSync('{"data":"x"}')],
         ['application/json ; charset=utf-8', '/echo', 'gzip', gzipSync('{"data":"x"}')],
         ['application/xml', '/echo', 'compress', gzipSync('<data/>')],
+        ['application/json', '/echo', 'compress', gzipSync('{"data":"x"}')],
+        ['application/json', '/echo', 'constructor', gzipSync('{"data":"x"}')],
+        ['application/json', '/echo', '__proto__', gzipSync('{"data":"x"}')],
         ['text/plain', '/echo-stock-text', 'gzip', Buffer.from('this is not compressed data')],
         ['application/octet-stream', '/echo-text', 'gzip', randomBytes(4096)],
     ])(
-        'passes a compressed %s body to %s as {}, like the same body sent plain',
+        'passes a body of type %s sent to %s with content encoding %s as {}, as the base parser did',
         async (contentType, path, encoding, body) => {
             const res = await postEncoded(path, encoding, body, contentType)
 
