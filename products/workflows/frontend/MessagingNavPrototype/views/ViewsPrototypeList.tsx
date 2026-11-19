@@ -1,5 +1,5 @@
 // PROTOTYPE, never merged: PostHog/michaelr-context#421. A default view or a saved view, with the toolbar of the
-// variant: A quick filter chips, B the app's dropdowns and view menu, C one search bar with tokens.
+// variant: A quick filter chips, B the app's dropdowns and view menu, C one search bar with tokens, D today's toolbar.
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
@@ -115,6 +115,57 @@ function TagsMenu({ query, onChange }: { query: ViewQuery; onChange: (tags: stri
                 {query.tags.length ? `Tags: ${query.tags.join(', ')}` : 'Any tags'}
             </LemonButton>
         </LemonMenu>
+    )
+}
+
+/** Today's list toolbar, unchanged: search, then the Status, Created by and Tags filters. */
+function TodayToolbar({
+    list,
+    query,
+    statuses,
+    onChange,
+}: {
+    list: DefaultViewKey | null
+    query: ViewQuery
+    statuses: MessageStatus[]
+    onChange: (change: Partial<ViewQuery>) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+            <LemonInput
+                type="search"
+                size="small"
+                className="max-w-80 flex-1"
+                placeholder={list ? SEARCH_PLACEHOLDER[list] : 'Search this view'}
+                value={query.search}
+                onChange={(search) => onChange({ search })}
+                data-attr="messaging-prototype-list-search"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+                <b>Status</b>
+                <LemonSelect
+                    size="small"
+                    dropdownMatchSelectWidth={false}
+                    value={query.statuses[0] ?? 'all'}
+                    onChange={(value) => onChange({ statuses: value === 'all' ? [] : [value as MessageStatus] })}
+                    options={[{ value: 'all', label: 'All' }, ...statuses.map((s) => ({ value: s, label: s }))]}
+                    data-attr="messaging-prototype-status-filter"
+                />
+                <b className="ml-1">Created by</b>
+                <LemonSelect
+                    size="small"
+                    dropdownMatchSelectWidth={false}
+                    value={query.createdBy ?? 'anyone'}
+                    onChange={(value) => onChange({ createdBy: value === 'anyone' ? null : value })}
+                    options={[
+                        { value: 'anyone', label: 'Anyone' },
+                        ...PEOPLE.map((p) => ({ value: p, label: p === ME ? `${p} (you)` : p })),
+                    ]}
+                />
+                <b className="ml-1">Tags</b>
+                <TagsMenu query={query} onChange={(tags) => onChange({ tags })} />
+            </div>
+        </div>
     )
 }
 
@@ -246,12 +297,20 @@ export function ViewsPrototypeList({
               </>
           )
 
-    // Variant D keeps search and status in the URL, the same `search` and `status` the `workflows-list` tool takes.
+    // Variant D keeps today's filters in the URL, with the same `search` and `status` names the `workflows-list` tool
+    // takes.
     const urlSearch = String(router.values.searchParams.search ?? '')
     const urlStatus = String(router.values.searchParams.status ?? '')
+    const urlCreatedBy = String(router.values.searchParams.created_by ?? '')
+    const urlTags = String(router.values.searchParams.tags ?? '')
     useEffect(() => {
-        if (variant === 'D' && !savedView && (urlSearch || urlStatus)) {
-            setDraft(key, { search: urlSearch, statuses: urlStatus ? (urlStatus.split(',') as MessageStatus[]) : [] })
+        if (variant === 'D' && !savedView && (urlSearch || urlStatus || urlCreatedBy || urlTags)) {
+            setDraft(key, {
+                search: urlSearch,
+                statuses: urlStatus ? (urlStatus.split(',') as MessageStatus[]) : [],
+                createdBy: urlCreatedBy || null,
+                tags: urlTags ? urlTags.split(',') : [],
+            })
         }
         // Only on arrival, so typing is not overwritten by the URL it writes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -260,13 +319,21 @@ export function ViewsPrototypeList({
         if (variant !== 'D' || savedView) {
             return
         }
-        const { search: _search, status: _status, ...rest } = router.values.searchParams
+        const {
+            search: _search,
+            status: _status,
+            created_by: _createdBy,
+            tags: _tags,
+            ...rest
+        } = router.values.searchParams
         router.actions.replace(router.values.location.pathname, {
             ...rest,
             ...(query.search ? { search: query.search } : {}),
             ...(query.statuses.length ? { status: query.statuses.join(',') } : {}),
+            ...(query.createdBy ? { created_by: query.createdBy } : {}),
+            ...(query.tags.length ? { tags: query.tags.join(',') } : {}),
         })
-    }, [variant, savedView, query.search, query.statuses])
+    }, [variant, savedView, query.search, query.statuses, query.createdBy, query.tags])
 
     const statuses = Array.from(new Set(query.types.flatMap((t) => STATUSES_BY_TYPE[t]))) as MessageStatus[]
     const views = state.savedViews.filter((v) => list && sameTypes(v.query.types, DEFAULT_QUERIES[list].types))
@@ -309,7 +376,7 @@ export function ViewsPrototypeList({
                         {variant === 'C'
                             ? 'A default view is a search that starts with a type. Change it, then pin it as your own view.'
                             : variant === 'D'
-                              ? 'Search, or filter by status. The link keeps both, so you can bookmark or share it.'
+                              ? 'The list as it is today, tags included. The link now keeps the search and filters, so you can bookmark or share it.'
                               : 'Filter, sort or pick columns, then save it as your own view.'}
                     </span>
                 </div>
@@ -336,20 +403,7 @@ export function ViewsPrototypeList({
                 </>
             )}
 
-            {variant === 'D' && (
-                <div className="flex flex-wrap items-center gap-2">
-                    <LemonInput
-                        type="search"
-                        size="small"
-                        className="max-w-80 flex-1"
-                        placeholder={list ? SEARCH_PLACEHOLDER[list] : 'Search this view'}
-                        value={query.search}
-                        onChange={(search) => change({ search })}
-                        data-attr="messaging-prototype-list-search"
-                    />
-                    <QuickFilterChips query={query} onChange={change} onClear={clearFilters} statusOnly />
-                </div>
-            )}
+            {variant === 'D' && <TodayToolbar list={list} query={query} statuses={statuses} onChange={change} />}
 
             {variant === 'B' && list && (
                 <>
@@ -371,44 +425,7 @@ export function ViewsPrototypeList({
                         </div>
                         <ColumnsButton query={query} onChange={(columns) => change({ columns })} />
                     </div>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <LemonInput
-                            type="search"
-                            size="small"
-                            className="max-w-80 flex-1"
-                            placeholder={SEARCH_PLACEHOLDER[list]}
-                            value={query.search}
-                            onChange={(search) => change({ search })}
-                        />
-                        <div className="flex flex-wrap items-center gap-2">
-                            <b>Status</b>
-                            <LemonSelect
-                                size="small"
-                                dropdownMatchSelectWidth={false}
-                                value={query.statuses[0] ?? 'all'}
-                                onChange={(value) =>
-                                    change({ statuses: value === 'all' ? [] : [value as MessageStatus] })
-                                }
-                                options={[
-                                    { value: 'all', label: 'All' },
-                                    ...statuses.map((s) => ({ value: s, label: s })),
-                                ]}
-                            />
-                            <b className="ml-1">Created by</b>
-                            <LemonSelect
-                                size="small"
-                                dropdownMatchSelectWidth={false}
-                                value={query.createdBy ?? 'anyone'}
-                                onChange={(value) => change({ createdBy: value === 'anyone' ? null : value })}
-                                options={[
-                                    { value: 'anyone', label: 'Anyone' },
-                                    ...PEOPLE.map((p) => ({ value: p, label: p === ME ? `${p} (you)` : p })),
-                                ]}
-                            />
-                            <b className="ml-1">Tags</b>
-                            <TagsMenu query={query} onChange={(tags) => change({ tags })} />
-                        </div>
-                    </div>
+                    <TodayToolbar list={list} query={query} statuses={statuses} onChange={change} />
                     <AlsoMatches query={query} />
                 </>
             )}

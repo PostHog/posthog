@@ -172,9 +172,6 @@ function InSceneSidebar({ page }: { page: MessagingPage }): JSX.Element {
                         ))}
                     {variant === 'A' && group.label === 'Views' && (
                         <>
-                            <div className="mt-3 mb-1 px-2 text-xxs font-semibold uppercase tracking-wide text-secondary">
-                                Your views
-                            </div>
                             {state.savedViews.map((view) => (
                                 <SavedViewRow
                                     key={view.id}

@@ -34,13 +34,10 @@ export function QuickFilterChips({
     query,
     onChange,
     onClear,
-    statusOnly,
 }: {
     query: ViewQuery
     onChange: (change: Partial<ViewQuery>) => void
     onClear: () => void
-    /** Variant D, the first slice: status only, no creator or tag chips. */
-    statusOnly?: boolean
 }): JSX.Element {
     const state = useViewsState()
     const statuses = Array.from(new Set(query.types.flatMap((type) => STATUSES_BY_TYPE[type]))) as MessageStatus[]
@@ -56,26 +53,23 @@ export function QuickFilterChips({
                     {status}
                 </Chip>
             ))}
-            {!statusOnly && <LemonDivider vertical className="mx-1 h-5" />}
-            {!statusOnly && (
+            <LemonDivider vertical className="mx-1 h-5" />
+            <Chip
+                active={query.createdBy === ME}
+                onClick={() => onChange({ createdBy: query.createdBy === ME ? null : ME })}
+            >
+                Created by me
+            </Chip>
+            <LemonDivider vertical className="mx-1 h-5" />
+            {allTags(state).map((tag) => (
                 <Chip
-                    active={query.createdBy === ME}
-                    onClick={() => onChange({ createdBy: query.createdBy === ME ? null : ME })}
+                    key={tag}
+                    active={query.tags.includes(tag)}
+                    onClick={() => onChange({ tags: toggle(query.tags, tag) })}
                 >
-                    Created by me
+                    #{tag}
                 </Chip>
-            )}
-            {!statusOnly && <LemonDivider vertical className="mx-1 h-5" />}
-            {!statusOnly &&
-                allTags(state).map((tag) => (
-                    <Chip
-                        key={tag}
-                        active={query.tags.includes(tag)}
-                        onClick={() => onChange({ tags: toggle(query.tags, tag) })}
-                    >
-                        #{tag}
-                    </Chip>
-                ))}
+            ))}
             {filtered && (
                 <LemonButton size="xsmall" type="tertiary" icon={<IconX />} onClick={onClear}>
                     Clear filters

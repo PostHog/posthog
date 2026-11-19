@@ -8,10 +8,10 @@ import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { VIEWS_VARIANTS, ViewsVariant, isViewsVariant, setViewsVariant, useViewsState } from './viewsPrototypeStore'
 
 export const VIEWS_VARIANT_LABELS: Record<ViewsVariant, string> = {
-    A: 'A (Views in the sidebar)',
+    A: 'A (Saved views in the Views group)',
     B: 'B (View menu on the list)',
     C: 'C (One search bar)',
-    D: 'D (First slice: search and status)',
+    D: "D (First slice: today's list, kept in the link)",
 }
 
 // Usage flags from the element pass on the ticket: flag and control only, never a number.
@@ -23,7 +23,7 @@ export const VIEWS_VARIANT_FLAGS: Record<ViewsVariant, string> = {
     A: `${SAVED_VIEW_FLAGS}, now chips · low use: search across lists · ${SHARED_FLAGS}`,
     B: `${SAVED_VIEW_FLAGS}, kept as dropdowns · ${SHARED_FLAGS}`,
     C: `${SAVED_VIEW_FLAGS}, now tokens · low use: search across lists · ${SHARED_FLAGS}`,
-    D: `low use, borderline: search box on the Workflows list · ${SHARED_FLAGS}`,
+    D: `${SAVED_VIEW_FLAGS}, kept as they ship · low use: tag edit, kept · ${SHARED_FLAGS}`,
 }
 
 function step(current: ViewsVariant, by: number): ViewsVariant {
