@@ -877,4 +877,3 @@ Its experiment table keeps names and coverage on one line, shows execution time 
 Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
-

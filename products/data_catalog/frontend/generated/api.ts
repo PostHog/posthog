@@ -488,7 +488,7 @@ export const getDataCatalogPendingReviewRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * How many items wait in each review queue, as its list shows them to you, up to a minute behind an access change.
+ * How many items wait in each review queue, as its list shows them to you, up to ten minutes behind an access change.
  */
 export const dataCatalogPendingReviewRetrieve = async (
     projectId: string,

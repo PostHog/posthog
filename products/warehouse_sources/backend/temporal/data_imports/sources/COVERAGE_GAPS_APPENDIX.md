@@ -388,7 +388,7 @@ Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, incl
 
 ## Aiven — gaps
 
-Today (13): `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `services`, `user_group_members`, `user_groups`
+Today (16): `billing_group_credits`, `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `service_integrations`, `service_plans`, `services`, `user_group_members`, `user_groups`
 
 Diffed against: <https://api.aiven.io/doc/openapi.json>
 
@@ -396,12 +396,12 @@ Diffed against: <https://api.aiven.io/doc/openapi.json>
 - [x] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
 - [x] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
 - [x] `GET /project/{project}/events` — project/service audit and state-change history (high)
-- [ ] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium)
-- [ ] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium)
+- [x] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium). Added as `billing_group_credits` (fan-out over billing groups).
+- [x] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium). Added as `service_plans` from `GET /project/{project}/service_types`, which returns every service type with its plans in one call. No separate service types table: the plan rows carry `service_type`, and `/service-types` returns an object keyed by type, not a list.
 - [ ] `GET /project/{project}/service/{service_name}/tags and /project/{project}/tags` — tag dimensions used for cost and ownership attribution (medium)
 - [ ] `GET /project/{project}/service/{service_name}/backups` — backup history per service for retention/RPO analysis (medium)
-- [ ] `GET /project/{project}/service/{service_name}/integration` — service-to-service integration edges (metrics/log shipping topology) (medium)
-- [ ] `GET /organization/{organization_id}/tickets` — support ticket volume per org/project (medium)
+- [x] `GET /project/{project}/service/{service_name}/integration` — service-to-service integration edges (metrics/log shipping topology) (medium). Added as `service_integrations` (fan-out over project services).
+- [ ] `GET /organization/{organization_id}/tickets` — support ticket volume per org/project (medium). Skipped: the current spec has no ticket paths, only a "Support ticket" tag description.
 - [ ] `GET /project/{project}/alerts and /project/{project}/service/{service_name}/alerts` — open service alerts as an operational health table (low)
 - [ ] `GET /organization/{organization_id}/emissions` — carbon emissions reporting per organization (low)
 
