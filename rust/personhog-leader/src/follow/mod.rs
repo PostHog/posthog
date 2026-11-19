@@ -1,60 +1,59 @@
-//! Read-only leader mode: the leader's cache and pending index, kept current by consuming
-//! the changelog instead of producing it. A follower serves reads and holds no fence.
+//! Read-only leader mode: the leader's cache, kept current by consuming the changelog
+//! instead of producing it. A follower answers reads from that cache and holds no fence.
 
 pub mod freshness;
 pub mod handler;
-pub mod layouts;
 
-use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use metrics::counter;
-use personhog_coordination::changelog::{warm_sources, LiveChangelog, WarmSource};
+use metrics::{counter, gauge, Gauge};
+use personhog_coordination::changelog::{warm_sources, WarmSource};
 use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_coordination::types::ChangelogConfig;
 use tokio::task::AbortHandle;
 
-use crate::cache::{
-    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream,
-};
-use crate::recovery::ChangelogRecovery;
-use crate::settle::{prune_and_settle_after, retired_topic};
+use crate::cache::{CacheLookup, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use crate::warming::{
     end_offset, follow_source, warm_from_sources, WarmClientPools, WarmingConfig,
 };
 use freshness::Freshness;
-use layouts::Layouts;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FollowConfig {
-    /// A partition not confirmed current within this long refuses reads.
+    /// A partition not confirmed current within this long answers no reads.
     pub staleness_threshold: Duration,
     pub end_check_interval: Duration,
-    /// A partition reports warm no sooner than this after its warm began. Misses load from
-    /// a Postgres read replica, which must hold everything below the warm's start by then.
-    pub min_warm: Duration,
 }
 
-/// Why a follower did not answer a read.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ReadRefusal {
-    /// The partition is not followed here, or is not confirmed current. Another owner may be.
+/// Why a follower has no answer for a read. The caller reads Postgres instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unanswered {
+    /// The partition is not followed here under the caller's changelog config.
+    NotFollowed,
+    /// The partition is followed and is not confirmed current.
     NotCurrent,
-    /// The person has unapplied writes and their changelog record could not be fetched.
-    Recovery(String),
-    Load(String),
+    /// The cache holds no changelog record of the person.
+    NotCached,
+}
+
+impl Unanswered {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NotFollowed => "not_followed",
+            Self::NotCurrent => "not_current",
+            Self::NotCached => "not_cached",
+        }
+    }
 }
 
 struct Followed {
     /// The changelog config epoch the partition was built under.
     epoch: u64,
-    /// When the minimum warm time has passed; nothing is served before it.
-    serves_from: Instant,
     freshness: Arc<Mutex<Freshness>>,
     /// Set by a release. The reader applies each record under it, so no record lands in
-    /// the cache or the marks after the release has cleared them.
+    /// the cache after the release has cleared it.
     released: Arc<Mutex<bool>>,
     task: AbortHandle,
 }
@@ -64,10 +63,7 @@ pub struct Follower {
     warming: WarmingConfig,
     pools: Arc<WarmClientPools>,
     cache: Arc<PartitionedCache>,
-    dirty_index: Arc<DirtyIndex>,
-    recovery: Arc<ChangelogRecovery>,
     followed: DashMap<u32, Followed>,
-    layouts: Layouts,
 }
 
 impl Follower {
@@ -76,70 +72,38 @@ impl Follower {
         warming: WarmingConfig,
         pools: Arc<WarmClientPools>,
         cache: Arc<PartitionedCache>,
-        dirty_index: Arc<DirtyIndex>,
-        recovery: Arc<ChangelogRecovery>,
     ) -> Self {
         Self {
             cfg,
             warming,
             pools,
             cache,
-            dirty_index,
-            recovery,
             followed: DashMap::new(),
-            layouts: Layouts::default(),
         }
     }
 
     /// Build the partition with the leader's warm, then keep applying the live changelog
     /// from where the warm stopped. Returns once the partition is current.
     ///
-    /// Callers poll every build from one task and run one build of a partition at a time,
-    /// as the pod's convergence does: the steps before the first await are then one step
-    /// with respect to any other build.
+    /// The warm starts at the writer's position, so the cache holds every record Postgres
+    /// may not have yet. Callers run one build of a partition at a time.
     pub async fn follow(&self, partition: u32, config: &ChangelogConfig) -> CoordResult<()> {
-        // Declared before anything that releases, so the build stays registered until its
-        // partition has been released on every way out.
-        let Some(_building) = self.layouts.admit(config.epoch) else {
-            return Err(CoordError::invalid_state(format!(
-                "partition {partition} would be built under config epoch {}, and a newer \
-                 one is followed",
-                config.epoch
-            )));
-        };
         self.release(partition);
-        // See [`Layouts`]: no reader of an older config runs beside this build, and it
-        // marks nothing until every build under an older config has ended.
-        let older: Vec<u32> = self
-            .followed
-            .iter()
-            .filter(|followed| followed.epoch < config.epoch)
-            .map(|followed| *followed.key())
-            .collect();
-        for stale in older {
-            self.release(stale);
-        }
-        if self.layouts.older_in_flight(config.epoch) {
-            tracing::info!(
-                partition,
-                epoch = config.epoch,
-                "waiting for a build under an older changelog config to end"
-            );
-        }
-        while self.layouts.older_in_flight(config.epoch) {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
         let mut sources = warm_sources(config, partition);
+        // The warm marks each record for a leader's changelog recovery. A follower reads
+        // Postgres on a miss, so its marks are dropped with the warm.
+        let marks = DirtyIndex::new(usize::MAX);
         let range = warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
-            &self.dirty_index,
+            &marks,
             partition,
             &sources,
             false,
         )
         .await?;
+        drop(marks);
         let live = sources
             .pop()
             .ok_or_else(|| CoordError::invalid_state("a warm has no live source".to_string()))?;
@@ -152,7 +116,6 @@ impl Follower {
             self.warming.clone(),
             Arc::clone(&self.pools),
             Arc::clone(&self.cache),
-            Arc::clone(&self.dirty_index),
             partition,
             live,
             range.end,
@@ -161,8 +124,6 @@ impl Follower {
         ));
         let followed = Followed {
             epoch: config.epoch,
-            // Counted from the end of the warm, which read the writer's position first.
-            serves_from: Instant::now() + self.cfg.min_warm,
             freshness,
             released,
             task: task.abort_handle(),
@@ -175,13 +136,6 @@ impl Follower {
             partition,
             armed: true,
         };
-        // A newer config's build was admitted while this one warmed, and is waiting for it.
-        if self.layouts.superseded(config.epoch) {
-            return Err(CoordError::invalid_state(format!(
-                "partition {partition} was built under config epoch {}, and a newer one is followed",
-                config.epoch
-            )));
-        }
 
         // A changelog end that cannot be confirmed is a stalled warm, as a quiet read is.
         let deadline = Instant::now() + self.warming.recv_timeout;
@@ -203,154 +157,50 @@ impl Follower {
         Ok(())
     }
 
-    /// Whether a build under `epoch` was overtaken by one under a newer config. Such a
-    /// build fails, and is tried again under the newer config.
-    pub fn superseded(&self, epoch: u64) -> bool {
-        self.layouts.superseded(epoch)
-    }
-
-    /// Stop following and drop the partition's cache and marks.
+    /// Stop following and drop the partition's cache.
     pub fn release(&self, partition: u32) {
         if let Some((_, followed)) = self.followed.remove(&partition) {
-            *gate(&followed.released) = true;
+            let mut released = gate(&followed.released);
+            *released = true;
             followed.task.abort();
+            // Under the gate, so the reader cannot report after this.
+            LagGauges::of(partition).reset();
         }
         self.cache.drop_partition(partition);
-        self.dirty_index.clear_partition(partition);
     }
 
-    /// The leader's read: a hit from the cache, a person with unapplied writes from the
-    /// changelog, anyone else through `load`, which reads a Postgres read replica. `None`
-    /// is a person that does not exist.
+    /// Stop following every partition.
+    pub fn release_all(&self) {
+        let followed: Vec<u32> = self.followed.iter().map(|entry| *entry.key()).collect();
+        for partition in followed {
+            self.release(partition);
+        }
+    }
+
+    /// The person as the changelog last had them; a deleted person is their death
+    /// document. Postgres has every person a current partition does not hold, unless the
+    /// writer is further behind than the cache reaches back.
     ///
     /// `epoch` is the changelog config epoch the caller chose the partition under. A
-    /// partition built under an older one holds the old layout: it has read all of a
-    /// sealed topic, so it looks current, and it is refused until it is rebuilt. One built
-    /// under a newer one is not the partition the caller meant.
-    pub async fn read<F, Fut>(
+    /// partition built under another one holds another layout: it has read all of a
+    /// sealed topic, so it looks current, and it answers nothing until it is rebuilt.
+    pub fn read(
         &self,
         partition: u32,
         key: &PersonCacheKey,
         epoch: u64,
-        load: F,
-    ) -> Result<Option<CachedPerson>, ReadRefusal>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<Option<CachedPerson>, String>>,
-    {
-        let build = self
-            .followed
-            .get(&partition)
-            .map(|followed| (followed.epoch, Arc::clone(&followed.released)));
-        let Some((built_under, build)) = build else {
-            return Err(ReadRefusal::NotCurrent);
-        };
-        if built_under != epoch || !self.is_current(partition) {
-            return Err(ReadRefusal::NotCurrent);
+    ) -> Result<CachedPerson, Unanswered> {
+        let built_under = self.followed.get(&partition).map(|followed| followed.epoch);
+        if built_under != Some(epoch) {
+            return Err(Unanswered::NotFollowed);
         }
-        let mut found = self.cached(partition, key)?;
-        if found.is_none() {
-            match self.dirty_index.get(key) {
-                Some(mark) => {
-                    let recovered = self
-                        .recovery
-                        .fetch_person_at(&mark, key)
-                        .await
-                        .map_err(ReadRefusal::Recovery)?;
-                    if !recovered.is_deleted {
-                        return self.insert_fetched(partition, key, recovered, &build);
-                    }
-                    found = Some(recovered);
-                }
-                // A release drops the cache before its marks, so a partition still present
-                // here had its marks intact when they were read.
-                None => found = self.cached(partition, key)?,
-            }
+        if !self.is_current(partition) {
+            return Err(Unanswered::NotCurrent);
         }
-        match found {
-            Some(person) if !person.is_deleted => Ok(Some(person)),
-            // As on the leader: a live Postgres row above a death document can only be a
-            // person created again under the same id.
-            Some(death) => match load().await.map_err(ReadRefusal::Load)? {
-                Some(row) if row.version > death.version => {
-                    self.insert_fetched(partition, key, row, &build)
-                }
-                _ => self.absent(partition, key, Some(death.version), &build),
-            },
-            None => match load().await.map_err(ReadRefusal::Load)? {
-                Some(person) => self.insert_fetched(partition, key, person, &build),
-                None => self.absent(partition, key, None, &build),
-            },
-        }
-    }
-
-    /// Cache and serve a person fetched across an await. The partition may have been
-    /// rebuilt since, and a newer write may have been applied and evicted; the build's
-    /// gate keeps both out while this looks, as it does for the reader's applies.
-    fn insert_fetched(
-        &self,
-        partition: u32,
-        key: &PersonCacheKey,
-        person: CachedPerson,
-        build: &Mutex<bool>,
-    ) -> Result<Option<CachedPerson>, ReadRefusal> {
-        let released = gate(build);
-        if *released {
-            return Err(ReadRefusal::NotCurrent);
-        }
-        let superseded = self
-            .dirty_index
-            .get(key)
-            .is_some_and(|mark| mark.version > person.version);
-        if !superseded
-            && self
-                .cache
-                .put_if_newer(partition, key.clone(), person.clone())
-        {
-            return Ok(living(person));
-        }
-        match self.cached(partition, key)? {
-            Some(newer) => Ok(living(newer)),
-            None => Err(ReadRefusal::NotCurrent),
-        }
-    }
-
-    /// Answer "does not exist" for a person Postgres did not have, unless they were
-    /// written while it was asked. `death` is the version of the death document that was
-    /// already known, whose own mark is not a later write.
-    fn absent(
-        &self,
-        partition: u32,
-        key: &PersonCacheKey,
-        death: Option<i64>,
-        build: &Mutex<bool>,
-    ) -> Result<Option<CachedPerson>, ReadRefusal> {
-        let released = gate(build);
-        if *released {
-            return Err(ReadRefusal::NotCurrent);
-        }
-        if let Some(written) = self.cached(partition, key)? {
-            return Ok(living(written));
-        }
-        let written_since = self
-            .dirty_index
-            .get(key)
-            .is_some_and(|mark| death.is_none_or(|death| mark.version > death));
-        if written_since {
-            return Err(ReadRefusal::NotCurrent);
-        }
-        Ok(None)
-    }
-
-    fn cached(
-        &self,
-        partition: u32,
-        key: &PersonCacheKey,
-    ) -> Result<Option<CachedPerson>, ReadRefusal> {
         match self.cache.get(partition, key) {
-            CacheLookup::Found(person) => Ok(Some(person)),
-            CacheLookup::PersonNotFound => Ok(None),
-            CacheLookup::PartitionNotOwned => Err(ReadRefusal::NotCurrent),
+            CacheLookup::Found(person) => Ok(person),
+            CacheLookup::PersonNotFound => Err(Unanswered::NotCached),
+            CacheLookup::PartitionNotOwned => Err(Unanswered::NotFollowed),
         }
     }
 
@@ -361,45 +211,10 @@ impl Follower {
             .is_some_and(|followed| !followed.task.is_finished())
     }
 
-    /// Clear the marks of records the writer has applied, forever. `grace` is longer than
-    /// the read replica can lag, so a person is unmarked only once the replica holds them.
-    pub async fn clear_applied_marks(
-        &self,
-        changelog: LiveChangelog,
-        interval: Duration,
-        grace: Duration,
-    ) {
-        // The settle takes a per-person lock from this map; a follower has no other holder.
-        let locks = DashMap::new();
-        let mut tick = tokio::time::interval(interval);
-        loop {
-            tick.tick().await;
-            prune_and_settle_after(
-                grace,
-                &self.dirty_index,
-                &self.cache,
-                &locks,
-                &self.pools,
-                self.warming.committed_offsets_timeout,
-                |topic| {
-                    retired_topic(
-                        &changelog.current(),
-                        &self.warming.writer_consumer_group,
-                        topic,
-                    )
-                },
-            )
-            .await;
-        }
-    }
-
-    /// Whether the partition may serve: its minimum warm time has passed and it held
-    /// every committed changelog record within the threshold.
+    /// Whether the partition held every committed changelog record within the threshold.
     pub fn is_current(&self, partition: u32) -> bool {
         self.followed.get(&partition).is_some_and(|followed| {
-            let now = Instant::now();
-            now >= followed.serves_from
-                && lock(&followed.freshness).is_current(now, self.cfg.staleness_threshold)
+            lock(&followed.freshness).is_current(Instant::now(), self.cfg.staleness_threshold)
         })
     }
 }
@@ -418,9 +233,31 @@ impl Drop for Abandoned<'_> {
     }
 }
 
-/// A cached death document is a person that no longer exists.
-fn living(person: CachedPerson) -> Option<CachedPerson> {
-    (!person.is_deleted).then_some(person)
+/// How far behind a followed partition is. A pod that released the partition reports
+/// zero, so its last reading does not stand beside the new owner's.
+struct LagGauges {
+    offsets_behind: Gauge,
+    confirmed_age_ms: Gauge,
+}
+
+impl LagGauges {
+    fn of(partition: u32) -> Self {
+        Self {
+            offsets_behind: gauge!(
+                "personhog_follower_offsets_behind",
+                "partition" => partition.to_string()
+            ),
+            confirmed_age_ms: gauge!(
+                "personhog_follower_confirmed_age_ms",
+                "partition" => partition.to_string()
+            ),
+        }
+    }
+
+    fn reset(&self) {
+        self.offsets_behind.set(0.0);
+        self.confirmed_age_ms.set(0.0);
+    }
 }
 
 fn lock(freshness: &Mutex<Freshness>) -> std::sync::MutexGuard<'_, Freshness> {
@@ -431,16 +268,7 @@ fn gate(released: &Mutex<bool>) -> std::sync::MutexGuard<'_, bool> {
     released.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Mark first, as the warm does: a miss must never find the cache behind an unmarked person.
-fn apply(
-    cache: &PartitionedCache,
-    dirty_index: &DirtyIndex,
-    partition: u32,
-    stream: &Stream,
-    offset: i64,
-    person: CachedPerson,
-    released: &Mutex<bool>,
-) {
+fn apply(cache: &PartitionedCache, partition: u32, person: CachedPerson, released: &Mutex<bool>) {
     let released = gate(released);
     if *released {
         return;
@@ -449,16 +277,6 @@ fn apply(
         team_id: person.team_id,
         person_id: person.id,
     };
-    dirty_index.mark(
-        key.clone(),
-        DirtyMark {
-            version: person.version,
-            offset,
-            partition,
-            stream: stream.clone(),
-            is_deleted: person.is_deleted,
-        },
-    );
     cache.put_if_newer(partition, key, person);
 }
 
@@ -468,37 +286,22 @@ async fn keep_current(
     warming: WarmingConfig,
     pools: Arc<WarmClientPools>,
     cache: Arc<PartitionedCache>,
-    dirty_index: Arc<DirtyIndex>,
     partition: u32,
     live: WarmSource,
     start: i64,
     freshness: Arc<Mutex<Freshness>>,
     released: Arc<Mutex<bool>>,
 ) {
-    let stream = Stream {
-        topic: Arc::clone(&live.topic),
-        cluster: live.cluster.clone().map(Arc::new),
-        partition: live.partition,
-    };
     let follow = follow_source(
         &warming,
         &pools,
         &live,
         start,
-        |offset, person| {
-            apply(
-                &cache,
-                &dirty_index,
-                partition,
-                &stream,
-                offset,
-                person,
-                &released,
-            )
-        },
+        |_offset, person| apply(&cache, partition, person, &released),
         |position| lock(&freshness).advance(position),
     );
     let confirm = async {
+        let lag = LagGauges::of(partition);
         let mut tick = tokio::time::interval(cfg.end_check_interval);
         // After a slow check the missed ones are skipped, not fired in a burst.
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -509,8 +312,13 @@ async fn keep_current(
                 return;
             }
             let asked_at = Instant::now();
+            let mut behind = None;
             match end_offset(&warming, &pools, &live).await {
-                Ok(end) => lock(&freshness).observe_end(asked_at, end),
+                Ok(end) => {
+                    let mut freshness = lock(&freshness);
+                    freshness.observe_end(asked_at, end);
+                    behind = Some(freshness.behind(end));
+                }
                 Err(e) => {
                     counter!(
                         "personhog_follower_end_checks_failed_total",
@@ -518,6 +326,16 @@ async fn keep_current(
                     )
                     .increment(1);
                     tracing::warn!(partition, error = %e, "changelog end check failed");
+                }
+            }
+            let confirmed_age = lock(&freshness).confirmed_age(Instant::now());
+            let released = gate(&released);
+            if !*released {
+                if let Some(behind) = behind {
+                    lag.offsets_behind.set(behind as f64);
+                }
+                if let Some(age) = confirmed_age {
+                    lag.confirmed_age_ms.set(age.as_secs_f64() * 1000.0);
                 }
             }
         }
@@ -553,12 +371,6 @@ mod tests {
         let cache = PartitionedCache::new(1 << 20);
         cache.begin_warm_partition(0);
         cache.publish_warmed_partition(0);
-        let dirty_index = DirtyIndex::new(100);
-        let stream = Stream {
-            topic: Arc::from("changelog"),
-            cluster: None,
-            partition: 0,
-        };
         let person = CachedPerson::try_from(Person {
             id: 7,
             team_id: 1,
@@ -574,9 +386,8 @@ mod tests {
         };
 
         let released = Mutex::new(true);
-        apply(&cache, &dirty_index, 0, &stream, 5, person, &released);
+        apply(&cache, 0, person, &released);
 
-        assert!(dirty_index.get(&key).is_none());
         assert!(matches!(cache.get(0, &key), CacheLookup::PersonNotFound));
     }
 }

@@ -297,7 +297,7 @@ impl Coordinator {
     /// when elected, runs the coordination loop until leadership is lost
     /// or cancellation is requested.
     pub async fn run(&self, cancel: CancellationToken) {
-        util::preregister_coordinator_metrics();
+        util::preregister_coordinator_metrics(self.store.inner().prefix());
         // Paces retries only — nothing here escalates. It grows while
         // bad endings keep arriving and starts over after a quiet
         // window, so a wedged coordinator settles at the cap while an
@@ -568,7 +568,11 @@ impl Coordinator {
         }
 
         tracing::info!(name = %self.config.name, "acquired leadership");
-        gauge!("personhog_coordination_is_coordinator").set(1.0);
+        gauge!(
+            "personhog_coordination_is_coordinator",
+            "coordination" => self.store.inner().prefix().to_string()
+        )
+        .set(1.0);
         counter!("personhog_coordination_elections_won_total").increment(1);
 
         // A failed keepalive means the lease is gone (or about to be) and
@@ -653,7 +657,7 @@ impl Coordinator {
         // of waiting out the lease TTL.
         drop(self.revoke_election_lease(lease_id).await);
 
-        reset_coordinator_gauges();
+        reset_coordinator_gauges(self.store.inner().prefix());
 
         result.map(|()| true)
     }
@@ -976,7 +980,9 @@ impl Coordinator {
             };
             let pods = store.list_pods().await?;
             let members = match k8s_awareness {
-                Some(k8s) => members_for_k8s(k8s, &pods, request.to.partitions).await,
+                Some(k8s) => {
+                    members_for_k8s(k8s, store.inner().prefix(), &pods, request.to.partitions).await
+                }
                 None => Member::active_all(&active_pod_names(&pods)),
             };
             return migration::consider_request(
@@ -991,7 +997,9 @@ impl Coordinator {
         };
         let pods = store.list_pods().await?;
         let members = match k8s_awareness {
-            Some(k8s) => members_for_k8s(k8s, &pods, migration.to.partitions).await,
+            Some(k8s) => {
+                members_for_k8s(k8s, store.inner().prefix(), &pods, migration.to.partitions).await
+            }
             None => Member::active_all(&active_pod_names(&pods)),
         };
         migration::reconcile(
@@ -1193,7 +1201,12 @@ impl Coordinator {
                     let routers = store.list_routers().await;
                     match (pods, routers) {
                         (Ok(pods), Ok(routers)) => {
-                            record_cluster_gauges(&handoffs, &pods, routers.len());
+                            record_cluster_gauges(
+                                store.inner().prefix(),
+                                &handoffs,
+                                &pods,
+                                routers.len(),
+                            );
                         }
                         (Err(e), _) | (_, Err(e)) => {
                             tracing::debug!(error = %e, "skipping cluster gauge refresh");
@@ -1500,7 +1513,9 @@ impl Coordinator {
 
         // K8s-aware placement policies for smarter rebalancing
         let members = match k8s_awareness {
-            Some(k8s) => members_for_k8s(k8s, &pods, total_partitions).await,
+            Some(k8s) => {
+                members_for_k8s(k8s, store.inner().prefix(), &pods, total_partitions).await
+            }
             None => Member::active_all(&active_pod_names(&pods)),
         };
 
@@ -2019,8 +2034,14 @@ fn record_phase_advance(handoff: &HandoffState, to: HandoffPhase) {
 
 /// Refresh the coordinator's view-of-the-cluster gauges. Driven from the
 /// reconcile tick, so only the elected coordinator exports live values;
-/// `reset_coordinator_gauges` zeroes them when leadership ends.
-fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], routers: usize) {
+/// `reset_coordinator_gauges` zeroes them when leadership ends. One process can
+/// coordinate several instances, so each gauge names its own in `coordination`.
+fn record_cluster_gauges(
+    coordination: &str,
+    handoffs: &[HandoffState],
+    pods: &[RegisteredPod],
+    routers: usize,
+) {
     let now_ms = util::now_millis();
     let now_s = util::now_seconds();
     for phase in [
@@ -2054,32 +2075,49 @@ fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], rout
             .max(0);
         gauge!(
             "personhog_coordination_handoff_phase_age_seconds",
+            "coordination" => coordination.to_string(),
             "phase" => phase_label(phase),
         )
         .set(max_age_secs as f64);
         let count = handoffs.iter().filter(|h| h.phase == phase).count();
-        gauge!("personhog_coordination_handoffs_in_flight", "phase" => phase_label(phase))
-            .set(count as f64);
+        gauge!(
+            "personhog_coordination_handoffs_in_flight",
+            "coordination" => coordination.to_string(),
+            "phase" => phase_label(phase),
+        )
+        .set(count as f64);
     }
     for (status, label) in [
         (PodStatus::Ready, "ready"),
         (PodStatus::Draining, "draining"),
     ] {
         let count = pods.iter().filter(|p| p.status == status).count();
-        gauge!("personhog_coordination_pods_registered", "status" => label).set(count as f64);
+        gauge!(
+            "personhog_coordination_pods_registered",
+            "coordination" => coordination.to_string(),
+            "status" => label,
+        )
+        .set(count as f64);
     }
-    gauge!("personhog_coordination_routers_registered").set(routers as f64);
+    gauge!(
+        "personhog_coordination_routers_registered",
+        "coordination" => coordination.to_string()
+    )
+    .set(routers as f64);
 }
 
 /// Zero every gauge this instance exports as coordinator. Called when
 /// leadership ends, so a former coordinator's scrape endpoint doesn't
 /// keep reporting the last-known cluster state alongside the new
 /// coordinator's live values.
-fn reset_coordinator_gauges() {
-    gauge!("personhog_coordination_is_coordinator").set(0.0);
-    gauge!("personhog_coordination_generation_hold_pods").set(0.0);
-    gauge!("personhog_coordination_generation_capped_pods").set(0.0);
-    record_cluster_gauges(&[], &[], 0);
+fn reset_coordinator_gauges(coordination: &str) {
+    gauge!(
+        "personhog_coordination_is_coordinator",
+        "coordination" => coordination.to_string()
+    )
+    .set(0.0);
+    util::record_generation_gauges(coordination, 0, 0);
+    record_cluster_gauges(coordination, &[], &[], 0);
 }
 
 // ── Pure functions ──────────────────────────────────────────────
@@ -2118,6 +2156,7 @@ const FIRST_INTENT_WAIT: Duration = Duration::from_secs(3);
 ///    off to a different pod.
 async fn members_for_k8s(
     k8s: &K8sAwareness,
+    coordination: &str,
     pods: &[RegisteredPod],
     total_partitions: u32,
 ) -> Vec<Member> {
@@ -2184,8 +2223,7 @@ async fn members_for_k8s(
             PlacementPolicy::Active { cap: None } => {}
         }
     }
-    gauge!("personhog_coordination_generation_hold_pods").set(holds as f64);
-    gauge!("personhog_coordination_generation_capped_pods").set(capped as f64);
+    util::record_generation_gauges(coordination, holds, capped);
     members
 }
 

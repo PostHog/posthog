@@ -52,6 +52,17 @@ impl Freshness {
             .is_some_and(|at| now.saturating_duration_since(at) <= threshold)
     }
 
+    /// How many offsets short of `end` the reader is.
+    pub fn behind(&self, end: i64) -> i64 {
+        (end - self.position).max(0)
+    }
+
+    /// How long ago the partition last held every committed record, once it has.
+    pub fn confirmed_age(&self, now: Instant) -> Option<Duration> {
+        self.confirmed_at
+            .map(|at| now.saturating_duration_since(at))
+    }
+
     fn settle(&mut self) {
         if let Some((asked_at, end)) = self.waiting {
             if self.position >= end {

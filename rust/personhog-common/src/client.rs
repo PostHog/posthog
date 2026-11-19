@@ -30,6 +30,10 @@ use personhog_proto::personhog::types::v1::{
 pub const TEAM_ID_HEADER: &str = "x-team-id";
 pub const PERSON_ID_HEADER: &str = "x-person-id";
 pub const READ_CONSISTENCY_HEADER: &str = "x-read-consistency";
+/// The partition the router sent a request to.
+pub const PARTITION_HEADER: &str = "x-partition";
+/// The changelog config epoch the router chose that partition under.
+pub const CHANGELOG_EPOCH_HEADER: &str = "x-changelog-epoch";
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 

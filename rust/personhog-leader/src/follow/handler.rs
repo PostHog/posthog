@@ -3,9 +3,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use personhog_coordination::changelog::LiveChangelog;
-use personhog_coordination::error::Result;
+use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
 use personhog_coordination::types::ChangelogConfig;
+use tokio::sync::Semaphore;
 
 use super::Follower;
 
@@ -17,40 +18,38 @@ pub struct FollowerHandler {
     captured: DashMap<u32, ChangelogConfig>,
     /// The config each partition was last built under.
     built: DashMap<u32, ChangelogConfig>,
+    /// A changelog config change rebuilds every partition, and the pod bounds only the
+    /// warms of a handoff.
+    builds: Semaphore,
 }
 
 impl FollowerHandler {
-    pub fn new(follower: Arc<Follower>, changelog: LiveChangelog) -> Self {
+    pub fn new(
+        follower: Arc<Follower>,
+        changelog: LiveChangelog,
+        concurrent_builds: usize,
+    ) -> Self {
         Self {
             follower,
             changelog,
             captured: DashMap::new(),
             built: DashMap::new(),
+            builds: Semaphore::new(concurrent_builds.max(1)),
         }
     }
 
-    async fn build(&self, partition: u32, mut config: ChangelogConfig) -> Result<()> {
-        loop {
-            // A shrink leaves assignments for partitions the changelog no longer has. There
-            // is nothing to follow, and no request is routed to them.
-            if partition >= config.partitions {
-                self.follower.release(partition);
-                break;
-            }
-            match self.follower.follow(partition, &config).await {
-                Ok(()) => break,
-                // A config change overtook this build. That is not a failed warm: the
-                // partition is built again under the config that overtook it, which the
-                // live one has reached, since every build takes its config from there.
-                Err(e) if self.follower.superseded(config.epoch) => {
-                    let live = self.changelog.current();
-                    if live.epoch <= config.epoch {
-                        return Err(e);
-                    }
-                    config = live;
-                }
-                Err(e) => return Err(e),
-            }
+    async fn build(&self, partition: u32, config: ChangelogConfig) -> Result<()> {
+        // A shrink leaves assignments for partitions the changelog no longer has. There
+        // is nothing to follow, and no request is routed to them.
+        if partition >= config.partitions {
+            self.follower.release(partition);
+        } else {
+            let _slot = self
+                .builds
+                .acquire()
+                .await
+                .map_err(|_| Error::invalid_state("build semaphore closed".to_string()))?;
+            self.follower.follow(partition, &config).await?;
         }
         self.built.insert(partition, config);
         Ok(())
@@ -70,7 +69,7 @@ impl HandoffHandler for FollowerHandler {
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         // A handoff captured before a config change is built under the live config: a
-        // follower refuses a build under an older one than it already follows.
+        // partition built under an older one answers no reads.
         let live = self.changelog.current();
         let config = match self.captured.get(&partition) {
             Some(captured) if captured.epoch >= live.epoch => captured.clone(),

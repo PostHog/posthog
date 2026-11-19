@@ -531,7 +531,7 @@ pub fn record_ack_to_advance(phase: &'static str, ack_stamps_ms: impl Iterator<I
 /// counter that first fires between two scrapes materializes with the
 /// burst already inside it, and no rate function can recover a delta
 /// that precedes a series' first sample.
-pub fn preregister_coordinator_metrics() {
+pub fn preregister_coordinator_metrics(coordination: &str) {
     for kind in ["fresh", "move"] {
         metrics::counter!("personhog_coordination_handoffs_created_total", "kind" => kind)
             .increment(0);
@@ -611,8 +611,21 @@ pub fn preregister_coordinator_metrics() {
         )
         .increment(0);
     }
-    metrics::gauge!("personhog_coordination_generation_hold_pods").set(0.0);
-    metrics::gauge!("personhog_coordination_generation_capped_pods").set(0.0);
+    record_generation_gauges(coordination, 0, 0);
+}
+
+/// How many pods a rollout holds or caps in the `coordination` instance.
+pub(crate) fn record_generation_gauges(coordination: &str, holds: u64, capped: u64) {
+    metrics::gauge!(
+        "personhog_coordination_generation_hold_pods",
+        "coordination" => coordination.to_string()
+    )
+    .set(holds as f64);
+    metrics::gauge!(
+        "personhog_coordination_generation_capped_pods",
+        "coordination" => coordination.to_string()
+    )
+    .set(capped as f64);
 }
 
 /// Same as [`preregister_coordinator_metrics`], for the counters a

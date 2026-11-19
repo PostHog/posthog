@@ -270,10 +270,9 @@ impl PersonCache {
         self.inner.insert(key, stored);
     }
 
-    /// Insert unless the cache already holds this version or a newer one. A follower's
-    /// applies and loads reach the cache from two directions, and only the newer may stay.
-    /// The compare and the insert are two steps, so callers must not run it for one
-    /// partition at the same time; a follower holds the partition's gate around it.
+    /// Insert unless the cache already holds this version or a newer one. The compare and
+    /// the insert are two steps, so callers must not run it for one partition at the same
+    /// time; a follower holds the partition's gate around it.
     pub fn put_if_newer(&self, key: PersonCacheKey, person: CachedPerson) -> bool {
         let held = self
             .inner
