@@ -6,6 +6,7 @@ import {
     stripTrailingSlash,
     stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
+import { staticRoutePaths } from 'scenes/scenes'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -123,13 +124,21 @@ describe('router-utils', () => {
     })
 
     describe('getProjectSwitchTargetUrl', () => {
+        const staticPaths = new Set(['/data-management', '/data-management/sources', '/llm-analytics/traces'])
+
         it.each([
             ['/project/1/data-management/sources', '/project/2/data-management/sources'],
             ['/project/1/data-management/sources/managed-abc/schemas', '/project/2/data-management/sources'],
-            ['/project/1/data-management/actions/42', '/project/2/data-management/actions'],
+            ['/project/1/llm-analytics/traces/abc', '/project/2/llm-analytics/traces'],
             ['/project/1/insights/abc123', '/project/2/insights'],
         ])('switching to another project from %s lands on %s', (currentPath, expected) => {
-            expect(getProjectSwitchTargetUrl(currentPath, 2, 1, 2)).toEqual(expected)
+            expect(getProjectSwitchTargetUrl(currentPath, 2, 1, 2, staticPaths)).toEqual(expected)
+        })
+
+        it('keeps the data management tab with the real route table', () => {
+            expect(getProjectSwitchTargetUrl('/project/1/data-management/sources', 2, 1, 2, staticRoutePaths)).toEqual(
+                '/project/2/data-management/sources'
+            )
         })
     })
 

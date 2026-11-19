@@ -988,3 +988,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
 }
+
+/** Route and redirect paths with no `:param` or `*` segment, so they resolve the same in every project. */
+export const staticRoutePaths: ReadonlySet<string> = new Set(
+    [...Object.keys(routes), ...Object.keys(redirects)].filter((path) => !/[:*?#]/.test(path))
+)

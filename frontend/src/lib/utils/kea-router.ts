@@ -162,15 +162,13 @@ export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): st
 
 const STAY_ON_SAME_PAGE_PATHS = ['settings']
 const REDIRECT_TO_PROJECT_ROOT_PATHS = ['products', 'onboarding']
-// The second segment of these paths is a tab, not a resource ID. The bare section root redirects
-// to one fixed tab, so the switch keeps the tab to stay on the same page.
-const TABBED_SECTION_PATHS = ['data-management']
 
 export function getProjectSwitchTargetUrl(
     currentPath: string,
     newTeamId: number,
-    currentProjectId?: number | null,
-    newProjectId?: number | null
+    currentProjectId: number | null | undefined,
+    newProjectId: number | null | undefined,
+    staticRoutePaths: ReadonlySet<string>
 ): string {
     // Remove project ID and flag ID from the path
     let route = removeProjectIdIfPresent(currentPath)
@@ -196,8 +194,14 @@ export function getProjectSwitchTargetUrl(
         if (currentProjectId && newProjectId && currentProjectId === newProjectId) {
             return `/project/${newTeamId}${route}`
         }
-        if (TABBED_SECTION_PATHS.includes(resourcePath)) {
-            return `/project/${newTeamId}/${pathParts[1]}/${pathParts[2]}`
+        // A static route has no ID in it, so it exists in every project. Keep the longest one, so a
+        // section tab such as /data-management/sources is kept and does not fall back to the
+        // section root, which redirects to that section's default tab.
+        for (let length = pathParts.length; length > 2; length--) {
+            const prefix = pathParts.slice(0, length).join('/')
+            if (staticRoutePaths.has(prefix)) {
+                return `/project/${newTeamId}${prefix}`
+            }
         }
         // Otherwise, go to the parent resource
         return `/project/${newTeamId}/${pathParts[1]}`
