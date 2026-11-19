@@ -558,13 +558,11 @@ def test_workspace_step_clicks(
         set_sources_mock.assert_called_once_with(team.id, user.id, ["session_replay"])
     if action == "sources_no_access":
         set_sources_mock.assert_not_called()
+    completed = [(c.args[1], c.kwargs["step"], c.kwargs.get("sources")) for c in capture_completed.call_args_list]
     if action == "continue":
         # Continue with no signal ticked closes the step, so the thread moves on.
         assert _skipped() == ("sources",)
-        capture_completed.assert_not_called()
+        assert completed == []
     if action == "continue_done":
         assert _skipped() == ()
-        capture_completed.assert_called_once()
-        assert capture_completed.call_args.args[1] == "slack app onboarding step completed"
-        assert capture_completed.call_args.kwargs["step"] == "sources"
-        assert capture_completed.call_args.kwargs["sources"] == ["error_tracking"]
+        assert completed == [("slack app onboarding step completed", "sources", ["error_tracking"])]
