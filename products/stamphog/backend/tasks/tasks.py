@@ -59,13 +59,14 @@ from products.stamphog.backend.logic.installations import delete_installation, r
 from products.stamphog.backend.logic.merge_approval import approving_run_at_head
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
-from products.stamphog.backend.logic.routing.service import RoutingBusy
+from products.stamphog.backend.logic.routing.service import ROUTING_SAFETY_NET_SECONDS, RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     FinishedReview,
     ReviewPath,
     route_after_approval_retracted,
     route_after_attestation_poll,
     route_after_external_review,
+    route_after_head_change,
     route_after_verdict,
     route_on_pull_request_event,
     route_on_safety_net,
@@ -101,6 +102,12 @@ RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "r
 # stamphog approval at the old head must still be retracted — the review workflow that normally does it
 # is skipped. `reopened` doesn't move the head itself but is included defensively.
 _HEAD_CHANGING_ACTIONS = frozenset({"synchronize", "reopened"})
+
+
+def _is_base_retarget(payload: dict[str, Any]) -> bool:
+    # A base retarget arrives as `edited` with a `changes.base` entry.
+    return payload.get("action") == "edited" and bool((payload.get("changes") or {}).get("base"))
+
 
 # Approval dismissal message for the LABEL-mode skip path. Unlike the workflow's dismissal, no re-review
 # follows here (the trigger label is absent), so the copy tells the author how to re-request one.
@@ -1177,10 +1184,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             logger.info("stamphog_pr_event_closed_unmerged_ignored")
         return
 
-    # A base retarget arrives as `edited` with a `changes.base` entry. It changes the reviewed diff
-    # without moving the head, so it flows through the full pipeline like a synchronize — plus an
-    # explicit retraction below, because every head-keyed sweep is blind to a same-head approval.
-    base_retargeted = action == "edited" and bool((payload.get("changes") or {}).get("base"))
+    # A base retarget changes the reviewed diff without moving the head, so it flows through the full
+    # pipeline like a synchronize — plus an explicit retraction below, because every head-keyed sweep
+    # is blind to a same-head approval.
+    base_retargeted = _is_base_retarget(payload)
     if action not in RELEVANT_PR_ACTIONS and not base_retargeted:
         logger.info("stamphog_pr_event_action_ignored", action=action)
         return
@@ -2151,9 +2158,6 @@ _ROUTING_MAX_RETRIES = 4
 _ROUTING_RETRY_BASE_SECONDS = 30
 # Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
 ROUTING_BUSY_RETRY_SECONDS = 60
-# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long, and ALWAYS mode when the
-# attestation checks of a waiting head did not end the wait.
-ROUTING_SAFETY_NET_SECONDS = 30 * 60
 ROUTING_ATTESTATION_POLL_SECONDS = 2 * 60
 _ROUTING_ATTESTATION_MAX_POLLS = ROUTING_SAFETY_NET_SECONDS // ROUTING_ATTESTATION_POLL_SECONDS
 
@@ -2290,7 +2294,8 @@ def _run_routing_step(task: Task, step: Callable[[], None], **log_fields: Any) -
 
 def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
     action = payload.get("action", "")
-    if action not in ROUTING_ACTIONS:
+    head_changed = action == "synchronize" or _is_base_retarget(payload)
+    if action not in ROUTING_ACTIONS and not head_changed:
         return
     installation_id = str((payload.get("installation") or {}).get("id", ""))
     repo = (payload.get("repository") or {}).get("full_name", "")
@@ -2299,6 +2304,9 @@ def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
         return
     repo_config = _resolve_repo_config(installation_id, repo)
     if repo_config is None:
+        return
+    if head_changed:
+        route_after_head_change(repo_config, pr_number=pr_number, task_id=task_id, review_path=_ROUTING_REVIEW_PATH)
         return
     route_on_pull_request_event(
         repo_config, action=action, pr_number=pr_number, task_id=task_id, review_path=_ROUTING_REVIEW_PATH
@@ -2309,9 +2317,9 @@ def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
 def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_id: str) -> None:
     """Request reviews from the owners of the changed code when a PR opens or becomes ready.
 
-    In FALLBACK mode a head that stamphog will review waits for the verdict instead. GitHub and DB
-    errors retry with backoff. The stored routing record makes a retry or a redelivery for the same
-    head request nobody twice.
+    In FALLBACK mode a head that stamphog will review waits for the verdict instead. A push or a base
+    retarget decides an attested ALWAYS pull request again. GitHub and DB errors retry with backoff. The
+    stored routing record makes a retry or a redelivery for the same head request nobody twice.
     """
     _run_routing_step(self, lambda: _route_reviewers(payload, self.request.id or ""), delivery_id=delivery_id)
 

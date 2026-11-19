@@ -1117,6 +1117,7 @@ _TEAM_ALPHA_REQUESTED = ("requested_team", "team-alpha")
 _STAMPHOG_APPROVED = ("approved",)
 _STAMPHOG_REFUSED = ("refused",)
 _PROVEN_PUSH = ("proven_push",)
+_SYNCHRONIZE = ("synchronize",)
 _POLL = ("poll",)
 _NEXT_POLL = ("next_poll",)
 _ATTESTED = ("done", "attested", "attestation", HEAD_SHA)
@@ -1241,9 +1242,45 @@ _ATTESTED_ROUTING_CASES = [
         _PROVEN,
         _proof_check(),
         {"review_mode": ReviewMode.LABEL, "with_addition": False},
-        [_CLIENT_LIBRARIES_REQUESTED, _POLL, _PROVEN_PUSH, ("retracted",), _NEXT_POLL],
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, _PROVEN_PUSH, _SYNCHRONIZE, _NEXT_POLL],
         ("done", "attested", "attestation", _HEAD_2),
         [1, 1],
+    ),
+    (
+        "attested_with_a_pending_request_then_pushed_without_a_proof",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), _SYNCHRONIZE, ("net",)],
+        ("done", "full", "safety_net", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "a_stale_net_leaves_the_wait_of_a_pushed_head_alone",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), _SYNCHRONIZE, ("early_net",)],
+        ("waiting", None, "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_retargeted_onto_a_diff_the_proof_misses",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("retarget_adds", "products/alpha/extra.py")],
+        _FULL_AFTER_POLL,
+        [1],
+    ),
+    (
+        "proven_on_partial_ownership_data",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("poll_without_kinds",)],
+        _FULL_AFTER_POLL,
+        [1],
     ),
     (
         "attested_then_retargeted_without_a_review_to_come",
@@ -1408,7 +1445,9 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
     routing_chain,
     safety_net,
     attestation_poll,
+    time_machine,
 ) -> None:
+    time_machine.move_to(datetime(2026, 11, 19, 10, 0, tzinfo=UTC), tick=False)
     recorder = routing_chain.recorder
     recorder.policy_files[".stamphog/policy.yml"] = policy
     recorder.policy_files[_PROOF_ISSUER] = _PROOF_ISSUER_MANIFEST
@@ -1463,11 +1502,30 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
             queue_routing_after_approval_retracted(repo_config, pr_number=PR_NUMBER)
         elif step[0] == "ready":
             _route("ready_for_review")
+        elif step[0] == "synchronize":
+            _route("synchronize")
+        elif step[0] == "retarget_adds":
+            recorder.pr_files[(REPO, PR_NUMBER)].append(_file(step[1]))
+            recorder.compare_files = list(recorder.pr_files[(REPO, PR_NUMBER)])
+            route_pull_request_reviewers(
+                payload={**_payload("edited"), "changes": {"base": {"ref": {"from": "release"}}}},
+                delivery_id="delivery-2",
+            )
         elif step[0] == "net":
+            time_machine.shift(timedelta(seconds=ROUTING_SAFETY_NET_SECONDS))
+            _fire_safety_net(safety_net)
+        elif step[0] == "early_net":
             _fire_safety_net(safety_net)
         elif step[0] == "poll":
             first_poll = attestation_poll.call_args_list[0].kwargs["kwargs"]
             route_reviewers_after_attestation.apply(kwargs=first_poll, throw=True)
+        elif step[0] == "poll_without_kinds":
+            first_poll = attestation_poll.call_args_list[0].kwargs["kwargs"]
+            with patch(
+                "posthog.ownership.github_files.GitHubFilesFetcher.path_kinds",
+                side_effect=OwnershipUnavailable("tree lookup failed"),
+            ):
+                route_reviewers_after_attestation.apply(kwargs=first_poll, throw=True)
         else:
             raise AssertionError(f"unknown step {step}")
 

@@ -9,6 +9,7 @@ its last saved step. Then its guards decide on the record and the live pull requ
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from django.db import router
@@ -25,6 +26,7 @@ from products.stamphog.backend.logic.routing.service import (
     FULL_ROUTED_HEAD,
     PINNED_ROUTED_HEAD,
     REQUESTED_OWNERS,
+    ROUTING_SAFETY_NET_SECONDS,
     SCOPE_ATTESTED,
     SCOPE_FULL,
     SCOPE_PINNED,
@@ -548,9 +550,23 @@ def route_after_verdict(
     _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
+def _waited_for_the_net(record: dict[str, Any]) -> bool:
+    """Whether the record has waited as long as a safety net delays, give or take a minute of scheduling."""
+    waiting_since = record.get("waiting_since")
+    if not isinstance(waiting_since, str):
+        return True
+    waited = datetime.now(UTC) - datetime.fromisoformat(waiting_since)
+    return waited >= timedelta(seconds=ROUTING_SAFETY_NET_SECONDS - 60)
+
+
 def _attestation_safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | None:
     """Route the live head in full when the checks of an ALWAYS head did not end its wait in time."""
-    if not waiting_attestation_checks(state.record):
+    record = state.record
+    if record is None or not waiting_attestation_checks(record):
+        return None
+    if not _waited_for_the_net(record):
+        # The net carries no head, so it can belong to a head that the author pushed past. The wait of the pushed
+        # head scheduled a net of its own.
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
     if pr is None:
@@ -719,11 +735,13 @@ def _retracted_approval_step(client: StamphogGitHubClient, state: _State, *, rev
     )
 
 
-def _attested_retraction_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
-    """Decide an attested pull request again when a retraction can leave it without a reviewer.
+def _attested_recheck_step(
+    client: StamphogGitHubClient, state: _State, *, trigger: str, review_path: ReviewPath
+) -> _Step | None:
+    """Decide an attested pull request again after a push, a base retarget or a retracted approval.
 
-    A push dismisses the approval, and the pushed head waits for its own proof. On the same head, the head routes in
-    full when it is left without a reviewer.
+    The pushed head waits for its own proof. On the same head, the head routes in full when its proof no longer
+    covers the diff, which a base retarget changes, or when it is left without a reviewer.
     """
     record = state.record
     if record is None or not _is_attested_done(record):
@@ -733,14 +751,16 @@ def _attested_retraction_step(client: StamphogGitHubClient, state: _State, *, re
         return None
     live_head_sha = _head_sha(pr)
     if live_head_sha != record.get("head_sha"):
-        return _attestation_wait_on_live_head(client, state, pr, trigger=TRIGGER_APPROVAL_RETRACTED)
+        return _attestation_wait_on_live_head(client, state, pr, trigger=trigger)
+    if not attestation_proven(client, state.repo_config.repository, pr):
+        return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.ALWAYS, trigger=trigger)
     if _keeps_a_reviewer(pr, state, review_path=review_path):
         return None
     # A base retarget retracts the approval of the attested head, and its run still counts as a review of the head.
     # Only a visible review judges the retargeted diff, and its verdict routes the head.
     if review_path.will_review(state.repo_config, pr, count_silent=False):
         return None
-    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.ALWAYS, trigger=TRIGGER_APPROVAL_RETRACTED)
+    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.ALWAYS, trigger=trigger)
 
 
 def route_after_approval_retracted(
@@ -766,7 +786,45 @@ def route_after_approval_retracted(
         # after it ends.
         raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
     if repo_config.routing_mode == RoutingMode.ALWAYS:
-        step = _attested_retraction_step(client, state, review_path=review_path)
+        step = _attested_recheck_step(client, state, trigger=TRIGGER_APPROVAL_RETRACTED, review_path=review_path)
     else:
         step = _retracted_approval_step(client, state, review_path=review_path)
+    _execute(client, state, step, review_path, retry_when_busy=True)
+
+
+def _head_change_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
+    record = state.record
+    if record is None:
+        return None
+    if _is_attested_done(record):
+        return _attested_recheck_step(client, state, trigger=TRIGGER_ATTESTATION, review_path=review_path)
+    if not waiting_attestation_checks(record):
+        return None
+    pr = _live_head(client, state.repo_config, state.pr_number)
+    if pr is None or _head_sha(pr) == record.get("head_sha"):
+        # The poll of the waiting head verifies the proof against the live diff, a retargeted one too.
+        return None
+    return _attestation_wait_on_live_head(client, state, pr, trigger=TRIGGER_ATTESTATION)
+
+
+def route_after_head_change(
+    repo_config: StamphogRepoConfig, *, pr_number: int, task_id: str, review_path: ReviewPath
+) -> None:
+    """Decide an attested ALWAYS pull request again after a push or a base retarget.
+
+    A proof covers the diff of one head against one base, and the bot that pushed may hold no stamphog approval
+    whose retraction would decide the pull request again. A pushed head waits for its own proof, and a retargeted
+    head routes in full once its proof no longer covers the diff. ``task_id`` is the Celery task id, which a retry of
+    the same task keeps, so a retry knows its own claim.
+    """
+    if repo_config.routing_mode != RoutingMode.ALWAYS:
+        return
+    client = StamphogGitHubClient(repo_config.installation_id)
+    state = _load_state(repo_config, pr_number, task_id)
+    if _resume(client, state):
+        return
+    if is_foreign_claim(state.stored, task_id):
+        # The claim can end in an attested routing of the head this task comes too late for, so decide after it ends.
+        raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
+    step = _head_change_step(client, state, review_path=review_path)
     _execute(client, state, step, review_path, retry_when_busy=True)

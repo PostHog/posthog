@@ -80,6 +80,9 @@ TRIGGER_EXTERNAL_REVIEW = "external_review"
 # A push or a base retarget that no review follows retracted the approval that held the full routing back.
 TRIGGER_APPROVAL_RETRACTED = "approval_retracted"
 TRIGGER_ATTESTATION = "attestation"
+# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long, and ALWAYS mode when the
+# attestation checks of a waiting head did not end the wait.
+ROUTING_SAFETY_NET_SECONDS = 30 * 60
 SCOPE_FULL = RoutingScope.FULL.value
 SCOPE_PINNED = RoutingScope.PINNED.value
 SCOPE_ATTESTED = RoutingScope.ATTESTED.value
@@ -501,8 +504,8 @@ def _plan(
     started = time.monotonic()
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
-    pinned_only = claim["scope"] == SCOPE_PINNED
-    attested = claim["scope"] == SCOPE_ATTESTED
+    scope = claim["scope"]
+    pinned_only = scope == SCOPE_PINNED
     # Planned here so the model call can carry it, which links the run log row to its LLM trace.
     run_id = str(uuid7())
     fork = is_fork(pr, repository)
@@ -517,6 +520,11 @@ def _plan(
             changed_files=pr.get("changed_files"),
         )
     ownership = _resolve_owners(client, repository, files)
+    if scope == SCOPE_ATTESTED and (truncated or not ownership.additions_resolved):
+        # Partial data can miss a pin, and nothing routes an attested head again to request it, so the head routes
+        # in full instead.
+        scope = SCOPE_FULL
+    attested = scope == SCOPE_ATTESTED
     candidates = find_candidates(files, ownership.resolutions)
 
     model = GatewayCutModel(
@@ -558,6 +566,7 @@ def _plan(
     planned_at = now.isoformat()
     return {
         **claim,
+        "scope": scope,
         "fork": fork,
         "candidates": [
             _candidate_record(
