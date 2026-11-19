@@ -88,7 +88,7 @@ export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
         },
         urls.subscriptions()
     ),
-    product_analytics: sidebarPage('Product analytics', <IconGraph />, urls.analyticsProductHome()),
+    product_analytics: sidebarPage('Product analytics', <IconGraph />, urls.insights()),
     web_analytics: sidebarPage('Web analytics', <IconPieChart />, urls.webAnalytics()),
     sql_editor: sidebarPage('SQL editor', <IconDatabase />, urls.sqlEditor()),
     new_insight: sidebarPage('New insight', <IconPlus />, urls.insightNew()),
