@@ -236,7 +236,19 @@ export type HealthRowApiOutput = zod.output<typeof HealthRowApi>
 
 export const EndpointHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
-    endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
+    endpoint: zod
+        .string()
+        .describe(
+            'The endpoint label: the entry span name, or \"<METHOD> <route>\" when the span name is only an HTTP method and the span carries a route.'
+        ),
+    span_name: zod.string().describe('The raw entry span name the row counts, for tracing filters.'),
+    route_attribute: zod
+        .string()
+        .nullable()
+        .describe(
+            'The span attribute the route came from (http.route or url.template), or null when the label is the span name.'
+        ),
+    route: zod.string().nullable().describe('The route appended to the span name, or null.'),
     environment: zod
         .string()
         .nullable()
@@ -268,7 +280,19 @@ export const EndpointsHealthResponseApi = zod.object({
         .array(
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
-                endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
+                endpoint: zod
+                    .string()
+                    .describe(
+                        'The endpoint label: the entry span name, or \"<METHOD> <route>\" when the span name is only an HTTP method and the span carries a route.'
+                    ),
+                span_name: zod.string().describe('The raw entry span name the row counts, for tracing filters.'),
+                route_attribute: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The span attribute the route came from (http.route or url.template), or null when the label is the span name.'
+                    ),
+                route: zod.string().nullable().describe('The route appended to the span name, or null.'),
                 environment: zod
                     .string()
                     .nullable()
