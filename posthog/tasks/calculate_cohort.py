@@ -1051,10 +1051,10 @@ def _finish_owned_population(
         is_calculating=cohort.is_calculating,
         errors_calculating=cohort.errors_calculating,
     )
-    # Clean up ClickHouse rows only when nothing in this replace lineage resolved replace rows in Postgres,
-    # so Postgres stays a subset of ClickHouse. Worker interrupts (BaseException) skip cleanup
-    # because the sweep redispatches them.
-    if stored_marker is not None and isinstance(processing_error, Exception) and not pg_membership_written:
+    # Clean up ClickHouse rows whenever this attempt ended in error without resolving replace rows in Postgres,
+    # including BaseException exits (SystemExit, broker Reject): _release_population_claim already released the
+    # run fields, so the sweep will not redispatch it, and deleting uncopied rows keeps ClickHouse matching Postgres.
+    if stored_marker is not None and processing_error is not None and not pg_membership_written:
         try:
             delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, marker=stored_marker)
         except Exception:

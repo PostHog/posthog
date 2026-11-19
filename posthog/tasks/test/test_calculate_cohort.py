@@ -2537,6 +2537,44 @@ class TestCohortCalculationTasks(APIBaseTest):
         history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
         self.assertEqual(history.error_code, CohortErrorCode.REPLACE_DISABLED)
 
+    def test_system_exit_after_replace_insert_deletes_attempt_rows_from_clickhouse(self) -> None:
+        run = uuid4().hex[:8]
+        existing = create_person(
+            team=self.team, distinct_ids=[f"{run}-old"], properties={"tag": f"{run}-old"}, uuid=uuid4()
+        )
+        create_person(team=self.team, distinct_ids=[f"{run}-new"], properties={"tag": f"{run}-new"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-new'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=start,
+        )
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch(PG_SYNC_PATH, side_effect=SystemExit(1)),
+            self.assertRaises(SystemExit),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [existing.id])
+        rows = sync_execute(
+            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(existing.uuid), 0)])
+
     def test_entry_kill_switch_stop_after_failed_insert_deletes_earlier_attempts_rows(self) -> None:
         run = uuid4().hex[:8]
         existing = create_person(
