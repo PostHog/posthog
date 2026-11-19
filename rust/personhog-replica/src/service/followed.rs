@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::future::Future;
+use std::sync::{Arc, OnceLock};
 
+use personhog_common::client::{CHANGELOG_EPOCH_HEADER, PARTITION_HEADER, PERSON_ID_HEADER};
 use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::changelog::LiveChangelog;
-use personhog_leader::cache::PersonCacheKey;
-use personhog_leader::follow::{Follower, ReadRefusal};
-use personhog_leader::pg::load_person_from_pg;
+use personhog_leader::cache::{CachedPerson, PersonCacheKey};
+use personhog_leader::follow::Follower;
 use personhog_leader::service::cached_person_into_proto;
 use personhog_proto::personhog::types::v1::Person;
 use tonic::metadata::MetadataMap;
@@ -12,131 +13,129 @@ use tonic::Status;
 
 use super::PersonHogReplicaService;
 
-/// The partition the router sent the request to.
-pub const PARTITION_HEADER: &str = "x-partition";
-/// The changelog config epoch the router chose that partition under.
-pub const EPOCH_HEADER: &str = "x-changelog-epoch";
-/// The person a caller routed the request by.
-pub const PERSON_ID_HEADER: &str = "x-person-id";
-
-/// What a replica needs to serve people from the changelog.
-#[derive(Clone)]
-pub struct FollowerReads {
+/// A follower and the changelog config it follows under.
+pub struct Attached {
     pub follower: Arc<Follower>,
     pub changelog: LiveChangelog,
-    /// Where a person with no unapplied writes is loaded from: a read replica, and the
-    /// table the writer maintains. An unmarked person is current only in that table.
-    pub pool: sqlx::PgPool,
-    pub table: String,
+}
+
+/// What a replica in follower mode reads people from. It is empty until the pod has read
+/// the changelog config, and every read is answered from Postgres until then.
+#[derive(Clone, Default)]
+pub struct FollowerReads {
+    attached: Arc<OnceLock<Attached>>,
+}
+
+impl FollowerReads {
+    /// The follower this replica reads from, which is `attached` unless one already was.
+    pub fn attach(&self, attached: impl FnOnce() -> Attached) -> &Attached {
+        self.attached.get_or_init(attached)
+    }
+
+    fn attached(&self) -> Option<&Attached> {
+        self.attached.get()
+    }
 }
 
 impl PersonHogReplicaService {
-    /// Whether the router sent this request to a follower of the person's partition. A
-    /// request it did not is answered from Postgres.
-    pub(super) fn routed_to_a_follower(metadata: &MetadataMap) -> bool {
-        metadata.contains_key(PARTITION_HEADER)
-    }
-
-    /// The person the request was routed by, checked against the UUID it asks for.
-    pub(super) async fn followed_person_by_uuid(
-        &self,
-        metadata: &MetadataMap,
-        team_id: i64,
-        uuid: &str,
-    ) -> Result<Option<Person>, Status> {
-        let person_id = header(metadata, PERSON_ID_HEADER)?
-            .and_then(|id| i64::try_from(id).ok())
-            .ok_or_else(|| Status::invalid_argument(format!("missing {PERSON_ID_HEADER}")))?;
-        let person = self.followed_person(metadata, team_id, person_id).await?;
-        if person.as_ref().is_some_and(|person| person.uuid != uuid) {
-            return Err(Status::invalid_argument(format!(
-                "{PERSON_ID_HEADER} names another person than the requested UUID"
-            )));
-        }
-        Ok(person)
-    }
-
-    /// The person as the changelog has them. Every refusal is retryable against another
-    /// follower of the partition: this one is behind, or has not seen the caller's config.
-    pub(super) async fn followed_person(
+    /// The person as a follower of their partition has them, when the router sent the
+    /// request to one and it can answer. A deleted person comes back as their death
+    /// document. `None` is a read for Postgres.
+    pub(super) fn followed_person(
         &self,
         metadata: &MetadataMap,
         team_id: i64,
         person_id: i64,
-    ) -> Result<Option<Person>, Status> {
-        let routed = header(metadata, PARTITION_HEADER)?;
+    ) -> Option<CachedPerson> {
+        if !metadata.contains_key(PARTITION_HEADER) {
+            return None;
+        }
+        let Some(routed) = header(metadata, PARTITION_HEADER) else {
+            return unanswered("unreadable_headers");
+        };
         let Some(reads) = &self.follower else {
-            refused("not_following", None);
-            return Err(Status::failed_precondition(
-                "this replica does not follow the changelog",
-            ));
+            return unanswered("not_following");
+        };
+        let Some(reads) = reads.attached() else {
+            return unanswered("not_attached");
         };
         let (partitions, epoch) = reads.changelog.layout();
         let partition = partition_for_person(team_id, person_id, partitions);
-        if header(metadata, EPOCH_HEADER)?.is_some_and(|routed| routed > epoch) {
-            refused("config_behind", Some(partition));
-            return Err(Status::unavailable(
-                "this follower has not seen the changelog config the request was routed under",
-            ));
+        if metadata.contains_key(CHANGELOG_EPOCH_HEADER) {
+            match header(metadata, CHANGELOG_EPOCH_HEADER) {
+                Some(routed) if routed <= epoch => {}
+                Some(_) => return unanswered("config_behind"),
+                None => return unanswered("unreadable_headers"),
+            }
         }
-        if routed.is_some_and(|routed| routed != partition as u64) {
-            refused("other_partition", Some(partition));
-            return Err(Status::failed_precondition(format!(
-                "the request was routed to another partition than {partition}"
-            )));
+        if routed != u64::from(partition) {
+            return unanswered("other_partition");
         }
         let key = PersonCacheKey { team_id, person_id };
-        let read = reads
-            .follower
-            .read(partition, &key, epoch, || async {
-                load_person_from_pg(&reads.pool, &reads.table, &key)
-                    .await
-                    .map_err(|e| e.to_string())
-            })
-            .await;
-        match read {
-            Ok(person) => Ok(person.map(cached_person_into_proto)),
-            Err(ReadRefusal::NotCurrent) => {
-                refused("not_current", Some(partition));
-                Err(Status::unavailable(
-                    "this follower is not current for the partition",
-                ))
+        match reads.follower.read(partition, &key, epoch) {
+            Ok(person) => {
+                count("followed");
+                Some(person)
             }
-            Err(ReadRefusal::Recovery(reason)) => {
-                refused("recovery", Some(partition));
-                Err(Status::unavailable(reason))
-            }
-            Err(ReadRefusal::Load(reason)) => {
-                refused("load", Some(partition));
-                Err(Status::unavailable(reason))
-            }
+            Err(why) => unanswered(why.label()),
         }
+    }
+
+    /// The person named by the routing headers, for a read that asks by UUID. A follower
+    /// holding another person under that id has no answer for the read.
+    pub(super) fn followed_person_by_uuid(
+        &self,
+        metadata: &MetadataMap,
+        team_id: i64,
+        uuid: &str,
+    ) -> Option<CachedPerson> {
+        if !metadata.contains_key(PARTITION_HEADER) {
+            return None;
+        }
+        let Some(person_id) =
+            header(metadata, PERSON_ID_HEADER).and_then(|id| i64::try_from(id).ok())
+        else {
+            return unanswered("unreadable_headers");
+        };
+        let person = self.followed_person(metadata, team_id, person_id)?;
+        if person.uuid != uuid {
+            return unanswered("other_person");
+        }
+        Some(person)
     }
 }
 
-/// `partition` is the one this pod computed for the person, never a value a caller sent,
-/// so the label stays within the partition count.
-fn refused(reason: &'static str, partition: Option<u32>) {
-    let partition = partition.map_or_else(|| "none".to_string(), |partition| partition.to_string());
+/// Answer with what the follower had, and read Postgres through `stored` for what it did
+/// not: a person it does not hold, or one it holds only a death document for.
+pub(super) async fn followed_or_stored<F, Fut>(
+    followed: Option<CachedPerson>,
+    stored: F,
+) -> Result<Option<Person>, Status>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Option<Person>, Status>>,
+{
+    match followed {
+        Some(person) if !person.is_deleted => Ok(Some(cached_person_into_proto(person))),
+        // A live row above a death document is the person created again under the same id.
+        Some(death) => Ok(stored().await?.filter(|row| row.version > death.version)),
+        None => stored().await,
+    }
+}
+
+fn unanswered(why: &'static str) -> Option<CachedPerson> {
+    count(why);
+    None
+}
+
+fn count(answer: &'static str) {
     common_metrics::inc(
-        "personhog_follower_read_refusals_total",
-        &[
-            ("reason".to_string(), reason.to_string()),
-            ("partition".to_string(), partition),
-        ],
+        "personhog_follower_reads_total",
+        &[("answer".to_string(), answer.to_string())],
         1,
     );
 }
 
-#[allow(clippy::result_large_err)]
-fn header(metadata: &MetadataMap, name: &'static str) -> Result<Option<u64>, Status> {
-    let Some(value) = metadata.get(name) else {
-        return Ok(None);
-    };
-    value
-        .to_str()
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .map(Some)
-        .ok_or_else(|| Status::invalid_argument(format!("{name} is not a number")))
+fn header(metadata: &MetadataMap, name: &'static str) -> Option<u64> {
+    metadata.get(name)?.to_str().ok()?.parse().ok()
 }

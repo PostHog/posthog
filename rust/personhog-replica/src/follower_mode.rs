@@ -1,7 +1,9 @@
 //! Running this replica as a changelog follower: it registers for partitions in its own
-//! coordination instance and serves people from the leader's cache, kept current from
-//! the changelog.
+//! coordination instance and answers single-person reads from the leader's cache, kept
+//! current from the changelog. The replica serves from Postgres whenever it is not
+//! following, so nothing here holds up or fails the server.
 
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,22 +21,22 @@ use personhog_coordination::pod::{
     PodConfig, PodHandle, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
 };
 use personhog_coordination::store::PersonhogStore;
-use personhog_leader::cache::{DirtyIndex, PartitionedCache};
+use personhog_coordination::types::ChangelogConfig;
+use personhog_leader::cache::PartitionedCache;
 use personhog_leader::config::derive_advertise_address;
 use personhog_leader::follow::handler::FollowerHandler;
 use personhog_leader::follow::{FollowConfig, Follower};
-use personhog_leader::pg::validate_table_name;
-use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
-use tokio::sync::Notify;
-
-use crate::service::FollowerReads;
+use crate::service::{Attached, FollowerReads};
 
 const EPOCH_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// How long a warm may go without progress, and how long it may take to be confirmed current.
 const STALL_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a follower that stopped waits before it tries to follow again.
+const RESTART_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Envconfig, Clone)]
 pub struct FollowerSettings {
@@ -61,32 +63,16 @@ pub struct FollowerSettings {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    /// The table the writer maintains. A person with no unapplied writes is loaded from
-    /// it, so it must be the writer's target.
-    #[envconfig(from = "FOLLOWER_PERSON_TABLE", default = "posthog_person")]
-    pub person_table: String,
-
     /// Cache budget per followed partition.
     #[envconfig(from = "FOLLOWER_CACHE_CAPACITY_BYTES", default = "16777216")]
     pub cache_capacity_bytes: usize,
 
-    /// A partition not confirmed current within this long refuses reads.
-    #[envconfig(from = "FOLLOWER_STALENESS_THRESHOLD_MS", default = "500")]
+    /// A partition not confirmed current within this long answers no reads.
+    #[envconfig(from = "FOLLOWER_STALENESS_THRESHOLD_MS", default = "5000")]
     pub staleness_threshold_ms: u64,
 
-    #[envconfig(from = "FOLLOWER_END_CHECK_INTERVAL_MS", default = "100")]
+    #[envconfig(from = "FOLLOWER_END_CHECK_INTERVAL_MS", default = "1000")]
     pub end_check_interval_ms: u64,
-
-    /// Longer than the Postgres read replica can lag.
-    #[envconfig(from = "FOLLOWER_MIN_WARM_MS", default = "300")]
-    pub min_warm_ms: u64,
-
-    #[envconfig(from = "FOLLOWER_MARK_CLEAR_INTERVAL_MS", default = "1000")]
-    pub mark_clear_interval_ms: u64,
-
-    /// Longer than the Postgres read replica can lag.
-    #[envconfig(from = "FOLLOWER_MARK_CLEAR_GRACE_MS", default = "300")]
-    pub mark_clear_grace_ms: u64,
 
     #[envconfig(from = "FOLLOWER_LEASE_TTL_SECS", default = "10")]
     pub lease_ttl_secs: i64,
@@ -98,11 +84,10 @@ pub struct FollowerSettings {
     #[envconfig(from = "FOLLOWER_DRAIN_TIMEOUT_SECS", default = "10")]
     pub drain_timeout_secs: u64,
 
+    /// How many partitions are built at once, for a handoff or after a changelog config
+    /// change.
     #[envconfig(from = "FOLLOWER_WARM_CONCURRENCY", default = "4")]
     pub warm_concurrency: usize,
-
-    #[envconfig(from = "FOLLOWER_RECOVERY_POOL_SIZE", default = "2")]
-    pub recovery_pool_size: usize,
 }
 
 impl FollowerSettings {
@@ -114,13 +99,6 @@ impl FollowerSettings {
                  FOLLOWER_STALENESS_THRESHOLD_MS ({}): a partition is confirmed current once \
                  per interval, so it would otherwise never stay current",
                 self.end_check_interval_ms, self.staleness_threshold_ms
-            ));
-        }
-        if Duration::from_millis(self.min_warm_ms) >= STALL_TIMEOUT {
-            return Err(format!(
-                "FOLLOWER_MIN_WARM_MS ({}) must be below the {STALL_TIMEOUT:?} a warm has to \
-                 be confirmed current",
-                self.min_warm_ms
             ));
         }
         Ok(())
@@ -147,38 +125,126 @@ impl std::fmt::Debug for FollowerSettings {
     }
 }
 
-/// Join the follower instance and start following. Returns what the service reads from,
-/// or `None` when shutdown arrived before the changelog config could be read.
-pub async fn start(
+/// Start following in the background. What it returns answers nothing until the follower
+/// has joined its coordination instance, and nothing again whenever it stops.
+pub fn start(
     settings: &FollowerSettings,
     grpc_address: &SocketAddr,
-    replica_pool: sqlx::PgPool,
     handle: Handle,
-) -> Result<Option<FollowerReads>, String> {
+) -> Result<FollowerReads, String> {
     settings.validate()?;
-    validate_table_name(&settings.person_table)?;
-    let inner = EtcdStore::connect_with_member_failover(StoreConfig {
+    let advertise_address = derive_advertise_address(grpc_address, &settings.pod_ip)?;
+    let reads = FollowerReads::default();
+    tokio::spawn(keep_following(
+        settings.clone(),
+        advertise_address,
+        reads.clone(),
+        handle,
+    ));
+    Ok(reads)
+}
+
+/// Follow until shutdown, starting over whenever coordination gives up.
+async fn keep_following(
+    settings: FollowerSettings,
+    advertise_address: String,
+    reads: FollowerReads,
+    handle: Handle,
+) {
+    let _guard = handle.process_scope();
+    let shutdown = handle.shutdown_token();
+    loop {
+        match follow(&settings, &advertise_address, &reads, &shutdown).await {
+            Ok(()) => return,
+            Err(e) => {
+                common_metrics::inc("personhog_follower_restarts_total", &[], 1);
+                tracing::error!(
+                    error = %e,
+                    "follower stopped; reads come from Postgres until it follows again"
+                );
+            }
+        }
+        tokio::select! {
+            () = shutdown.cancelled() => return,
+            () = tokio::time::sleep(RESTART_DELAY) => {}
+        }
+    }
+}
+
+/// Join the follower instance and follow until shutdown, which is `Ok`.
+async fn follow(
+    settings: &FollowerSettings,
+    advertise_address: &str,
+    reads: &FollowerReads,
+    shutdown: &CancellationToken,
+) -> Result<(), String> {
+    let connect = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: settings
             .etcd_endpoints
             .split(',')
             .map(|endpoint| endpoint.trim().to_string())
             .collect(),
         prefix: settings.etcd_prefix.clone(),
-    })
-    .await
-    .map_err(|e| format!("connect to etcd: {e}"))?;
+    });
+    let inner = tokio::select! {
+        () = shutdown.cancelled() => return Ok(()),
+        connected = connect => connected.map_err(|e| format!("connect to etcd: {e}"))?,
+    };
     let store =
         Arc::new(PersonhogStore::new(inner).with_config_prefix(&settings.changelog_etcd_prefix));
-
-    let shutdown = handle.shutdown_token();
-    let Some(loaded) = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL, &shutdown)
+    let Some(loaded) = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL, shutdown)
         .await
         .map_err(|e| format!("load the changelog config: {e}"))?
     else {
-        return Ok(None);
+        return Ok(());
     };
-    let changelog = LiveChangelog::new(loaded.clone());
+    let Attached {
+        follower,
+        changelog,
+    } = reads.attach(|| attached(settings, &loaded));
+    changelog.adopt(&loaded);
 
+    let pod_config = PodConfig {
+        pod_name: settings.pod_name.clone(),
+        lease_ttl: settings.lease_ttl_secs,
+        heartbeat_interval: Duration::from_secs(settings.heartbeat_interval_secs),
+        drain_timeout: Duration::from_secs(settings.drain_timeout_secs),
+        advertise_address: Some(advertise_address.to_string()),
+        warm_concurrency: settings.warm_concurrency.max(1),
+        ..PodConfig::default()
+    };
+    let rebuild = Arc::new(Notify::new());
+    let pod = PodHandle::new(
+        Arc::clone(&store),
+        pod_config,
+        Arc::new(FollowerHandler::new(
+            Arc::clone(follower),
+            changelog.clone(),
+            settings.warm_concurrency,
+        )),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    )
+    .with_repair_nudge(Arc::clone(&rebuild));
+    // Its own task, so a long warm cannot hold up the config re-read.
+    let keep_config_live = tokio::spawn(keep_changelog_live_every(
+        store,
+        changelog.clone(),
+        FOLLOWER_RECONCILE_INTERVAL,
+        CancellationToken::new(),
+    ));
+    let ran = tokio::select! {
+        ran = pod.run(shutdown.clone()) => ran,
+        never = rebuild_on_a_new_epoch(changelog.clone(), rebuild) => match never {},
+    };
+    keep_config_live.abort();
+    if ran.is_err() {
+        follower.release_all();
+    }
+    ran.map_err(|e| format!("follower coordination error: {e}"))
+}
+
+fn attached(settings: &FollowerSettings, loaded: &ChangelogConfig) -> Attached {
     let warming = WarmingConfig {
         kafka: settings.kafka.clone(),
         pod_name: settings.pod_name.clone(),
@@ -197,110 +263,33 @@ pub async fn start(
         &settings.pod_name,
         &loaded.writer_group,
     ));
-    let recovery = ChangelogRecovery::new(RecoveryConfig {
-        kafka: settings.kafka.clone(),
-        pod_name: settings.pod_name.clone(),
-        recv_timeout: Duration::from_secs(5),
-        pool_size: settings.recovery_pool_size,
-        cluster: loaded.cluster.clone().map(Arc::new),
-    })?;
-    let follower = Arc::new(Follower::new(
+    let follower = Follower::new(
         FollowConfig {
             staleness_threshold: Duration::from_millis(settings.staleness_threshold_ms),
             end_check_interval: Duration::from_millis(settings.end_check_interval_ms),
-            min_warm: Duration::from_millis(settings.min_warm_ms),
         },
         warming,
         pools,
         Arc::new(PartitionedCache::new(settings.cache_capacity_bytes)),
-        // Leaders stop taking writes when their own index is full, which bounds this one.
-        Arc::new(DirtyIndex::new(usize::MAX)),
-        Arc::new(recovery),
-    ));
-
-    let pod_config = PodConfig {
-        pod_name: settings.pod_name.clone(),
-        lease_ttl: settings.lease_ttl_secs,
-        heartbeat_interval: Duration::from_secs(settings.heartbeat_interval_secs),
-        drain_timeout: Duration::from_secs(settings.drain_timeout_secs),
-        advertise_address: Some(derive_advertise_address(grpc_address, &settings.pod_ip)?),
-        warm_concurrency: settings.warm_concurrency.max(1),
-        ..PodConfig::default()
-    };
-    let rebuild = Arc::new(Notify::new());
-    let config_store = Arc::clone(&store);
-    let pod = PodHandle::new(
-        store,
-        pod_config,
-        Arc::new(FollowerHandler::new(
-            Arc::clone(&follower),
-            changelog.clone(),
-        )),
-        None,
-        Arc::new(AuthorityClock::unclaimed()),
-    )
-    .with_repair_nudge(Arc::clone(&rebuild));
-    let keep_config_live = keep_changelog_live_every(
-        config_store,
-        changelog.clone(),
-        FOLLOWER_RECONCILE_INTERVAL,
-        CancellationToken::new(),
     );
-    // A new config epoch means every partition must be rebuilt. The handler does that on
-    // its next pass, and this runs one at once instead of at the next reconcile tick.
-    let rebuild_on_a_new_epoch = {
-        let changelog = changelog.clone();
-        async move {
-            let mut seen = changelog.epoch();
-            loop {
-                tokio::time::sleep(EPOCH_POLL_INTERVAL).await;
-                let epoch = changelog.epoch();
-                if epoch != seen {
-                    seen = epoch;
-                    rebuild.notify_one();
-                }
-            }
-        }
-    };
-    let clear_marks = {
-        let (follower, changelog) = (Arc::clone(&follower), changelog.clone());
-        let interval = Duration::from_millis(settings.mark_clear_interval_ms);
-        let grace = Duration::from_millis(settings.mark_clear_grace_ms);
-        async move {
-            follower
-                .clear_applied_marks(changelog, interval, grace)
-                .await
-        }
-    };
-    // Each loop is its own task, so a long warm cannot hold up the config re-read, and one
-    // supervisor watches them all: any of them ending stops the component. The watch and
-    // the mark clearing outlive the supervisor, as the pod serves through its drain.
-    let mut keep_config_live = tokio::spawn(keep_config_live);
-    let mut clear_marks = tokio::spawn(clear_marks);
-    tokio::spawn(async move {
-        let _guard = handle.process_scope();
-        tokio::select! {
-            ran = pod.run(handle.shutdown_token()) => {
-                if let Err(e) = ran {
-                    handle.signal_failure(format!("follower coordination error: {e}"));
-                }
-            }
-            _ = &mut keep_config_live => {
-                handle.signal_failure("the follower's changelog config watch stopped".to_string());
-            }
-            _ = &mut clear_marks => {
-                handle.signal_failure("the follower stopped clearing applied marks".to_string());
-            }
-            () = rebuild_on_a_new_epoch => {}
-        }
-    });
+    Attached {
+        follower: Arc::new(follower),
+        changelog: LiveChangelog::new(loaded.clone()),
+    }
+}
 
-    Ok(Some(FollowerReads {
-        follower,
-        changelog,
-        pool: replica_pool,
-        table: settings.person_table.clone(),
-    }))
+/// A new config epoch means every partition must be rebuilt. The handler does that on its
+/// next pass, and this runs one at once instead of at the next reconcile tick.
+async fn rebuild_on_a_new_epoch(changelog: LiveChangelog, rebuild: Arc<Notify>) -> Infallible {
+    let mut seen = changelog.epoch();
+    loop {
+        tokio::time::sleep(EPOCH_POLL_INTERVAL).await;
+        let epoch = changelog.epoch();
+        if epoch != seen {
+            seen = epoch;
+            rebuild.notify_one();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -314,10 +303,9 @@ mod tests {
     #[rstest]
     #[case::defaults(&[], true)]
     #[case::end_checks_no_faster_than_the_threshold(
-        &[("FOLLOWER_END_CHECK_INTERVAL_MS", "500")],
+        &[("FOLLOWER_END_CHECK_INTERVAL_MS", "5000")],
         false
     )]
-    #[case::a_minimum_warm_no_warm_can_meet(&[("FOLLOWER_MIN_WARM_MS", "10000")], false)]
     fn timing_settings_must_work_together(#[case] env: &[(&str, &str)], #[case] valid: bool) {
         let env: HashMap<String, String> = env
             .iter()

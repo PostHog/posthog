@@ -335,21 +335,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 
-    let replica_pool = storage.replica_pool.clone();
     let mut service = PersonHogReplicaService::new(storage);
     if let Some(handle) = follower_handle {
-        match personhog_replica::follower_mode::start(
-            &config.follower,
-            &config.grpc_address,
-            replica_pool,
-            handle,
-        )
-        .await
-        .expect("Failed to start follower mode")
-        {
-            Some(reads) => service = service.with_follower(reads),
-            None => return Ok(()),
-        }
+        let reads =
+            personhog_replica::follower_mode::start(&config.follower, &config.grpc_address, handle)
+                .expect("Failed to start follower mode");
+        service = service.with_follower(reads);
     }
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
