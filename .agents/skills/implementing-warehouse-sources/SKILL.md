@@ -731,6 +731,30 @@ skill — don't hand-roll version handling.
 - Keep comments minimal and only when intent is not obvious.
 - Python imports at the top of the module, not inside functions (unless needed to break circular imports).
 
+## Shaping rows with the shared helpers
+
+Do not write your own `_flatten*` function for these shapes.
+Import the helper from `products.warehouse_sources.sources.sdk`.
+The helpers are in `common/row_shaping.py`.
+
+| Response shape                                           | Helper                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| JSON:API resource (`id`, `type`, `attributes`)           | `flatten_jsonapi(item, relationships_as_ids=True, on_clash="root")`         |
+| One nested object to lift into the row (`metadata`)      | `lift_nested(row, key, on_clash="root")`                                    |
+| Nested camelCase objects to `parent_child` columns       | `flatten_nested(obj, sep="_", key_fn=camel_to_snake, keep_raw=frozenset())` |
+| One camelCase key to snake_case (AWS style, `SOARecord`) | `camel_to_snake(name)`                                                      |
+
+- Each helper returns a new dict.
+  Use the return value.
+- `on_clash` decides the winner when a lifted key is already in the row.
+  Keep the default `"root"` for a new source.
+  With `"nested"`, a JSON:API attribute named `id` or `type` replaces the resource's `id` (the primary key) or `type`.
+- `relationships_as_ids=True` gives one `<name>_id` column for each to-one relationship and drops to-many relationships.
+  Set it to `False` to keep `relationships` as one JSON column.
+- `keep_raw` names keys by their original API name.
+  Their values stay whole, as one JSON column.
+- Write vendor-specific work (date parsing, dropped secret fields, parent ids) around the helper call, not in a copy of it.
+
 ## Incremental sync guidance
 
 - **Only set `supports_incremental=True` when the API exposes a server-side timestamp filter** (`<field>_gte`, `since`, `modified_after`, etc.). A "client-side cursor" that fetches every page and skips already-seen rows in Python is **not** incremental — every run still hits every page, so the API cost of an "incremental" sync ends up identical to a full refresh. If the API has no server filter, ship full refresh only.
@@ -786,9 +810,8 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 - **One layer owns the retries of a request.** `RESTClient` retries its own requests (5 attempts by default) and turns the adapter retries off for them. A bespoke call on a tracked session keeps the adapter retries (3 retries, `GET`/`HEAD`/`OPTIONS` only).
 - **Retry waits are bounded.** One request takes at most `DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS` (300 s), from the start of its first try, with all retries and waits. Each try gets only the time that is left, so a read timeout on a retry can be shorter than the one you set. A source that retries a request in its own loop must share one deadline across its tries. Use `retry_with_deadline(...)` from `common/http` in place of tenacity's `retry(...)`, on a function that sends one logical request. For a `Retrying(...)` object, add `| stop_at_request_deadline()` to its `stop` and call it inside `with request_deadline():`. A hand-written loop runs inside `with request_deadline():` and checks `request_deadline_allows_wait(seconds)` before each wait. `RESTClient` fails a request with a retryable error when the server asks for a wait above `DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS` (300 s). For a vendor with a longer rate limit window, set `retry_after_max_seconds` and `retry_budget_seconds` in the client config.
 - **Do not call `time.sleep` for a backoff or a rate limit hold.** Call `interruptible_wait()` from `common/interruptible_wait.py`. It ends the wait when the worker starts to shut down and the run can resume. Pass `safe_point=` only from a position where the staged cursor covers no row that the source still holds.
-- **Poll an async report or export job with `poll_until_done()`** from `common/async_job.py` (re-exported by the SDK). Do not write your own sleep loop. The `check` callable makes one status request and returns a `JobStatus`: `done=True` with the `result` (for example the download URL), `failed=True`, or pending with the vendor status in `message`. The helper waits through `interruptible_wait`. Set the limit as `budget_seconds`, not as a count of attempts. Pass `failed_error=` and `timeout_error=` to keep the vendor's error type and copy, because the retryable and non-retryable error lists match on that copy. Pass `safe_point=` when the job id is saved or the source holds no rows at the poll. Set `wait_first=True` when the vendor rejects a status check right after the job starts. To read the downloaded file, use `iter_file_rows()` from `common/file_parsing.py`. The `singular`, `clari`, `marketo` and `sumo_logic` sources are examples.
-- Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
-- Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
+- **When a bespoke client must retry a request itself** (a `POST`, a status the adapter does not retry, or more tries than the adapter gives), use `vendor_retry()` from the SDK. Do not write a `<Vendor>RetryableError` class, a `429 or >= 500` check, a `Retry-After` parser or a `tenacity` decorator. In the decorated function, call `raise_for_retryable_status(response, vendor=...)`, then `raise_for_status_redacted(response, url=...)` when the URL carries a credential. `vendor_retry` turns the adapter retries off for its requests, waits as long as the server asks (`parse_retry_after`, the same parser as `RESTClient`), shares one deadline across its tries, and fails at once when the server asks for more than `DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS`. Give `retry_on=` for a vendor condition, such as an unexpected body, and `safe_point=reach_safe_point` only when the caller holds no rows that its staged cursor covers.
+- Only write your own `tenacity` loop for a condition that `vendor_retry` cannot express. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
 - Keep timeout/retry settings near the top of the module for easy tuning.
 - A request that names no timeout gets the default `(connect, read)` timeout from `default_request_timeout()` (30 s, 300 s). Pass `request_timeout` in the client config, or `timeout=` on a session call, when an endpoint needs a different value. `None` means "use the default". Only `NO_REQUEST_TIMEOUT` sends a request with no deadline.
 
