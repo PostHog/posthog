@@ -40,7 +40,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
@@ -107,6 +107,16 @@ class ExternalAccountTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
 class ExternalAccountTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "external_account_psak_team_sustained"
     rate = ExternalAccountSustainedThrottle.rate
+
+
+class ExternalAccountCreateBurstThrottle(_ExternalAccountThrottle):
+    scope = "external_account_create_burst"
+    rate = "240/minute"
+
+
+class ExternalAccountCreateTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_create_psak_team_burst"
+    rate = ExternalAccountCreateBurstThrottle.rate
 
 
 class ExternalAccountListBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
@@ -341,6 +351,16 @@ class ExternalAccountView(APIView):
     # Opts the route into the OpenAPI spec and generated types; the schema preprocessor drops
     # views without a scope_object. Authorization itself stays in the manual Bearer checks above.
     scope_object = "account"
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.request.method == "POST":
+            return [
+                ExternalAccountCreateBurstThrottle(),
+                ExternalAccountSustainedThrottle(),
+                ExternalAccountCreateTeamBurstThrottle(),
+                ExternalAccountTeamSustainedThrottle(),
+            ]
+        return super().get_throttles()
 
     @extend_schema(
         extensions=_INTERNAL_SCHEMA_EXTENSIONS,

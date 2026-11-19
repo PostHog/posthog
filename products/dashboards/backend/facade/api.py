@@ -18,7 +18,8 @@ subscriptions facade, which loads the exports facade, and the exports facade imp
 """
 
 import re
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -63,6 +64,10 @@ from products.dashboards.backend.logic import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.v2 import (
+    first_load as v2_first_load,
+    flag as v2_flag,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -1084,3 +1089,14 @@ __all__ = [
     "set_home_tab_dashboard",
     "widget_type_label",
 ]
+
+
+def dashboard_v2_enabled(team: "Team", distinct_id: str) -> bool:
+    return v2_flag.dashboard_v2_enabled(team, distinct_id)
+
+
+@contextmanager
+def shared_tile_work(team: "Team", distinct_id: str) -> Iterator[None]:
+    """Tiles serialized inside the block share their per-tile setup when `dashboard-v2` is on for the team."""
+    with v2_first_load.shared_tile_work(team, distinct_id):
+        yield
