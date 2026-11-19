@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.activity_logging.activity_log import Trigger
@@ -81,6 +82,7 @@ class Command(BaseCommand):
         decisions = self._decide(histories=histories, team_ids=team_ids)
 
         written = self._apply(decisions) if apply_changes else 0
+        posthoganalytics.flush()
 
         self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes, written=written)
 

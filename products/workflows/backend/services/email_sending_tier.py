@@ -457,7 +457,7 @@ def recompute_email_sending_tiers(
 
     # select_related bypasses TeamManager's defer, so without only() the join pulls every wide Team
     # column, including the deprecated taxonomy blobs, for every candidate. The decision reads only
-    # created_at from Team and the audit row reads name and organization, so restrict the load to
+    # created_at from Team, the audit row reads name and organization, and its analytics event reads uuid, so restrict the load to
     # those plus the config fields it uses.
     configs = {
         config.team_id: config
@@ -474,6 +474,7 @@ def recompute_email_sending_tiers(
             "team__created_at",
             "team__name",
             "team__organization_id",
+            "team__uuid",
         )
     }
 

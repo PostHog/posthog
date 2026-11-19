@@ -25,6 +25,7 @@ from products.workflows.backend.services.email_sending_tier import (
     recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
+from products.workflows.backend.services.email_sending_tier_audit import EMAIL_SENDING_TIER_CHANGED_EVENT
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
@@ -406,15 +407,30 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
         histories = {self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)}
-        with patch(
-            "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
-            return_value=SendingHistoryWindows(window=histories, recent=histories),
+        with (
+            patch(
+                "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+                return_value=SendingHistoryWindows(window=histories, recent=histories),
+            ),
+            patch("posthog.event_usage.posthoganalytics.capture") as capture,
+            patch("products.workflows.backend.tasks.email_sending_tiers.posthoganalytics.flush") as flush,
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
             else:
                 recompute_workflows_email_sending_tiers()
 
+        [event] = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
+        ]
+        assert event["distinct_id"] == str(self.team.uuid)
+        assert event["properties"] == {
+            "previous_tier": 0,
+            "new_tier": 1,
+            "reason": "clean_and_used",
+            "changed_by": "staff" if by_staff else "system",
+        }
+        assert flush.called == (not by_staff)
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None

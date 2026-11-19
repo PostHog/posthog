@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import structlog
+import posthoganalytics
 from celery import shared_task
 
 from posthog.models.activity_logging.activity_log import Trigger
@@ -23,6 +24,8 @@ def recompute_workflows_email_sending_tiers() -> None:
         trigger=Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id=str(uuid4()), payload={})
     )
     notify_email_sending_tier_changes(decisions)
+    # The worker can exit before the global client's background thread sends the tier change events.
+    posthoganalytics.flush()
     logger.info(
         "workflows_email_sending_tier_sweep_finished",
         evaluated_teams=len(decisions),

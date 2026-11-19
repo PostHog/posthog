@@ -72,6 +72,6 @@ def log_email_sending_tier_change(
             "new_tier": new_tier,
             "reason": reason,
             "changed_by": "staff" if user_id is not None else "system",
-            "pinned": pin_change[1] if pin_change is not None else None,
+            **({"pin_changed_to": pin_change[1]} if pin_change is not None and pin_change[0] != pin_change[1] else {}),
         },
     )
