@@ -255,10 +255,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.key = self.get_cache_key(request, view)
         if self.key is None:
             return True
-        self.history = self._primary_history(self.key)
         self.now = self.timer()
-        while self.history and self.history[-1] <= self.now - duration:
-            self.history.pop()
+        self.history = [hit for hit in self._primary_history(self.key) if hit > self.now - duration]
         cost = units + self.DRF_UNITS_PER_REQUEST if self.units_to_check is not None else units
         self.retry_wait = self._wait_for_room(cost, num_requests, duration)
         if math.isinf(self.retry_wait) or len(self.history) + units > num_requests:
@@ -283,7 +281,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return 0.0
         if expiries_needed > len(self.history):
             return math.inf
-        return max(self.history[-expiries_needed:]) + duration - self.now
+        return sorted(self.history)[expiries_needed - 1] + duration - self.now
 
     def _would_allow(self, request: "Request", view: "APIView") -> bool:
         if self.units_to_check is not None:

@@ -1178,7 +1178,7 @@ class TestReserveUnits(BaseTest):
         [
             ("the_refusing_scope_needs_room_for_the_retry_unit", "3/minute", "4/minute", [0, 20], 30, "50"),
             ("an_admitting_scope_has_no_room_for_the_retry", "2/minute", "4/hour", [0, 100], 130, "3470"),
-            ("skewed_worker_clocks_left_the_history_out_of_order", "4/minute", "100/minute", [1, 0, 20], 30, "31"),
+            ("skewed_worker_clocks_left_the_history_out_of_order", "4/minute", "100/minute", [1, 2, 0], 30, "31"),
         ]
     )
     def test_a_retry_at_the_advertised_wait_fits(self, _name, key_rate, team_rate, singles_at, batch_at, retry_after):
@@ -1378,7 +1378,7 @@ class TestReserveUnits(BaseTest):
     @contextmanager
     def _stalled_redis(self) -> Iterator[str]:
         with socket.create_server(("127.0.0.1", 0)) as listener:
-            yield f"redis://127.0.0.1:{listener.getsockname()[1]}/0"
+            yield f"redis://127.0.0.1:{listener.getsockname()[1]}/0?socket_connect_timeout=300&socket_timeout=300"
 
     @parameterized.expand([("unreachable",), ("stalled",)])
     def test_a_send_reads_the_replica_when_the_primary_read_fails(self, failure):
@@ -1444,8 +1444,11 @@ class TestReserveUnits(BaseTest):
                 redis_cache.client.get_client(write=False),
             ]
             try:
+                with override_settings(
+                    CACHES=self._lagging_reader_caches(primary_location=lagging["default"]["LOCATION"][1])
+                ):
+                    self.assertIsNone(self._send([TransactionalEmailBurstThrottle], 1))
                 self.assertEqual(self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True] * 4)
-                redis_cache.set(key, [now], 60, client=reader_client)
                 with override_settings(CACHES=history_unreachable):
                     admitted_from_the_replica = self._send([TransactionalEmailBurstThrottle], recipients)
                 outcome = self._send([TransactionalEmailBurstThrottle], 1)
