@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
 )
@@ -71,7 +73,7 @@ WORKFLOWS = [
     PylonImportBatchWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     support_build_context_activity,
     support_safety_filter_activity,
     support_classify_activity,

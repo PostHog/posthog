@@ -459,13 +459,13 @@ Use `minor` or `major` instead of `patch` when it fits. Commit the file sampo wr
 
 After the pull request merges to master, the workflow:
 
-1. Posts an approval request in the hog releases Slack channel.
-2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that changed what the build ships since the last release can approve: `hog/`, `services/mcp/`, the workspace packages and product files the MCP library bundles, the root `package.json`, the lockfile, `patches/`, the install actions and this workflow. The workflow's `HOG_SOURCE_PATHS` lists them.
+1. Posts an approval request in the hog releases Slack channel, naming the pull requests whose changesets the release ships and who can't approve it.
+2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets can approve. The check runs as the last release tag has `hog/release/check-approvers.sh`, so a change to the rule applies from the release after the one that ships it.
 3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
 
-4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on what merged while the release pull request waited. When an approver opened, merged or pushed commits to one of those changes, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
+4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on the changesets that merged while the release pull request waited, since their code ships in the build. When an approver owns one of them, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
 5. Compiles every target, with the version and the release commit's date as the build date.
 6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
 7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.

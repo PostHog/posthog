@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import {
     APPLICATION_OBSERVABILITY_PATH,
     applicationObservabilityLogic,
+    applicationObservabilityTabUrl,
     drillDownParams,
     metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
@@ -24,7 +25,7 @@ const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'cri
     service_name,
     environment: 'prod',
     status,
-    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0 },
+    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0, apdex: 1 },
     sparkline: [1],
 })
 
@@ -41,9 +42,12 @@ const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
         {
             service_name: 'queue',
             endpoint: 'orders process',
+            span_name: 'orders process',
+            route_attribute: null,
+            route: null,
             environment: 'prod',
             status: 'serious',
-            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },
+            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1, apdex: 0.5 },
         },
     ],
     environment: 'prod',
@@ -352,6 +356,39 @@ describe('applicationObservabilityLogic', () => {
             await expectLogic(deployments).toFinishAllListeners()
             expect(deploymentRequests).toHaveLength(2)
             expect(deploymentRequests[1]).toContain('environment=staging')
+            deployments.unmount()
+        })
+
+        it('follows the URL service on the deployments tab: numeric-looking, picked, then cleared', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/apm/deployments/': () => [
+                        200,
+                        { results: [], service: '1.0', environment: 'true', date_from: '', date_to: '' },
+                    ],
+                },
+            })
+            const deployments = deploymentsLogic()
+            deployments.mount()
+            router.actions.push(
+                applicationObservabilityTabUrl('deployments', {
+                    service: '1.0',
+                    timeRange: '-6h',
+                    environment: 'true',
+                })
+            )
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(logic.values.environment).toBe('true')
+            expect(deployments.values.deploymentsService).toBe('1.0')
+
+            deployments.actions.setDeploymentsService('payments')
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deployments.values.deploymentsService).toBe('payments')
+
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'deployments' })
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deployments.values.pickedService).toBeNull()
             deployments.unmount()
         })
 

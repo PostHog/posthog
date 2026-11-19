@@ -82,7 +82,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
-from products.signals.backend.signal_metadata import SignalSourceReference
+from products.signals.backend.signal_metadata import ReportSignalMeta, SignalSourceReference
 from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
@@ -1482,7 +1482,13 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
 
     team, report = await sync_to_async(_setup)()
 
-    with patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock:
+    with (
+        patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
+        patch(
+            "products.signals.backend.auto_start.fetch_source_products_for_reports",
+            return_value={str(report.id): ReportSignalMeta(source_products=["github"], scout_name=None)},
+        ),
+    ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
             report_id=str(report.id),
@@ -1498,12 +1504,13 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    reasons = [
-        call.kwargs["properties"]["skip_reason"]
+    skipped = [
+        (call.kwargs["properties"]["skip_reason"], call.kwargs["properties"]["source_products"])
         for call in capture_mock.call_args_list
         if call.kwargs.get("event") == "signals_autostart_skipped"
     ]
-    assert reasons == [expect_skip_reason]
+    # The source lets a breakdown read whether reports from GitHub issues stop being held back.
+    assert skipped == [(expect_skip_reason, ["github"])]
     logged = await sync_to_async(
         SignalReportArtefact.objects.filter(team_id=team.id, report_id=report.id, type="autostart_skip").count
     )()

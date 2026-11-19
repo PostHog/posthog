@@ -196,6 +196,14 @@ def _owner_to_team_handle(owner: str) -> str | None:
     return f"@PostHog/{owner}"
 
 
+# The file names `OwnersResolver` reads ownership from.
+OWNERSHIP_FILE_NAMES = frozenset({"owners.yaml", "product.yaml"})
+
+
+def edits_ownership_files(paths: list[str]) -> bool:
+    return any(Path(path).name.lower() in OWNERSHIP_FILE_NAMES for path in paths)
+
+
 class _HogliResolver:
     """hogli-resolver: the shared hogli resolver over distributed ownership files.
 
