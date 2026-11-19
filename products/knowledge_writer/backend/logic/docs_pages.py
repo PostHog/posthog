@@ -825,7 +825,23 @@ def normalized(text: str) -> str:
 
 
 def quotable_source(source_text: str) -> str:
-    return normalized("\n".join([source_text, DIFF_LINE_MARKER_PATTERN.sub("", source_text)]))
+    diff_lines = source_text.splitlines()
+    return normalized(
+        "\n".join(
+            [
+                source_text,
+                DIFF_LINE_MARKER_PATTERN.sub("", source_text),
+                diff_side_text(diff_lines, dropped_marker="-"),
+                diff_side_text(diff_lines, dropped_marker="+"),
+            ]
+        )
+    )
+
+
+def diff_side_text(diff_lines: list[str], *, dropped_marker: str) -> str:
+    return "\n".join(
+        DIFF_LINE_MARKER_PATTERN.sub("", line) for line in diff_lines if not line.startswith(dropped_marker)
+    )
 
 
 def is_quoted(quote: str, normalized_text: str) -> bool:
