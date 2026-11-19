@@ -1051,6 +1051,49 @@ class TestGitLabIntegration:
         assert "isn't JSON" in response.json()["detail"]
         assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
 
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_reconnecting_a_connected_project_replaces_its_token(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        project = {"id": 1, "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
+
+        def gitlab_response(method, url, **kwargs):
+            if url.endswith("/personal_access_tokens/self"):
+                return MagicMock(status_code=200, **{"json.return_value": {"scopes": ["api"], "expires_at": None}})
+            return MagicMock(status_code=200, **{"json.return_value": project})
+
+        mock_request.side_effect = gitlab_response
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            integration_id="Acme / App",
+            config={"hostname": "https://gitlab.example.com", "path_with_namespace": "acme/app", "project_id": 1},
+            sensitive_config={"access_token": "old-token"},
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+        )
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {
+                    "hostname": "https://gitlab.example.com",
+                    "project_id": "1",
+                    "project_access_token": "new-token",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["id"] == existing.id
+        existing.refresh_from_db()
+        assert existing.sensitive_config["access_token"] == "new-token"
+        assert existing.config["token_scopes"] == ["api"]
+        assert existing.errors == ""
+
 
 class TestGoogleCloudServiceAccountIntegration:
     @pytest.fixture(autouse=True)

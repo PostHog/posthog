@@ -217,9 +217,9 @@ class GitLabIntegration:
             config["token_scopes"] = list(token_info.scopes)
             config["token_expires_at"] = token_info.expires_at.isoformat() if token_info.expires_at else None
 
-        integration = row_writes.creator_accessor(model.Integration.IntegrationKind.GITLAB.value).create(
+        integration, _ = row_writes.creator_accessor(model.Integration.IntegrationKind.GITLAB.value).upsert(
             team_id,
-            external_id=project.get("name_with_namespace"),
+            project.get("name_with_namespace"),
             config=config,
             sensitive_config={"access_token": project_access_token},
             created_by_id=user.id if user else None,
