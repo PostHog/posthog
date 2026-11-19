@@ -19,6 +19,13 @@ Never push a fork's head to a branch inside this repository before it is reviewe
 An in-repo branch is trusted: every secret-gated step runs, with the fork's code in control of the job.
 Review the fork PR as it is, then re-create it in-repo.
 
+To re-create it, approve the fork pull request, then comment `/import` on it.
+A bot squashes the commit you approved onto `master`, with the contributor as co-author, and opens a pull request from a branch in this repository.
+It submits that pull request to the merge queue, asks you to review it, and closes the fork pull request with a link.
+Commits pushed after your approval are not imported.
+Because the bot opened the new pull request, you can approve it yourself, and it merges once CI passes.
+The bot refuses a change that conflicts with `master` or edits a CI workflow. Re-create those by hand.
+
 Re-creating keeps the contributor's credit when their commits keep them as author.
 The merge queue squash-merges, and GitHub adds a `Co-authored-by` line for each commit author, which counts on their profile when the email is linked to their account.
 When the re-created PR merges, a bot comments on the fork PR with a link to the merged PR and closes it.
