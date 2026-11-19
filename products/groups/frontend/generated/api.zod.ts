@@ -62,3 +62,28 @@ export const GroupsTypesUpdateMetadataPartialUpdateBodyItem = /* @__PURE__ */ zo
 export const GroupsTypesUpdateMetadataPartialUpdateBody = /* @__PURE__ */ zod.array(
     GroupsTypesUpdateMetadataPartialUpdateBodyItem
 )
+
+export const groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesItemNameSingularMax = 400
+
+export const groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesItemNamePluralMax = 400
+
+export const GroupsTypesUpdateMetadataForAgentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    updates: zod
+        .array(
+            zod.object({
+                group_type_index: zod.number().describe('Index of the group type to update.'),
+                name_singular: zod
+                    .string()
+                    .max(groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesItemNameSingularMax)
+                    .nullish()
+                    .describe('Singular display name of the group type.'),
+                name_plural: zod
+                    .string()
+                    .max(groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesItemNamePluralMax)
+                    .nullish()
+                    .describe('Plural display name of the group type.'),
+            })
+        )
+        .optional()
+        .describe('Group type metadata updates to apply.'),
+})

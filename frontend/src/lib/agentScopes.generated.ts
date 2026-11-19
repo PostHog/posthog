@@ -78,6 +78,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'file_system:read',
     'file_system:write',
     'group:read',
+    'group:write',
     'health_issue:read',
     'heatmap:read',
     'heatmap:write',

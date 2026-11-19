@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "group_key": {
+            "maxLength": 400,
+            "type": "string"
+        },
+        "group_properties": {},
+        "group_type_index": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        }
+    },
+    "required": ["group_type_index", "group_key"],
+    "type": "object"
+}

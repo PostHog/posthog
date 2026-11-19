@@ -25952,6 +25952,287 @@
             "validators": []
         }
     },
+    "groups-create": {
+        "name": "groups-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/groups/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index"
+                },
+                {
+                    "param": "group_key",
+                    "key": "group_key"
+                },
+                {
+                    "param": "group_properties",
+                    "key": "group_properties"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-delete-property": {
+        "name": "groups-delete-property",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/groups/delete_property/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                }
+            ],
+            "body": [
+                {
+                    "param": "property_name",
+                    "key": "$unset"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-find": {
+        "name": "groups-find",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/groups/find/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                },
+                {
+                    "param": "skip_create_notebook",
+                    "key": "skip_create_notebook",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-list": {
+        "name": "groups-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/groups/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "cursor",
+                    "key": "cursor",
+                    "csv": false
+                },
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-types-list": {
+        "name": "groups-types-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/groups_types/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/groups"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "groups-update-property": {
+        "name": "groups-update-property",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/groups/update_property/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "group_key",
+                    "key": "group_key",
+                    "csv": false
+                },
+                {
+                    "param": "group_type_index",
+                    "key": "group_type_index",
+                    "csv": false
+                }
+            ],
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                },
+                {
+                    "param": "value",
+                    "key": "value"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "health-issues-get": {
         "name": "health-issues-get",
         "kind": "http",
