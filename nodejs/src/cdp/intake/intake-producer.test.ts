@@ -107,7 +107,10 @@ describe('IntakeProducer', () => {
         await expect(outcome).resolves.toBe('unacked')
     })
 
-    it('settles only once every publish past its ack deadline is acked or refused', async () => {
+    it.each([
+        ['the first is refused, then the second acked', 0, 1],
+        ['the second is acked, then the first refused', 1, 0],
+    ])('settles only once every publish past its ack deadline is settled: %s', async (_, first, second) => {
         jest.useFakeTimers()
         const held: { ack: () => void; refuse: (error: Error) => void }[] = []
         produce = () => new Promise<void>((ack, refuse) => held.push({ ack, refuse }))
@@ -125,23 +128,29 @@ describe('IntakeProducer', () => {
             () => (drained = 'fulfilled'),
             () => (drained = 'rejected')
         )
-        held[0].refuse(new Error('Broker: Not enough in-sync replicas'))
+        const settle = (index: number): void =>
+            index === 0 ? held[0].refuse(new Error('Broker: Not enough in-sync replicas')) : held[1].ack()
+        settle(first)
         await jest.advanceTimersByTimeAsync(0)
         expect(drained).toBe('pending')
 
-        held[1].ack()
+        settle(second)
         await jest.advanceTimersByTimeAsync(0)
 
         expect(drained).toBe('fulfilled')
     })
 
-    it('answers from the broker even when the settlement is a subclass with its own track', async () => {
-        class ThrowingSettlement extends PublishSettlement {
-            track(): void {
-                throw new Error('tracker closed')
-            }
+    class ThrowingSettlement extends PublishSettlement {
+        track(): void {
+            throw new Error('tracker closed')
         }
-        const settlement = new ThrowingSettlement()
+    }
+
+    it.each([
+        ['a subclass with its own track', (): PublishSettlement => new ThrowingSettlement()],
+        ['a proxy', (): PublishSettlement => new Proxy(new PublishSettlement(), {})],
+    ])('answers from the broker even when the settlement is %s', async (_, makeSettlement) => {
+        const settlement = makeSettlement()
 
         const outcome = await new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },

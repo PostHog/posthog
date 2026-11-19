@@ -50,17 +50,23 @@ export const intakeModeOf = (
 // A produce outlives its ack deadline. A caller that bounds its work in flight passes one of these to its produces and
 // waits on `settled()` before it frees that work's share.
 export class PublishSettlement {
-    readonly #publishes: Promise<unknown>[] = []
-
-    // Static, so the producer runs this class's own code inside the ack deadline, never a subclass override.
     static track(settlement: PublishSettlement, publish: Promise<unknown>): void {
-        settlement.#publishes.push(publish)
+        const publishes = trackedPublishes.get(settlement)
+        if (publishes) {
+            publishes.push(publish)
+        } else {
+            trackedPublishes.set(settlement, [publish])
+        }
     }
 
     settled(): Promise<void> {
-        return Promise.allSettled(this.#publishes).then(() => undefined)
+        return Promise.allSettled(trackedPublishes.get(this) ?? []).then(() => undefined)
     }
 }
+
+// Keyed by the settlement object rather than held in a field, so tracking never reads a member of a subclass or a
+// proxy and cannot throw inside the ack deadline.
+const trackedPublishes = new WeakMap<PublishSettlement, Promise<unknown>[]>()
 
 export type IntakeRun = {
     kind: RunKind
