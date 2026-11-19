@@ -157,7 +157,7 @@ describe('setupExpressApp JSON body limit', () => {
         it.each(['gzip', 'deflate'] as const)(
             'answers a %s JSON body whose later read decodes past the bytes left under the limit with 413',
             async (encoding) => {
-                const twoReads = await compressTwoPartsApart(encoding, 48 * 1024, 4 * 1024 * 1024)
+                const twoReads = await compressTwoPartsApart(encoding, 48 * 1024, (4 * 1024 + 32) * 1024)
                 const upload = supertest(largerLimitApp)
                     .post('/echo')
                     .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
