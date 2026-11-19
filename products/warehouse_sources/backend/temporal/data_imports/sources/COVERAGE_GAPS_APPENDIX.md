@@ -604,11 +604,11 @@ Diffed against: <https://docs.apify.com/api/openapi.json>
 - [x] `GET /v2/datasets` — dataset catalog lookup resolving the dataset IDs, item counts and owning actor for the items already synced (high)
 - [x] `GET /v2/actors` — actor lookup resolving the actId carried on runs and datasets (high)
 - [x] `GET /v2/users/me/usage/monthly` — monthly platform usage and spend breakdown (medium)
-- [ ] `GET /v2/actor-tasks` — saved task definitions, the lookup between a schedule and the runs it produces (medium)
-- [ ] `GET /v2/datasets/{datasetId}/statistics` — per-field statistics for the dataset being synced (medium)
-- [ ] `GET /v2/actor-builds` — build history to correlate output changes with actor versions (low)
+- [x] `GET /v2/actor-tasks` — saved task definitions, the lookup between a schedule and the runs it produces (medium). Added as `actor_tasks` (full refresh: no server-side time filter).
+- [x] `GET /v2/datasets/{datasetId}/statistics` — per-field statistics for the dataset being synced (medium). Added as `dataset_statistics`, one row per field of the Actor's fields schema (empty when the Actor declares none).
+- [x] `GET /v2/actor-builds` — build history to correlate output changes with actor versions (low). Added as `actor_builds` (full refresh: no server-side time filter).
 - [ ] `GET /v2/schedules and /v2/schedules/{scheduleId}/log` — schedule definitions and their invocation log (low)
-- [ ] `GET /v2/request-queues and /v2/actor-runs/{runId}/request-queue/requests` — crawl request state per run for coverage and failure analysis (low)
+- [x] `GET /v2/request-queues and /v2/actor-runs/{runId}/request-queue/requests` — crawl request state per run for coverage and failure analysis (low). Added `GET /v2/request-queues` as `request_queues` (with `unnamed=true`, so the default queue of each run is listed with its total, handled and pending counts and its `actRunId`). `/v2/actor-runs/{runId}/request-queue/requests` skipped: it is a fan-out over every run with cursor paging and no time filter, so each sync would read every request of every run again, and the queue counts already give the per-run crawl state.
 - [ ] `GET /v2/key-value-stores/{storeId}/keys and /records` — non-dataset run outputs stored as key-value records (low)
 
 Note: Deliberately scoped: the connector takes a single user-supplied dataset_id and syncs GET /v2/datasets/{id}/items into one user-named table, so it can cover any dataset but only one per configured source. It is not dynamic discovery - get_schemas returns a static endpoint catalog. The account-level tables alongside it (runs, actors, datasets, monthly usage) are addressed by the API token alone and cover the operational and cost side of the platform.
