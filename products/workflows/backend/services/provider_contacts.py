@@ -70,8 +70,13 @@ def import_provider_contacts(
             dropped += summary.dropped_invalid_email + summary.dropped_duplicate_email + summary.dropped_too_large
             person_emails.update(summary.person_emails)
     except PeopleImportInvalid as error:
+        # The parts already started still send their events, so their people's spellings still need the opt-outs.
         return ProviderContactsResult(
-            status="failed", cohort_id=cohort.cohort_id, cohort_name=cohort.name, notes=(str(error),)
+            status="failed",
+            cohort_id=cohort.cohort_id,
+            cohort_name=cohort.name,
+            notes=(str(error),),
+            person_emails=tuple(sorted(person_emails)),
         )
     return ProviderContactsResult(
         status="created" if contacts else "skipped",

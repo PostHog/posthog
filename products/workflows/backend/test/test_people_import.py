@@ -21,7 +21,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import PeopleImportInvalid
-from products.workflows.backend.services import people_import
+from products.workflows.backend.services import people_import, provider_contacts
 from products.workflows.backend.services.people_import import start_people_import
 from products.workflows.backend.tasks import people_import as people_import_tasks
 from products.workflows.backend.tasks.people_import import (
@@ -229,6 +229,36 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "ada@example.com"}])
 
         assert [person["distinct_id"] for person in self.stored_people()] == ["user-1"]
+
+    def test_a_list_that_fails_partway_keeps_the_spellings_of_the_parts_already_sent(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-left"], properties={"email": "Left@Example.com"})
+        flush_persons_and_events()
+        start = provider_contacts.start_people_import
+        calls = 0
+
+        def second_part_invalid(**kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise PeopleImportInvalid("You can't change these person properties: first_name.")
+            return start(**kwargs)
+
+        with (
+            patch.object(provider_contacts, "MAX_PEOPLE_IMPORT_ROWS", 1),
+            patch.object(provider_contacts, "start_people_import", side_effect=second_part_invalid),
+        ):
+            result = provider_contacts.import_provider_contacts(
+                self.team.id,
+                self.user.id,
+                [{"email": "left@example.com"}, {"email": "other@example.com"}],
+                create_people=False,
+                send_events=True,
+                cohort_name="VIPs",
+                cohort_description="Imported from a test list.",
+                source='the test list "VIPs"',
+            )
+
+        assert (result.status, result.person_emails) == ("failed", ("Left@Example.com",))
 
     def test_ends_the_import_when_staging_fails(self) -> None:
         with patch.object(self.storage, "write", side_effect=ConnectionError("storage is down")):
