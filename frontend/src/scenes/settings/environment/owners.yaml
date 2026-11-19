@@ -7,5 +7,8 @@ rules:
       owners: conversations
     - match: ['/proxyLogic.test.ts', '/proxyLogic.ts']
       owners: team-platform-features
+    - match:
+          ['/ReplayTriggers.tsx', '/ReplayTriggers.test.tsx', '/replayTriggersLogic.ts', '/replayTriggersLogic.test.ts']
+      owners: team-replay
     - match: '/DataDeletion/'
       owners: team-growth
