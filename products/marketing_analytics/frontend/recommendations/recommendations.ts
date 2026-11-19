@@ -58,9 +58,9 @@ export const BENCHMARK_SOURCE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendat
         'The cost per conversion of your non-brand Search campaigns, or of every non-brand campaign if you have no Search campaigns. Brand searches cost less, so they are left out.',
 }
 
-export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix'
+export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix' | 'minor'
 
-const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, RecommendationCategory> = {
+const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, Exclude<RecommendationCategory, 'minor'>> = {
     spend_without_conversions: 'waste',
     brand_leak: 'waste',
     review_campaign: 'waste',
@@ -79,6 +79,7 @@ export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, stri
     grow: 'Grow',
     organic: 'Improve organic search',
     fix: 'Fix issues',
+    minor: 'Under 1% of spend',
 }
 
 export interface RecommendationSection {
@@ -88,7 +89,10 @@ export interface RecommendationSection {
 
 export function sectionRecommendations(groups: RecommendationGroup[]): RecommendationSection[] {
     return (Object.keys(RECOMMENDATION_CATEGORY_LABELS) as RecommendationCategory[])
-        .map((category) => ({ category, groups: groups.filter((group) => RULE_CATEGORIES[group.rule] === category) }))
+        .map((category) => ({
+            category,
+            groups: groups.filter((group) => (group.minor ? 'minor' : RULE_CATEGORIES[group.rule]) === category),
+        }))
         .filter((section) => section.groups.length > 0)
 }
 
@@ -120,6 +124,8 @@ export interface RecommendationGroup {
     // The rows the table shows: the unresolved ones, plus the resolved ones while they are on show.
     recommendations: MarketingAnalyticsRecommendation[]
     activeCount: number
+    // Every row of the rule is minor, resolved ones included, so resolving or showing rows never moves the rule to another section.
+    minor: boolean
 }
 
 // Accounts can use different currencies, so amounts only add up within one currency.
@@ -269,6 +275,7 @@ export function groupRecommendations(
                 level: rows[0].level,
                 recommendations: showResolved ? rows : active,
                 activeCount: active.length,
+                minor: rows.every((row) => row.minor),
             },
             needsAction: rows.some((row) => row.impactDirection !== 'keep'),
         }

@@ -327,6 +327,7 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    Canvas = 'canvas',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
     DataCatalog = 'data_catalog',
@@ -1180,6 +1181,7 @@ export enum ActivityTab {
     ExploreEvents = 'events',
     LiveEvents = 'live',
     ExploreSessions = 'sessions',
+    ExploreFlagCalls = 'flag-calls',
 }
 
 export enum ProgressStatus {
@@ -5313,6 +5315,8 @@ export interface AppContext {
     /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
     project_access_denied?: string | null
     livestream_host?: string
+    /** Origin of `UPLOADED_MEDIA_PUBLIC_URL` when uploaded media is served from its own host. */
+    uploaded_media_origin?: string | null
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext

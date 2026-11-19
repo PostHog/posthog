@@ -1,24 +1,30 @@
 #!/usr/bin/env bash
 # Usage: check-approvers.sh <first commit> <last commit> <approver>...
+#        check-approvers.sh --report <first commit> <last commit>
 #
-# Fails when an approver opened, merged or wrote commits in a pull request that changed a path in
-# HOG_SOURCE_PATHS between the two commits, and writes `violations=<who (#pull requests)>` to
-# GITHUB_OUTPUT. Every lookup that fails stops the check, because a check that can't run can't clear
-# anyone.
+# The owners of a release are the people who opened, merged or wrote commits in a pull request that
+# added a hog changeset between the two commits. The check fails when an approver is one of them, and
+# writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT. --report checks nobody and writes the
+# pull requests and their owners as Slack mrkdwn instead, as `prs_mrkdwn` and `owners_mrkdwn`. Every
+# lookup that fails stops the script, because a check that can't run can't clear anyone.
 #
-# Needs GH_TOKEN, REPOSITORY and HOG_SOURCE_PATHS, and the history of both commits in the checkout.
+# Needs GH_TOKEN and REPOSITORY, and the history of both commits in the checkout.
 set -euo pipefail
 
+report=false
+if [ "${1:-}" = --report ]; then
+    report=true
+    shift
+fi
 base=$1
 head=$2
 shift 2
-if [ "$#" -eq 0 ]; then
+if [ "$report" = false ] && [ "$#" -eq 0 ]; then
     echo "::error::No approvers to check"
     exit 1
 fi
 
-read -ra paths <<<"$HOG_SOURCE_PATHS"
-commits=$(git log --format=%H "$base..$head" -- "${paths[@]}")
+commits=$(git log --diff-filter=A --format=%H "$base..$head" -- 'hog/.sampo/changesets/*.md')
 shas=()
 if [ -n "$commits" ]; then
     mapfile -t shas <<<"$commits"
@@ -32,10 +38,11 @@ owner=${REPOSITORY%%/*}
 name=${REPOSITORY#*/}
 people=""
 numbers=""
+titles=""
 for ((i = 0; i < ${#shas[@]}; i += 10)); do
     fields=""
     for sha in "${shas[@]:i:10}"; do
-        fields+="c$sha: object(oid: \"$sha\") { ... on Commit { authors(first: 50) { totalCount nodes { user { login } } } associatedPullRequests(first: 10) { nodes { number merged author { login } mergedBy { login } } } } } "
+        fields+="c$sha: object(oid: \"$sha\") { ... on Commit { authors(first: 50) { totalCount nodes { user { login } } } associatedPullRequests(first: 10) { nodes { number title merged author { login __typename } mergedBy { login __typename } } } } } "
     done
     for attempt in 1 2 3; do
         if response=$(gh api graphql -f query="query { repository(owner: \"$owner\", name: \"$name\") { $fields } }"); then
@@ -67,9 +74,12 @@ for ((i = 0; i < ${#shas[@]}; i += 10)); do
     fi
 
     people+=$(jq -r '.data.repository[] | . as $commit | .associatedPullRequests.nodes[] | select(.merged) | .number as $n
-        | ($n | tostring) + "\t" + (.author.login // ""), ($n | tostring) + "\t" + (.mergedBy.login // ""),
+        | (if .author.__typename == "Bot" then empty else ($n | tostring) + "\t" + (.author.login // "") end),
+          (if .mergedBy.__typename == "Bot" then empty else ($n | tostring) + "\t" + (.mergedBy.login // "") end),
           ($commit.authors.nodes[] | ($n | tostring) + "\t" + (.user.login // ""))' <<<"$response")
     people+=$'\n'
+    titles+=$(jq -r '.data.repository[].associatedPullRequests.nodes[] | select(.merged) | "\(.number)\t\(.title)"' <<<"$response")
+    titles+=$'\n'
     numbers+=$(jq -r '.data.repository[].associatedPullRequests.nodes[] | select(.merged) | .number' <<<"$response")
     numbers+=$'\n'
 done
@@ -106,6 +116,29 @@ while read -r number; do
         people+=$'\n'
     fi
 done < <(sed '/^$/d' <<<"$numbers" | sort -u)
+# Bots, like the merge queue that merges most pull requests, can't approve anything.
+people=$(awk -F '\t' '$2 != "" && $2 !~ /\[bot\]$/' <<<"$people" | sort -u)
+
+if [ "$report" = true ]; then
+    escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+    prs=$(sort -u -t $'\t' -k1,1n <<<"$titles" | sed '/^$/d' | while IFS=$'\t' read -r number title; do
+        printf '<https://github.com/%s/pull/%s|#%s> %s\n' "$REPOSITORY" "$number" "$number" "$(escape <<<"$title")"
+    done)
+    owners=$(cut -f2 <<<"$people" | sort -u | sed '/^$/d' | while read -r login; do
+        numbers=$(awk -F '\t' -v who="$login" '$2 == who { print "#" $1 }' <<<"$people" | sort -u | paste -sd ' ' -)
+        printf '<https://github.com/%s|%s> (%s)\n' "$login" "$login" "$numbers"
+    done | paste -sd ',' - | sed 's/,/, /g')
+    delimiter="report_$(openssl rand -hex 8)"
+    {
+        echo "prs_mrkdwn<<$delimiter"
+        echo "$prs"
+        echo "$delimiter"
+        echo "owners_mrkdwn=$owners"
+    } >>"$GITHUB_OUTPUT"
+    echo "The release owners are $owners"
+    exit 0
+fi
+
 echo "Checked ${#shas[@]} commits in $base..$head against the approvals of $*"
 
 blocked=""
@@ -117,6 +150,6 @@ for approver in "$@"; do
 done
 if [ -n "$blocked" ]; then
     echo "violations=$blocked" >>"$GITHUB_OUTPUT"
-    echo "::error::These approvers opened, merged or wrote commits in a pull request this release ships: $blocked"
+    echo "::error::These approvers opened, merged or wrote commits in a pull request whose changeset this release ships: $blocked"
     exit 1
 fi

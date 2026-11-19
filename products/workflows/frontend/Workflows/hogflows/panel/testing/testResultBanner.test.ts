@@ -40,24 +40,24 @@ describe('testResultBanner', () => {
     })
 
     it.each([
-        ['a sent email', { status: 'accepted' }, 'success', 'Sent from the sandbox sender.'],
+        ['a sent email', { status: 'accepted' }, 'success', 'Sent from the PostHog test sender.'],
         [
             'a mocked run',
             { status: 'accepted', mocked: true },
             'success',
-            'Test passed without sending. Turn on real HTTP requests to send from the sandbox sender.',
+            'Test passed without sending. Turn on real HTTP requests to send from the PostHog test sender.',
         ],
         [
             'a recipient who is not a member',
             { status: 'skipped', reason: 'not_member' },
             'warning',
-            'Not sent. The sandbox sender only delivers to verified members of your organization.',
+            'Not sent. The PostHog test sender only delivers to verified members of your organization.',
         ],
         [
             'a send that can be retried',
             { status: 'pending', reason: 'pause_state_unavailable' },
             'warning',
-            "Not sent yet. Couldn't check whether the sandbox sender is available. Try again in a few minutes.",
+            "Not sent yet. Couldn't check whether the PostHog test sender is available. Try again in a few minutes.",
         ],
         [
             'a project whose email sending is suspended',
@@ -84,16 +84,16 @@ describe('testResultBanner', () => {
             "Couldn't send. Too many emails are being sent right now. Send the test again in a moment.",
         ],
         [
-            'a send that could not reach the sandbox sender',
+            'a send that could not reach the PostHog test sender',
             { status: 'pending', reason: 'sandbox_worker_unreachable' },
             'warning',
-            "Not sent yet. The sandbox sender couldn't be reached. Try again in a few minutes.",
+            "Not sent yet. The PostHog test sender couldn't be reached. Try again in a few minutes.",
         ],
         [
-            'a step whose id the sandbox sender cannot tag',
+            'a step whose id the PostHog test sender cannot tag',
             { status: 'failed', reason: 'unsupported_action_id' },
             'error',
-            "Couldn't send. The sandbox sender can't send from this step. Delete the step and add it again.",
+            "Couldn't send. The PostHog test sender can't send from this step. Delete the step and add it again.",
         ],
         [
             'a failed send with an unknown reason',
@@ -101,7 +101,7 @@ describe('testResultBanner', () => {
             'error',
             "Couldn't send. Reason: something_new.",
         ],
-    ])('describes %s from the sandbox sender', (_name, execResult, type, children) => {
+    ])('describes %s from the PostHog test sender', (_name, execResult, type, children) => {
         const { mocked, ...sent } = execResult as typeof execResult & { mocked?: boolean }
         const failed = sent.status === 'failed'
         const testResult = result({

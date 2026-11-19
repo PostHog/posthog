@@ -111,7 +111,7 @@ class AIObservabilityTool(ConsoleTool):
     key = "ai-observability"
     title = "AI observability"
     owner = AI_OBSERVABILITY
-    group = "Data"
+    group = "AI"
     description = "Sends a missing daily usage report, and pauses or resumes dataset cleanup in this region."
 
     def page(self, request: HttpRequest) -> Page:
@@ -382,7 +382,7 @@ class EvalSuggestionReviewTool(ConsoleTool):
     key = "eval-suggestion-review"
     title = "Eval suggestion review"
     owner = AI_OBSERVABILITY
-    group = "Data"
+    group = "AI"
     description = "Labels the eval suggestion cards the pipeline publishes, to tune which ones it shows."
 
     def page(self, request: HttpRequest) -> Page:
