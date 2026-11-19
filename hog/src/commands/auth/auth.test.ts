@@ -544,18 +544,40 @@ describe('hog auth login', () => {
         expect(result.json()).toMatchObject(expected)
     })
 
-    test('status tells a person which posthog.json picked the login and why', async () => {
+    test.each([
+        ['posthog.json names the project', '/repo/apps/web', 'Config    /repo/apps/web/posthog.json', 'picked'],
+        [
+            'nothing names a project',
+            '/repo',
+            'hog picked this login because nothing sets a project in posthog.json or HOG_PROJECT_ID',
+            'Config    /repo',
+        ],
+    ])('status tells a person which login it uses when %s', async (_name, cwd, shown, hidden) => {
         const result = await runHog(['auth', 'status'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
-            cwd: '/repo/apps/web',
+            cwd,
             ...MONOREPO,
             respond: () => ({ status: 200, body: { email: 'ana@example.com', name: 'Web' } }),
         })
 
-        expect(result.stdout).toContain('Project: Web (1)')
-        expect(result.stdout).toContain('Config: /repo/apps/web/posthog.json')
-        expect(result.stdout).toContain('Login picked because posthog.json sets the host and the project.')
+        expect(result.stdout).toStartWith('✓ Logged in as ana@example.com\n')
+        expect(result.stdout).toContain(shown)
+        expect(result.stdout).not.toContain(hidden)
+    })
+
+    test('status counts the scopes of a login for a person instead of listing them', async () => {
+        const scopes = ['openid', 'insight:write', 'dashboard:write', 'query:read', 'person:read', 'user:read']
+        const result = await runHog(['auth', 'status'], {
+            stdoutIsTTY: true,
+            env: { NO_COLOR: '1' },
+            files: { [SETTINGS_FILE]: settingsJson(EU, { ...OAUTH_RECORD, scopes }) },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: () => ({ status: 200, body: { email: 'ana@example.com', name: 'Shop' } }),
+        })
+
+        expect(result.stdout).toContain('Access    2 write and 3 read scopes. hog api access lists them')
+        expect(result.stdout).not.toContain('insight:write')
     })
 
     test.each([
@@ -710,7 +732,7 @@ describe('hog auth login', () => {
                     ? { status: 200, body: { email: 'ana@example.com' } }
                     : { status: 200, body: { name: '\u001b]52;c;eA==\u0007Shop' } },
         })
-        expect(result.stdout).toContain('Project: \\x1b]52;c;eA==\\x07Shop (42)')
+        expect(result.stdout).toContain('Project   \\x1b]52;c;eA==\\x07Shop (42)')
         expect(result.stdout).not.toContain('\u001b')
     })
 
