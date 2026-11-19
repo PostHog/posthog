@@ -1,8 +1,11 @@
+import { createHash } from 'crypto'
 import fs from 'fs'
 import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+import committedDirectProviderCostsRaw from '~/ingestion/pipelines/ai/costs/providers/direct-provider-costs.json'
 import committedOpenRouterCostsRaw from '~/ingestion/pipelines/ai/costs/providers/llm-costs.json'
 import type { ModelCost, ModelCostRow } from '~/ingestion/pipelines/ai/costs/providers/types'
 
@@ -13,6 +16,7 @@ interface ModelRow {
 
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 const OPENROUTER_COSTS_FILENAME = 'llm-costs.json'
+const DIRECT_PROVIDER_COSTS_FILENAME = 'direct-provider-costs.json'
 const ENDPOINT_REQUEST_TIMEOUT_MS = 10_000
 const COMMITTED_DEFAULT_COSTS = new Map<string, ModelCost>(
     (committedOpenRouterCostsRaw as ModelCostRow[]).map((row) => [row.model.toLowerCase(), row.cost.default])
@@ -684,6 +688,141 @@ export const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     return collectModelRows(data.data, readEndpointsFromOpenRouter, COMMITTED_DEFAULT_COSTS)
 }
 
+/** Provider list prices read from each provider's own pricing page, USD per 1M
+ * tokens, published as a release asset of https://github.com/Mattbusel/llm-prices.
+ * Every row there carries the page it was read from and the date it was checked.
+ *
+ * Pinned to one release and its SHA-256, so the scheduled run can only reproduce
+ * reviewed numbers. To take new prices, bump both in a PR (the hash is the
+ * release's prices.json.sha256 asset), run `pnpm update-ai-costs`, and check the
+ * JSON diff against each row's source page. */
+export const LLM_PRICES_VERSION = 'v1.8.0'
+export const LLM_PRICES_SHA256 = '959dc0ad506ff66fc7b112ea10e77455d67dbd9d0f6592f3f11dd788c7d2da64'
+export const LLM_PRICES_URL = `https://github.com/Mattbusel/llm-prices/releases/download/${LLM_PRICES_VERSION}/prices.json`
+
+export interface DirectProviderModel {
+    /** Key `manualCostsByModel` resolves. */
+    model: string
+    provider: string
+    /** llm-prices model id or alias. */
+    id: string
+    /** Price from the row's long-context tier instead of its base rates. */
+    longContext?: boolean
+}
+
+/** Models priced at what the provider charges a direct caller, where OpenRouter
+ * has no row under the id clients send or the row is a tier OpenRouter does not split. */
+export const DIRECT_PROVIDER_MODELS: ReadonlyArray<DirectProviderModel> = [
+    { model: 'gemini-2.5-pro-preview:large', provider: 'google', id: 'gemini-2.5-pro', longContext: true },
+    { model: 'mistral-large-latest', provider: 'mistral', id: 'mistral-large-latest' },
+    { model: 'text-embedding-3-large', provider: 'openai', id: 'text-embedding-3-large' },
+    { model: 'text-embedding-3-small', provider: 'openai', id: 'text-embedding-3-small' },
+    { model: 'text-embedding-ada-002', provider: 'openai', id: 'text-embedding-ada-002' },
+]
+
+interface LlmPricesRates {
+    input?: unknown
+    output?: unknown
+    cache_read?: unknown
+}
+
+interface LlmPricesRow extends LlmPricesRates {
+    provider?: unknown
+    model?: unknown
+    aliases?: unknown
+    long_context?: LlmPricesRates | null
+}
+
+const perToken = (perMillion: unknown): number | undefined =>
+    typeof perMillion === 'number' && Number.isFinite(perMillion) && perMillion >= 0
+        ? parseFloat((perMillion / 1_000_000).toPrecision(10))
+        : undefined
+
+const findLlmPricesRow = (rows: LlmPricesRow[], spec: DirectProviderModel): LlmPricesRow | undefined => {
+    const id = spec.id.toLowerCase()
+    return rows.find(
+        (row) =>
+            row.provider === spec.provider &&
+            (String(row.model).toLowerCase() === id ||
+                (Array.isArray(row.aliases) && row.aliases.some((alias) => String(alias).toLowerCase() === id)))
+    )
+}
+
+/** An embedding row has no output price, which is a rate of 0, not a missing row. */
+export const buildDirectProviderCost = (row: LlmPricesRow, longContext = false): ModelCost | null => {
+    const rates = longContext ? row.long_context : row
+    if (!rates) {
+        return null
+    }
+    const promptToken = perToken(rates.input)
+    const completionToken = rates.output === null || rates.output === undefined ? 0 : perToken(rates.output)
+    if (promptToken === undefined || completionToken === undefined) {
+        return null
+    }
+    const cost: ModelCost = { prompt_token: promptToken, completion_token: completionToken }
+    const cacheReadToken = perToken(rates.cache_read)
+    if (cacheReadToken !== undefined) {
+        cost.cache_read_token = cacheReadToken
+    }
+    return cost
+}
+
+/** A model llm-prices no longer lists keeps its committed row, so a dropped
+ * row can never unprice a model. */
+export const buildDirectProviderRows = (
+    prices: unknown,
+    previous: ReadonlyArray<ModelCostRow> = committedDirectProviderCostsRaw as ModelCostRow[]
+): ModelCostRow[] => {
+    const rows = ((prices as { models?: unknown })?.models ?? []) as LlmPricesRow[]
+    if (!Array.isArray(rows)) {
+        throw new Error('llm-prices payload has no models array')
+    }
+
+    return DIRECT_PROVIDER_MODELS.flatMap((spec) => {
+        const row = findLlmPricesRow(rows, spec)
+        const cost = row ? buildDirectProviderCost(row, spec.longContext) : null
+        if (cost) {
+            return [{ model: spec.model, cost: { default: cost } }]
+        }
+        console.warn(`llm-prices has no usable price for ${spec.provider}/${spec.id}; keeping the committed row`)
+        const kept = previous.find((entry) => entry.model === spec.model)
+        return kept ? [kept] : []
+    })
+}
+
+/** Parses the release asset only if its bytes hash to the pinned SHA-256, so a
+ * replaced asset cannot change prices without a reviewed bump. */
+export const parsePinnedLlmPrices = (body: Buffer, expectedSha256: string = LLM_PRICES_SHA256): unknown => {
+    const actual = createHash('sha256').update(body).digest('hex')
+    if (actual !== expectedSha256.toLowerCase()) {
+        throw new Error(`llm-prices ${LLM_PRICES_VERSION} checksum mismatch: expected ${expectedSha256}, got ${actual}`)
+    }
+    return parseJSON(body.toString('utf-8'))
+}
+
+export const fetchDirectProviderCosts = async (): Promise<ModelCostRow[]> => {
+    // eslint-disable-next-line no-restricted-globals
+    const res = await fetch(LLM_PRICES_URL, { signal: AbortSignal.timeout(ENDPOINT_REQUEST_TIMEOUT_MS) })
+    if (!res.ok) {
+        throw new Error(`Failed to fetch llm-prices: ${res.status} ${res.statusText}`)
+    }
+    return buildDirectProviderRows(parsePinnedLlmPrices(Buffer.from(await res.arrayBuffer())))
+}
+
+/** Direct-provider rows decorate the OpenRouter book, so a failed fetch leaves
+ * the committed file as it is instead of failing the run. */
+const writeDirectProviderCosts = async (): Promise<void> => {
+    let rows: ModelCostRow[]
+    try {
+        rows = await fetchDirectProviderCosts()
+    } catch (error) {
+        console.warn('Keeping committed direct-provider costs:', error)
+        return
+    }
+    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, DIRECT_PROVIDER_COSTS_FILENAME), JSON.stringify(rows, null, 4))
+    console.log(`Wrote ${rows.length} direct-provider costs to ${DIRECT_PROVIDER_COSTS_FILENAME}`)
+}
+
 const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {
     return models.map((model) => {
         const sortedCost: Record<string, ModelCost> = {}
@@ -756,6 +895,9 @@ const main = async () => {
     const sortedCosts = sortProviderCosts(openRouterCosts)
 
     writeOutputs(sortedCosts, discounts, uncheckedModels)
+
+    console.log('Fetching direct-provider costs from llm-prices...')
+    await writeDirectProviderCosts()
 }
 
 // Only run when invoked directly (`pnpm update-ai-costs`). Importing this

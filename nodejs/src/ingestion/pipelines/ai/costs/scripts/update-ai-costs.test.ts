@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 
@@ -8,6 +9,7 @@ import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 import {
     type BuiltModelRow,
+    DIRECT_PROVIDER_MODELS,
     DISCOUNT_REPORT_ROW_LIMIT,
     DISCOUNT_SUMMARY_ENV,
     type DiscountReportEntry,
@@ -19,6 +21,7 @@ import {
     type RunTotals,
     UNCHECKED_WARN_FRACTION,
     accumulateModelRow,
+    buildDirectProviderRows,
     buildModelCost,
     buildModelRow,
     buildServedCost,
@@ -31,6 +34,7 @@ import {
     isFirstPartyRoute,
     isVendorPromotion,
     parseDiscountRate,
+    parsePinnedLlmPrices,
     readEndpointsFromOpenRouter,
     renderDiscountReport,
     sanitizeReportCell,
@@ -1696,5 +1700,139 @@ describe('module import safety', () => {
         expect(fetchSpy).not.toHaveBeenCalled()
         expect(writeSpy).not.toHaveBeenCalled()
         expect(mkdirSpy).not.toHaveBeenCalled()
+    })
+})
+
+describe('buildDirectProviderRows()', () => {
+    /** Rows shaped the way the llm-prices release asset serves them (USD per 1M tokens). */
+    const llmPrices = (models: Array<Record<string, unknown>>): Record<string, unknown> => ({ models })
+
+    const fullPayload = llmPrices([
+        {
+            provider: 'google',
+            model: 'gemini-2.5-pro',
+            aliases: [],
+            input: 1.25,
+            output: 10,
+            cache_read: 0.125,
+            long_context: { threshold_tokens: 200000, input: 2.5, output: 15, cache_read: 0.25 },
+        },
+        {
+            provider: 'mistral',
+            model: 'mistral-large-4',
+            aliases: ['mistral-large-latest'],
+            input: 0.7,
+            output: 2.1,
+            cache_read: 0.07,
+        },
+        {
+            provider: 'openai',
+            model: 'text-embedding-3-large',
+            aliases: [],
+            input: 0.13,
+            output: null,
+            cache_read: null,
+        },
+        {
+            provider: 'openai',
+            model: 'text-embedding-3-small',
+            aliases: [],
+            input: 0.02,
+            output: null,
+            cache_read: null,
+        },
+        {
+            provider: 'openai',
+            model: 'text-embedding-ada-002',
+            aliases: [],
+            input: 0.1,
+            output: null,
+            cache_read: null,
+        },
+    ])
+
+    const byModel = (rows: ReturnType<typeof buildDirectProviderRows>): Record<string, ModelCost> =>
+        Object.fromEntries(rows.map((row) => [row.model, row.cost.default]))
+
+    it('converts per-million prices to per-token rates, resolving aliases and the long-context tier', () => {
+        const costs = byModel(buildDirectProviderRows(fullPayload, []))
+
+        expect(Object.keys(costs)).toEqual(DIRECT_PROVIDER_MODELS.map((spec) => spec.model))
+        expect(costs['mistral-large-latest']).toEqual({
+            prompt_token: 7e-7,
+            completion_token: 0.0000021,
+            cache_read_token: 7e-8,
+        })
+        expect(costs['gemini-2.5-pro-preview:large']).toEqual({
+            prompt_token: 0.0000025,
+            completion_token: 0.000015,
+            cache_read_token: 2.5e-7,
+        })
+        // No output price on an embedding row means nothing is billed for output.
+        expect(costs['text-embedding-3-small']).toEqual({ prompt_token: 2e-8, completion_token: 0 })
+    })
+
+    it('matches the provider as well as the id', () => {
+        const payload = llmPrices([
+            { provider: 'openrouter', model: 'mistral-large-latest', input: 9, output: 9 },
+            {
+                provider: 'mistral',
+                model: 'mistral-large-4',
+                aliases: ['mistral-large-latest'],
+                input: 0.7,
+                output: 2.1,
+            },
+        ])
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+        expect(byModel(buildDirectProviderRows(payload, []))['mistral-large-latest'].prompt_token).toBe(7e-7)
+    })
+
+    it('keeps the committed row when llm-prices drops a model or serves an unusable price', () => {
+        const previous = [
+            { model: 'mistral-large-latest', cost: { default: { prompt_token: 1, completion_token: 2 } } },
+        ]
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+        const costs = byModel(
+            buildDirectProviderRows(
+                llmPrices([
+                    {
+                        provider: 'mistral',
+                        model: 'mistral-large-4',
+                        aliases: ['mistral-large-latest'],
+                        input: -1,
+                        output: 2.1,
+                    },
+                ]),
+                previous
+            )
+        )
+
+        expect(costs['mistral-large-latest']).toEqual({ prompt_token: 1, completion_token: 2 })
+        // Nothing to keep for the rest, so they are left out rather than priced at zero.
+        expect(costs['text-embedding-3-small']).toBeUndefined()
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('mistral/mistral-large-latest'))
+    })
+
+    it('rejects a payload without a models array', () => {
+        expect(() => buildDirectProviderRows({ models: 'nope' }, [])).toThrow('no models array')
+    })
+})
+
+describe('parsePinnedLlmPrices()', () => {
+    const body = Buffer.from(JSON.stringify({ models: [{ provider: 'mistral', model: 'mistral-large-4' }] }))
+    const sha256 = createHash('sha256').update(body).digest('hex')
+
+    it('parses the asset when its bytes match the pinned hash', () => {
+        expect(parsePinnedLlmPrices(body, sha256)).toEqual({
+            models: [{ provider: 'mistral', model: 'mistral-large-4' }],
+        })
+    })
+
+    it('rejects an asset whose bytes changed after the pin', () => {
+        const replaced = Buffer.from(body.toString('utf-8').replace('mistral-large-4', 'mistral-large-5'))
+
+        expect(() => parsePinnedLlmPrices(replaced, sha256)).toThrow('checksum mismatch')
     })
 })
