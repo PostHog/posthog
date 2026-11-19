@@ -29,6 +29,8 @@ REGISTRY = "https://registry.npmjs.org/"
 PAGE_SIZE = 100
 # Every file pnpm reads to write a lockfile without installing.
 REPLAY_FILES = (MANIFEST, LOCKFILE, WORKSPACE_FILE, ".npmrc", "*.patch")
+# git's well-known id of the empty tree, which git knows without the object being stored.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 Runner = Callable[[list[str], Path], None]
 
 
@@ -102,6 +104,41 @@ class Git:
     def commit_time(self, sha: str) -> datetime:
         return datetime.fromtimestamp(int(self.run("log", "-1", "--format=%ct", sha)), UTC)
 
+    def raw_commit(self, sha: str) -> bytes:
+        return self.run("cat-file", "commit", sha)
+
+    def tree_id(self, ref: str) -> str:
+        return self.run("rev-parse", "--verify", f"{ref}^{{tree}}").decode().strip()
+
+    def changed_paths(self, base: str, tree: str) -> list[str]:
+        listed = self.run("diff", "--name-only", "--no-renames", "-z", base, tree).decode().split("\0")
+        return [path for path in listed if path]
+
+    def merge_tree(self, merge_base: str, ours: str, theirs: str) -> tuple[int, bytes]:
+        """The exit code and output of `git merge-tree --write-tree`, which writes the result as a tree only.
+
+        A `.gitattributes` file can select a merge driver such as `union`, which turns a conflict
+        into a clean merge, and a non-bare repository reads it from the working tree. So git reads
+        attributes only from the empty tree, and from no global or system file.
+        """
+        command = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "core.attributesFile=/dev/null",
+            f"--attr-source={EMPTY_TREE}",
+            "merge-tree",
+            "--write-tree",
+            "--no-messages",
+            f"--merge-base={merge_base}",
+            ours,
+            theirs,
+        ]
+        env = {**os.environ, "GIT_ATTR_NOSYSTEM": "1"}
+        done = subprocess.run(command, cwd=self.repo, capture_output=True, env=env)
+        return done.returncode, done.stdout
+
     def add_worktree(self, directory: Path, sha: str) -> None:
         self.run("worktree", "add", "--detach", str(directory), sha)
         # A new worktree copies the sparse patterns of the checkout it comes from, which hold no manifest.
@@ -148,6 +185,15 @@ class GitHub:
         return json.loads(
             fetch(urllib.request.Request(f"https://api.github.com/repos/{self.repository}/{path}", headers=headers))
         )
+
+    def find(self, path: str) -> Any | None:
+        """The same answer as `get`, or None when GitHub answers 404."""
+        try:
+            return self.get(path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
 
     def pull_requests(self, head_sha: str, base_branch: str) -> list[dict[str, Any]]:
         """The open pull requests into the base branch whose head is this commit."""

@@ -411,6 +411,9 @@ The manifest path must match a `stamphog_policy` path pattern, or the policy fai
 The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
 The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
 Those files still count toward every other deny category.
+A lifted file never rides the allow-list or the test-only route to a T0 approval, because an attestation lifts the deny, not the review.
+An entry may set `title`, a pattern for the PR titles its publisher posts a result for, such as `^Revert` for a revert proof.
+A PR whose title does not match never waits for that check.
 An entry that pins its publisher accepts only a result whose `blobs` hold every one of those paths, and only while the default branch still holds every object the result pins, so a proof made by an older publisher or under older rules lifts nothing.
 The shipped default names no attestation.
 This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.

@@ -191,7 +191,9 @@ class Attestation:
     `check` and `app_id` pin the check run to its publisher App, because any workflow can post a
     check run under any name as github-actions. `lifts` names the deny categories the check may
     lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames that are
-    lifted with a file beside them.
+    lifted with a file beside them. `title`, when set, is a pattern for the PR titles the publisher
+    posts a result for. A PR whose title does not match never waits for the check, because none is
+    coming.
 
     `publisher_files` and `issuer` both name the default-branch paths the publisher runs from, and an
     entry declares at most one of them. `publisher_files` lists the paths in the policy. `issuer`
@@ -210,6 +212,7 @@ class Attestation:
     publisher_files: tuple[str, ...] = ()
     issuer: str = ""
     issuer_paths: tuple[str, ...] = ()
+    title: str = ""
 
     @property
     def pins_publisher(self) -> bool:
@@ -351,7 +354,7 @@ _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
 # proves nothing about who produced it.
 _GITHUB_ACTIONS_APP_ID = 15368
 _ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
-_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files", "issuer"}
+_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files", "issuer", "title"}
 # Limits for an issuer manifest, the same ones the publisher's own parser holds it to.
 ISSUER_MANIFEST_MAX_BYTES = 16 * 1024
 ISSUER_MANIFEST_MAX_PATHS = 32
@@ -536,6 +539,10 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
                 _self_governed(issuer, deny),
                 f"{context}.issuer: {issuer!r} must match a deny.stamphog_policy path pattern",
             )
+        title = entry.get("title", "")
+        if "title" in entry:
+            _require(isinstance(title, str) and bool(title), f"{context}.title: must be a non-empty string")
+            _compile_or_raise(title, f"{context}.title")
         attestations.append(
             Attestation(
                 name=name,
@@ -546,6 +553,7 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
                 sibling_files=siblings,
                 publisher_files=publisher_files,
                 issuer=issuer,
+                title=title,
             )
         )
     return tuple(attestations)

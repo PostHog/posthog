@@ -855,8 +855,17 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
     assert (review_local.run(context)["final_verdict"] == "APPROVED") is outcome["attested"]
 
 
+# Pins no publisher, so its list-form marker lifts for any author.
+_COMPOSE_PROOF = Attestation(
+    name="compose_proof", check="Compose proof", app_id=91, lifts=("infra_cicd",), paths=(r"^docker/",)
+)
+_OWNERS_PROOF = Attestation(
+    name="owners_proof", check="Owners proof", app_id=92, lifts=("ownership_files",), paths=(r"owners\.yaml$",)
+)
+
+
 @pytest.mark.parametrize(
-    "files, safe_migrations, expected_tier, expected_verdict",
+    "files, proofs, expected_tier, expected_verdict",
     [
         pytest.param(["apps/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-config-not-t0"),
         pytest.param(["apps/tests/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-test-not-t0"),
@@ -866,18 +875,38 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
         pytest.param(["src/test_app.py"], [], "T0-deterministic", "ESCALATE", id="unaffected-tests-stay-t0"),
         pytest.param(
             ["apps/billing/values.yaml", "posthog/migrations/0999_add_col.py"],
-            ["posthog/migrations/0999_add_col.py"],
+            [("Migration risk", _MIGRATION_RISK_APP_ID, ["posthog/migrations/0999_add_col.py"])],
             "T1-agent",
             "REFUSED",
             id="safe-migration-ignored-in-both-scans",
         ),
+        pytest.param(
+            ["docker/docker-compose.yml"],
+            [("Compose proof", 91, ["docker/docker-compose.yml"])],
+            "T1-agent",
+            "REFUSED",
+            id="attestation-lift-not-t0",
+        ),
+        pytest.param(
+            ["frontend/src/scenes/x/owners.yaml"],
+            [("Owners proof", 92, ["frontend/src/scenes/x/owners.yaml"])],
+            "T1-agent",
+            "REFUSED",
+            id="attested-addition-not-t0",
+        ),
     ],
 )
-def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
-    monkeypatch, tmp_path, files: list[str], safe_migrations: list[str], expected_tier: str, expected_verdict: str
+def test_lifted_deny_requires_full_review_in_pipeline_and_pregate(
+    monkeypatch,
+    tmp_path,
+    files: list[str],
+    proofs: list[tuple[str, int, list[str]]],
+    expected_tier: str,
+    expected_verdict: str,
 ) -> None:
     policy = replace(
         review_pr.POLICY,
+        attestations=(*review_pr.POLICY.attestations, _COMPOSE_PROOF, _OWNERS_PROOF),
         deny_exceptions={
             "billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml", ".yml")),),
             "infra_cicd": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),
@@ -900,19 +929,16 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
         return {"verdict": "REFUSE", "reasoning": "Needs a safer change.", "risk": "high", "issues": []}
 
     monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", refuse)
-    checks = (
-        [
-            {
-                "name": "Migration risk",
-                "app": {"id": _MIGRATION_RISK_APP_ID},
-                "status": "completed",
-                "conclusion": "success",
-                "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},
-            }
-        ]
-        if safe_migrations
-        else []
-    )
+    checks = [
+        {
+            "name": check,
+            "app": {"id": app_id},
+            "status": "completed",
+            "conclusion": "success",
+            "output": {"summary": f"<!-- stamphog:v1 {json.dumps(proven)} -->"},
+        }
+        for check, app_id, proven in proofs
+    ]
     context = _pregate_context(
         [_api_file(path, status="modified") for path in files],
         check_runs=checks,

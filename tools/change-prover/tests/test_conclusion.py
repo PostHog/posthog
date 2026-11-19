@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from change_prover.core.conclusion import PublishInputs, conclude
+from change_prover.core.conclusion import DEPENDENCY, REVERT, PublishInputs, conclude
 
 HEAD, MERGE_BASE, WORKFLOW_SHA, BLOB = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 RUN_URL = "https://github.com/PostHog/posthog/actions/runs/1"
@@ -47,7 +47,7 @@ def marker(check_run: dict) -> dict:
 
 
 def test_an_attested_update_posts_the_check_run_stamphog_reads() -> None:
-    decided = conclude(ATTESTED)
+    decided = conclude(ATTESTED, DEPENDENCY)
 
     assert decided.check_run == {
         "name": "Dependency proof",
@@ -99,7 +99,7 @@ def test_an_attested_update_posts_the_check_run_stamphog_reads() -> None:
     ],
 )
 def test_the_check_run_conclusion_and_title(inputs: PublishInputs, conclusion: str, title: str, unproved: bool) -> None:
-    decided = conclude(inputs)
+    decided = conclude(inputs, DEPENDENCY)
 
     assert (decided.check_run["conclusion"], decided.check_run["output"]["title"]) == (conclusion, title)
     assert decided.unproved is unproved
@@ -119,6 +119,47 @@ def test_the_check_run_conclusion_and_title(inputs: PublishInputs, conclusion: s
 def test_the_marker_holds_only_a_well_formed_pr_and_merge_base(
     pr: str, merge_base: str, expected_pr: int, expected_merge_base: str
 ) -> None:
-    found = marker(conclude(replace(ATTESTED, identify_pr=pr, identify_merge_base=merge_base)).check_run)
+    found = marker(conclude(replace(ATTESTED, identify_pr=pr, identify_merge_base=merge_base), DEPENDENCY).check_run)
 
     assert (found["pr"], found["merge_base"]) == (expected_pr, expected_merge_base)
+
+
+REVERT_ATTESTED = replace(ATTESTED, prove_files='["posthog/api/a.py"]', scan_result=None, scan_clean=None)
+REVERT_UNPROVED = "The revert could not be proved"
+
+
+@pytest.mark.parametrize(
+    ("inputs", "conclusion", "title", "unproved"),
+    [
+        (REVERT_ATTESTED, "success", "Attested 1 reverted file(s)", False),
+        (
+            replace(REVERT_ATTESTED, prove_refused="true", prove_files="[]", prove_blobs="{}"),
+            "neutral",
+            "The revert was refused",
+            False,
+        ),
+        (
+            replace(REVERT_ATTESTED, identify_eligible="false", prove_result="skipped", prove_files="", prove_blobs=""),
+            "success",
+            "Nothing to attest",
+            False,
+        ),
+        (
+            replace(REVERT_ATTESTED, prove_result="failure", prove_files="", prove_blobs=""),
+            "neutral",
+            REVERT_UNPROVED,
+            True,
+        ),
+        (replace(REVERT_ATTESTED, scan_result="failure"), "neutral", REVERT_UNPROVED, True),
+    ],
+)
+def test_the_revert_lane_posts_its_own_check_without_a_scan(
+    inputs: PublishInputs, conclusion: str, title: str, unproved: bool
+) -> None:
+    decided = conclude(inputs, REVERT)
+
+    assert decided.check_run["name"] == "Revert proof"
+    assert (decided.check_run["conclusion"], decided.check_run["output"]["title"]) == (conclusion, title)
+    assert decided.unproved is unproved
+    attested = title.startswith("Attested")
+    assert marker(decided.check_run)["files"] == (["posthog/api/a.py"] if attested else [])
