@@ -143,6 +143,38 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == expected, response.json()
         assert [alert["name"] for alert in listed] == (["Pipeline alert"] if expected == 201 else [])
 
+    @parameterized.expand(
+        [
+            ("rename", True, {"name": "Renamed"}, 200),
+            ("snooze", True, {"snooze_until": "2099-01-01T00:00:00Z"}, 200),
+            ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
+            ("turn_on", False, {"enabled": True}, 403),
+        ]
+    )
+    def test_restricted_member_updating_a_pipeline_log_alert(
+        self, _name: str, enabled: bool, change: dict, expected: int
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/",
+                {
+                    "name": "Pipeline alert",
+                    "enabled": enabled,
+                    "filters": {"serviceNames": [_PIPELINE]},
+                    "threshold_count": 0,
+                    "threshold_operator": "above",
+                    "window_minutes": 5,
+                },
+                format="json",
+            ).json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/logs/alerts/{alert['id']}/", change, format="json"
+            )
+
+        assert response.status_code == expected, response.json()
+
     @parameterized.expand([("restricted", 403), ("granted", 201), ("admin", 201)])
     def test_destination_on_pipeline_log_alert_follows_property_access(
         self, access: PropertyAccess, expected: int
