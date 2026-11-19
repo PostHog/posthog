@@ -11,6 +11,29 @@ import { monitoringSummaryTimeline } from '../../utils/reportMonitoringSummary'
 import { CHART_TIMELINE_HEIGHT, ReportChartMonitoringTimeline } from '../detail/ReportChartMonitoringTimeline'
 import { OBSERVATION_CHART_HEIGHT_CLASS, ReportObservationChart } from '../detail/ReportObservationChart'
 
+type LeadCheck = NonNullable<ReportMonitoringSummaryApi['lead_check']>
+
+function targetGoalLines(
+    lead: LeadCheck,
+    evidence: MonitoringEvidence
+): { value: number; label: string; labelPosition: 'end' }[] | undefined {
+    const { metric, interval, trend } = evidence
+    if (trend.target == null) {
+        return undefined
+    }
+    const targetText = formatReportMetricValue(
+        { ...metric, value_format: metric.value_format === 'count' ? 'number' : metric.value_format },
+        trend.target
+    )
+    if (!targetText) {
+        return undefined
+    }
+    const sign = lead.comparison.operator === 'gte' ? '≥' : '≤'
+    // A linear target scales with time, so its line is a per-bucket rate; a fixed one holds for every bucket.
+    const perBucket = lead.monitoring.threshold_scaling === 'linear' ? `/${interval}` : ''
+    return [{ value: trend.target, label: `Target: ${sign}${targetText}${perBucket}`, labelPosition: 'end' }]
+}
+
 export function MonitoringEvidenceChart({
     summary,
     evidence,
@@ -28,16 +51,6 @@ export function MonitoringEvidenceChart({
     }
     const labels = metric.series_buckets
     const type = reportMetricChartType(metric)
-    const targetText =
-        trend.target != null
-            ? formatReportMetricValue(
-                  { ...metric, value_format: metric.value_format === 'count' ? 'number' : metric.value_format },
-                  trend.target
-              )
-            : null
-    const sign = lead.comparison.operator === 'gte' ? '≥' : '≤'
-    // A linear target scales with time, so its line is a per-bucket rate; a fixed one holds for every bucket.
-    const perBucket = lead.monitoring.threshold_scaling === 'linear' ? `/${interval}` : ''
     // The snapshot can end before now. Its last bucket is then not the current one, so no Now marker goes on it.
     const placedNow = monitoringChartBucketPositioner(labels, timezone, interval)(now)
     const snapshotCoversNow = !!placedNow && !(placedNow.index === labels.length - 1 && placedNow.fraction >= 1)
@@ -59,17 +72,7 @@ export function MonitoringEvidenceChart({
                     snapshotCoversNow ? now : Number.NEGATIVE_INFINITY,
                     timezone
                 )}
-                goalLines={
-                    trend.target != null && targetText
-                        ? [
-                              {
-                                  value: trend.target,
-                                  label: `Target: ${sign}${targetText}${perBucket}`,
-                                  labelPosition: 'end',
-                              },
-                          ]
-                        : undefined
-                }
+                goalLines={targetGoalLines(lead, evidence)}
                 footer={{
                     node: (
                         <ReportChartMonitoringTimeline

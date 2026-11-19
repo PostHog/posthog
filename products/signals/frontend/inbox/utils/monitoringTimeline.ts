@@ -2,7 +2,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 
-import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
+import type { MonitoringOutcomeKindEnumApi, SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     MONITORING_SUMMARY_TAGS,
@@ -24,44 +24,40 @@ export interface MonitoringRowStatus {
     description: string
 }
 
+const OUTCOME_STATUS: Record<MonitoringOutcomeKindEnumApi, MonitoringRowStatus> = {
+    resolved: { label: 'Resolved', type: 'success', description: 'Every check passed with enough evidence.' },
+    resolved_by_assessment: {
+        label: 'Resolved',
+        type: 'success',
+        description: 'The checks were inconclusive, and an agent confirmed the fix worked from other evidence.',
+    },
+    resolved_manually: {
+        label: 'Verified manually',
+        type: 'default',
+        description: 'A person resolved it before the checks decided.',
+    },
+    resolved_unverified: {
+        label: 'Not verified',
+        type: 'default',
+        description: 'Every check was canceled, so nothing verified the fix.',
+    },
+    closed: {
+        label: 'Closed',
+        type: 'warning',
+        description: 'The fix was not shown to work. Follow-up research has been requested.',
+    },
+}
+
+const FOLLOW_UP_OPENED_STATUS: MonitoringRowStatus = {
+    label: 'Follow-up opened',
+    type: 'warning',
+    description: 'The fix was not shown to work, so a new report is researching why.',
+}
+
 export function monitoringRowStatus(report: SignalReportListApi, now: number): MonitoringRowStatus {
     const outcome = report.monitoring_outcome
     if (outcome) {
-        switch (outcome.kind) {
-            case 'resolved':
-                return { label: 'Resolved', type: 'success', description: 'Every check passed with enough evidence.' }
-            case 'resolved_by_assessment':
-                return {
-                    label: 'Resolved',
-                    type: 'success',
-                    description:
-                        'The checks were inconclusive, and an agent confirmed the fix worked from other evidence.',
-                }
-            case 'resolved_manually':
-                return {
-                    label: 'Verified manually',
-                    type: 'default',
-                    description: 'A person resolved it before the checks decided.',
-                }
-            case 'resolved_unverified':
-                return {
-                    label: 'Not verified',
-                    type: 'default',
-                    description: 'Every check was canceled, so nothing verified the fix.',
-                }
-            case 'closed':
-                return outcome.follow_up
-                    ? {
-                          label: 'Follow-up opened',
-                          type: 'warning',
-                          description: 'The fix was not shown to work, so a new report is researching why.',
-                      }
-                    : {
-                          label: 'Closed',
-                          type: 'warning',
-                          description: 'The fix was not shown to work. Follow-up research has been requested.',
-                      }
-        }
+        return outcome.kind === 'closed' && outcome.follow_up ? FOLLOW_UP_OPENED_STATUS : OUTCOME_STATUS[outcome.kind]
     }
     const summary = report.monitoring_summary
     if (!summary) {
