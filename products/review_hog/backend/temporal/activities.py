@@ -2332,7 +2332,8 @@ def _publish(input: PublishInput) -> PublishResult:
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
-        if ReviewCadence.load(input.team_id, f"{input.owner}/{input.repo}").ends_after_ready_review():
+        cadence = ReviewCadence.load(input.team_id, f"{input.owner}/{input.repo}")
+        if cadence is not None and cadence.ends_after_ready_review():
             ready_notice = last_review_notice(comment_commands_on)
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
@@ -2358,8 +2359,9 @@ def _publish(input: PublishInput) -> PublishResult:
         comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
+        snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
-            automatic_reviewed_head_sha=input.head_sha
+            automatic_reviewed_head_sha=input.head_sha, automatic_reviewed_draft=_pr_draft(snapshot)
         )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
@@ -2657,14 +2659,28 @@ def _gate_automatic_deep_push(input: GatePushInput) -> PushGateDecision:
     return apply_draft_rule(review, draft=True)
 
 
+def _record_gate_decision(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> PushGateDecision:
+    if decision.skip:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    try:
+        _track_push_gate_decided(input, decision, draft)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
+    return decision
+
+
 def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact | None, draft: bool | None) -> bool:
-    """Rule 0: whether the repository's review cadence has a review for this turn."""
+    """Rule 0: whether the repository's review cadence has a review for this turn. An unknown cadence reviews."""
     cadence = ReviewCadence.load(input.team_id, input.repository)
-    if cadence.review_pushes:
+    if cadence is None or cadence.review_pushes:
         return True
-    earlier = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.previous_head_sha)
-    reviewed_draft = _pr_draft(earlier)
-    if reviewed_draft and draft and current is not None:
+    reviewed_draft = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(id=input.report_id)
+        .values_list("automatic_reviewed_draft", flat=True)
+        .first()
+    )
+    if reviewed_draft is not False and draft and current is not None:
         # The queue drops a ready request for the head this turn holds, as for the draft rule below.
         token, installation_id = _installation_auth(input.team_id, input.repository)
         draft = _pr_draft_on_github(
@@ -2739,16 +2755,6 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             enabled=input.delta_band,
         )
     return _record_gate_decision(input, decision, draft)
-
-
-def _record_gate_decision(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> PushGateDecision:
-    if decision.skip:
-        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
-    try:
-        _track_push_gate_decided(input, decision, draft)
-    except Exception:
-        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
-    return decision
 
 
 @activity.defn

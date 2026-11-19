@@ -410,6 +410,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("missing_installation", "installation_mismatch", True),
             ("full_review_published", "full_review_published", True),
             ("automatically_reviewed", "follow_up_skipped", False),
+            ("ready_event_after_a_ready_review", "follow_up_skipped", True),
             ("draft_with_drafts_off", "draft_skipped", False),
             ("draft_in_a_repository_without_drafts", "draft_skipped", False),
             ("skip_agent_review_label", "label_skipped", True),
@@ -432,7 +433,10 @@ class TestAuthoredPRReviewTask(BaseTest):
         queued = self._queued_event(
             draft=change in ("draft_with_drafts_off", "draft_in_a_repository_without_drafts"),
             labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
-            action="synchronize" if change == "automatically_reviewed" else "opened",
+            action={
+                "automatically_reviewed": "synchronize",
+                "ready_event_after_a_ready_review": "ready_for_review",
+            }.get(change, "opened"),
         )
         if change == "draft_with_drafts_off":
             self.repository.review_drafts = True
@@ -460,7 +464,7 @@ class TestAuthoredPRReviewTask(BaseTest):
                 base_branch="master",
                 published_heads_by_mode={"full": _HEAD_SHA},
             )
-        elif change == "automatically_reviewed":
+        elif change in ("automatically_reviewed", "ready_event_after_a_ready_review"):
             ReviewReport.objects.for_team(self.team.id).create(
                 team=self.team,
                 repository="PostHog/posthog",
@@ -468,6 +472,7 @@ class TestAuthoredPRReviewTask(BaseTest):
                 head_branch="feature",
                 base_branch="master",
                 automatic_reviewed_head_sha="earlier-head",
+                automatic_reviewed_draft=False,
             )
         elif change == "unmapped":
             self.github_identity.delete()
@@ -596,7 +601,7 @@ class TestAuthoredPRReviewTask(BaseTest):
     @parameterized.expand(
         [
             ("push_in_a_repository_that_reviews_pushes", "synchronize", True),
-            ("ready_event_in_a_repository_without_push_reviews", "ready_for_review", False),
+            ("ready_event_after_a_draft_review", "ready_for_review", False),
         ]
     )
     @patch(_QUEUE_ROUTING)
@@ -613,6 +618,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             head_branch="feature",
             base_branch="master",
             automatic_reviewed_head_sha="earlier-head",
+            automatic_reviewed_draft=True,
         )
         started_before = _dispatch_count("started")
 

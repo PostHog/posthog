@@ -35,9 +35,8 @@ class TestReviewCadence(SimpleTestCase):
         cadence = ReviewCadence(review_drafts=drafts, review_pushes=pushes)
         action, reviewed_draft, draft = _EVENTS[event]
 
-        runs = cadence.dispatches_follow_up(action) and cadence.allows_follow_up(
-            reviewed_draft=reviewed_draft, draft=draft
-        )
+        dispatched = cadence.dispatches_follow_up(action, reviewed_draft=reviewed_draft)
+        runs = dispatched and cadence.allows_follow_up(reviewed_draft=reviewed_draft, draft=draft)
 
         assert runs == (event in _EXPECTED_TURNS[(drafts, pushes)])
 
@@ -45,7 +44,8 @@ class TestReviewCadence(SimpleTestCase):
         [
             ("queued_while_the_draft_review_ran", True, True, False),
             ("draft_state_unknown_now", True, None, True),
-            ("draft_state_of_the_last_review_unknown", None, False, False),
+            ("reviewed_before_the_draft_state_was_stored", None, False, True),
+            ("ready_review_already_ran", False, False, False),
         ]
     )
     def test_without_push_reviews_only_a_ready_pr_after_a_draft_review_gets_a_turn(

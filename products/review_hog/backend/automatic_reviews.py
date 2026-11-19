@@ -303,9 +303,12 @@ class AuthoredPRReview:
             observe_dispatch("full_review_published")
             return AutomaticDispatch(outcome="full_review_published", team_id=dispatch.team_id)
         # The push gate judges a turn queued while the first review runs, so it checks the cadence again.
-        reviewed = report is not None and report.automatic_reviewed_head_sha is not None
         cadence = ReviewCadence.of(owner.row if owner is not None else None)
-        if reviewed and not cadence.dispatches_follow_up(self.action):
+        if (
+            report is not None
+            and report.automatic_reviewed_head_sha is not None
+            and not cadence.dispatches_follow_up(self.action, reviewed_draft=report.automatic_reviewed_draft)
+        ):
             observe_dispatch("follow_up_skipped")
             return AutomaticDispatch(outcome="follow_up_skipped", team_id=dispatch.team_id)
         mode = choose_automatic_review_mode(

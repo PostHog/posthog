@@ -9,7 +9,11 @@ from django.db import transaction
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.artefact_content import (
+    PRSnapshotArtefact,
+    ReviewIssueFinding,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     REVIEW_MODE_FLASH,
@@ -79,6 +83,13 @@ def _mark_report_idle(team_id: int, report_id: str) -> None:
     skip, nothing publishable) must end with the report IDLE or the UI shows a finished run as
     running until the staleness cutoff."""
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
+
+
+def _findings_footer(snapshot: PRSnapshotArtefact | None, *, draft_notice: str, ready_notice: str) -> str:
+    """The note for the PR's draft state. An unknown state gets neither note, because each one promises something."""
+    if snapshot is None:
+        return ""
+    return draft_notice if snapshot.pr_metadata.draft else ready_notice
 
 
 def publish_persisted_review(
@@ -151,7 +162,7 @@ def publish_persisted_review(
         review_mode=review_mode,
         capped_lens_parts=capped_lens_parts,
         footer=footer,
-        findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else ready_notice,
+        findings_footer=_findings_footer(snapshot, draft_notice=draft_notice, ready_notice=ready_notice),
         first_review_note=first_review_note,
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",

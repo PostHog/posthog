@@ -93,6 +93,7 @@ def _issue(issue_id: str) -> Issue:
 
 _CADENCE_LOAD = "products.review_hog.backend.temporal.activities.ReviewCadence.load"
 _PUSH_REVIEWS = ReviewCadence(review_drafts=False, review_pushes=True)
+_READY_REVIEWS_ONLY = ReviewCadence(review_drafts=True, review_pushes=False)
 
 
 class TestTrackReviewCompleted(BaseTest):
@@ -386,26 +387,28 @@ class TestTrackReviewCompleted(BaseTest):
 
     @parameterized.expand(
         [
-            ("push_after_the_ready_review", False, "follow_up"),
-            ("reviewed_draft_marked_ready", True, "merge_only"),
+            ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, "follow_up"),
+            ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, "merge_only"),
+            # The repository's name finds no owner, as after a rename, so the gate does not skip on the cadence.
+            ("unknown_cadence", None, False, "merge_only"),
         ]
     )
     def test_without_push_reviews_only_the_ready_review_after_a_draft_review_reaches_the_gate(
-        self, _name: str, reviewed_draft: bool, expected_reason: str
+        self, _name: str, cadence: ReviewCadence | None, reviewed_draft: bool, expected_reason: str
     ) -> None:
         report_id = self._review_report()
-        for head_sha, draft in (("sha0", reviewed_draft), ("sha1", False)):
-            persist_pr_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                head_sha=head_sha,
-                pr_metadata=_pr_metadata(draft=draft),
-                pr_comments=[],
-                pr_files=[],
-            )
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(automatic_reviewed_draft=reviewed_draft)
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(draft=False),
+            pr_comments=[],
+            pr_files=[],
+        )
 
         with (
-            patch(_CADENCE_LOAD, return_value=ReviewCadence(review_drafts=True, review_pushes=False)),
+            patch(_CADENCE_LOAD, return_value=cadence),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,

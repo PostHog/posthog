@@ -12,4 +12,9 @@ class Migration(migrations.Migration):
             name="review_pushes",
             field=models.BooleanField(db_default=False, default=False),
         ),
+        migrations.AddField(
+            model_name="reviewreport",
+            name="automatic_reviewed_draft",
+            field=models.BooleanField(blank=True, null=True),
+        ),
     ]

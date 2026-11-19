@@ -79,6 +79,9 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
     # Only a successful publish or no-findings turn suppresses automatic retries.
     automatic_reviewed_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Whether the PR was a draft when that head was reviewed. Null when unknown, as for heads reviewed before
+    # the column existed.
+    automatic_reviewed_draft = models.BooleanField(null=True, blank=True)
     # The urgency threshold the last COMPLETED turn's body/publish gated on — stamped at finalize
     # (alongside `run_count` / `completed_head_sha`) from the same resolve snapshot both consumed,
     # so the detail view buckets published vs held-back findings truthfully even when the acting
