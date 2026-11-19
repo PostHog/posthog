@@ -319,7 +319,7 @@ _Also asked as:_ ignore whitespace changes in CI, skip CI for comment-only chang
 
 ### Compare against the last green head instead of the previous head for reuse
 
-**Verdict: landed** · Nov 2026 · first rejected on the measurement below, then built
+**Verdict: landed** · Nov 2026 · [#138417](https://github.com/PostHog/posthog/pull/138417), first rejected on the measurement below
 
 Reuse first compared the new head with the immediately previous head (`github.event.before`).
 When the previous head had other inputs or was not green, the suite ran, even if an older head was green with identical inputs.
