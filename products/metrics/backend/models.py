@@ -202,7 +202,7 @@ class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
     metric_name = models.CharField(max_length=400)
     # Empty when the clause reads every type of the metric.
     metric_type = models.CharField(max_length=32, blank=True, default="")
-    kind = models.CharField(max_length=16, choices=[(kind.value, kind.value) for kind in PrecomputedMetricKind])
+    kind = models.CharField(max_length=16, choices=PrecomputedMetricKind.choices)
     labels = models.JSONField(default=list, help_text="The kept labels, each {key, scope}, sorted.")
     labels_key = models.CharField(max_length=64, help_text="A digest of `labels`, for the uniqueness constraint.")
     bucket_seconds = models.PositiveIntegerField(default=3600)

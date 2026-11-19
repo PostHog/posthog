@@ -1,3 +1,6 @@
+import dataclasses
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
@@ -26,12 +29,14 @@ from products.metrics.backend.precompute.definitions import (
 )
 
 
-def _clause(aggregation: MetricAggregation, **overrides) -> MetricQueryClause:
-    fields = {"name": "a", "metric_name": "requests_total", "aggregation": aggregation}
-    if aggregation.needs_quantile:
-        fields["quantile"] = 0.95
-    fields.update(overrides)
-    return MetricQueryClause(**fields)
+def _clause(aggregation: MetricAggregation, **overrides: Any) -> MetricQueryClause:
+    clause = MetricQueryClause(
+        name="a",
+        metric_name="requests_total",
+        aggregation=aggregation,
+        quantile=0.95 if aggregation.needs_quantile else None,
+    )
+    return dataclasses.replace(clause, **overrides)
 
 
 class TestLeafForClause(SimpleTestCase):

@@ -215,13 +215,13 @@ class DashboardTemplateStatus(LabeledStrEnum):
     FAILED = "failed"
 
 
-class PrecomputedMetricKind(StrEnum):
+class PrecomputedMetricKind(LabeledStrEnum):
     """What a precomputed metric stores for each hour and kept label set.
 
     INCREASE and COUNT_INCREASE store the summed increase of the `value` or `count` column, which answers
     increase and rate clauses. HISTOGRAM stores the summed bucket counts, which answers histogram quantiles.
     """
 
-    INCREASE = "increase"
-    COUNT_INCREASE = "count_increase"
-    HISTOGRAM = "histogram"
+    INCREASE = "increase", "increase"
+    COUNT_INCREASE = "count_increase", "count_increase"
+    HISTOGRAM = "histogram", "histogram"
