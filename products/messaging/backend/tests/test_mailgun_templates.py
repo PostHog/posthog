@@ -29,7 +29,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     @parameterized.expand(
         [
             ("helper_with_arguments", "{{lookup a b}}", "{% raw %}{{lookup a b}}{% endraw %}"),
-            ("partial", "{{> footer}}", "{% raw %}{{&gt; footer}}{% endraw %}"),
+            ("partial", "{{> footer}}", '{{ "{{" }}&gt; footer}}'),
             (
                 "subexpression_keeps_body",
                 "{{#if (eq a b)}}x{{/if}}",
@@ -167,7 +167,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         converted = convert_text('{{printf "<script>" .x}} {{.User}}', engine="go")
 
         assert "<script>" not in converted.text
-        assert '{% raw %}{{printf "&lt;script&gt;" .x}}{% endraw %}' in converted.text
+        assert converted.text.startswith('{{ "{{" }}printf "&lt;script&gt;" .x}}')
 
     def test_a_go_value_in_page_text_converts(self) -> None:
         converted = convert_text("<p>{{.Name}}</p>", engine="go")

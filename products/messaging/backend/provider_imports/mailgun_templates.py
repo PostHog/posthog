@@ -778,8 +778,12 @@ class _Converter:
 
     def _unsupported(self, token: str) -> str:
         self.unsupported.append(token)
-        # The tag shows as text, so markup inside it, such as `<script>`, can't become a real element.
-        return _literal(token.replace("<", "&lt;").replace(">", "&gt;") if self.is_html else token)
+        if self.is_html and ("<" in token or ">" in token):
+            # The tag shows as text, so markup inside it, such as `<script>`, can't become a real element. Only its
+            # openings are Liquid, because the renderer decodes entities inside tags before parsing them.
+            text = token.replace("<", "&lt;").replace(">", "&gt;")
+            return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', text)
+        return _literal(token)
 
 
 def _escaped(path: str) -> str:
