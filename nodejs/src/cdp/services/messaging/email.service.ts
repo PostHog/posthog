@@ -406,12 +406,10 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
 
 const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
 
-/**
- * When the sending limit first held this send step, from the stamp the hold left in the queue
- * metadata. The stamp names its step, so a stamp a worker carried over from an earlier email step
- * reads as no hold.
- */
-function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction, sendStep: string): number | null {
+function sendingLimitHoldStartMsForStep(
+    invocation: CyclotronJobInvocationHogFunction,
+    sendStep: string
+): number | null {
     const stamp = invocation.queueMetadata?.teamCappedAt
     if (typeof stamp !== 'string') {
         return null
@@ -426,8 +424,14 @@ function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction, 
 
 function emailMetric(
     invocation: CyclotronJobInvocationHogFunction,
-    metricName: 'email_sending_limit_delayed' | 'email_sending_limit_delayed_over_1h'
+    metricName:
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
 ): MinimalAppMetric {
+    const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
     return {
         team_id: invocation.teamId,
         app_source_id: invocation.parentRunId ?? invocation.functionId,
@@ -435,6 +439,7 @@ function emailMetric(
         metric_kind: 'email',
         metric_name: metricName,
         count: 1,
+        ...(appSourceVersion ? { app_source_version: appSourceVersion } : {}),
     }
 }
 
@@ -837,7 +842,7 @@ export class EmailService {
             const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
-            const limitHeldSinceMs = sendingLimitHoldStartMs(invocation, sendStep)
+            const limitHeldSinceMs = sendingLimitHoldStartMsForStep(invocation, sendStep)
             if (capDelay) {
                 result.finished = false
                 result.parked = true
@@ -860,8 +865,6 @@ export class EmailService {
                 )
                 return result
             }
-            // Measured once, when the limit lets the held send go. Later retries of the send carry
-            // the claim and skip this, so their wait does not count as time held by the limit.
             if (
                 claimsTeamBudgetNow &&
                 teamBudgetCharged &&
@@ -1042,30 +1045,12 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
-            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
-            result.metrics.push({
-                team_id: invocation.teamId,
-                app_source_id: invocation.parentRunId ?? invocation.functionId,
-                instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'email',
-                metric_name: success ? 'email_sent' : 'email_failed',
-                count: 1,
-                ...sendVersion,
-            })
+            result.metrics.push(emailMetric(invocation, success ? 'email_sent' : 'email_failed'))
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_untracked',
-                    count: 1,
-                    ...sendVersion,
-                })
+                result.metrics.push(emailMetric(invocation, 'email_untracked'))
             }
 
             if (success && assetRow) {

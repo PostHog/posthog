@@ -676,7 +676,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
 
         if (pageTruncated) {
-            this.recordTruncation(newState)
+            this.recordTruncatedRunAfterCommit(newState)
         }
 
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
@@ -687,12 +687,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
     }
 
-    /**
-     * One `audience_truncated` count per run the limit cut short, so a retro can count truncated
-     * runs per project. Callers record it only after the state change that ends the run commits,
-     * so a replayed dequeue does not count the same run twice.
-     */
-    private recordTruncation(state: BatchResolverState): void {
+    private recordTruncatedRunAfterCommit(state: BatchResolverState): void {
         this.emitTruncationLog(state)
         this.hogFunctionMonitoringService.queueAppMetrics(
             [
@@ -737,7 +732,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
-        this.recordTruncation(state)
+        this.recordTruncatedRunAfterCommit(state)
     }
 
     private async transitionToFailedTerminal(
