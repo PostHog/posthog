@@ -109,6 +109,24 @@ const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unkn
 // Customer.io templates write the unsubscribe link as a tag, `{% unsubscribe_url %}`, where we expose a
 // variable. The tag renders `{{ unsubscribe_url }}`, so it gets the same escaping as the variable and
 // renders empty when the send has no unsubscribe URL.
+// liquidjs 10.27.0's own strip_html never returns on input such as 'a<' (GHSA-m7fp-h3p4-hr49), and previews render
+// as the page draws, so a saved template could freeze every viewer's tab. One pass, so no input makes it slow.
+function stripHtml(value: unknown): string {
+    const text = Array.isArray(value) ? value.join('') : String(value ?? '')
+    let out = ''
+    let cursor = 0
+    while (cursor < text.length) {
+        const open = text.indexOf('<', cursor)
+        const close = open === -1 ? -1 : text.indexOf('>', open)
+        if (close === -1) {
+            return out + text.slice(cursor)
+        }
+        out += text.slice(cursor, open)
+        cursor = close + 1
+    }
+    return out
+}
+
 class UnsubscribeUrlTag extends Tag {
     private readonly templates: Template[]
 
@@ -139,14 +157,7 @@ export class LiquidRenderer {
                 memoryLimit: 1_000_000,
             })
             this._liquid.registerFilter('currency', formatCurrency)
-            // liquidjs 10.27.0's own strip_html never returns on input such as 'a<' (GHSA-m7fp-h3p4-hr49), and
-            // previews render as the page draws, so a saved template could freeze every viewer's tab.
-            this._liquid.registerFilter('strip_html', (value: unknown) =>
-                String(value ?? '').replace(
-                    /<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->|<[^>]*>/g,
-                    ''
-                )
-            )
+            this._liquid.registerFilter('strip_html', stripHtml)
             this._liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
         }
         return this._liquid

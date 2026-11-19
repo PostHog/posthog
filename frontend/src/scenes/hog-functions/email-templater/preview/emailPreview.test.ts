@@ -80,10 +80,12 @@ describe('renderEmailPreview', () => {
         ])
     })
 
-    it('strips html without hanging on an unclosed tag', () => {
-        expect(renderEmailPreview("{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", person)).toBe(
-            'a&lt; bold'
-        )
+    it.each([
+        ['an unclosed tag', "{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", 'a&lt; bold'],
+        ['a list, joined as Liquid joins it', '{{ person.properties.seats | strip_html }}', 'ab'],
+        ['a script tag, as text', "{{ '<script>x</script>' | strip_html }}", 'x'],
+    ])('strips html from %s without hanging', (_name, template, expected) => {
+        expect(renderEmailPreview(template, person)).toBe(expected)
     })
 
     it('falls back to the template rather than throwing on a broken tag', () => {
