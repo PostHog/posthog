@@ -11,6 +11,8 @@ export function confirmEnableOnSandboxSender(
 ): void {
     // pinned: analytics event names and property values
     posthog.capture('workflows sandbox sender enable warning shown', { workflow_id: workflowId, surface })
+    // The dialog stays clickable while it animates closed, and a second click would save twice.
+    let confirmed = false
     LemonDialog.open({
         title: 'Enable on the PostHog test sender?',
         description:
@@ -19,6 +21,10 @@ export function confirmEnableOnSandboxSender(
             children: 'Enable anyway',
             'data-attr': 'workflow-enable-on-sandbox-sender',
             onClick: () => {
+                if (confirmed) {
+                    return
+                }
+                confirmed = true
                 posthog.capture('workflows sandbox sender enabled anyway', { workflow_id: workflowId, surface })
                 onEnable()
             },

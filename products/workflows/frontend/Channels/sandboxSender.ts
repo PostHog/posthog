@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 
-import { workflowEmailSandboxProvision, workflowEmailSandboxStatus } from '../generated/api'
+import { ApiConfig } from 'lib/api'
+
+import { hogFlowsRetrieve, workflowEmailSandboxProvision, workflowEmailSandboxStatus } from '../generated/api'
 import type { WorkflowEmailSandboxStatusApi } from '../generated/api.schemas'
 import type { HogFlow } from '../Workflows/hogflows/types'
 
@@ -14,8 +16,16 @@ export function isLiveOnSandboxSender(workflow: Pick<HogFlow, 'status' | 'action
     return workflow.status === 'active' && (workflow.actions ?? []).some((action) => action.type === 'email_sandbox')
 }
 
-// Publishing promotes the staged draft over an active workflow, so a step it moves onto the test sender
-// goes live, even when another step already sends from it.
+// The sender checks read the server's copy, because another tab, an agent or the API may have changed the
+// steps since this page loaded. Null when it can't be read, so callers fall back to their own copy.
+export async function fetchStoredWorkflow(id: string): Promise<HogFlow | null> {
+    try {
+        return (await hogFlowsRetrieve(String(ApiConfig.getCurrentTeamId()), id)) as unknown as HogFlow
+    } catch {
+        return null
+    }
+}
+
 export function publishMovesStepsToSandboxSender(live: HogFlow): boolean {
     if (live.status !== 'active' || !live.draft) {
         return false

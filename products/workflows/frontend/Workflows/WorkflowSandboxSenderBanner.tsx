@@ -6,10 +6,11 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { startEmailDomainSetup } from '../Channels/EmailDomain/emailDomainSetupLinks'
 import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
+import { hasOwnSender } from './hogflows/steps/email/emailStepVariants'
 import { workflowLogic } from './workflowLogic'
 
 export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element | null {
-    const { originalWorkflow } = useValues(workflowLogic)
+    const { originalWorkflow, integrations } = useValues(workflowLogic)
     const show = !!originalWorkflow && isLiveOnSandboxSender(originalWorkflow)
 
     useEffect(() => {
@@ -23,6 +24,19 @@ export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element
         return null
     }
 
+    const restriction =
+        'This live workflow has email steps on the PostHog test sender. Those steps reach only verified members of your organization, and everyone else is skipped.'
+
+    if (hasOwnSender(integrations)) {
+        return (
+            <div className="shrink-0" data-attr="workflow-sandbox-sender-banner">
+                <LemonBanner type="warning">
+                    {restriction} To reach your users, switch those steps to your verified sender.
+                </LemonBanner>
+            </div>
+        )
+    }
+
     return (
         <div className="shrink-0" data-attr="workflow-sandbox-sender-banner">
             <LemonBanner
@@ -33,9 +47,7 @@ export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element
                     onClick: () => startEmailDomainSetup('sandbox_sender_banner'),
                 }}
             >
-                This live workflow has email steps on the PostHog test sender. Those steps reach only verified members
-                of your organization, and everyone else is skipped. To reach your users, set up your sending domain and
-                switch those steps to it.
+                {restriction} To reach your users, set up your sending domain and switch those steps to it.
             </LemonBanner>
         </div>
     )

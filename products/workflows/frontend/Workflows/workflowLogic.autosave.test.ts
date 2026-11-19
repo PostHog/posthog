@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-import { ReactElement, createElement } from 'react'
+import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -604,58 +605,97 @@ describe('workflowLogic auto-save', () => {
             captureSpy.mockRestore()
         })
 
-        it.each([
-            ['live on the test sender', 'live', true],
-            // Enabling resumes the stored live config, so a staged test sender step goes live only on publish.
-            ['staging a test sender step only', 'staged', false],
-            ['staging a move off the test sender only', 'live-staged-off', true],
-        ] as const)('enabling a workflow %s (%s) asks first: %s', async (_, layout, asks) => {
+        describe('enabling on the test sender', () => {
+            const ENABLE_DIALOG = 'Enable on the PostHog test sender?'
             const withSandbox = withSandboxEmail(activeWorkflow.actions)
             const withoutSandbox = { actions: activeWorkflow.actions, edges: activeWorkflow.edges }
-            const [live, staged] =
-                layout === 'live'
-                    ? [withSandbox, null]
-                    : layout === 'staged'
-                      ? [withoutSandbox, withSandbox]
-                      : [withSandbox, withoutSandbox]
-            const dialogs: LemonDialogProps[] = []
-            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
-                dialogs.push(props)
-            })
-            useMocks(
-                activeMocks({
+            const LAYOUTS = {
+                live: [withSandbox, null],
+                staged: [withoutSandbox, withSandbox],
+                'live-staged-off': [withSandbox, withoutSandbox],
+                none: [withoutSandbox, null],
+            } as const
+
+            const loadedWith = (layout: keyof typeof LAYOUTS): HogFlow => {
+                const [live, staged] = LAYOUTS[layout]
+                return {
                     ...activeWorkflow,
                     status: 'draft',
                     ...live,
                     ...(staged ? { draft: staged, draft_updated_at: '2026-05-02T00:00:00.000Z' } : {}),
-                })
-            )
-            initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-
-            try {
-                if (asks) {
-                    await expectLogic(logic, () => {
-                        logic.actions.saveWorkflowPartial({ status: 'active' })
-                    }).toFinishAllListeners()
-                    expect(dialogs.map((dialog) => dialog.title)).toEqual(['Enable on the PostHog test sender?'])
-                    expect(patchBodies).toEqual([])
-
-                    await expectLogic(logic, () => {
-                        ;(dialogs[0].primaryButton?.onClick as () => void)()
-                    }).toDispatchActions(['saveWorkflowSuccess'])
-                } else {
-                    await expectLogic(logic, () => {
-                        logic.actions.saveWorkflowPartial({ status: 'active' })
-                    }).toDispatchActions(['saveWorkflowSuccess'])
-                }
-                expect(patchBodies).toMatchObject([{ status: 'active' }])
-                expect(dialogs).toHaveLength(asks ? 1 : 0)
-            } finally {
-                openDialog.mockRestore()
+                } as HogFlow
             }
+            const serverCopy = (loaded: HogFlow, server: 'sandbox' | 'own' | null): HogFlow =>
+                server ? { ...loaded, ...(server === 'sandbox' ? withSandbox : withoutSandbox) } : loaded
+            const mountEditor = async (): Promise<void> => {
+                initKeaTests()
+                logic = workflowLogic({ id: WORKFLOW_ID })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            }
+            const enableFromEditor = async (): Promise<void> => {
+                await expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toFinishAllListeners()
+            }
+
+            afterEach(() => {
+                cleanup()
+                // LemonDialog.open mounts its own root on the body, which cleanup() does not remove.
+                document.body.innerHTML = ''
+            })
+
+            it.each([
+                ['live on the test sender', 'live', null],
+                ['staging a move off the test sender only', 'live-staged-off', null],
+                ['moved to the test sender since the page loaded', 'none', 'sandbox'],
+            ] as const)('asks before enabling a workflow %s (%s, server %s)', async (_, layout, server) => {
+                const loaded = loadedWith(layout)
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                // Registered after the load, so only reads made after the page loaded see the change.
+                useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': serverCopy(loaded, server) } })
+                await enableFromEditor()
+                expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
+                expect(patchBodies).toEqual([])
+
+                await userEvent.click(screen.getByText('Enable anyway'))
+                await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+                expect(patchBodies).toMatchObject([{ status: 'active' }])
+                expect(logic.values.originalWorkflow?.status).toBe('active')
+            })
+
+            it('keeps a workflow on the test sender disabled after "Cancel"', async () => {
+                useMocks(activeMocks(loadedWith('live')))
+                await mountEditor()
+                await enableFromEditor()
+
+                await userEvent.click(await screen.findByText('Cancel'))
+                await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(patchBodies).toEqual([])
+                expect(logic.values.originalWorkflow?.status).toBe('draft')
+            })
+
+            it.each([
+                // Enabling resumes the stored live config, so a staged test sender step goes live only on publish.
+                ['staging a test sender step only', 'staged', null],
+                ['moved off the test sender since the page loaded', 'live', 'own'],
+            ] as const)('enables a workflow %s (%s, server %s) without asking', async (_, layout, server) => {
+                const loaded = loadedWith(layout)
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                // Registered after the load, so only reads made after the page loaded see the change.
+                useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': serverCopy(loaded, server) } })
+                await enableFromEditor()
+
+                expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+                expect(patchBodies).toMatchObject([{ status: 'active' }])
+                expect(logic.values.originalWorkflow?.status).toBe('active')
+            })
         })
 
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {
@@ -1224,28 +1264,40 @@ describe('workflowLogic auto-save', () => {
 
                 expect(publishBodies).toEqual([{ confirm: false }, { confirm: true, confirm_token: 'preview-token' }])
                 expect(successToast).toHaveBeenCalledWith('Changes published')
-                expect(reloads).toBe(1)
+                // One read for the sender check before the dialog, one reload after publishing.
+                expect(reloads).toBe(2)
                 expect(logic.values.draftActionPending).toBeNull()
             })
 
             it.each([
-                ['moves the live workflow onto the test sender', [], ['sandbox_email'], true],
-                ['keeps the same test sender step', ['sandbox_email'], ['sandbox_email'], false],
+                ['moves the live workflow onto the test sender', [], ['sandbox_email'], null, true],
+                ['keeps the same test sender step', ['sandbox_email'], ['sandbox_email'], null, false],
                 [
                     'moves a second step onto the test sender',
                     ['sandbox_email'],
                     ['sandbox_email', 'second_email'],
+                    null,
                     true,
                 ],
                 [
                     'switches an existing step to the test sender',
                     ['sandbox_email', 'own_email:own'],
                     ['sandbox_email', 'own_email'],
+                    null,
+                    true,
+                ],
+                // The token publishes over the server's live steps, so the warning compares against those.
+                [
+                    'moves a step the server took off the test sender back onto it',
+                    ['sandbox_email'],
+                    ['sandbox_email'],
+                    [],
                     true,
                 ],
             ])(
-                'warns in the publish dialog when the draft %s (live %j, staged %j): %s',
-                async (_, liveSteps, stagedSteps, warns) => {
+                'warns in the publish dialog when the draft %s (live %j, staged %j, server live %j): %s',
+                async (_, liveSteps, stagedSteps, serverLiveSteps, warns) => {
+                    jest.mocked(LemonDialog.open).mockRestore()
                     const workflowWithDraft = makeWorkflow({
                         status: 'active',
                         ...withSandboxEmail([VALID_TRIGGER, EXIT], liveSteps),
@@ -1254,21 +1306,68 @@ describe('workflowLogic auto-save', () => {
                     })
                     useMocks({
                         get: { '/api/environments/:team_id/hog_flows/:id/': workflowWithDraft },
-                        post: { [PUBLISH_URL]: recordPublish(() => [200, preview]) },
+                        post: {
+                            [PUBLISH_URL]: recordPublish((body) => [200, { ...preview, published: !!body.confirm }]),
+                        },
                     })
                     logic.unmount()
                     logic = workflowLogic({ id: WORKFLOW_ID })
                     logic.mount()
                     await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+                    if (serverLiveSteps) {
+                        // Registered after the load, so only reads made after the page loaded see the change.
+                        useMocks({
+                            get: {
+                                '/api/projects/:team_id/hog_flows/:id/': {
+                                    ...workflowWithDraft,
+                                    ...withSandboxEmail([VALID_TRIGGER, EXIT], serverLiveSteps),
+                                },
+                            },
+                        })
+                    }
 
-                    await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                    try {
+                        await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                        expect(await screen.findByText('Publish staged changes?')).toBeTruthy()
+                        expect(!!screen.queryByText(/These changes put email steps on the PostHog test sender/)).toBe(
+                            warns
+                        )
 
-                    const dialog = dialogs.find((d) => d.title === 'Publish staged changes?')
-                    render(dialog?.description as ReactElement)
-                    expect(!!screen.queryByText(/These changes put email steps on the PostHog test sender/)).toBe(warns)
-                    cleanup()
+                        await userEvent.click(screen.getByText('Publish'))
+                        await waitFor(() => expect(screen.queryByText('Publish staged changes?')).toBeNull())
+                        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+                        expect(publishBodies).toEqual([
+                            { confirm: false },
+                            { confirm: true, confirm_token: 'preview-token' },
+                        ])
+                    } finally {
+                        cleanup()
+                        // LemonDialog.open mounts its own root on the body, which cleanup() does not remove.
+                        document.body.innerHTML = ''
+                    }
                 }
             )
+
+            it('reloads instead of publishing when the staged changes were edited somewhere else', async () => {
+                const mocks = serverMocks({ [PUBLISH_URL]: recordPublish(() => [200, preview]) })
+                mocks.get = {
+                    ...mocks.get,
+                    '/api/projects/:team_id/hog_flows/:id/': {
+                        ...staged,
+                        draft_updated_at: '2026-05-01T00:05:00.000Z',
+                    },
+                }
+                useMocks(mocks)
+                const warningToast = jest.spyOn(lemonToast, 'warning')
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toDispatchActions(['loadWorkflowSuccess'])
+
+                expect(dialogs).toEqual([])
+                expect(publishBodies).toEqual([{ confirm: false }])
+                expect(warningToast).toHaveBeenCalledWith(
+                    'The staged changes were edited somewhere else. Review them, then publish again.'
+                )
+            })
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))

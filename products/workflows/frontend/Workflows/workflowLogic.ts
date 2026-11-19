@@ -63,7 +63,12 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
-import { isLiveOnSandboxSender, publishMovesStepsToSandboxSender, readySandboxSender } from '../Channels/sandboxSender'
+import {
+    fetchStoredWorkflow,
+    isLiveOnSandboxSender,
+    publishMovesStepsToSandboxSender,
+    readySandboxSender,
+} from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -4844,8 +4849,16 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
-            const movesToSandboxSender =
-                !!values.originalWorkflow && publishMovesStepsToSandboxSender(values.originalWorkflow)
+            // The token covers the server's draft. When that is not the draft this editor shows, the
+            // warning below would describe the wrong changes, so the user reviews the newer draft first.
+            const stored = await fetchStoredWorkflow(props.id)
+            if (stored && !dayjs(stored.draft_updated_at ?? undefined).isSame(preview.draft_updated_at ?? undefined)) {
+                lemonToast.warning('The staged changes were edited somewhere else. Review them, then publish again.')
+                actions.loadWorkflow()
+                return
+            }
+            const live = stored ?? values.originalWorkflow
+            const movesToSandboxSender = !!live && publishMovesStepsToSandboxSender(live)
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
                 posthog.capture('workflows sandbox sender enable warning shown', {
@@ -4979,12 +4992,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
-            // Enabling resumes the stored live config, not the staged draft the form shows, so the
-            // sender check reads the steps that will actually run.
-            const goingLive = stored ? { ...stored, status: 'active' as const } : merged
-            if (enabling && !sandboxSenderConfirmed && isLiveOnSandboxSender(goingLive)) {
-                confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
-                return
+            if (enabling && !sandboxSenderConfirmed) {
+                // Enabling resumes the stored live config, not the staged draft the form shows, so the
+                // sender check reads the steps that will actually run.
+                const live = (await fetchStoredWorkflow(merged.id)) ?? stored ?? merged
+                if (isLiveOnSandboxSender({ ...live, status: 'active' })) {
+                    confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
+                    return
+                }
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.

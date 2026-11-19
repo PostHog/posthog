@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
-import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
+import { fetchStoredWorkflow, isLiveOnSandboxSender } from '../Channels/sandboxSender'
 import { hogFlowsPartialUpdate } from '../generated/api'
 import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import type { HogFlow } from './hogflows/types'
@@ -381,11 +381,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 toggleWorkflowStatus: async ({ workflow, sandboxSenderConfirmed }) => {
                     const status = workflow.status === 'active' ? 'draft' : 'active'
-                    if (!sandboxSenderConfirmed && isLiveOnSandboxSender({ ...workflow, status })) {
-                        confirmEnableOnSandboxSender(workflow.id, 'list', () =>
-                            actions.toggleWorkflowStatus(workflow, true)
-                        )
-                        return values.workflows
+                    if (status === 'active' && !sandboxSenderConfirmed) {
+                        // The row can be older than the server's steps, so the check reads the server's copy.
+                        const live = (await fetchStoredWorkflow(workflow.id)) ?? workflow
+                        if (isLiveOnSandboxSender({ ...live, status })) {
+                            confirmEnableOnSandboxSender(workflow.id, 'list', () =>
+                                actions.toggleWorkflowStatus(workflow, true)
+                            )
+                            return values.workflows
+                        }
                     }
                     await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, { status })
                     // Reload instead of patching in place: the new status may no longer match the
