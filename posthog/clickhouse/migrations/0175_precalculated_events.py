@@ -10,7 +10,7 @@ from posthog.models.precalculated_events.sql import (
 
 behavioral_cohorts_matches_table = "behavioral_cohorts_matches"
 
-# Fresh migration replay must not recreate the legacy ClickHouse cohort pipeline.
+# This migration skips the cohort_membership tables because 0390 drops them.
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {behavioral_cohorts_matches_table}", node_roles=[NodeRole.DATA]),
