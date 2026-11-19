@@ -351,6 +351,16 @@ function dropProducts(products, allProducts, names, label) {
     return remaining
 }
 
+// A product whose backend:test only echoes a message runs no test, yet a matrix
+// entry for it still pays the whole Docker stack and dependency setup.
+function testlessProducts(testTasks) {
+    return new Set(
+        testTasks
+            .filter((t) => isProductPackage(t.package) && /^echo[ \t][^;&|`$()<>\n\r]*$/.test(t.command.trim()))
+            .map((t) => packageToProduct(t.package))
+    )
+}
+
 // --- Dependent cascade (tach map) ---
 // When a product's contract changes, Turbo's graph has no edges to the
 // products that depend on it (no workspace deps, no `dependsOn`), so those
@@ -1608,6 +1618,7 @@ module.exports = {
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
+    testlessProducts,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
@@ -1897,6 +1908,11 @@ if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
     products = narrowedProducts(products, mustRun, selection)
     productMatrixNarrowed = true
+}
+
+const testless = testlessProducts(allTestTasks)
+if (products.some((p) => testless.has(p))) {
+    products = dropProducts(products, allProducts, testless, 'Products whose backend:test runs no tests')
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
