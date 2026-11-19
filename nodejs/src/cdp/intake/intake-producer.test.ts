@@ -107,28 +107,50 @@ describe('IntakeProducer', () => {
         await expect(outcome).resolves.toBe('unacked')
     })
 
-    it('hands the caller a publish that outlives its ack deadline, so the caller can wait it out', async () => {
+    it('settles only once every publish past its ack deadline is acked or refused', async () => {
         jest.useFakeTimers()
-        let ack: () => void = () => {}
-        produce = () => new Promise<void>((resolve) => (ack = resolve))
+        const held: { ack: () => void; refuse: (error: Error) => void }[] = []
+        produce = () => new Promise<void>((ack, refuse) => held.push({ ack, refuse }))
         const settlement = new PublishSettlement()
-        let publishSettled = false
+        let drained: 'pending' | 'fulfilled' | 'rejected' = 'pending'
+        const producer = new IntakeProducer(outputs())
 
-        const outcome = new IntakeProducer(outputs()).produce(
+        const outcomes = [
+            producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', settlement),
+            producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', settlement),
+        ]
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+        await expect(Promise.all(outcomes)).resolves.toEqual(['unacked', 'unacked'])
+        settlement.settled().then(
+            () => (drained = 'fulfilled'),
+            () => (drained = 'rejected')
+        )
+        held[0].refuse(new Error('Broker: Not enough in-sync replicas'))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(drained).toBe('pending')
+
+        held[1].ack()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(drained).toBe('fulfilled')
+    })
+
+    it('answers from the broker even when the settlement is a subclass with its own track', async () => {
+        class ThrowingSettlement extends PublishSettlement {
+            track(): void {
+                throw new Error('tracker closed')
+            }
+        }
+        const settlement = new ThrowingSettlement()
+
+        const outcome = await new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },
             'async',
             settlement
         )
-        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
-        await expect(outcome).resolves.toBe('unacked')
-        void settlement.settled().then(() => (publishSettled = true))
-        await jest.advanceTimersByTimeAsync(0)
-        expect(publishSettled).toBe(false)
 
-        ack()
-        await jest.advanceTimersByTimeAsync(0)
-
-        expect(publishSettled).toBe(true)
+        expect(outcome).toBe('acked')
+        await expect(settlement.settled()).resolves.toBeUndefined()
     })
 
     it('records the wait for the ack in milliseconds', async () => {

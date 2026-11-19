@@ -50,14 +50,15 @@ export const intakeModeOf = (
 // A produce outlives its ack deadline. A caller that bounds its work in flight passes one of these to its produces and
 // waits on `settled()` before it frees that work's share.
 export class PublishSettlement {
-    private readonly publishes: Promise<unknown>[] = []
+    readonly #publishes: Promise<unknown>[] = []
 
-    track(publish: Promise<unknown>): void {
-        this.publishes.push(publish)
+    // Static, so the producer runs this class's own code inside the ack deadline, never a subclass override.
+    static track(settlement: PublishSettlement, publish: Promise<unknown>): void {
+        settlement.#publishes.push(publish)
     }
 
     settled(): Promise<void> {
-        return Promise.allSettled(this.publishes).then(() => undefined)
+        return Promise.allSettled(this.#publishes).then(() => undefined)
     }
 }
 
@@ -117,7 +118,10 @@ export class IntakeProducer {
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
-        settlement?.track(produce)
-        return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
+        const raced = Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
+        if (settlement) {
+            PublishSettlement.track(settlement, produce)
+        }
+        return raced
     }
 }
