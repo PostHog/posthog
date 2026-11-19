@@ -13,7 +13,7 @@ from posthog.models.user import User
 logger = logging.getLogger(__name__)
 
 
-def delete_user_analytics(distinct_id: str) -> None:
+def delete_user_analytics(distinct_id: str | None, email: str) -> None:
     if not settings.POSTHOG_USER_DELETION_API_KEY:
         logger.error("User analytics deletion API key is not configured")
         return
@@ -21,11 +21,24 @@ def delete_user_analytics(distinct_id: str) -> None:
     if not host.startswith("https://"):
         logger.error("User analytics deletion requires an HTTPS POSTHOG_HOST")
         return
-    url = f"{host}/api/projects/{settings.POSTHOG_PROJECT_ID}/persons/bulk_delete/"
+    project_url = f"{host}/api/projects/{settings.POSTHOG_PROJECT_ID}"
+    headers = {"Authorization": f"Bearer {settings.POSTHOG_USER_DELETION_API_KEY}"}
     try:
         response = requests.post(
-            url,
-            headers={"Authorization": f"Bearer {settings.POSTHOG_USER_DELETION_API_KEY}"},
+            f"{project_url}/messaging/preferences/",
+            headers=headers,
+            json={"identifier": email, "all_marketing": False},
+            timeout=(3, 30),
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            logger.error("User marketing opt-out failed with HTTP status %s", response.status_code)
+            return
+        if not distinct_id:
+            return
+        response = requests.post(
+            f"{project_url}/persons/bulk_delete/",
+            headers=headers,
             json={"distinct_ids": [distinct_id], "delete_events": True, "delete_recordings": True},
             timeout=(3, 30),
             allow_redirects=False,
@@ -41,6 +54,8 @@ def delete_user_analytics(distinct_id: str) -> None:
 
 @receiver(post_delete, sender=User)
 def queue_user_analytics_deletion(sender: type[User], instance: User, using: str, **kwargs: object) -> None:
-    if not settings.CLOUD_DEPLOYMENT or not instance.distinct_id:
+    if not settings.CLOUD_DEPLOYMENT:
         return
-    transaction.on_commit(partial(delete_user_analytics, instance.distinct_id), using=using, robust=True)
+    transaction.on_commit(
+        partial(delete_user_analytics, instance.distinct_id, instance.email), using=using, robust=True
+    )

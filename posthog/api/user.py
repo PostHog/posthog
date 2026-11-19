@@ -86,7 +86,6 @@ from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, Ava
 from posthog.email import is_email_available
 from posthog.event_usage import (
     groups,
-    report_user_deleted_account,
     report_user_email_change_requested,
     report_user_identity_change_refused,
     report_user_logged_in,
@@ -1302,10 +1301,6 @@ class UserViewSet(
                 "Confirm it's you before changing your email.",
                 code="sensitive_action_required_reauth",
             )
-
-    def perform_destroy(self, user: User) -> None:
-        report_user_deleted_account(user)
-        super().perform_destroy(user)
 
     @extend_schema(responses=UserGithubLoginSerializer)
     @action(methods=["GET"], detail=True, url_path="github_login")

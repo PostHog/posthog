@@ -2304,6 +2304,7 @@ class TestUserAPI(APIBaseTest):
     @responses.activate
     @patch("posthoganalytics.capture")
     def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+        responses.post("https://us.posthog.com/api/projects/2/messaging/preferences/", json={})
         responses.post(
             "https://us.posthog.com/api/projects/2/persons/bulk_delete/", json={"deletion_errors": []}, status=202
         )
@@ -2324,19 +2325,16 @@ class TestUserAPI(APIBaseTest):
             assert not responses.calls
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
-        assert len(responses.calls) == 1
+        assert len(responses.calls) == 2
+        assert json.loads(responses.calls[0].request.body) == {"identifier": user.email, "all_marketing": False}
         assert responses.calls[0].request.headers["Authorization"] == "Bearer phs_fake_deletion_key"
-        assert json.loads(responses.calls[0].request.body) == {
+        assert json.loads(responses.calls[1].request.body) == {
             "distinct_ids": [user.distinct_id],
             "delete_events": True,
             "delete_recordings": True,
         }
 
-        mock_capture.assert_called_once_with(
-            distinct_id=user.distinct_id,
-            event="user account deleted",
-            properties=mock.ANY,
-        )
+        mock_capture.assert_not_called()
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
