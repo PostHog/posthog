@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
@@ -676,9 +677,13 @@ describe('personsLogic', () => {
 
         it.each([
             [undefined, false],
+            ['-90d', false],
             ['-180d', true],
         ])('with the range starting at %s, flagCallsReachPastRetention is %s', async (after, expected) => {
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: 2 })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            })
             const current = logic.values.flagCallsQuery!
             logic.actions.setFlagCallsQuery({ ...current, source: { ...current.source, after } as any })
 
