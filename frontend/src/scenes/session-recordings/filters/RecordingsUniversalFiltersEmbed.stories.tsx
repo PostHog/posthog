@@ -92,11 +92,11 @@ export const ScannerCrossSell: Story = {
     },
 }
 
-// The entry point experiment's control arm: the button that opens the wizard, with no popover.
+// Without the team flag: the button that opens the wizard, with no popover.
 export const ScannerCrossSellControl: Story = {
     parameters: {
         ...ScannerCrossSell.parameters,
-        featureFlags: { [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS_POPOVER]: 'control' },
+        featureFlags: [],
     },
 }
 
