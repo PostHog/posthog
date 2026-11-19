@@ -145,4 +145,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "plan_type": "The account's Freshchat plan.",
         },
     },
+    "historical_metrics": {
+        "description": "Daily account-level Freshchat dashboard metrics, such as interactions created and resolved, CSAT counts and response times.",
+        "docs_url": "https://developers.freshchat.com/api/#metrics",
+        "columns": {
+            "metric": "Name of the metric, for example `conversation_metrics.resolved_interactions`.",
+            "grouping": "Group or agent the value is split by, as `key=value` pairs. Empty for account-level values.",
+            "aggregator": "Method used to summarize an aggregate metric over the bucket. Empty for count metrics.",
+            "granularity": "Size of each time bucket, for example `1d`.",
+            "interval_start": "Start of the time bucket, in UTC.",
+            "interval_end": "End of the time bucket, in UTC.",
+            "value": "Value of the metric for the time bucket.",
+        },
+    },
 }

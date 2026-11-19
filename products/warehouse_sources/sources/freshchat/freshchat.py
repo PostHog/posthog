@@ -1,31 +1,43 @@
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Response
 
 from products.warehouse_sources.sources.freshchat.settings import (
     FRESHCHAT_ENDPOINTS,
+    HISTORICAL_METRICS,
+    HISTORICAL_METRICS_INTERVAL,
+    HISTORICAL_METRICS_LOOKBACK,
+    HISTORICAL_METRICS_WINDOW,
     PER_PAGE,
     PRIMARY_KEYS,
     SKIP_MISSING_PARENT,
     FreshchatEndpointConfig,
+    HistoricalMetric,
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    BearerTokenAuth,
     ClientConfig,
     Endpoint,
     EndpointResource,
     PageNumberPaginator,
     ResponseAction,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SinglePagePaginator,
+    SortMode,
     SourceResponse,
     _looks_like_json,
     build_chained_resource,
     build_dependent_resource,
+    format_datetime,
     make_tracked_session,
+    reach_safe_point,
+    resolve_incremental_start,
     rest_api_resource,
 )
 
@@ -234,18 +246,116 @@ def _chained_fanout_resource(
     )
 
 
+def historical_metric_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
+    """Split ``[start, end]`` into windows that start at UTC midnight, so daily buckets line up with
+    the incremental cursor. Each window ends 1 ms before the next one starts, so no bucket is read
+    twice in one run."""
+    current = start.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    while current < end:
+        window_end = min(current + HISTORICAL_METRICS_WINDOW - timedelta(milliseconds=1), end)
+        yield current, window_end
+        current += HISTORICAL_METRICS_WINDOW
+
+
+def _grouping(groupings: Any) -> str:
+    if not isinstance(groupings, list):
+        return ""
+    return ",".join(
+        f"{grouping.get('key')}={grouping.get('value')}" for grouping in groupings if isinstance(grouping, dict)
+    )
+
+
+def _metric_value(value: Any) -> Optional[float]:
+    # Freshchat sends metric values as numeric strings, e.g. "4.0".
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def historical_metric_rows(body: Any, metric: HistoricalMetric) -> list[dict[str, Any]]:
+    """Flatten one `/metrics/historical` response into one row per metric value per bucket."""
+    if not isinstance(body, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for group in body.get("data") or []:
+        if not isinstance(group, dict):
+            continue
+        grouping = _grouping(group.get("groupings"))
+        for bucket in group.get("series") or []:
+            if not isinstance(bucket, dict):
+                continue
+            for value in bucket.get("values") or []:
+                if not isinstance(value, dict):
+                    continue
+                rows.append(
+                    {
+                        "metric": value.get("key") or metric.name,
+                        "grouping": grouping,
+                        "aggregator": metric.aggregator,
+                        "granularity": HISTORICAL_METRICS_INTERVAL,
+                        "interval_start": bucket.get("start"),
+                        "interval_end": bucket.get("end"),
+                        "value": _metric_value(value.get("value")),
+                    }
+                )
+    return rows
+
+
+def _historical_metrics(
+    api_key: str,
+    domain: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    now = datetime.now(UTC)
+    # The cursor is the start of the newest bucket, which can still be filling. Reading from it again
+    # overwrites that partial bucket with its final value.
+    start = resolve_incremental_start(
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        default=HISTORICAL_METRICS_LOOKBACK,
+        now=now,
+    )
+    client = RESTClient(
+        base_url=_base_url(domain),
+        headers={"Accept": "application/json"},
+        auth=BearerTokenAuth(token=api_key),
+        allowed_hosts=[],
+        allow_redirects=False,
+    )
+    for metric in HISTORICAL_METRICS:
+        for window_start, window_end in historical_metric_windows(start, now):
+            # Every earlier response is already yielded, so the run can stop before this request.
+            reach_safe_point()
+            params = {
+                "metric": metric.name,
+                "start": format_datetime(window_start, "iso_z_millis"),
+                "end": format_datetime(window_end, "iso_z_millis"),
+                "interval": HISTORICAL_METRICS_INTERVAL,
+            }
+            if metric.aggregator:
+                params["aggregator"] = metric.aggregator
+            for page in client.paginate(path="/metrics/historical", params=params, paginator=SinglePagePaginator()):
+                rows = [row for body in page for row in historical_metric_rows(body, metric)]
+                if rows:
+                    yield rows
+
+
 def _source_response(
     config: FreshchatEndpointConfig,
     items: Callable[[], Iterable[Any]],
     supports_resume: bool = True,
+    sort_mode: Optional[SortMode] = "asc",
 ) -> SourceResponse:
     return SourceResponse(
         name=config.name,
         items=items,
         primary_keys=PRIMARY_KEYS[config.name],
         supports_resume=supports_resume,
-        # Every endpoint is full refresh, so this only describes the order rows arrive in.
-        sort_mode="asc",
+        sort_mode=sort_mode,
         partition_count=1 if config.partition_key else None,
         partition_size=1 if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
@@ -261,6 +371,8 @@ def freshchat_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[FreshchatResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = FRESHCHAT_ENDPOINTS[endpoint]
 
@@ -271,6 +383,16 @@ def freshchat_source(
     normalized = normalize_domain(domain)
     if not is_allowed_host(normalized):
         raise FreshchatHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
+
+    if config.metrics_query:
+        # Rows come metric by metric, so they are not in one ascending series. A retry restarts from
+        # the stored cursor, so no page state is kept.
+        return _source_response(
+            config,
+            lambda: _historical_metrics(api_key, domain, should_use_incremental_field, db_incremental_field_last_value),
+            supports_resume=False,
+            sort_mode=None,
+        )
 
     client_config = _client_config(api_key, domain)
 
