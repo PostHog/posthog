@@ -103,11 +103,8 @@ def _own_plan_state(integration: Any, user: Any, *, runtime_adapter: str | None)
 
 
 def _strip_context_tag(text: str) -> str:
-    return re.sub(rf"</?\s*{_THREAD_CONTEXT_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
-
-
-def _strip_context_update_tag(text: str) -> str:
-    return re.sub(rf"</?\s*{_THREAD_CONTEXT_UPDATE_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
+    """Remove both thread tags from participant text, so none of it can open or close a thread block."""
+    return re.sub(rf"</?\s*(?:{_THREAD_CONTEXT_UPDATE_TAG}|{_THREAD_CONTEXT_TAG})\s*/?>", "", text, flags=re.IGNORECASE)
 
 
 def _max_ts(*candidates: str | None) -> str:
@@ -145,7 +142,7 @@ def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     (bots, app-posted messages, unresolved users), fall back to the plain display name
     so the line still reads naturally.
     """
-    name = (display_name or "").strip() or "user"
+    name = _strip_context_tag(display_name or "").strip() or "user"
     uid = (user_id or "").strip()
     if uid:
         return f"<@{uid}|{name}>"
@@ -184,7 +181,9 @@ def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[s
 
 def _apply_followup_prefix(user_text: str, prefix: str | None) -> str:
     """Prefix a cross-user follow-up with the actor's name; substitute a placeholder for file-only messages."""
+    user_text = _strip_context_tag(user_text)
     if prefix:
+        prefix = _strip_context_tag(prefix)
         return prefix + user_text if user_text else f"{prefix}attached Slack file(s)."
     return user_text or "Attached Slack file(s)."
 
@@ -317,6 +316,7 @@ def _build_posthog_code_task_description(
     message inside the block is the request, nobody in it tagged the app, and the
     people quoted are not necessarily in the conversation the reply lands in.
     """
+    initiator_text = _strip_context_tag(initiator_text)
     prompt = initiator_text.strip() or "Task from Slack"
     has_initiator_text = bool(initiator_text.strip())
 
@@ -548,7 +548,7 @@ def build_thread_context_update(
     for msg in rendered:
         author = _format_author_token(msg.user_id, msg.user)
         body = _body_with_attachment_note(
-            _strip_context_tag(_strip_context_update_tag(msg.text)),
+            _strip_context_tag(msg.text),
             _attachment_names(msg),
         )
         entries.append(f"{author}:\n{_indent_body(body)}")
