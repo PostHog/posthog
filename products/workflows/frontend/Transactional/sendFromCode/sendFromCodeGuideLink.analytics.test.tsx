@@ -9,7 +9,7 @@ const INGESTION_HOST = 'https://ingest.example.com'
 
 type SentEvent = { event: string; properties: Record<string, any> }
 
-describe('send from code guide link', () => {
+describe('send from code analytics', () => {
     const sentEvents: SentEvent[] = []
     let app: {
         posthog: typeof import('posthog-js').default
@@ -70,6 +70,11 @@ describe('send from code guide link', () => {
         user_access_level: 'editor',
     }
 
+    const recordSentEvents = async ({ request }: MockResolverInfo): Promise<[number, { status: number }]> => {
+        sentEvents.push(...((await request.json()) as { batch: SentEvent[] }).batch)
+        return [200, { status: 1 }]
+    }
+
     it.each([
         { tab: 'a list without code sends', templates: [receipt], codeEmails: [], surfaces: ['transactional'] },
         { tab: 'a list that already sends from code', templates: [receipt], codeEmails: [codeEmail], surfaces: [] },
@@ -83,12 +88,7 @@ describe('send from code guide link', () => {
                 '/api/projects/:team_id/integrations/': { results: [] },
                 '/api/projects/:team_id/tags': [],
             },
-            post: {
-                [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {
-                    sentEvents.push(...((await request.json()) as { batch: SentEvent[] }).batch)
-                    return [200, { status: 1 }]
-                },
-            },
+            post: { [`${INGESTION_HOST}/e/`]: recordSentEvents },
         })
         app.initKeaTests()
         app.featureFlagLogic.actions.setFeatureFlags([app.FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE], {
@@ -113,5 +113,43 @@ describe('send from code guide link', () => {
                 )
                 .map((sent) => sent.properties.surface)
         ).toEqual(surfaces)
+    })
+
+    it('reports a copied Wizard command with the command it runs', async () => {
+        sentEvents.length = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/transactional_code_emails/': [],
+                '/api/projects/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/tags': [],
+            },
+            post: { [`${INGESTION_HOST}/e/`]: recordSentEvents },
+        })
+        app.initKeaTests()
+        app.featureFlagLogic.actions.setFeatureFlags(
+            [app.FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE, app.FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD],
+            {
+                [app.FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: true,
+                [app.FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD]: true,
+            }
+        )
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => {} }, configurable: true })
+        app.rtl.render(
+            <app.Provider>
+                <app.TransactionalEmailsTable />
+            </app.Provider>
+        )
+
+        app.rtl.fireEvent.click(await app.rtl.screen.findByLabelText('Copy wizard command'))
+
+        await app.rtl.waitFor(() =>
+            expect(sentEvents.map((sent) => sent.event)).toContain('wizard command copy requested')
+        )
+        expect(
+            sentEvents
+                .filter((sent) => sent.event === 'wizard command copy requested')
+                .map(({ properties }) => ({ event_source: properties.event_source, command: properties.command }))
+        ).toEqual([{ event_source: 'wizard_ui', command: 'email' }])
     })
 })

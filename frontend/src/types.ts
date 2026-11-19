@@ -327,6 +327,7 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    Canvas = 'canvas',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
     DataCatalog = 'data_catalog',
@@ -1180,6 +1181,7 @@ export enum ActivityTab {
     ExploreEvents = 'events',
     LiveEvents = 'live',
     ExploreSessions = 'sessions',
+    ExploreFlagCalls = 'flag-calls',
 }
 
 export enum ProgressStatus {
@@ -1966,6 +1968,8 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     PROFILE = 'profile',
     EVENTS = 'events',
+    // pinned: the value is the activeTab URL hash param. Renaming it breaks saved links.
+    FLAG_CALLS = 'flagCalls',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',

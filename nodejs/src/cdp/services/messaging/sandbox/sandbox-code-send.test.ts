@@ -400,6 +400,27 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     )
 
+    it('answers with the sandbox sender kind when its team hands sends to the intake consumer', async () => {
+        hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+        try {
+            const res = await sendFromCode(request(sandboxSend()))
+
+            expect(res.status).toEqual(202)
+            expect(res.body).toEqual({
+                status: 'queued',
+                invocation_id: expect.any(String),
+                replayed: false,
+                scheduled_at: null,
+                sender_kind: 'email_sandbox',
+                attachment_count: 0,
+                attachment_bytes: 0,
+            })
+            expect(queued).toEqual([])
+        } finally {
+            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+        }
+    })
+
     const runLogs = (results: CyclotronJobInvocationResult[]): string[] =>
         results.flatMap((result) => result.logs).map((log) => log.message)
 
@@ -451,7 +472,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(metricNames(results)).toContain('email_sandbox_blocked')
-        expect(runLogs(results)).toContainEqual(expect.stringContaining(`not sent (skipped): ${reason}`))
+        expect(runLogs(results)).toContainEqual(
+            expect.stringContaining(`The PostHog test sender didn't send the email (skipped): ${reason}`)
+        )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
     })
 
@@ -464,7 +487,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
-        expect(runLogs(results)).toContainEqual(expect.stringContaining('not sent (skipped): sending_disabled'))
+        expect(runLogs(results)).toContainEqual(
+            expect.stringContaining("The PostHog test sender didn't send the email (skipped): sending_disabled")
+        )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason: 'sending_disabled' }])
     })
 

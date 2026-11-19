@@ -333,17 +333,6 @@ def build_task_run_artifact_size_error(
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
 
 
-class AgentDefinitionSerializer(serializers.Serializer):
-    """Serializer for agent definitions"""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    agent_type = serializers.CharField()
-    description = serializers.CharField()
-    config = serializers.DictField(default=dict)
-    is_active = serializers.BooleanField(default=True)
-
-
 class TaskRunUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
@@ -1666,10 +1655,6 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
-
-
-class AgentListResponseSerializer(serializers.Serializer):
-    results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 
 
 class TaskRunAppendLogRequestSerializer(serializers.Serializer):

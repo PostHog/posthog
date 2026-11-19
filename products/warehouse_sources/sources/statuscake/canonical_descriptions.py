@@ -145,4 +145,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ipv6": "IPv6 address the location's checks originate from.",
         },
     },
+    "pagespeed_locations": {
+        "description": "Monitoring locations available for pagespeed checks — a dimension for the location field on pagespeed tests.",
+        "docs_url": "https://developers.statuscake.com/api/#tag/locations",
+        "columns": {
+            "description": "Server description of the monitoring location.",
+            "region": "Server region of the location.",
+            "region_code": "Server region code.",
+            "status": "Server status of the location (up or down).",
+            "ipv4": "IPv4 address the location's checks originate from.",
+            "ipv6": "IPv6 address the location's checks originate from.",
+        },
+    },
 }

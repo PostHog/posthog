@@ -68,6 +68,118 @@ export interface DependenciesResponseApi {
     date_to: string
 }
 
+export interface DeploymentVersionApi {
+    /** The service.version resource attribute. */
+    version: string
+    /** First span of this version in the window. */
+    first_seen: string
+    /** Last span of this version in the window. */
+    last_seen: string
+    /** Requests counted in the window. */
+    requests: number
+    /** Requests with an error status. */
+    error_count: number
+    /**
+     * Share of requests with an error status, 0 to 1.
+     * @nullable
+     */
+    error_rate: number | null
+    /**
+     * 95th percentile request duration in milliseconds.
+     * @nullable
+     */
+    p95_ms: number | null
+    /**
+     * The version first seen just before this one. Null for the oldest.
+     * @nullable
+     */
+    previous_version: string | null
+    /**
+     * Error rate minus the previous version's, as a fraction.
+     * @nullable
+     */
+    error_rate_change: number | null
+    /**
+     * Change in p95 from the previous version, in percent.
+     * @nullable
+     */
+    p95_change_pct: number | null
+    /** True for the version first seen most recently. */
+    active: boolean
+}
+
+export interface DeploymentsResponseApi {
+    /** One row per version, oldest first. */
+    results: DeploymentVersionApi[]
+    /** The service the versions belong to. */
+    service: string
+    /**
+     * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
+/**
+ * * `service` - Service
+ * * `inferred` - Inferred
+ * * `other` - Other
+ */
+export type TimeSpentComponentKindEnumApi =
+    (typeof TimeSpentComponentKindEnumApi)[keyof typeof TimeSpentComponentKindEnumApi]
+
+export const TimeSpentComponentKindEnumApi = {
+    Service: 'service',
+    Inferred: 'inferred',
+    Other: 'other',
+} as const
+
+export interface TimeSpentComponentApi {
+    /** The service name, the inferred dependency (for example a database system or host), or 'Other'. */
+    name: string
+    /** service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.
+     *
+     * * `service` - Service
+     * * `inferred` - Inferred
+     * * `other` - Other */
+    kind: TimeSpentComponentKindEnumApi
+    /** Self-time summed across the sampled requests, in milliseconds. */
+    total_ms: number
+    /** Self-time per sampled request, in milliseconds. */
+    avg_ms_per_request: number
+    /** Share of the attributed request time, 0 to 1. */
+    share: number
+}
+
+export interface EndpointTimeSpentResponseApi {
+    /** Where the request time goes, largest share first. */
+    components: TimeSpentComponentApi[]
+    /** Requests sampled to compute the breakdown. */
+    request_count: number
+    /**
+     * Mean duration of the sampled requests, in milliseconds.
+     * @nullable
+     */
+    avg_duration_ms: number | null
+    /** The service the endpoint belongs to. */
+    service: string
+    /** The endpoint's entry span name. */
+    endpoint: string
+    /**
+     * The environment filter the breakdown was computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
 /**
  * * `good` - Good
  * * `warning` - Warning
@@ -108,8 +220,20 @@ export interface HealthRowApi {
 export interface EndpointHealthApi {
     /** The service.name resource attribute. */
     service_name: string
-    /** The entry span name, for example the HTTP route or the job name. */
+    /** The endpoint label: the entry span name, or "<METHOD> <route>" when the span name is only an HTTP method and the span carries a route. */
     endpoint: string
+    /** The raw entry span name the row counts, for tracing filters. */
+    span_name: string
+    /**
+     * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+     * @nullable
+     */
+    route_attribute: string | null
+    /**
+     * The route appended to the span name, or null.
+     * @nullable
+     */
+    route: string | null
     /**
      * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
      * @nullable
@@ -288,6 +412,56 @@ export type ApmDependenciesListParams = {
      * @maxLength 400
      */
     service?: string
+}
+
+export type ApmDeploymentsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string
+    /**
+     * The service to list versions for.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string
+}
+
+export type ApmEndpointTimeSpentListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The endpoint label, as listed by apm/endpoints.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    endpoint: string
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string
+    /**
+     * The service that handles the endpoint.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string
 }
 
 export type ApmEndpointsListParams = {

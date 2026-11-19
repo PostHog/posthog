@@ -1,0 +1,195 @@
+import { Meta, StoryObj } from '@storybook/react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
+
+// A fixed one-hour window, so the charts, totals and timestamps render the same on every run.
+const WINDOW_START = Date.parse('2024-01-15T11:00:00Z')
+const BUCKET_MS = 5 * 60 * 1000
+const BUCKETS = Array.from({ length: 12 }, (_, index) => new Date(WINDOW_START + index * BUCKET_MS).toISOString())
+
+const REQUESTS = [820, 860, 790, 910, 1040, 1210, 1180, 990, 940, 880, 860, 900]
+const ERRORS = [4, 6, 3, 5, 18, 42, 37, 9, 6, 5, 4, 6]
+
+const ERROR_MESSAGES = [
+    'upstream connect error or disconnect/reset before headers',
+    'upstream connect error or disconnect/reset before headers',
+    'upstream connect error or disconnect/reset before headers',
+    'payment provider timed out after 5000ms',
+    'payment provider timed out after 5000ms',
+    'cart not found',
+]
+
+const endpointRow = (
+    endpoint: string,
+    status: string,
+    requestRate: number,
+    errorRate: number,
+    p95Ms: number,
+    spanCount: number,
+    errorCount: number,
+    route: string | null = null
+): Record<string, unknown> => ({
+    service_name: 'checkout',
+    endpoint: route ? `${endpoint} ${route}` : endpoint,
+    span_name: endpoint,
+    route_attribute: route ? 'http.route' : null,
+    route,
+    environment: 'production',
+    status,
+    health: {
+        request_rate: requestRate,
+        error_rate: errorRate,
+        p95_ms: p95Ms,
+        span_count: spanCount,
+        error_count: errorCount,
+    },
+})
+
+const breakdownRows: Record<string, { value: string; count: number; error_count: number }[]> = {
+    'deployment.environment.name': [
+        { value: 'production', count: 11_000, error_count: 140 },
+        { value: 'staging', count: 300, error_count: 2 },
+    ],
+    'service.version': [
+        { value: '2.4.1', count: 9_000, error_count: 120 },
+        { value: '2.4.0', count: 2_000, error_count: 20 },
+    ],
+    'http.response.status_code': [
+        { value: '503', count: 96, error_count: 96 },
+        { value: '504', count: 31, error_count: 31 },
+        { value: '500', count: 18, error_count: 18 },
+    ],
+}
+
+const meta: Meta = {
+    title: 'Scenes-App/Application observability/Service',
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/apm/services/': () => [
+                    200,
+                    {
+                        environment: 'production',
+                        environments: ['production', 'staging'],
+                        results: [
+                            {
+                                service_name: 'checkout',
+                                environment: 'production',
+                                status: 'warning',
+                                health: {
+                                    request_rate: 3.11,
+                                    error_rate: 0.0129,
+                                    p95_ms: 186,
+                                    span_count: 11_210,
+                                    error_count: 145,
+                                },
+                                sparkline: REQUESTS,
+                            },
+                        ],
+                    },
+                ],
+                '/api/projects/:team_id/apm/endpoints/': () => [
+                    200,
+                    {
+                        environment: 'production',
+                        environments: ['production', 'staging'],
+                        results: [
+                            endpointRow('POST', 'serious', 1.42, 0.019, 282, 5_120, 96, '/api/checkout'),
+                            endpointRow('GET /api/cart', 'good', 1.17, 0.0074, 77, 4_210, 31),
+                            endpointRow('POST /api/cart/items', 'good', 0.4, 0.0084, 99, 1_430, 12),
+                            endpointRow('DELETE', 'good', 0.02, 0, 41, 72, 0, '/api/cart/items/:id'),
+                        ],
+                    },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/file_system/home_folder': () => [200, { id: 'home', path: 'Users/Example' }],
+                '/api/:prefix/:team_id/tracing/spans/sparkline/': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { statusCodes?: number[] } }
+                    const counts = query.statusCodes?.length ? ERRORS : REQUESTS
+                    return [
+                        200,
+                        {
+                            results: BUCKETS.map((time, index) => ({
+                                time,
+                                service: 'checkout',
+                                count: counts[index],
+                            })),
+                        },
+                    ]
+                },
+                '/api/:prefix/:team_id/tracing/spans/latency-heatmap/': () => [
+                    200,
+                    {
+                        results: BUCKETS.flatMap((time, index) => [
+                            { time, bucket_ns: 20_000_000, count: 400 },
+                            { time, bucket_ns: 50_000_000, count: 350 },
+                            { time, bucket_ns: 100_000_000, count: 60 + index * 4 },
+                            { time, bucket_ns: 200_000_000, count: index === 5 ? 60 : 12 },
+                            { time, bucket_ns: 500_000_000, count: index === 5 ? 20 : 4 },
+                        ]),
+                    },
+                ],
+                '/api/:prefix/:team_id/tracing/spans/attribute-breakdown/': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { breakdownKey: string } }
+                    const rows = (breakdownRows[query.breakdownKey] ?? []).map((row) => ({
+                        ...row,
+                        p50_duration_nano: 1,
+                        p95_duration_nano: 1,
+                    }))
+                    return [200, { results: rows, compare: null }]
+                },
+                '/api/:prefix/:team_id/tracing/spans/query/': () => [
+                    200,
+                    {
+                        hasMore: false,
+                        results: ERROR_MESSAGES.map((message, index) => ({
+                            uuid: `uuid-${index}`,
+                            trace_id: `A1B2C3D4E5F60718293A4B5C6D7E8F9${index}`,
+                            span_id: `1A2B3C4D5E6F708${index}`,
+                            parent_span_id: '',
+                            name: 'POST /api/checkout',
+                            kind: 2,
+                            service_name: 'checkout',
+                            status_code: 2,
+                            timestamp: new Date(WINDOW_START + (55 - index * 7) * 60 * 1000).toISOString(),
+                            end_time: new Date(WINDOW_START + (55 - index * 7) * 60 * 1000 + 300).toISOString(),
+                            duration_nano: 300_000_000,
+                            is_root_span: true,
+                            matched_filter: true,
+                            attributes: { 'exception.message': message },
+                            resource_attributes: {},
+                        })),
+                    },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2024-01-15 12:00:00',
+        featureFlags: [FEATURE_FLAGS.APPLICATION_OBSERVABILITY],
+        pageUrl: urls.applicationObservabilityService('checkout', { environment: 'production' }),
+        testOptions: {
+            // Each exists only once its own response has arrived.
+            waitForSelector: [
+                '[data-attr="apm-service-health"]',
+                '[data-attr="apm-service-error-trace-link"]',
+                '[data-attr="apm-service-status-code-errors"]',
+                'text=POST /api/cart/items',
+            ],
+        },
+    },
+}
+export default meta
+
+type Story = StoryObj<{}>
+
+export const ServicePage: Story = {
+    render: () => <App />,
+}
