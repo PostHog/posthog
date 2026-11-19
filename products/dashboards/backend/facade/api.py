@@ -18,7 +18,7 @@ subscriptions facade, which loads the exports facade, and the exports facade imp
 """
 
 import re
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -65,9 +65,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.v2 import (
+    cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     flag as v2_flag,
 )
+from products.dashboards.backend.v2.cached_tiles import CachedTileStatus, TileInsightSerializer
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -1013,6 +1015,7 @@ def insight_placements(
 
 
 __all__ = [
+    "CachedTileStatus",
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
     "DashboardInsightTile",
@@ -1100,3 +1103,25 @@ def shared_tile_work(team: "Team", distinct_id: str) -> Iterator[None]:
     """Tiles serialized inside the block share their per-tile setup when `dashboard-v2` is on for the team."""
     with v2_first_load.shared_tile_work(team, distinct_id):
         yield
+
+
+def read_cached_tiles(
+    *,
+    team: "Team",
+    distinct_id: str,
+    dashboard: Dashboard,
+    tile_ids: list[int],
+    restricted_insight_levels: Callable[[list[DashboardTile]], dict[int, str]],
+    insight_serializer: TileInsightSerializer,
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """The `dashboard-v2` batched cached-tiles read. The caller passes in its access check and serializer."""
+    return v2_cached_tiles.read_cached_tiles(
+        team=team,
+        distinct_id=distinct_id,
+        dashboard=dashboard,
+        tile_ids=tile_ids,
+        restricted_insight_levels=restricted_insight_levels,
+        insight_serializer=insight_serializer,
+        context=context,
+    )

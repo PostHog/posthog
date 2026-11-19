@@ -9,20 +9,14 @@ from typing import Any, Protocol
 from django.db.models import TextChoices
 
 import structlog
-from rest_framework import exceptions
-from rest_framework.request import Request
 
 from posthog.api.services.query import PlannedQuery
-from posthog.hogql_queries.refresh_policy import refresh_param_present
 from posthog.models.team import Team
 from posthog.query_cache import prefetched_entries
 
-from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.dashboards.backend.run_insights_output import parse_tile_ids
 from products.dashboards.backend.v2.first_load import shared_tile_work
-from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -35,29 +29,17 @@ class CachedTileStatus(TextChoices):
 
 
 class TileInsightSerializer(Protocol):
-    def plan_tile_query(self, insight: Insight) -> PlannedQuery | None: ...
+    """The presentation layer's insight serializer, passed in so this module stays free of it."""
 
-    def to_representation(self, instance: Insight) -> dict[str, Any]: ...
+    def plan_tile_query(self, insight: Any) -> PlannedQuery | None: ...
 
-
-def requested_tile_ids(request: Request) -> list[int]:
-    # Covers the body as well as the query string: `resolve_execution_mode` honors either.
-    if refresh_param_present(request):
-        raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
-    tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
-    if not tile_ids:
-        raise exceptions.ValidationError({"tile_ids": "tile_ids is required."})
-    if len(tile_ids) > MAX_CACHED_TILES_BATCH_SIZE:
-        raise exceptions.ValidationError(
-            {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
-        )
-    return tile_ids
+    def to_representation(self, instance: Any) -> dict[str, Any]: ...
 
 
 def read_cached_tiles(
     *,
     team: Team,
-    user: Any,
+    distinct_id: str,
     dashboard: Dashboard,
     tile_ids: list[int],
     restricted_insight_levels: Callable[[list[DashboardTile]], dict[int, str]],
@@ -77,7 +59,7 @@ def read_cached_tiles(
 
     # Shares work across tiles as a dashboard load does: one set of warehouse lookups while the keys are
     # built, and one write that records every tile's cache read.
-    with shared_tile_work(team, user):
+    with shared_tile_work(team, distinct_id):
         # Plan every viewable tile's query first, so all their entries come back from one cache read.
         planned_queries: dict[int, PlannedQuery] = {}
         for tile, insight in tiles_by_id.values():

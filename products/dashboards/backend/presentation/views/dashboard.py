@@ -30,7 +30,6 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
-    TextChoices,
     UUIDField,
     Value,
 )
@@ -158,9 +157,11 @@ from products.dashboards.backend.customization import (
     without_default_settings,
 )
 from products.dashboards.backend.facade.api import (
+    CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
     dashboard_v2_enabled,
+    read_cached_tiles,
     shared_tile_work,
     tile_ids_prefetch,
 )
@@ -1331,13 +1332,6 @@ class RunInsightsResponseSerializer(serializers.Serializer):
         many=True,
         help_text="Results for each insight tile on the dashboard.",
     )
-
-
-class CachedTileStatus(TextChoices):
-    HIT = "hit", "Hit"
-    MISS = "miss", "Miss"
-    FORBIDDEN = "forbidden", "Forbidden"
-    NOT_FOUND = "not_found", "Not found"
 
 
 class CachedTileInsightResultSerializer(InsightSerializer):
@@ -4436,8 +4430,22 @@ class DashboardsViewSet(
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
         if not self._dashboard_v2_enabled(request):
             raise exceptions.NotFound()
-        tile_ids = requested_tile_ids(request)
+        tile_ids = self._requested_tile_ids(request)
         return Response({"results": self._read_cached_tiles(request, self.get_object(), tile_ids)})
+
+    @staticmethod
+    def _requested_tile_ids(request: Request) -> builtins.list[int]:
+        # Covers the body as well as the query string: `resolve_execution_mode` honors either.
+        if refresh_param_present(request):
+            raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
+        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
+        if not tile_ids:
+            raise exceptions.ValidationError({"tile_ids": "tile_ids is required."})
+        if len(tile_ids) > MAX_CACHED_TILES_BATCH_SIZE:
+            raise exceptions.ValidationError(
+                {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
+            )
+        return tile_ids
 
     def _dashboard_v2_enabled(self, request: Request) -> bool:
         return not request.user.is_anonymous and dashboard_v2_enabled(
@@ -4453,7 +4461,7 @@ class DashboardsViewSet(
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
         return read_cached_tiles(
             team=self.team,
-            user=request.user,
+            distinct_id=str(cast(User, request.user).distinct_id),
             dashboard=dashboard,
             tile_ids=tile_ids,
             restricted_insight_levels=lambda tiles: self._restricted_insight_levels(
