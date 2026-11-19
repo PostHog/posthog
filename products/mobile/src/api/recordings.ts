@@ -39,6 +39,8 @@ export interface RecordingsListApi {
 export const RECENT_RECORDINGS_LIMIT = 10
 /** The list window, the same as the watch feed's default, so both sides of the merged list cover the same days. */
 export const RECENT_RECORDINGS_FROM = '-7d'
+/** The list stops an hour back, so its first page is finished recordings and not the ones still being recorded. */
+export const RECENT_RECORDINGS_TO = '-1h'
 
 export async function fetchRecording(sessionId: string, signal?: AbortSignal): Promise<RecordingApi> {
     return apiJson<RecordingApi>(projectPath(`session_recordings/${encodeURIComponent(sessionId)}/`), { signal })
@@ -58,6 +60,7 @@ export async function fetchRecentRecordings(
         query: {
             limit: RECENT_RECORDINGS_LIMIT,
             date_from: RECENT_RECORDINGS_FROM,
+            date_to: RECENT_RECORDINGS_TO,
             after,
             filter_test_accounts: filterTestAccounts ? true : undefined,
         },

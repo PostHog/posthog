@@ -1229,6 +1229,23 @@ def test_non_retryable_errors_match_no_reservation_or_slots_configured():
     assert any(key in observed_error for key in non_retryable_errors)
 
 
+def test_non_retryable_errors_match_too_many_values_in_line():
+    """A CSV file backing a BigQuery external table with a line that has more columns than the
+    table's schema expects fails every read of that file identically — retrying can't recover it,
+    the customer must fix or remove the malformed file."""
+    observed_error = str(
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/queries/job-id"
+            "?maxResults=0&location=EU&prettyPrint=false: Error while reading table: "
+            "my-project.my_dataset.my_table, error message: Too many values in line. Found 23 "
+            "column(s) when expecting 21.; line_number: 2 byte_offset_to_start_of_line: 291 "
+            "File: gs://my-bucket/my-object.csv.gz\n\nLocation: EU\nJob ID: job-id"
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
 def _run_has_duplicate_primary_keys(side_effect):
     table = mock.MagicMock()
     table.dataset_id = "dataset"

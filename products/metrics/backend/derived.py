@@ -653,13 +653,16 @@ def list_derived_attribute_values(
     source = get_derived_metric(metric_name).source
     window = _autocomplete_window(date_from, date_to)
     table = ".".join(str(part) for part in _TABLES[source])
+    # Span metrics count request spans, which are mostly server spans, so values seen on server
+    # spans rank first. Without this, client spans, which outnumber them, put `client` first.
+    rank = "countIf(kind = 2)" if source is DerivedSource.SPANS else "count()"
     query = parse_select(
         f"""
             SELECT toString({{field}}) AS value, count() AS occurrences
             FROM {table}
             WHERE {{window}} AND value != '' AND value ILIKE {{pattern}}
             GROUP BY value
-            ORDER BY occurrences DESC, value
+            ORDER BY {rank} DESC, occurrences DESC, value
             LIMIT {{limit}}
         """,
         placeholders={

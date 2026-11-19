@@ -46,6 +46,8 @@ export const trialFixtureConfig: SignalScoutConfigApi = {
     tags: [],
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    report_actions: [],
+    max_report_actions_per_day: 3,
     allowed_mcp_tools: null,
     tool_preset: null,
     lifecycle_locked: false,

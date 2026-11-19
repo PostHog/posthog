@@ -198,7 +198,7 @@ class HealthChecksTool(ConsoleTool):
     key = "health-checks"
     title = "Health checks"
     owner = DEV_EXPERIENCE
-    group = "Data"
+    group = "Infrastructure"
     description = "Runs a health check across teams and follows its runs in Temporal."
 
     def _check(self, request: HttpRequest) -> HealthCheckRegistration | None:

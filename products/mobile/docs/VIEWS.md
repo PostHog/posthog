@@ -154,7 +154,7 @@ Pin and unpin stay with the session and project that started them; changing eith
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics, Sessions and Errors. Web analytics, Sessions and Errors open as a pushed screen (`openBrowseEntry` in `browseRoutes.ts`). Live has no row, because it is the Home tab. While the pin slot is retired, a long press on these rows does nothing (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions and Errors are dimmed; Web analytics has demo data.
+Browse has Dashboards, Insights, Web analytics, Sessions and Errors. Web analytics, Sessions and Errors open as a pushed screen (`openBrowseEntry` in `browseRoutes.ts`). Live has no row, because it is the Home tab. While the pin slot is retired, a long press on these rows does nothing (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions plays sample recordings, Web analytics has demo data, and Errors is dimmed.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
 Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). The Sessions and Errors rows send it too, with `section` `replay` or `errors`. Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
 `mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
@@ -355,7 +355,8 @@ Profiles without a country show the person alone.
 ## Sessions and Errors release controls
 
 The `mobile-session-replay` and `mobile-error-tracking` feature flags control Sessions and Errors independently.
-Both are hidden until the app receives an enabled flag for the signed-in account. The app sends the account's
+Both are hidden for signed-in users until the app receives an enabled flag for the account. The demo has sample Sessions
+available without these flags. The app sends the account's
 normalized email and selected project as person-property overrides for flag evaluation, and refreshes flags on
 account changes and foreground returns. An earlier account's pending flag response cannot replace the current flags.
 

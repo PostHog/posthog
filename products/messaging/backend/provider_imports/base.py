@@ -33,6 +33,18 @@ class ImportCredentialsInvalid(ImportStepError):
     """The provider rejected the API key. A retry does not fix this."""
 
 
+class ImportTooLarge(ImportStepError):
+    """The account holds more than one import takes. Another try reads the same data and stops at the same limit."""
+
+
+class ImportAccessLost(ImportStepError):
+    """The person who started the run can't make its changes anymore. Another try finds the same result."""
+
+
+class ImportStepBlocked(ImportStepError):
+    """A step the run needs first didn't complete, so this one doesn't run. Another try finds the same result."""
+
+
 class ImportProviderUnavailable(ImportStepError):
     """The provider did not respond or returned a server error. A later retry can succeed."""
 
@@ -48,6 +60,10 @@ class ImportStepSpec:
     description: str
     # What the step counts in its summary, as (key, label) pairs in display order.
     count_labels: tuple[tuple[str, str], ...] = ()
+    # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
+    requires: tuple[str, ...] = ()
+    # Steps the run must include for this one to do anything, such as contacts for new people.
+    needs: tuple[str, ...] = ()
 
 
 @frozen
@@ -62,6 +78,8 @@ class ImportContext:
     integration_id: int | None
     # The key a provider with `retains_credentials = False` reads for this run only.
     api_key: str | None = field(default=None, repr=False)
+    # Every step the run imports, for a step whose work depends on another step being selected.
+    steps: tuple[str, ...] = ()
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
@@ -126,6 +144,12 @@ class ImportProvider(ABC):
         This runs before the import claims its run, so it must not store anything. Raises the ImportCredentials*
         errors, or ImportProviderUnavailable when the provider can't answer.
         """
+
+    def check_step_access(self, team_id: int, credentials: ImportCredentials, steps: list[str]) -> None:
+        """Refuse a key that can't read the selected steps, before the import claims its run. Raises
+        ImportCredentialsInvalid, with a message naming what is missing. A provider whose keys all read the same does
+        nothing here."""
+        return None
 
     def store_credentials(self, team_id: int, credentials: ImportCredentials, created_by_id: int | None) -> int | None:
         """Store checked credentials on first use and return the integration id.
