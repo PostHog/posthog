@@ -147,9 +147,15 @@ def _quarantine(repo: Repo, expires_in_hours: int, identifier: str = _IDENTIFIER
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestExtendDifferingQuarantines:
     @pytest.fixture(autouse=True)
-    def default_branch(self):
-        with patch("products.visual_review.backend.logic.github_api.default_branch_name", return_value="master"):
-            yield
+    def commit_contains(self):
+        with (
+            patch("products.visual_review.backend.logic.github_api.default_branch_name", return_value="master"),
+            patch("products.visual_review.backend.logic.github_api.default_branch_head_sha", return_value="h" * 40),
+            patch(
+                "products.visual_review.backend.logic.github_api.commit_contains", return_value=True
+            ) as commit_contains,
+        ):
+            yield commit_contains
 
     @pytest.fixture
     def captured(self):
@@ -209,13 +215,17 @@ class TestExtendDifferingQuarantines:
             "new_is_no_difference",
             "expiry_outside_the_window",
             "changed_picture_approved_since",
+            "commit_not_on_default_branch",
         ],
     )
-    def test_a_story_without_a_default_branch_change_or_a_distant_expiry_lapses_as_planned(self, repo, captured, case):
+    def test_a_story_without_a_default_branch_change_or_a_distant_expiry_lapses_as_planned(
+        self, repo, captured, commit_contains, case
+    ):
+        commit_contains.return_value = case != "commit_not_on_default_branch"
         entry = _quarantine(repo, expires_in_hours=24 if case != "expiry_outside_the_window" else 72)
         master_result = SnapshotResult.NEW if case == "new_is_no_difference" else SnapshotResult.UNCHANGED
         _run(repo, "master", "a" * 40, master_result, hours_ago=48)
-        if case in ("expiry_outside_the_window", "changed_picture_approved_since"):
+        if case in ("expiry_outside_the_window", "changed_picture_approved_since", "commit_not_on_default_branch"):
             _run(repo, "master", "b" * 40, SnapshotResult.CHANGED, current_hash="flaky", hours_ago=24)
         _run(repo, "trunk-merge/pr-7/abc", "q" * 40, SnapshotResult.CHANGED, current_hash="flaky", hours_ago=12)
         _run(repo, "feature", "p" * 40, SnapshotResult.CHANGED, current_hash="flaky", pr_number=7, hours_ago=6)

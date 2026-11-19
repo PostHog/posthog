@@ -188,9 +188,10 @@ def _recent_renders(run: Run, default_branch: str, due: list[_ActiveQuarantine])
 def _extend(run: Run, entry: _ActiveQuarantine, reason: str, now: datetime) -> bool:
     """Replace the quarantine with an automatic one. False when somebody changed it after the read."""
     with transaction.atomic(using=WRITER_DB):
-        # `quarantine_identifier` locks the source run before the quarantine rows. Taking the run first here
-        # too keeps one lock order, so this cannot deadlock with a manual quarantine of the same story.
-        Run.objects.using(WRITER_DB).select_for_update().filter(id=run.id, team_id=run.team_id).exists()
+        # The run first, like `quarantine_identifier`, so a manual quarantine of the same story takes the locks
+        # in the same order. No-key, because FOR UPDATE conflicts with the KEY SHARE lock of a lift request
+        # that names this run, and could deadlock with a lift that holds the quarantine row.
+        Run.objects.using(WRITER_DB).select_for_update(no_key=True).filter(id=run.id, team_id=run.team_id).exists()
         # A person who lifted or replaced the quarantine since the read changed its expiry. Their choice wins.
         unchanged = (
             QuarantinedIdentifier.objects.using(WRITER_DB)
@@ -281,6 +282,13 @@ def extend_differing_quarantines(run_id: UUID) -> None:
     now = timezone.now()
     due = [entry for entry in _newest_active_quarantines(run, now) if is_due(entry.expires_at, now)]
     if not due:
+        return
+    # The commit is client-supplied, and an off-branch run would extend quarantines on evidence from outside
+    # the default branch. Checked after the cheap reads, so a run with nothing due skips the GitHub lookup.
+    if not auto_lift.is_on_default_branch(repo, run.commit_sha):
+        logger.warning(
+            "visual_review.auto_extend_commit_not_on_default_branch", repo_id=str(repo.id), run_id=str(run.id)
+        )
         return
     recent = _recent_renders(run, run.branch, due)
     # Soonest expiry first, so the cap keeps the stories that lapse first.

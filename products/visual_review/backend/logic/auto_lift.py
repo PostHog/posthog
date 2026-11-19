@@ -257,7 +257,7 @@ def _capture_clean(
         logger.warning("visual_review.quarantine_clean_capture_failed", run_id=str(run.id), exc_info=True)
 
 
-def _is_on_default_branch(repo: Repo, commit_sha: str) -> bool:
+def is_on_default_branch(repo: Repo, commit_sha: str) -> bool:
     head_sha = auto_quarantine.default_branch_head(repo)
     return head_sha is not None and github_api.commit_contains(repo, commit_sha, head_sha)
 
@@ -282,7 +282,7 @@ def release_clean_quarantines(run_id: UUID) -> None:
     # The commit is client-supplied and becomes `lifted_at_sha`, where an off-branch commit would keep
     # the quarantine on real default-branch runs. Checked before the evidence read so that read is the
     # last step before the write, at the cost of one GitHub lookup per hourly check.
-    if not _is_on_default_branch(repo, run.commit_sha):
+    if not is_on_default_branch(repo, run.commit_sha):
         logger.warning("visual_review.auto_lift_commit_not_on_default_branch", repo_id=str(repo.id), run_id=str(run.id))
         return
     window = _window(run, run.branch)
