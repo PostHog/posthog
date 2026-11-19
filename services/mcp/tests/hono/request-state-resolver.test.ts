@@ -1050,6 +1050,18 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.splitWrites).toBe(expected)
     })
 
+    it.each([
+        ['a wrapper', { mcpConsumer: 'posthog-code' }],
+        ['a read-only request', { readOnly: true }],
+    ])('ignores a pinned split on %s in the same session', async (_label, overrides) => {
+        const resolver = makeResolver()
+        await resolver.resolve(makeProps({ splitWrites: true }))
+
+        const result = await resolver.resolve(makeProps(overrides))
+
+        expect(result.splitWrites).toBe(false)
+    })
+
     it('carries connected-tool restrictions to execution', async () => {
         const filters = {
             tools: ['linear__create_issue'],
