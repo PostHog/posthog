@@ -100736,12 +100736,12 @@ export namespace Schemas {
          */
       request: string;
       /**
-         * Markdown bullets of facts support needs: the project name, ID, region and link, links to the objects involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Take links from _posthogUrl. No guesses.
+         * Markdown bullets of facts support needs: the project and the region, a link to each object involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Link each object on its name, then give its ID, such as '- Experiment: [Checkout test](<link>) (ID 3)', and put the region on its own line. Take links from _posthogUrl. No guesses.
          * @maxLength 3000
          */
       details?: string;
       /**
-         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check.
+         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and link the page on its title, a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check.
          * @maxLength 1500
          */
       already_checked?: string;
