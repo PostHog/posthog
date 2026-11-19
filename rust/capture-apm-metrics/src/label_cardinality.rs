@@ -14,21 +14,29 @@ use capture_logs::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE;
 use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use capture_logs::unknown_tokens::UnknownTokens;
 use chrono::Utc;
+use common_redis::{Client, CustomRedisError, PipelineCommand};
 use dashmap::DashMap;
 use metrics::{counter, gauge};
 use prometheus_rw_proto::prometheus::v1::{metric_metadata::MetricType, MetricMetadata};
+use serde::{Deserialize, Serialize};
 use siphasher::sip::SipHasher13;
-use tracing::warn;
+use tokio::sync::mpsc;
+use tracing::{debug, warn};
 
 use crate::histogram_assembly::fingerprint_with_bounds;
 use crate::series_label_gate::Clock;
 
+const REDIS_KEY_PREFIX: &str = "capture-logs:metric-label-drop-rules";
+const REDIS_BUCKET_SECS: i64 = 3600;
+const PULL_PAGE_SIZE: usize = 10_000;
+const WRITER_CHANNEL_CAPACITY: usize = 10_000;
 const PRUNE_INTERVAL: Duration = Duration::from_secs(300);
 const MEASURE_CHUNK_ROWS: usize = 1024;
 
 pub const DROPPED_LABELS_ATTRIBUTE: &str = "posthog.dropped_labels";
 const HISTOGRAM_SUFFIXES: [&str; 3] = ["_bucket", "_count", "_sum"];
 const SERVICE_NAME_RESOURCE: &str = "service.name";
+const MAX_PENDING_PUSHES: usize = 10_000;
 const MAX_RULES: usize = 200_000;
 const MAX_RULES_PER_TOKEN: usize = 2_000;
 const MAX_NAME_CHARS: usize = 100;
@@ -133,7 +141,8 @@ impl<'a> Source<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Scope {
     Attribute,
     Resource,
@@ -156,12 +165,13 @@ pub struct Settings {
     pub protected_keys: HashSet<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     pub metric_key: u64,
     pub token_hash: u64,
     pub scope: Scope,
     pub key_hash: u64,
+    #[serde(skip)]
     pub expires_at: i64,
 }
 
@@ -258,17 +268,30 @@ pub struct LabelCardinality {
     // A fixed key lets a sender pick values that fill few registers and hide from the sketch.
     value_keys: (u64, u64),
     unknown_tokens: UnknownTokens,
+    tx: Option<mpsc::Sender<Rule>>,
 }
 
 impl LabelCardinality {
-    pub fn new(settings: Settings, unknown_tokens: UnknownTokens) -> Arc<Self> {
+    pub fn new(
+        settings: Settings,
+        unknown_tokens: UnknownTokens,
+    ) -> (Arc<Self>, mpsc::Receiver<Rule>) {
+        let (tx, rx) = mpsc::channel(WRITER_CHANNEL_CAPACITY);
+        let detector = Self {
+            unknown_tokens,
+            ..Self::build(settings, Some(tx), Arc::new(unix_now))
+        };
+        (Arc::new(detector), rx)
+    }
+
+    pub fn local_only(settings: Settings, unknown_tokens: UnknownTokens) -> Arc<Self> {
         Arc::new(Self {
             unknown_tokens,
-            ..Self::build(settings, Arc::new(unix_now))
+            ..Self::build(settings, None, Arc::new(unix_now))
         })
     }
 
-    fn build(settings: Settings, clock: Clock) -> Self {
+    fn build(settings: Settings, tx: Option<mpsc::Sender<Rule>>, clock: Clock) -> Self {
         let mut protected: HashSet<(Scope, u64)> = settings
             .protected_keys
             .iter()
@@ -298,6 +321,7 @@ impl LabelCardinality {
             rules: DashMap::new(),
             rule_count: AtomicUsize::new(0),
             rules_per_token: DashMap::new(),
+            tx,
         }
     }
 
@@ -731,6 +755,11 @@ impl LabelCardinality {
                 )
                 .increment(1);
             }
+            if let Some(tx) = &self.tx {
+                if tx.try_send(rule).is_err() {
+                    counter!("capture_metrics_label_cardinality_redis_queue_full").increment(1);
+                }
+            }
         }
     }
 
@@ -938,6 +967,121 @@ impl LabelCardinality {
             }
         });
     }
+
+    pub async fn pull_rules(&self, client: &dyn Client) -> Result<usize, CustomRedisError> {
+        let now = (self.clock)();
+        let ttl = self.settings.rule_ttl.as_secs() as i64;
+        let mut merged = 0usize;
+        for key in bucket_keys(now, now + ttl) {
+            let mut offset = 0usize;
+            loop {
+                let page = match client
+                    .zrangebyscore_limit_withscores(
+                        key.clone(),
+                        now.to_string(),
+                        "+inf".to_string(),
+                        offset as isize,
+                        PULL_PAGE_SIZE as isize,
+                    )
+                    .await
+                {
+                    Ok(page) => page,
+                    Err(CustomRedisError::NotFound) => break,
+                    Err(e) => return Err(e),
+                };
+                let page_len = page.len();
+                for (member, score) in page {
+                    match serde_json::from_str::<Rule>(&member) {
+                        Ok(mut rule) => {
+                            rule.expires_at = score as i64;
+                            if self.merge_rule(rule) {
+                                merged += 1;
+                            }
+                        }
+                        Err(e) => debug!("Skipping unreadable label drop rule: {e}"),
+                    }
+                }
+                if page_len < PULL_PAGE_SIZE {
+                    break;
+                }
+                offset += page_len;
+            }
+        }
+        Ok(merged)
+    }
+
+    pub fn spawn_redis_sync(
+        self: &Arc<Self>,
+        client: Arc<dyn Client>,
+        mut rx: mpsc::Receiver<Rule>,
+        interval: Duration,
+        timeout: Duration,
+    ) {
+        let detector = Arc::clone(self);
+        let ttl_secs = self.settings.rule_ttl.as_secs() + REDIS_BUCKET_SECS as u64;
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            let mut pending: Vec<Rule> = Vec::new();
+            loop {
+                tokio::select! {
+                    rule = rx.recv() => {
+                        let Some(rule) = rule else { return };
+                        pending.push(rule);
+                        while let Ok(rule) = rx.try_recv() {
+                            pending.push(rule);
+                        }
+                        push_rules(client.as_ref(), &mut pending, ttl_secs, timeout).await;
+                    }
+                    _ = ticker.tick() => {
+                        if !pending.is_empty() {
+                            push_rules(client.as_ref(), &mut pending, ttl_secs, timeout).await;
+                        }
+                        let outcome = match tokio::time::timeout(timeout, detector.pull_rules(client.as_ref())).await {
+                            Ok(Ok(merged)) => {
+                                debug!("Pulled {merged} label drop rules from Redis");
+                                "ok"
+                            }
+                            Ok(Err(e)) => {
+                                debug!("Label drop rule pull from Redis failed: {e}");
+                                if e.is_unrecoverable_error() {
+                                    client.heal().await;
+                                }
+                                "error"
+                            }
+                            Err(_) => "timeout",
+                        };
+                        counter!("capture_metrics_label_cardinality_redis_pulls", "outcome" => outcome)
+                            .increment(1);
+                    }
+                }
+            }
+        });
+    }
+}
+
+async fn push_rules(
+    client: &dyn Client,
+    pending: &mut Vec<Rule>,
+    ttl_secs: u64,
+    timeout: Duration,
+) {
+    let pushed = pending.len() as u64;
+    let commands = rule_commands(pending, ttl_secs);
+    let outcome = match tokio::time::timeout(timeout, client.execute_pipeline(commands)).await {
+        Ok(Ok(_)) => "ok",
+        Ok(Err(e)) => {
+            debug!("Label drop rule push to Redis failed: {e}");
+            "error"
+        }
+        Err(_) => "timeout",
+    };
+    counter!("capture_metrics_label_cardinality_redis_pushed", "outcome" => outcome)
+        .increment(pushed);
+    if outcome == "ok" {
+        pending.clear();
+    } else if pending.len() > MAX_PENDING_PUSHES {
+        pending.drain(..pending.len() - MAX_PENDING_PUSHES);
+    }
 }
 
 /// Must match the row builders, or a dropped label does not combine series.
@@ -1071,6 +1215,47 @@ fn new_flags(len: usize, new_rows: &[usize]) -> Vec<bool> {
     flags
 }
 
+fn bucket_key(unix_secs: i64) -> String {
+    format!(
+        "{REDIS_KEY_PREFIX}:{}",
+        unix_secs.div_euclid(REDIS_BUCKET_SECS)
+    )
+}
+
+fn bucket_keys(from: i64, to: i64) -> Vec<String> {
+    let first = from.div_euclid(REDIS_BUCKET_SECS);
+    let last = to.div_euclid(REDIS_BUCKET_SECS);
+    (first..=last)
+        .map(|bucket| format!("{REDIS_KEY_PREFIX}:{bucket}"))
+        .collect()
+}
+
+fn rule_commands(rules: &[Rule], ttl_secs: u64) -> Vec<PipelineCommand> {
+    let mut by_bucket: HashMap<String, Vec<(i64, String)>> = HashMap::new();
+    for rule in rules {
+        let Ok(member) = serde_json::to_string(rule) else {
+            continue;
+        };
+        by_bucket
+            .entry(bucket_key(rule.expires_at))
+            .or_default()
+            .push((rule.expires_at, member));
+    }
+    let mut commands = Vec::with_capacity(by_bucket.len() * 2);
+    for (bucket, members) in by_bucket {
+        // A late publish of an older detection must not shorten the rule.
+        commands.push(PipelineCommand::ZAddGt {
+            key: bucket.clone(),
+            members,
+        });
+        commands.push(PipelineCommand::Expire {
+            key: bucket,
+            seconds: ttl_secs,
+        });
+    }
+    commands
+}
+
 fn unix_now() -> i64 {
     Utc::now().timestamp()
 }
@@ -1080,6 +1265,7 @@ mod tests {
     use std::sync::atomic::AtomicI64;
 
     use capture_logs::endpoints::prometheus::write_timeseries_to_kafka_rows;
+    use common_redis::MockRedisClient;
     use prometheus_rw_proto::prometheus::v1::{Label, MetricMetadata, Sample, TimeSeries};
 
     use super::*;
@@ -1118,8 +1304,11 @@ mod tests {
     fn detector_with(settings: Settings) -> (LabelCardinality, Arc<AtomicI64>) {
         let now = Arc::new(AtomicI64::new(START));
         let clock_now = Arc::clone(&now);
-        let detector =
-            LabelCardinality::build(settings, Arc::new(move || clock_now.load(Ordering::SeqCst)));
+        let detector = LabelCardinality::build(
+            settings,
+            None,
+            Arc::new(move || clock_now.load(Ordering::SeqCst)),
+        );
         (detector, now)
     }
 
@@ -1951,5 +2140,52 @@ mod tests {
 
         let actual: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
         assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn a_rule_found_on_one_pod_is_enforced_on_another() {
+        let (tx, mut rx) = mpsc::channel(WRITER_CHANNEL_CAPACITY);
+        let now = Arc::new(AtomicI64::new(START));
+        let clock_now = Arc::clone(&now);
+        let pod_a = LabelCardinality::build(
+            settings(Mode::Enforce),
+            Some(tx),
+            Arc::new(move || clock_now.load(Ordering::SeqCst)),
+        );
+        let rows = remote_write_rows(1000, true);
+        pod_a.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        pod_a.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&pod_a, &now);
+
+        let mut pushed = Vec::new();
+        while let Ok(rule) = rx.try_recv() {
+            pushed.push(rule);
+        }
+        let mut client = MockRedisClient::new();
+        for command in rule_commands(&pushed, 0) {
+            if let PipelineCommand::ZAddGt { key, members } = command {
+                client = client.zrangebyscore_withscores_ret(
+                    &key,
+                    members
+                        .into_iter()
+                        .map(|(score, member)| (member, score as f64))
+                        .collect(),
+                );
+            }
+        }
+
+        let (pod_b, pod_b_now) = detector(Mode::Enforce);
+        pod_b_now.store(now.load(Ordering::SeqCst), Ordering::SeqCst);
+        assert_eq!(pod_b.pull_rules(&client).await.unwrap(), 2);
+        let expiry = now.load(Ordering::SeqCst) + settings(Mode::Enforce).rule_ttl.as_secs() as i64;
+        assert!(pod_b
+            .rules
+            .iter()
+            .all(|rules| rules.iter().all(|rule| rule.expires_at == expiry)));
+        let mut rows = as_delta(remote_write_rows(10, true));
+        pod_b.apply(TOKEN, &mut rows, &rw());
+        assert!(rows
+            .iter()
+            .all(|row| !row.attributes.contains_key("user_id")));
     }
 }

@@ -212,6 +212,22 @@ pub trait Client: Send + Sync {
         count: isize,
     ) -> Result<Vec<String>, CustomRedisError>;
 
+    /// `ZRANGEBYSCORE ... WITHSCORES LIMIT offset count`: one page of members
+    /// with their scores. The default refuses, so a client that does not
+    /// implement it fails loudly instead of returning wrong scores.
+    async fn zrangebyscore_limit_withscores(
+        &self,
+        _k: String,
+        _min: String,
+        _max: String,
+        _offset: isize,
+        _count: isize,
+    ) -> Result<Vec<(String, f64)>, CustomRedisError> {
+        Err(CustomRedisError::InvalidConfiguration(
+            "zrangebyscore_limit_withscores is not supported by this client".to_string(),
+        ))
+    }
+
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 

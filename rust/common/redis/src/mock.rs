@@ -10,6 +10,7 @@ use crate::{Client, CustomRedisError, RedisValueFormat};
 #[derive(Clone)]
 pub struct MockRedisClient {
     zrangebyscore_ret: HashMap<String, Vec<String>>,
+    zrangebyscore_withscores_ret: HashMap<String, Vec<(String, f64)>>,
     hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
     get_ret: HashMap<String, Result<String, CustomRedisError>>,
     get_raw_bytes_ret: HashMap<String, Result<Vec<u8>, CustomRedisError>>,
@@ -41,6 +42,7 @@ impl Default for MockRedisClient {
     fn default() -> Self {
         Self {
             zrangebyscore_ret: HashMap::new(),
+            zrangebyscore_withscores_ret: HashMap::new(),
             hincrby_ret: HashMap::new(),
             get_ret: HashMap::new(),
             get_raw_bytes_ret: HashMap::new(),
@@ -110,6 +112,12 @@ impl MockRedisClient {
 
     pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
         self.zrangebyscore_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn zrangebyscore_withscores_ret(&mut self, key: &str, ret: Vec<(String, f64)>) -> Self {
+        self.zrangebyscore_withscores_ret
+            .insert(key.to_owned(), ret);
         self.clone()
     }
 
@@ -296,6 +304,33 @@ impl Client for MockRedisClient {
         });
 
         let Some(all) = self.zrangebyscore_ret.get(&key) else {
+            return Err(CustomRedisError::NotFound);
+        };
+        let start = usize::try_from(offset).unwrap_or(0).min(all.len());
+        let end = if count < 0 {
+            all.len()
+        } else {
+            start.saturating_add(count as usize).min(all.len())
+        };
+        Ok(all[start..end].to_vec())
+    }
+
+    async fn zrangebyscore_limit_withscores(
+        &self,
+        key: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<(String, f64)>, CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "zrangebyscore_limit_withscores".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::MinMax(min, max),
+        });
+
+        let Some(all) = self.zrangebyscore_withscores_ret.get(&key) else {
             return Err(CustomRedisError::NotFound);
         };
         let start = usize::try_from(offset).unwrap_or(0).min(all.len());
@@ -842,6 +877,16 @@ impl MockRedisClient {
                 for (score, member) in members {
                     self.record_call(
                         "pipeline_zadd",
+                        format!("{key}:{member}"),
+                        MockRedisValue::I64(score),
+                    );
+                }
+                Ok(PipelineResult::Ok)
+            }
+            PipelineCommand::ZAddGt { key, members } => {
+                for (score, member) in members {
+                    self.record_call(
+                        "pipeline_zadd_gt",
                         format!("{key}:{member}"),
                         MockRedisValue::I64(score),
                     );

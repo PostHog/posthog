@@ -92,6 +92,11 @@ pub enum PipelineCommand {
         key: String,
         members: Vec<(i64, String)>,
     },
+    /// ZADD GT: a member's score only rises, but new members are still added.
+    ZAddGt {
+        key: String,
+        members: Vec<(i64, String)>,
+    },
     Expire {
         key: String,
         seconds: u64,

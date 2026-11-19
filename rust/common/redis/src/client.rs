@@ -408,6 +408,21 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn zrangebyscore_limit_withscores(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<(String, f64)>, CustomRedisError> {
+        let mut conn = self.conn();
+        let results = conn
+            .zrangebyscore_limit_withscores(k, min, max, offset, count)
+            .await?;
+        Ok(results)
+    }
+
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.zadd::<_, _, _, ()>(k, member, score).await?;
@@ -804,6 +819,12 @@ impl Client for RedisClient {
                         cmd.arg(*score).arg(member);
                     }
                 }
+                PipelineCommand::ZAddGt { key, members } => {
+                    let cmd = pipe.cmd("ZADD").arg(key).arg("GT");
+                    for (score, member) in members {
+                        cmd.arg(*score).arg(member);
+                    }
+                }
                 PipelineCommand::Expire { key, seconds } => {
                     pipe.cmd("EXPIRE").arg(key).arg(*seconds);
                 }
@@ -867,6 +888,7 @@ impl RedisClient {
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
             | PipelineCommand::ZAdd { .. }
+            | PipelineCommand::ZAddGt { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
             PipelineCommand::Expire { .. } => {
                 // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist
@@ -1682,6 +1704,38 @@ mod integration_tests {
                 "Mismatch at index {i}: expected {expected:?}, got {result:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_zadd_gt_never_lowers_a_score() {
+        let (client, _container) = create_test_client().await;
+        let key = "zadd_gt_score".to_string();
+        let zadd_gt = |members: Vec<(i64, String)>| PipelineCommand::ZAddGt {
+            key: key.clone(),
+            members,
+        };
+
+        client
+            .execute_pipeline(vec![zadd_gt(vec![(300, "a".to_string())])])
+            .await
+            .unwrap();
+        client
+            .execute_pipeline(vec![zadd_gt(vec![
+                (200, "a".to_string()),
+                (100, "b".to_string()),
+            ])])
+            .await
+            .unwrap();
+
+        let scores = client
+            .zrangebyscore_limit_withscores(key, "-inf".to_string(), "+inf".to_string(), 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            scores,
+            vec![("b".to_string(), 100.0), ("a".to_string(), 300.0)]
+        );
     }
 
     // `zadd_nx` is hand-built from `redis::cmd` because the driver exposes no NX helper, so

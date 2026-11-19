@@ -10,7 +10,7 @@ use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post,
 use capture::metrics_middleware::track_metrics;
 use capture_apm_metrics::config::Config;
 use capture_apm_metrics::k8s_resource_attributes::K8sResourceAttributes;
-use capture_apm_metrics::label_cardinality::LabelCardinality;
+use capture_apm_metrics::label_cardinality::{LabelCardinality, Mode};
 use capture_apm_metrics::management;
 use capture_apm_metrics::prometheus;
 use capture_apm_metrics::series_label_gate::{spawn_redis_writer, CacheLimits, SeriesLabelGate};
@@ -78,7 +78,9 @@ pub async fn index() -> &'static str {
 /// Build the series label gate and, when Redis is configured, its background
 /// tasks. The Redis client is optional on purpose: without it the gate still
 /// dedupes labels within this pod.
-async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
+async fn start_series_label_gate(
+    config: &Config,
+) -> (Arc<SeriesLabelGate>, Option<Arc<dyn Client>>) {
     let window = Duration::from_secs(config.metrics_series_label_interval_secs);
     let enabled = config.metrics_series_label_gate_enabled;
     let limits = CacheLimits {
@@ -99,7 +101,7 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
         info!("REDIS_URL unset, series label gate runs with the local cache only");
         let gate = SeriesLabelGate::local_only(window, enabled, limits);
         gate.spawn_pruner();
-        return gate;
+        return (gate, None);
     };
 
     let redis_timeout = Duration::from_millis(config.metrics_series_redis_timeout_ms);
@@ -122,7 +124,7 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
             );
             let gate = SeriesLabelGate::local_only(window, enabled, limits);
             gate.spawn_pruner();
-            return gate;
+            return (gate, None);
         }
     };
 
@@ -144,14 +146,15 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
 
     let (gate, rx) = SeriesLabelGate::new(window, enabled, limits);
     gate.seed_from_redis(client.as_ref(), seed_budget).await;
-    gate.spawn_redis_puller(client, pull_interval, pull_timeout);
+    gate.spawn_redis_puller(Arc::clone(&client), pull_interval, pull_timeout);
     gate.spawn_pruner();
     spawn_redis_writer(writer_client, rx, redis_timeout, window);
-    gate
+    (gate, Some(client))
 }
 
 fn start_label_cardinality(
     config: &Config,
+    client: Option<Arc<dyn Client>>,
     unknown_tokens: UnknownTokens,
 ) -> Arc<LabelCardinality> {
     let settings = config.label_cardinality_settings();
@@ -159,7 +162,15 @@ fn start_label_cardinality(
         "Label cardinality detector in {:?} mode (limit {} values, share {}, new-series share {})",
         settings.mode, settings.value_limit, settings.min_share, settings.min_new_share
     );
-    let detector = LabelCardinality::new(settings, unknown_tokens);
+    let Some(client) = client.filter(|_| settings.mode != Mode::Off) else {
+        let detector = LabelCardinality::local_only(settings, unknown_tokens);
+        detector.spawn_pruner();
+        return detector;
+    };
+    let pull_interval = Duration::from_secs(config.metrics_series_redis_pull_interval_secs);
+    let timeout = Duration::from_millis(config.metrics_series_redis_pull_timeout_ms);
+    let (detector, rx) = LabelCardinality::new(settings, unknown_tokens);
+    detector.spawn_redis_sync(client, rx, pull_interval, timeout);
     detector.spawn_pruner();
     detector
 }
@@ -255,9 +266,9 @@ async fn run(
         );
     let management_router = setup_metrics_routes(management_router);
 
-    let series_label_gate = start_series_label_gate(&config).await;
+    let (series_label_gate, redis_client) = start_series_label_gate(&config).await;
     let unknown_tokens = UnknownTokens::from_config(&config.base);
-    let label_cardinality = start_label_cardinality(&config, unknown_tokens.clone());
+    let label_cardinality = start_label_cardinality(&config, redis_client, unknown_tokens.clone());
     let token_dropper =
         TokenDropper::new(&config.base.drop_events_by_token.clone().unwrap_or_default());
     let authorizer = Authorizer::new(Arc::new(token_dropper)).with_unknown_tokens(unknown_tokens);
