@@ -537,6 +537,14 @@ class BigQueryDestinationWriter:
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=disposition,
             autodetect=True,
+            # Without this, autodetect only ever offers NUMERIC (precision 38, scale 9) for a
+            # parquet decimal column, and a source decimal wider than that — a decimal128 with a
+            # scale above 9 is a common shape — fails the load outright instead of landing as
+            # BIGNUMERIC.
+            decimal_target_types=[
+                bigquery.enums.DecimalTargetType.NUMERIC,
+                bigquery.enums.DecimalTargetType.BIGNUMERIC,
+            ],
         )
         if disposition == bigquery.WriteDisposition.WRITE_APPEND:
             # Additive evolution: a column the source grew is added rather than rejected.
