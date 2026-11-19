@@ -32,11 +32,12 @@ credential can rewrite. It is returned under the same gate. A Slack user is veri
 user, and has no credential scopes to check.
 
 `started_by` names the task's creator: the person who opened Ask AI, or whose Slack message started
-the task, never the others in a thread. It follows the row, not the steering gate, because it names
-a member the scout can already list with `scout-members-list`, and a discussion from someone who may
-not steer scouts is exactly the one a scout should weigh differently. It is null for a task with no
-creator, and for a creator who no longer has access to the project, so a scout never learns the name
-of someone it could not route a report to. It carries no email: the user UUID matches a member row.
+the task, never the others in a thread. It says whose question a discussion was, not who wrote its
+summary, since any member can rewrite an inbox summary, so the tool and the prompt never let a scout
+attribute an outcome to it. It follows the row, not the steering gate, because it names a member the
+scout can already list with `scout-members-list`. It is null for a task with no creator, and for a
+creator who no longer has access to the project, so a scout never learns the name of someone it could
+not route a report to. It carries no email: the user UUID matches a member row.
 """
 
 from __future__ import annotations
