@@ -58,19 +58,10 @@ _VENDOR = (
     " nullIf(toString(properties.mcp_vendor_client), '')))"
 )
 
-# Clients whose User-Agent names them while their clientInfo.name is generic or
-# belongs to the library they are built on, so the UA must outrank the name:
-# - grok.com Connectors reports "connectors-manager" (grok-shell keeps a `grok-`
-#   prefixed name and buckets without help).
-# - Kimchi (kimchi.dev) is built on pi and reports pi-mcp's `pi-mcp-<server>`.
-# - Devin reports the Rust SDK's default `rmcp`.
-# - Cloudflare's MCP server portals report "mcp-client".
-# - opencode's CLI can report "cli".
+# Prefer these User-Agents because the client name can identify a shared transport or SDK.
 _UA_FIRST_PRODUCTS = ("grok", "kimchi", "devin", "cloudflare-mcp-portal", "opencode")
 _UA_FIRST = " OR ".join(f"startsWith(lower({_UA_PRODUCT}), '{product}')" for product in _UA_FIRST_PRODUCTS)
 
-# The ordered resolution steps: vendor header, then the User-Agent surfaces that
-# outrank clientInfo.name, then clientInfo.name, then the generic UA token.
 _RAW_TOKEN = f"""coalesce(
     multiIf(
         -- The header is captured verbatim and its value arrives in both spellings

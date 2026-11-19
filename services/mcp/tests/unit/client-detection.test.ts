@@ -144,8 +144,6 @@ describe('isToolsModeClient', () => {
 
 describe('MCPClientProfile', () => {
     describe('prefersFormattedText()', () => {
-        // The default: a client nobody has classified reads text only, so it gets the
-        // formatted table without the duplicate structured copy.
         it.each([['codex-mcp-client'], ['opencode'], ['some-new-agent'], ['Claude Desktop'], ['']])(
             'returns true for text client %s',
             (clientName) => {

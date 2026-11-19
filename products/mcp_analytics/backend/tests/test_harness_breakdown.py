@@ -310,7 +310,6 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
                 {"$mcp_client_user_agent": "posthog/wizard; version: 2.0.0", "$mcp_client_name": "pi-mcp-posthog"},
                 "PostHog Wizard",
             ),
-            # The SDKs' UA product token also starts with "posthog"; only the Wizard prefix is promoted.
             ("posthog_sdk_ua_is_not_wizard", {"$mcp_client_user_agent": "posthog-python/7.0.0"}, "Other"),
             (
                 "devin_ua_beats_rmcp_name",
