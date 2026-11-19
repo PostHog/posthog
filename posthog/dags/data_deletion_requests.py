@@ -751,13 +751,11 @@ def _event_removal_placements(
         uncopied_predicate = uncopied_rows_predicate(deletion_request, target)
         copy_cluster = next((p.cluster for p in placements if p.target.data_table == target.copied_from), None)
         if copy_cluster is not placement.cluster:
-            _refuse_unsweepable(
-                cluster,
-                [target],
-                deletion_request,
-                _same_criteria(uncopied_predicate.narrow(criteria)),
-                reason=_HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON,
-            )
+            if _holds_rows(cluster, placement, *uncopied_predicate.narrow(criteria)):
+                raise dagster.Failure(
+                    description=f"Deletion request {deletion_request.request_id}: rows in {target.read_table} match "
+                    f"this request but cannot be deleted: {_HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON}"
+                )
             continue
         # The copy check reads the uuid of every matching event, so it runs only when the target holds
         # matching rows in the request's window. This count also runs the compiled fragment before

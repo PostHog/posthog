@@ -88,6 +88,7 @@ from posthog.models.deletion_targets import (
     DeletionTarget,
     TargetPlacement,
     UnreachableTargetError,
+    count_surviving_rows,
     placement_for,
     resolve_placements,
 )
@@ -3208,7 +3209,7 @@ def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "execution_mode, hogql_predicate, refusal",
+    "execution_mode, hogql_predicate, refusal, proxy_reads_empty",
     [
         # The check for flag rows without an events copy reads both tables on one shard. It cannot run when the
         # tables are on different clusters. The flag row here has an events copy. Without the refusal, an
@@ -3217,12 +3218,14 @@ def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
             ExecutionMode.DEFERRED,
             "properties.$browser = 'Chrome'",
             "different cluster from its events copies",
+            False,
             id="deferred_with_predicate",
         ),
         pytest.param(
             ExecutionMode.IMMEDIATE,
             "properties.$browser = 'Chrome'",
             "different cluster from its events copies",
+            False,
             id="immediate_with_predicate",
         ),
         # The queue fill's INSERT reads its source on the queue's own host, so it cannot read a table on
@@ -3231,15 +3234,29 @@ def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
             ExecutionMode.DEFERRED,
             "",
             "cannot queue uuids from sharded_flag_evaluations",
+            False,
             id="deferred_without_predicate",
+        ),
+        # The main cluster's proxy reads only the cluster its engine names, so it can read empty while the
+        # flags storage holds the rows. The refusal also counts the storage through the flags handle.
+        pytest.param(
+            ExecutionMode.IMMEDIATE,
+            "properties.$browser = 'Chrome'",
+            "different cluster from its events copies",
+            True,
+            id="immediate_with_predicate_and_an_empty_proxy",
         ),
     ],
 )
 def test_event_removal_refuses_when_flag_evaluations_is_on_another_cluster(
-    cluster: ClickhouseCluster, execution_mode: ExecutionMode, hogql_predicate: str, refusal: str
+    cluster: ClickhouseCluster,
+    execution_mode: ExecutionMode,
+    hogql_predicate: str,
+    refusal: str,
+    proxy_reads_empty: bool,
 ) -> None:
     request, _ = _deferred_hogql_flag_request(
-        f"test-flag-other-cluster-{execution_mode.value}-{bool(hogql_predicate)}", hogql_predicate
+        f"test-flag-other-cluster-{execution_mode.value}-{bool(hogql_predicate)}-{proxy_reads_empty}", hogql_predicate
     )
     request.execution_mode = execution_mode.value
     request.save()
@@ -3270,9 +3287,16 @@ def test_event_removal_refuses_when_flag_evaluations_is_on_another_cluster(
             for p in resolve_placements(handle, targets)
         ]
 
+    def proxy_count(handle: ClickhouseCluster, target: DeletionTarget, predicate: str, params: dict) -> int:
+        if proxy_reads_empty and target is FLAG_EVALUATIONS:
+            return 0
+        return count_surviving_rows(handle, target, predicate, params)
+
     try:
         with (
             patch("posthog.dags.data_deletion_requests.resolve_placements", side_effect=placements),
+            patch("posthog.dags.data_deletion_requests.count_surviving_rows", side_effect=proxy_count),
+            patch("posthog.models.deletion_targets.count_surviving_rows", side_effect=proxy_count),
             pytest.raises(dagster.Failure, match=refusal),
         ):
             _run_event_deletion(cluster, ctx)
