@@ -4018,6 +4018,7 @@ class TestExternalDataSource(APIBaseTest):
                     "api_version": None,
                     "api_version_deprecation": None,
                     "user_access_level": "manager",
+                    "partition_policy": "auto",
                 }
             ],
         )
