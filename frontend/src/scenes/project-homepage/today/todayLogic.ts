@@ -199,6 +199,8 @@ export interface todayLogicValues {
     growthSlotCard: NavPanelSlotCard | null
     homeScrollTop: number | null
     isNewProject: boolean
+    jumpBackPinScope: string | null
+    jumpBackPins: Record<string, FileSystemEntry[]>
     listExpanded: Record<TodayList, boolean>
     loadedMoreReports: SignalReport[]
     moreReportCount: number
@@ -206,11 +208,9 @@ export interface todayLogicValues {
     moreReportsInInbox: number
     moreReportsLoading: boolean
     now: number
+    pinnedObjects: FileSystemEntry[]
     promoBanner: TodayPromoBanner | null
     recentObjects: JumpBackObject[]
-    jumpBackPinScope: string | null
-    jumpBackPins: Record<string, FileSystemEntry[]>
-    pinnedObjects: FileSystemEntry[]
     reportId: string | null
     reportOpenContext: TodayReportOpenContext | null
     reportPreviews: Record<string, TodayReportPreview>
@@ -273,13 +273,6 @@ export interface todayLogicActions {
     ) => {
         position: number
         product: string
-    }
-    toggleJumpBackPin: (
-        scope: string,
-        entry: FileSystemEntry
-    ) => {
-        entry: FileSystemEntry
-        scope: string
     }
     jumpBackOpened: (
         entry: FileSystemEntry,
@@ -369,6 +362,13 @@ export interface todayLogicActions {
     }
     tick: () => {
         value: true
+    }
+    toggleJumpBackPin: (
+        scope: string,
+        entry: FileSystemEntry
+    ) => {
+        entry: FileSystemEntry
+        scope: string
     }
     toggleReportRow: (
         rowKey: string,
