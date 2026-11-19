@@ -26048,8 +26048,8 @@
     "groups-find": {
         "name": "groups-find",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:groups/findGroupHooks"],
+        "hooks": "groups/findGroupHooks",
         "uiApp": null,
         "request": {
             "method": "GET",

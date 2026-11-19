@@ -52,6 +52,7 @@ tools:
         param_overrides:
             skip_create_notebook:
                 default: true
+        hooks: groups/findGroupHooks
     groups-list:
         operation: groups_list
         enabled: true

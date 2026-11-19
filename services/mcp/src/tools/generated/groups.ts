@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/groups/api'
+import hooks_groupsFind from '@/tools/groups/findGroupHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -75,19 +77,22 @@ const GroupsFindSchema = () => {
 const groupsFind = (): ToolBase<ReturnType<typeof GroupsFindSchema>, Schemas.FindGroup> => ({
     name: 'groups-find',
     schema: GroupsFindSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof GroupsFindSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FindGroup>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/groups/find/`,
-            query: {
-                group_key: params.group_key,
-                group_type_index: params.group_type_index,
-                skip_create_notebook: params.skip_create_notebook,
-            },
-        })
-        return result
-    },
+    handler: withToolHooks(
+        hooks_groupsFind,
+        async (context: Context, params: z.infer<ReturnType<typeof GroupsFindSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.FindGroup>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/groups/find/`,
+                query: {
+                    group_key: params.group_key,
+                    group_type_index: params.group_type_index,
+                    skip_create_notebook: params.skip_create_notebook,
+                },
+            })
+            return result
+        }
+    ),
 })
 
 const GroupsListSchema = () => {
