@@ -594,7 +594,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (todayRailEnabled: boolean, activePane: TodayRailPane): boolean =>
                 todayRailEnabled && activePane === 'people',
         ],
-        // The Data pane links every definitions page, so those pages hide the tabs that link them while it is open.
         dataPaneLinksTabs: [
             (s) => [s.todayRailEnabled, s.activePane],
             (todayRailEnabled: boolean, activePane: TodayRailPane): boolean =>

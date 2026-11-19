@@ -34,7 +34,6 @@ function definitionLabel(definition: Definition, isEvent: boolean): string {
     if (definition?.id === 'new') {
         return 'Untitled'
     }
-    // Resolve virtual definitions' label from the same taxonomy group the definition came from
     const propertyLabelGroup =
         ('virtual' in definition && definition.virtual && getVirtualPropertyDefinition(definition.id)?.group) ||
         TaxonomicFilterGroupType.EventProperties
