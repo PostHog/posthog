@@ -3273,7 +3273,7 @@ describe('PersonhogPersonsStore', () => {
             try {
                 const narrowStore = new PersonhogPersonsStore(repository, { maxConcurrentUpdates: 1 })
                 repository.updatePersonProperties.mockImplementation(
-                    () => new Promise((_, reject) => setTimeout(() => reject(transportFailure()), 20_000))
+                    () => new Promise((_, reject) => setTimeout(() => reject(transportFailure()), 10_000))
                 )
                 const bound = narrowStore.forBatch(0)
                 const ids = [11, 12, 13, 14, 15]

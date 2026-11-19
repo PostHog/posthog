@@ -154,8 +154,11 @@ const REDIRECT_MAX_ATTEMPTS = 3
 
 const FLUSH_WAIT_ROUND_MS = 1_000
 
-/** Counted from the first transport failure. Outlasts a router pod's drain, and stays well under the consumer's poll interval. */
-const FLUSH_TRANSIENT_RETRY_BUDGET_MS = 30_000
+/**
+ * Counted from the first transport failure. A flush that retries holds the consumer's request open,
+ * so this budget plus one write in progress must end before the consumer's revoke drain timeout.
+ */
+const FLUSH_TRANSIENT_RETRY_BUDGET_MS = 15_000
 
 function isTransientTransportError(error: unknown): error is ConnectError & { isRetriable: true } {
     return error instanceof ConnectError && (error as { isRetriable?: boolean }).isRetriable === true
