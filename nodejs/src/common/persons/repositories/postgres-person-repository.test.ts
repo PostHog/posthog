@@ -13,7 +13,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
 import { createTeam, createTestTeamFixture, insertRow } from '~/tests/helpers/sql'
-import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '~/types'
+import { Hub, InternalPerson, Team } from '~/types'
 
 import {
     DistinctIdConflictError,
@@ -61,7 +61,7 @@ describe('PostgresPersonRepository', () => {
     // Helper function to create a person with all the necessary setup
     async function createTestPerson(teamId: number, distinctId: string, properties: Record<string, any> = {}) {
         const uuid = new UUIDT().toString()
-        const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, {
+        const result = await repository.createPerson(TIMESTAMP, properties, teamId, null, true, uuid, {
             distinctId,
         })
         if (!result.success) {
@@ -124,8 +124,6 @@ describe('PostgresPersonRepository', () => {
                         created_at: createdPerson.created_at.toISO(),
                         team_id: createdPerson.team_id,
                         properties: createdPerson.properties,
-                        properties_last_updated_at: createdPerson.properties_last_updated_at,
-                        properties_last_operation: createdPerson.properties_last_operation,
                         is_user_id: createdPerson.is_user_id,
                         version: createdPerson.version,
                         is_identified: createdPerson.is_identified,
@@ -160,8 +158,6 @@ describe('PostgresPersonRepository', () => {
                         created_at: createdPerson.created_at.toISO(),
                         team_id: createdPerson.team_id,
                         properties: createdPerson.properties,
-                        properties_last_updated_at: createdPerson.properties_last_updated_at,
-                        properties_last_operation: createdPerson.properties_last_operation,
                         is_user_id: createdPerson.is_user_id,
                         version: createdPerson.version,
                         is_identified: createdPerson.is_identified,
@@ -236,8 +232,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: distinctId,
                 properties: { name: 'Jane' },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version,
                 is_identified: person.is_identified,
@@ -317,12 +311,11 @@ describe('PostgresPersonRepository', () => {
             const olderCreatedAt = person.created_at.minus({ minutes: 5 })
             const laterLastSeenAt = person.created_at.plus({ hours: 1 })
 
-            // Another writer lands a key, its metadata and newer scalars after this pod's read.
+            // Another writer lands a key and newer scalars after this pod's read.
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `UPDATE posthog_person
                  SET properties = properties || '{"from_merge": "kept?", "gone": "x"}'::jsonb,
-                     properties_last_updated_at = '{"from_merge": "new", "gone": "x"}'::jsonb,
                      created_at = $3, is_identified = true, last_seen_at = $4, version = version + 1
                  WHERE team_id = $1 AND id = $2`,
                 [team.id, person.id, olderCreatedAt.toISO(), laterLastSeenAt.toISO()],
@@ -336,7 +329,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_set: { own: 'v2' },
                 properties_to_set_once: { from_merge: 'stale', filled: 'yes' },
                 properties_to_unset: ['gone'],
-                properties_last_updated_at: { from_merge: 'old' },
                 is_identified: false,
             }
             const results = await repository.updatePersonsBatch([stale])
@@ -344,7 +336,7 @@ describe('PostgresPersonRepository', () => {
 
             const rows = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                `SELECT properties, properties_last_updated_at, is_identified,
+                `SELECT properties, is_identified,
                         extract(epoch FROM created_at)::bigint AS created_at_epoch,
                         extract(epoch FROM last_seen_at)::bigint AS last_seen_at_epoch
                  FROM posthog_person WHERE team_id = $1 AND id = $2`,
@@ -353,7 +345,6 @@ describe('PostgresPersonRepository', () => {
             )
             // Set-once fills a missing key and leaves the other writer's key alone.
             expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?', filled: 'yes' })
-            expect(rows.rows[0].properties_last_updated_at).toEqual({ from_merge: 'new', gone: 'x' })
             expect(Number(rows.rows[0].created_at_epoch)).toBe(Math.floor(olderCreatedAt.toSeconds()))
             expect(rows.rows[0].is_identified).toBe(true)
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
@@ -615,7 +606,7 @@ describe('PostgresPersonRepository', () => {
 
         it('createPerson revives a tombstoned person and its distinct id at death_version + 1', async () => {
             const uuid = new UUIDT().toString()
-            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, team.id, null, false, uuid, {
                 distinctId: 'revive-did',
             })
             if (!first.success) {
@@ -624,7 +615,7 @@ describe('PostgresPersonRepository', () => {
             await tombstonePerson(first.person)
             await tombstoneDistinctId(team.id, 'revive-did')
 
-            const revived = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, true, uuid, {
+            const revived = await repository.createPerson(TIMESTAMP, { b: 2 }, team.id, null, true, uuid, {
                 distinctId: 'revive-did',
             })
 
@@ -645,14 +636,14 @@ describe('PostgresPersonRepository', () => {
 
         it('createPerson returns CreationConflict against a live person with the same uuid', async () => {
             const uuid = new UUIDT().toString()
-            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, team.id, null, false, uuid, {
                 distinctId: 'live-uuid-did',
             })
             if (!first.success) {
                 throw new Error('Failed to create person')
             }
 
-            const second = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
+            const second = await repository.createPerson(TIMESTAMP, { b: 2 }, team.id, null, false, uuid, {
                 distinctId: 'live-uuid-did-2',
             })
 
@@ -678,7 +669,7 @@ describe('PostgresPersonRepository', () => {
             // createPerson through inTransaction. `repository` has no allowlist, so it takes
             // that path rather than the ON CONFLICT one.
             const uuid = new UUIDT().toString()
-            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, team.id, null, false, uuid, {
                 distinctId: 'tx-uuid-did',
             })
             if (!first.success) {
@@ -686,7 +677,7 @@ describe('PostgresPersonRepository', () => {
             }
 
             const second = await repository.inTransaction('conflict-inside-transaction', (tx) =>
-                tx.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
+                tx.createPerson(TIMESTAMP, { b: 2 }, team.id, null, false, uuid, {
                     distinctId: 'tx-uuid-did-2',
                 })
             )
@@ -704,8 +695,6 @@ describe('PostgresPersonRepository', () => {
 
             const result = await repository.createPerson(
                 TIMESTAMP,
-                {},
-                {},
                 {},
                 team.id,
                 null,
@@ -731,8 +720,6 @@ describe('PostgresPersonRepository', () => {
             const result = await repository.createPerson(
                 TIMESTAMP,
                 { secret: 'value' },
-                {},
-                {},
                 team.id,
                 null,
                 false,
@@ -765,8 +752,6 @@ describe('PostgresPersonRepository', () => {
             const result = await repository.createPerson(
                 TIMESTAMP,
                 {},
-                {},
-                {},
                 team.id,
                 null,
                 false,
@@ -795,7 +780,7 @@ describe('PostgresPersonRepository', () => {
                 'createPerson',
                 async (): Promise<[string, PersonMessage[]]> => {
                     const uuid = new UUIDT().toString()
-                    const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, {
+                    const result = await repository.createPerson(TIMESTAMP, {}, team.id, null, false, uuid, {
                         distinctId: 'stray-did',
                     })
                     if (!result.success) {
@@ -828,7 +813,7 @@ describe('PostgresPersonRepository', () => {
             const owner = await createTestPerson(team.id, 'self-stray-did')
             await tombstonePerson(owner)
 
-            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, owner.uuid, {
+            const result = await repository.createPerson(TIMESTAMP, {}, team.id, null, false, owner.uuid, {
                 distinctId: 'self-stray-did',
             })
 
@@ -973,6 +958,15 @@ describe('PostgresPersonRepository', () => {
             it('deletePerson tombstones the row at the exact death version with scrubbed properties', async () => {
                 const person = await createTestPerson(team.id, 'ts-delete-did', { secret: 'x' })
                 await tombstoneDistinctId(team.id, 'ts-delete-did')
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `UPDATE posthog_person
+                     SET properties_last_updated_at = '{"secret": "2024-01-01T00:00:00Z"}',
+                         properties_last_operation = '{"secret": "set"}'
+                     WHERE team_id = $1 AND id = $2`,
+                    [team.id, person.id],
+                    'seedPersonMeta'
+                )
 
                 const messages = await repository.deletePerson(person)
 
@@ -982,13 +976,16 @@ describe('PostgresPersonRepository', () => {
 
                 const { rows } = await postgres.query(
                     PostgresUse.PERSONS_WRITE,
-                    'SELECT is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                    `SELECT is_deleted, version, properties, properties_last_updated_at, properties_last_operation
+                     FROM posthog_person WHERE team_id = $1 AND id = $2`,
                     [team.id, person.id],
                     'fetchTombstonedPerson'
                 )
                 expect(rows[0].is_deleted).toBe(true)
                 expect(Number(rows[0].version)).toBe(1)
                 expect(rows[0].properties).toEqual({})
+                expect(rows[0].properties_last_updated_at).toBeNull()
+                expect(rows[0].properties_last_operation).toBeNull()
             })
 
             it('deletePerson refuses while live distinct ids still point at the person', async () => {
@@ -1021,7 +1018,7 @@ describe('PostgresPersonRepository', () => {
             const uuid = new UUIDT().toString()
             const properties = { name: 'John Doe', email: 'john@example.com' }
 
-            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, true, uuid, {
+            const result = await repository.createPerson(TIMESTAMP, properties, team.id, null, true, uuid, {
                 distinctId: 'test-distinct-id',
             })
 
@@ -1055,8 +1052,6 @@ describe('PostgresPersonRepository', () => {
             const result = await repository.createPerson(
                 TIMESTAMP,
                 properties,
-                {},
-                {},
                 team.id,
                 null,
                 false,
@@ -1105,8 +1100,6 @@ describe('PostgresPersonRepository', () => {
             const result1 = await repository.createPerson(
                 TIMESTAMP,
                 { name: 'First Person' },
-                {},
-                {},
                 team.id,
                 null,
                 true,
@@ -1127,8 +1120,6 @@ describe('PostgresPersonRepository', () => {
             const createPersonResult = await repository.createPerson(
                 TIMESTAMP,
                 { name: 'Second Person' },
-                {},
-                {},
                 team.id,
                 null,
                 true,
@@ -1199,8 +1190,6 @@ describe('PostgresPersonRepository', () => {
                 created_at: TIMESTAMP,
                 team_id: team.id,
                 properties: {},
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
@@ -1298,8 +1287,6 @@ describe('PostgresPersonRepository', () => {
                 created_at: TIMESTAMP,
                 team_id: team.id,
                 properties: {},
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
@@ -1322,8 +1309,6 @@ describe('PostgresPersonRepository', () => {
                 created_at: TIMESTAMP,
                 team_id: team.id,
                 properties: {},
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
@@ -1997,8 +1982,6 @@ describe('PostgresPersonRepository', () => {
                 is_identified: false,
                 version: 0,
                 is_user_id: null,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 last_seen_at: null,
             }
 
@@ -2018,8 +2001,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: 'test-distinct',
                 properties: { name: 'Jane', age: 30 },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version: person.version,
                 is_identified: person.is_identified,
@@ -2056,8 +2037,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: 'test-distinct',
                 properties: { name: 'Jane', age: 30 },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version: person.version - 1, // Outdated version
                 is_identified: person.is_identified,
@@ -2092,8 +2071,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: '00000000-0000-0000-0000-000000000000',
                 distinct_id: 'test-distinct',
                 properties: { name: 'Jane' },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: DateTime.now(),
                 version: 0,
                 is_identified: false,
@@ -2124,8 +2101,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: 'test-merge-set',
                 properties: { existing: 'value', to_update: 'old' }, // Original properties from DB
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version: person.version,
                 is_identified: person.is_identified,
@@ -2165,8 +2140,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: 'test-unset',
                 properties: { keep: 'value', remove_me: 'will be removed' },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version: person.version,
                 is_identified: person.is_identified,
@@ -2204,8 +2177,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: 'test-combined',
                 properties: { keep: 'value', remove: 'will go', update: 'old' },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version: person.version,
                 is_identified: person.is_identified,
@@ -2250,34 +2221,18 @@ describe('PostgresPersonRepository', () => {
         }
 
         beforeEach(async () => {
-            const result = await repository.createPerson(
-                TIMESTAMP,
-                {},
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                new UUIDT().toString(),
-                { distinctId: 'source_person' }
-            )
+            const result = await repository.createPerson(TIMESTAMP, {}, team.id, null, false, new UUIDT().toString(), {
+                distinctId: 'source_person',
+            })
             if (!result.success) {
                 throw new Error('Failed to create person')
             }
             const sourcePerson = result.person
             const kafkaMessagesSourcePerson = result.messages
 
-            const result2 = await repository.createPerson(
-                TIMESTAMP,
-                {},
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                new UUIDT().toString(),
-                { distinctId: 'target_person' }
-            )
+            const result2 = await repository.createPerson(TIMESTAMP, {}, team.id, null, false, new UUIDT().toString(), {
+                distinctId: 'target_person',
+            })
             if (!result2.success) {
                 throw new Error('Failed to create person')
             }
@@ -2569,31 +2524,15 @@ describe('PostgresPersonRepository', () => {
                 })
 
                 await expect(
-                    oversizedRepository.createPerson(
-                        TIMESTAMP,
-                        oversizedProperties,
-                        {},
-                        {},
-                        team.id,
-                        null,
-                        true,
-                        uuid,
-                        { distinctId: 'test-oversized' }
-                    )
+                    oversizedRepository.createPerson(TIMESTAMP, oversizedProperties, team.id, null, true, uuid, {
+                        distinctId: 'test-oversized',
+                    })
                 ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
                 await expect(
-                    oversizedRepository.createPerson(
-                        TIMESTAMP,
-                        oversizedProperties,
-                        {},
-                        {},
-                        team.id,
-                        null,
-                        true,
-                        uuid,
-                        { distinctId: 'test-oversized-2' }
-                    )
+                    oversizedRepository.createPerson(TIMESTAMP, oversizedProperties, team.id, null, true, uuid, {
+                        distinctId: 'test-oversized-2',
+                    })
                 ).rejects.toThrow('Person properties create would exceed size limit')
 
                 mockQuery.mockRestore()
@@ -2850,8 +2789,6 @@ describe('PostgresPersonRepository', () => {
                         name: 'John',
                         description: 'x'.repeat(150),
                     },
-                    properties_last_updated_at: {},
-                    properties_last_operation: {},
                     created_at: person.created_at,
                     version: person.version,
                     is_identified: person.is_identified,
@@ -2901,17 +2838,9 @@ describe('PostgresPersonRepository', () => {
                 metrics.personPropertiesSizeViolationCounter.inc = mockInc
 
                 try {
-                    await oversizedRepository.createPerson(
-                        TIMESTAMP,
-                        oversizedProperties,
-                        {},
-                        {},
-                        team.id,
-                        null,
-                        true,
-                        uuid,
-                        { distinctId: 'test-metrics' }
-                    )
+                    await oversizedRepository.createPerson(TIMESTAMP, oversizedProperties, team.id, null, true, uuid, {
+                        distinctId: 'test-metrics',
+                    })
                 } catch {}
 
                 expect(mockInc).toHaveBeenCalledWith({
@@ -3101,8 +3030,6 @@ describe('PostgresPersonRepository', () => {
                 uuid: person.uuid,
                 distinct_id: distinctId,
                 properties: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 created_at: person.created_at,
                 version: person.version,
                 is_identified: person.is_identified,
@@ -3194,47 +3121,20 @@ describe('PostgresPersonRepository', () => {
 
         it('should track JSON field sizes on createPerson', async () => {
             const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
-            const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
-            const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
 
             // Pre-serialize to calculate expected sizes
             const expectedPropertiesSize = JSON.stringify(properties).length
-            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(propertiesLastUpdatedAt).length
-            const expectedPropertiesLastOperationSize = JSON.stringify(propertiesLastOperation).length
 
-            await repository.createPerson(
-                TIMESTAMP,
-                properties,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                team.id,
-                null,
-                true,
-                new UUIDT().toString(),
-                { distinctId: 'test-metrics-create' }
-            )
+            await repository.createPerson(TIMESTAMP, properties, team.id, null, true, new UUIDT().toString(), {
+                distinctId: 'test-metrics-create',
+            })
 
-            // Verify metrics were recorded for all three fields (3 calls total)
-            expect(observeCalls).toHaveLength(3)
+            expect(observeCalls).toHaveLength(1)
 
-            // Verify each field was recorded with operation='createPerson' and exact size
             const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
-            const propertiesLastUpdatedAtCall = observeCalls.find(
-                (c) => c.labels.field === 'properties_last_updated_at'
-            )
-            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
-
             expect(propertiesCall).toBeDefined()
             expect(propertiesCall!.labels.operation).toBe('createPerson')
             expect(propertiesCall!.value).toBe(expectedPropertiesSize)
-
-            expect(propertiesLastUpdatedAtCall).toBeDefined()
-            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('createPerson')
-            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
-
-            expect(propertiesLastOperationCall).toBeDefined()
-            expect(propertiesLastOperationCall!.labels.operation).toBe('createPerson')
-            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
         })
 
         it('should track JSON field sizes on updatePerson with properties', async () => {
@@ -3245,57 +3145,14 @@ describe('PostgresPersonRepository', () => {
 
             const update = {
                 properties: { name: 'Bob Updated', city: 'San Francisco', data: 'x'.repeat(1000) },
-                properties_last_updated_at: { name: '2024-01-16T10:30:00.000Z', city: '2024-01-16T10:30:00.000Z' },
-                properties_last_operation: { name: PropertyUpdateOperation.Set, city: PropertyUpdateOperation.Set },
             }
 
             // Pre-serialize to calculate expected sizes
             const expectedPropertiesSize = JSON.stringify(update.properties).length
-            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(update.properties_last_updated_at).length
-            const expectedPropertiesLastOperationSize = JSON.stringify(update.properties_last_operation).length
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // Verify metrics were recorded for all updated fields (3 calls total)
-            expect(observeCalls).toHaveLength(3)
-
-            // Verify each field was recorded with exact size
-            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
-            const propertiesLastUpdatedAtCall = observeCalls.find(
-                (c) => c.labels.field === 'properties_last_updated_at'
-            )
-            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
-
-            expect(propertiesCall).toBeDefined()
-            expect(propertiesCall!.labels.operation).toBe('updatePerson')
-            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
-
-            expect(propertiesLastUpdatedAtCall).toBeDefined()
-            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('updatePerson')
-            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
-
-            expect(propertiesLastOperationCall).toBeDefined()
-            expect(propertiesLastOperationCall!.labels.operation).toBe('updatePerson')
-            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
-        })
-
-        it('should only track metrics for fields being updated', async () => {
-            const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
-
-            // Clear observe calls from createTestPerson
-            observeCalls = []
-
-            // Only update properties, not the other fields
-            const update = {
-                properties: { name: 'Charlie Updated' },
-            }
-
-            const expectedPropertiesSize = JSON.stringify(update.properties).length
-
-            await repository.updatePerson(person, createPersonUpdateFields(person, update))
-
-            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
-            expect(observeCalls).toHaveLength(3)
+            expect(observeCalls).toHaveLength(1)
 
             const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
             expect(propertiesCall).toBeDefined()
@@ -3311,41 +3168,18 @@ describe('PostgresPersonRepository', () => {
 
             // Pre-serialize to calculate expected sizes
             const expectedPropertiesSize = JSON.stringify(largeProperties).length
-            const expectedPropertiesLastUpdatedAtSize = JSON.stringify({}).length
-            const expectedPropertiesLastOperationSize = JSON.stringify({}).length
 
-            await repository.createPerson(
-                TIMESTAMP,
-                largeProperties,
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                new UUIDT().toString(),
-                { distinctId: 'test-metrics-large' }
-            )
+            await repository.createPerson(TIMESTAMP, largeProperties, team.id, null, true, new UUIDT().toString(), {
+                distinctId: 'test-metrics-large',
+            })
 
-            // Should have 3 calls (properties, properties_last_updated_at, properties_last_operation)
-            expect(observeCalls).toHaveLength(3)
+            expect(observeCalls).toHaveLength(1)
 
-            // Verify exact sizes
             const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
-            const propertiesLastUpdatedAtCall = observeCalls.find(
-                (c) => c.labels.field === 'properties_last_updated_at'
-            )
-            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
-
             expect(propertiesCall).toBeDefined()
             expect(propertiesCall!.labels.operation).toBe('createPerson')
             expect(propertiesCall!.value).toBe(expectedPropertiesSize)
             expect(propertiesCall!.value).toBeGreaterThan(100000) // Sanity check
-
-            expect(propertiesLastUpdatedAtCall).toBeDefined()
-            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
-
-            expect(propertiesLastOperationCall).toBeDefined()
-            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
         })
 
         it('should not record metrics when update is empty', async () => {
@@ -3359,9 +3193,9 @@ describe('PostgresPersonRepository', () => {
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
-            // even though the values haven't changed from the person object
-            expect(observeCalls).toHaveLength(3)
+            // Since we always pass all fields for consistent query plans, properties is tracked
+            // even though its value hasn't changed from the person object
+            expect(observeCalls).toHaveLength(1)
         })
     })
 

@@ -1,16 +1,17 @@
-"""Confirm that the files an attestation check ran from are still the default branch's.
+"""Confirm that the paths an attestation check ran from are still the default branch's.
 
-A publisher that proves a PR from default-branch files lists the blob sha of each one under `blobs`
-in its `<!-- stamphog:v1 {...} -->` marker. The proof is stale once the default branch holds another
+A publisher that proves a PR from default-branch files lists each path under `blobs` in its
+`<!-- stamphog:v1 {...} -->` marker: a file with its blob sha, a directory (a key ending in `/`) with
+its tree sha, and an absent path with null. The proof is stale once the default branch holds another
 version of any of them, because the rules it checked have changed or someone re-ran an old publisher
-run. The engine has no network, so the server compares the blobs and records the answer on the check
-run as `pinned_blobs_current`, and the engine refuses a lift without it.
+run. The engine has no network, so the server compares the objects and records the answer on the
+check run as `pinned_blobs_current`, and the engine refuses a lift without it.
 """
 
 import re
 import json
 
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import GitObjectId, StamphogGitHubClient
 
 _MARKER_TAG = "stamphog:v1"
 _MARKER_RE = re.compile(r"<!--\s*stamphog:v1\s+(\{.*?\})\s*-->", re.DOTALL)
@@ -38,11 +39,26 @@ def get_check_runs_with_pins(client: StamphogGitHubClient, repo: str, head_sha: 
         publishers.add(publisher)
         budget -= 1
         check_run["pinned_blobs_current"] = (
-            budget >= 0
-            and 0 < len(pinned) <= _MAX_PINNED_PATHS
-            and client.get_default_branch_blob_shas(repo, sorted(pinned)) == pinned
+            budget >= 0 and 0 < len(pinned) <= _MAX_PINNED_PATHS and _pins_hold(client, repo, pinned)
         )
     return check_runs
+
+
+def _pins_hold(client: StamphogGitHubClient, repo: str, pinned: dict[str, str | None]) -> bool:
+    current = client.get_default_branch_objects(repo, sorted(pinned))
+    return all(_pin_holds(path, sha, current.get(path)) for path, sha in pinned.items())
+
+
+def _pin_holds(path: str, pinned_sha: str | None, current: GitObjectId | None) -> bool:
+    """True when the default branch holds what the pin names, including its type.
+
+    A directory pinned as a file, or a file pinned as a directory, does not hold, even when the ids
+    happen to match.
+    """
+    if current is None:
+        return pinned_sha is None
+    expected_kind = "Tree" if path.endswith("/") else "Blob"
+    return current.kind == expected_kind and current.oid == pinned_sha
 
 
 def _pinned_blobs(check_run: dict) -> dict[str, str | None] | None:

@@ -1,28 +1,11 @@
-import { useValues } from 'kea'
-
 import { LemonBanner } from '@posthog/lemon-ui'
-
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AgentConfigSnippet } from './AgentConfigSnippet'
 import { ConnectAgentAdminSteps } from './ConnectAgentAdminSteps'
+import { useKeyCreationBlocker } from './useKeyCreationBlocker'
 
 export function ConnectAgentSetting(): JSX.Element {
-    const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-        scope: RestrictionScope.Project,
-    })
-
-    const { currentTeam } = useValues(teamLogic)
-    // The keys endpoint refuses a child environment, because business knowledge belongs to the project.
-    const isChildEnvironment = !!currentTeam && currentTeam.id !== currentTeam.project_id
-    const keyStep = restrictionReason
-        ? 'Ask a project admin to create a key here. Only admins can create keys.'
-        : isChildEnvironment
-          ? "Switch to this project's main environment to create a key. Business knowledge keys belong to the project."
-          : null
+    const keyStep = useKeyCreationBlocker()
 
     return (
         <div className="flex flex-col gap-3 max-w-xl">
