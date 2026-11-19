@@ -9,6 +9,7 @@ use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use metrics::counter;
+use serde_json::Value;
 use tracing::{info, instrument, Span};
 
 use crate::{
@@ -142,9 +143,15 @@ pub async fn handle_recording_payload(
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "evaluating quota limits");
+    let is_mobile = events[0]
+        .properties
+        .snapshot_source
+        .as_ref()
+        .and_then(Value::as_str)
+        == Some("mobile");
     events = state
         .quota_limiter
-        .check_and_filter(&context.token, events)
+        .check_and_filter_recordings(&context.token, events, is_mobile)
         .await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");

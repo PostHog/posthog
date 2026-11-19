@@ -480,6 +480,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         regression that drops the kwarg (and reverts to cache-on-by-default in prod) fails
         the bypass-True case."""
         from ee.billing.quota_limiting import (
+            REPLAY_QUOTA_RESOURCES,
             QuotaLimitingCaches,
             QuotaResource,
             list_limited_team_attributes,
@@ -488,29 +489,31 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         list_limited_team_attributes.clear_cache()
 
-        replace_limited_team_tokens(QuotaResource.RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
-        # Force-prime the cache: `cache_for` defaults `use_cache=not TEST`, so without an
-        # explicit `use_cache=True` the call would bypass caching in tests and the assertion
-        # below would lose its meaning.
-        primed = list_limited_team_attributes(
-            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=True
-        )
-        assert primed == []
-
         future_ts = int(timezone.now().timestamp()) + 10_000
-        replace_limited_team_tokens(
-            QuotaResource.RECORDINGS,
-            {self.team.api_token: future_ts},
-            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-        )
+        for resource in REPLAY_QUOTA_RESOURCES:
+            replace_limited_team_tokens(resource, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            # Force-prime the cache: `cache_for` defaults `use_cache=not TEST`, so without an
+            # explicit `use_cache=True` the call would bypass caching in tests and the assertion
+            # below would lose its meaning.
+            primed = list_limited_team_attributes(resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=True)
+            assert primed == []
+            replace_limited_team_tokens(
+                resource, {self.team.api_token: future_ts}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
 
         cached_config = self.remote_config.build_config(bypass_recordings_quota_cache=False)
         assert cached_config.get("quotaLimited") is None
         assert cached_config["sessionRecording"] is not False
 
         fresh_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
-        assert fresh_config["quotaLimited"] == ["recordings"]
+        assert fresh_config["quotaLimited"] == ["recordings", "mobile_recordings"]
         assert fresh_config["sessionRecording"] is False
+
+        # A web-only limit must not turn off the `sessionRecording` that mobile SDKs read too.
+        replace_limited_team_tokens(QuotaResource.MOBILE_RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        web_only_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
+        assert web_only_config["quotaLimited"] == ["recordings"]
+        assert web_only_config["sessionRecording"] is not False
 
         list_limited_team_attributes.clear_cache()
 

@@ -52,6 +52,7 @@ logger = structlog.get_logger(__name__)
 QUOTA_ORGANIZATION_BATCH_SIZE = 1_000
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
+MOBILE_RECORDINGS_QUOTA_FLAG = "mobile-recordings-quota-enforcement"
 
 QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
@@ -80,6 +81,8 @@ class QuotaResource(Enum):
     EVENTS = "events"
     EXCEPTIONS = "exceptions"
     RECORDINGS = "recordings"
+    # Must follow RECORDINGS: an organization without its own mobile meter copies the web decision.
+    MOBILE_RECORDINGS = "mobile_recordings"
     ROWS_SYNCED = "rows_synced"
     FEATURE_FLAG_REQUESTS = "feature_flag_requests"
     API_QUERIES = "api_queries_read_bytes"
@@ -117,6 +120,7 @@ OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
     QuotaResource.EXCEPTIONS: 0,
     QuotaResource.RECORDINGS: 1000,
+    QuotaResource.MOBILE_RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
     QuotaResource.API_QUERIES: 0,
@@ -151,6 +155,7 @@ class UsageCounters(TypedDict):
     events: int
     exceptions: int
     recordings: int
+    mobile_recordings: int
     rows_synced: int
     feature_flag_requests: int
     api_queries_read_bytes: int
@@ -280,9 +285,33 @@ def list_team_attributes_in_zset(resource: QuotaResource, cache_key: QuotaLimiti
     return [x.decode("utf-8") for x in results]
 
 
-def _get_previous_recordings_zset_tokens() -> set[str]:
-    """Shared accessor for the raw recordings quota-limiter zset; see `list_team_attributes_in_zset`."""
-    return set(list_team_attributes_in_zset(QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
+# The remote config reads both replay limits, so a change to either one rebuilds it.
+REPLAY_QUOTA_RESOURCES = (QuotaResource.RECORDINGS, QuotaResource.MOBILE_RECORDINGS)
+
+
+def _get_previous_replay_zset_tokens() -> dict[str, set[str]]:
+    """Raw replay quota-limiter zsets by resource; see `list_team_attributes_in_zset`."""
+    return {
+        resource.value: set(list_team_attributes_in_zset(resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
+        for resource in REPLAY_QUOTA_RESOURCES
+    }
+
+
+def meters_mobile_recordings_separately(organization: Organization) -> bool:
+    """
+    Web and mobile replay have separate free tiers, so a web limit must not stop mobile recordings.
+    Until an organization has its own mobile meter and the flag, its mobile limit copies the web limit.
+    """
+    if not (organization.usage or {}).get(QuotaResource.MOBILE_RECORDINGS.value):
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            MOBILE_RECORDINGS_QUOTA_FLAG,
+            str(organization.id),
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+        )
+    )
 
 
 def _get_quota_scores_for_teams(team_tokens: Sequence[str]) -> dict[tuple[QuotaResource, str], float | None]:
@@ -609,7 +638,9 @@ def org_quota_limited_until(
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
     # - The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
     #   when syncing billing_customer to posthog_organization
-    trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
+    # - Billing scores session replay as one product, so mobile recordings read the recordings score
+    trust_key = QuotaResource.RECORDINGS.value if resource == QuotaResource.MOBILE_RECORDINGS else resource.value
+    trust_score = organization.customer_trust_scores.get(trust_key) if organization.customer_trust_scores else 0
 
     # Flow for checking quota limits:
     # 1. ignore the limits
@@ -735,7 +766,7 @@ def org_quota_limited_until(
     if (not trust_score or resource in GRACE_PERIOD_EXEMPT_RESOURCES) and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
-            organization.customer_trust_scores = {**(organization.customer_trust_scores or {}), resource.value: 0}
+            organization.customer_trust_scores = {**(organization.customer_trust_scores or {}), trust_key: 0}
             organization.save(update_fields=["customer_trust_scores"])
 
         report_action(
@@ -955,10 +986,12 @@ def update_org_billing_quotas(organization: Organization):
     now_ts = timezone.now().timestamp()
     quota_scores = _get_quota_scores_for_teams(team_attributes)
     # Removing an expired entry still needs to refresh the recording configuration.
-    prev_recordings_zset_tokens = {
-        token for token in team_attributes if quota_scores[(QuotaResource.RECORDINGS, token)] is not None
+    prev_replay_zset_tokens = {
+        resource: {token for token in team_attributes if quota_scores[(resource, token)] is not None}
+        for resource in REPLAY_QUOTA_RESOURCES
     }
     recordings_transitioned_team_ids: set[int] = set()
+    recordings_result: Optional[OrgQuotaLimitingInformation] = None
 
     for resource in QuotaResource:
         previously_quota_limited_team_tokens = [
@@ -967,18 +1000,23 @@ def update_org_billing_quotas(organization: Organization):
             if (score := quota_scores[(resource, token)]) is not None and score >= now_ts
         ]
 
-        # Get the quota limiting information (e.g. {"quota_limited_until": 1737867600, "quota_limiting_suspended_until": 1737867600})
-        result = org_quota_limited_until(
-            organization,
-            resource,
-            previously_quota_limited_team_tokens,
-            team_attributes,
-        )
-
+        if resource == QuotaResource.MOBILE_RECORDINGS and not meters_mobile_recordings_separately(organization):
+            result = recordings_result
+        else:
+            # Get the quota limiting information (e.g. {"quota_limited_until": 1737867600, "quota_limiting_suspended_until": 1737867600})
+            result = org_quota_limited_until(
+                organization,
+                resource,
+                previously_quota_limited_team_tokens,
+                team_attributes,
+            )
         if resource == QuotaResource.RECORDINGS:
+            recordings_result = result
+
+        if resource in prev_replay_zset_tokens:
             now_limited_for_recordings = bool(result and result.get("quota_limited_until"))
             now_limited_tokens: set[str] = team_attributes_set if now_limited_for_recordings else set()
-            for token in prev_recordings_zset_tokens ^ now_limited_tokens:
+            for token in prev_replay_zset_tokens[resource] ^ now_limited_tokens:
                 team_id = teams_by_token.get(token)
                 if team_id is not None:
                     recordings_transitioned_team_ids.add(team_id)
@@ -1427,6 +1465,7 @@ def _aggregate_quota_usage(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
+            mobile_recordings=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
             feature_flag_requests=billable_feature_flag_requests(
                 decide=decide_requests,
@@ -1507,6 +1546,7 @@ QUOTA_USAGE_COUNTERS = (
     UsageCounter.EVENTS,
     UsageCounter.EXCEPTIONS,
     UsageCounter.RECORDINGS,
+    UsageCounter.MOBILE_RECORDINGS,
     UsageCounter.FEATURE_FLAG_REQUESTS,
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS,
@@ -1562,6 +1602,7 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
         "teams_with_event_count_in_period": dict(counter_report.counts[UsageCounter.EVENTS]),
         "teams_with_exceptions_captured_in_period": dict(counter_report.counts[UsageCounter.EXCEPTIONS]),
         "teams_with_recording_count_in_period": dict(counter_report.counts[UsageCounter.RECORDINGS]),
+        "teams_with_mobile_recording_count_in_period": dict(counter_report.counts[UsageCounter.MOBILE_RECORDINGS]),
         "teams_with_rows_synced_in_period": dict(counter_report.counts[UsageCounter.ROWS_SYNCED]),
         "teams_with_decide_requests_count": dict(counter_report.counts[UsageCounter.FEATURE_FLAG_REQUESTS]),
         "teams_with_local_evaluation_requests_count": dict(
@@ -1698,7 +1739,6 @@ def update_all_orgs_billing_quotas(
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     recordings_transitioned_team_ids: set[int] = set()
-    recordings_field = QuotaResource.RECORDINGS.value
     failed_org_ids: set[str] = set()
     failed_team_tokens: set[str] = set()
 
@@ -1722,7 +1762,7 @@ def update_all_orgs_billing_quotas(
         field: tokens | set(previously_quota_limiting_suspended_team_tokens[field])
         for field, tokens in previously_quota_limited_team_token_sets.items()
     }
-    previously_recordings_zset_tokens = _get_previous_recordings_zset_tokens()
+    previously_replay_zset_tokens = _get_previous_replay_zset_tokens()
 
     logger.info("quota_limiting_run", phase="org_loop", status="start", org_count=total_orgs)
     org_loop_start = time()
@@ -1819,15 +1859,21 @@ def update_all_orgs_billing_quotas(
                         batch=usage_batch,
                     )
                     org_is_limited = org_is_suspended = False
+                    recordings_result: Optional[OrgQuotaLimitingInformation] = None
                     for resource in QuotaResource:
                         field = resource.value
-                        result = org_quota_limited_until(
-                            org,
-                            resource,
-                            previously_quota_limited_team_token_sets[field],
-                            teams_by_org.get(org_id, []),
-                            batch=usage_batch,
-                        )
+                        if resource == QuotaResource.MOBILE_RECORDINGS and not meters_mobile_recordings_separately(org):
+                            result = recordings_result
+                        else:
+                            result = org_quota_limited_until(
+                                org,
+                                resource,
+                                previously_quota_limited_team_token_sets[field],
+                                teams_by_org.get(org_id, []),
+                                batch=usage_batch,
+                            )
+                        if resource == QuotaResource.RECORDINGS:
+                            recordings_result = result
                         if result:
                             quota_limited_until = result.get("quota_limited_until")
                             limiting_suspended_until = result.get("quota_limiting_suspended_until")
@@ -1859,25 +1905,26 @@ def update_all_orgs_billing_quotas(
         orgs_with_changes: set[str] = set()
         # Convert the org ids to team tokens
         for team in teams:
-            team_was_in_recordings_zset = team.api_token in previously_recordings_zset_tokens
             if str(team.organization_id) in failed_org_ids:
                 # Reconciliation still purges expired entries, and only a rebuild clears an expired recordings limit.
-                if team_was_in_recordings_zset:
+                if any(team.api_token in tokens for tokens in previously_replay_zset_tokens.values()):
                     recordings_transitioned_team_ids.add(team.id)
                 continue
             for field in quota_limited_orgs:
                 org_id = str(team.organization.id)
+                is_replay_field = field in previously_replay_zset_tokens
+                team_was_in_recordings_zset = is_replay_field and team.api_token in previously_replay_zset_tokens[field]
                 if org_id in quota_limited_orgs[field]:
                     quota_limited_teams[field][team.api_token] = quota_limited_orgs[field][org_id]
 
                     # If the team was not previously quota limited, we add it to the list of orgs that were added
                     if team.api_token not in previously_quota_limited_team_token_sets[field]:
                         orgs_with_changes.add(org_id)
-                        if field == recordings_field and not team_was_in_recordings_zset:
+                        if is_replay_field and not team_was_in_recordings_zset:
                             recordings_transitioned_team_ids.add(team.id)
                 elif org_id in quota_limiting_suspended_orgs[field]:
                     quota_limiting_suspended_teams[field][team.api_token] = quota_limiting_suspended_orgs[field][org_id]
-                    if field == recordings_field and team_was_in_recordings_zset:
+                    if team_was_in_recordings_zset:
                         recordings_transitioned_team_ids.add(team.id)
                 else:
                     # If the team was previously quota limited, we add it to the list of orgs that were removed
@@ -1888,7 +1935,7 @@ def update_all_orgs_billing_quotas(
                     # those won't appear in the cached `previously_quota_limited_team_tokens` view,
                     # but they are still physically in the zset and the persisted config still
                     # carries `quotaLimited: ["recordings"]` until we rebuild.
-                    if field == recordings_field and team_was_in_recordings_zset:
+                    if team_was_in_recordings_zset:
                         recordings_transitioned_team_ids.add(team.id)
 
         # Now we have the teams that are currently under quota limits
@@ -1900,6 +1947,7 @@ def update_all_orgs_billing_quotas(
                 "quota_limited_events": quota_limited_orgs["events"].get(org_id, None),
                 "quota_limited_exceptions": quota_limited_orgs["exceptions"].get(org_id, None),
                 "quota_limited_recordings": quota_limited_orgs["recordings"].get(org_id, None),
+                "quota_limited_mobile_recordings": quota_limited_orgs["mobile_recordings"].get(org_id, None),
                 "quota_limited_rows_synced": quota_limited_orgs["rows_synced"].get(org_id, None),
                 "quota_limited_feature_flags": quota_limited_orgs["feature_flag_requests"].get(org_id, None),
                 "quota_limited_api_queries": quota_limited_orgs["api_queries_read_bytes"].get(org_id, None),

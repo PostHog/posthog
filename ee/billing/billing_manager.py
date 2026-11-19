@@ -835,6 +835,8 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
+            if usage_summary.get("mobile_recordings"):
+                usage_info["mobile_recordings"] = usage_summary["mobile_recordings"]
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)

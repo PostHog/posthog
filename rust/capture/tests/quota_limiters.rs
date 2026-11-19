@@ -106,6 +106,7 @@ async fn setup_router_with_limits(
         QuotaResource::Exceptions,
         QuotaResource::Surveys,
         QuotaResource::LLMEvents,
+        QuotaResource::MobileRecordings,
     ] {
         let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, resource.as_str());
 
@@ -137,7 +138,7 @@ async fn setup_router_with_limits(
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        capture_mode,
         None,             // concurrency_limit
         1024 * 1024,      // event_payload_size_limit
         false,            // enable_historical_rerouting
@@ -2000,4 +2001,53 @@ async fn test_ai_quota_empty_null_field_handling() {
         .await;
     // Invalid event names (null, empty) should return BAD_REQUEST
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+fn replay_payload(token: &str, snapshot_source: &str) -> String {
+    serde_json::json!({
+        "event": "$snapshot",
+        "api_key": token,
+        "distinct_id": "test_user_id",
+        "properties": {
+            "$session_id": "01983d9b-8639-78fa-ac26-b9e7bf716521",
+            "$window_id": "01983d90-31f6-78cf-86c8-b26d0bdaaff0",
+            "$snapshot_source": snapshot_source,
+            "$snapshot_data": [{"type": 2, "data": {"id": 1}, "timestamp": 1753379299184u64}]
+        }
+    })
+    .to_string()
+}
+
+#[tokio::test]
+async fn test_replay_quota_is_chosen_by_snapshot_source() {
+    // (web limited, mobile limited, snapshot source, expect captured)
+    let cases = [
+        (true, false, "mobile", true),
+        (true, false, "web", false),
+        (false, true, "mobile", false),
+        (false, true, "web", true),
+    ];
+    for (web_limited, mobile_limited, source, captured) in cases {
+        let token = "test_token_replay_quota";
+        let limited = if mobile_limited {
+            vec![QuotaResource::MobileRecordings]
+        } else {
+            vec![]
+        };
+        let (router, sink) =
+            setup_router_with_limits(token, CaptureMode::Recordings, web_limited, limited).await;
+        let response = TestClient::new(router)
+            .post("/s/")
+            .body(replay_payload(token, source))
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .send()
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            sink.events().len(),
+            usize::from(captured),
+            "web_limited={web_limited} mobile_limited={mobile_limited} source={source}"
+        );
+    }
 }
