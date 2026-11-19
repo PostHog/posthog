@@ -296,7 +296,7 @@ export async function report(
             readerAtT0 !== null
                 ? `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
                 : capacity
-                  ? `CloudWatch has no reader capacity for the minute before T0 (${t0}).`
+                  ? `CloudWatch has no reader maximum for the minute before T0 (${t0}).`
                   : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
         )
     }

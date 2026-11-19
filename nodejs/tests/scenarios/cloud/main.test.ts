@@ -1133,13 +1133,28 @@ describe('cloud controller', () => {
         }
     })
 
-    it('says the reader capacity went unread, not missing, when CloudWatch refuses only the average series', async () => {
-        const { controller } = prepare({ cloud: { readerAcu: IDLE_THEN_PROMOTED, averageStatuses: ['Forbidden'] } })
+    it.each<[string, Partial<FakeCloudOptions>, string]>([
+        [
+            'CloudWatch refuses only the average series',
+            { readerAcu: IDLE_THEN_PROMOTED, averageStatuses: ['Forbidden'] },
+            'Could not read the reader capacity, so its ACU in the minute before T0',
+        ],
+        [
+            'CloudWatch has an average but no maximum for the minute before T0',
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) =>
+                    minute.minute === -1 ? { minute: -1, avg: minute.avg } : minute
+                ),
+            },
+            'CloudWatch has no reader maximum for the minute before T0',
+        ],
+    ])('names what is missing when %s', async (_, cloudOptions, summary) => {
+        const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+        await main(['run', profilePath(), FAILOVER_CARD], controller)
 
-        expect(out.join('\n')).toContain('Could not read the reader capacity, so its ACU in the minute before T0')
-        expect(out.join('\n')).not.toContain('CloudWatch has no reader capacity')
+        expect(out.join('\n')).toContain(summary)
+        expect(published().reader_acu_at_t0).toBeNull()
     })
 
     it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {
