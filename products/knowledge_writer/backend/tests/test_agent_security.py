@@ -15,6 +15,7 @@ from products.knowledge_writer.backend.facade.contracts import DocsRequest
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.logic.launch import build_writer_prompt
 from products.knowledge_writer.backend.logic.routing import PageRouting
+from products.knowledge_writer.backend.management.commands.knowledge_writer_pr_smoke import PROBES
 from products.knowledge_writer.backend.task_profiles import WRITER
 from products.knowledge_writer.merge_check.judge import MAX_DIFF_CHARACTERS, judge_merge
 from products.tasks.backend.facade.profiles import NetworkAccess
@@ -40,7 +41,7 @@ CHECKLIST_ITEM_IDS = frozenset(
     for section, count in {"A": 3, "B": 2, "C": 2, "D": 3, "E": 2, "F": 3, "G": 3, "H": 2, "I": 2}.items()
     for number in range(1, count + 1)
 )
-ENFORCER_KINDS = frozenset({"check", "prose"})
+ENFORCER_KINDS = frozenset({"check", "probe", "prose"})
 
 
 def product_sources() -> list[Path]:
@@ -136,9 +137,27 @@ def test_every_checklist_item_has_a_check_or_a_reason_and_every_check_exists() -
     prose_without_reason = [
         item_id for item_id, enforcer in enforcers_of_kind("prose") if not enforcer.get("reason", "").strip()
     ]
+    enforcers_naming_nothing = [
+        item_id
+        for item_id, enforcers in REGISTRY["items"].items()
+        for enforcer in enforcers
+        if enforcer.get("kind") in ("check", "probe") and not enforcer.get("by")
+    ]
+    unknown_probes = [
+        (item_id, probe_name)
+        for item_id, enforcer in enforcers_of_kind("probe")
+        for probe_name in enforcer["by"]
+        if probe_name not in PROBES
+    ]
 
     assert set(REGISTRY["items"]) == CHECKLIST_ITEM_IDS
-    assert (unknown_kinds, missing_tests, prose_without_reason) == ([], [], [])
+    assert (unknown_kinds, missing_tests, prose_without_reason, enforcers_naming_nothing, unknown_probes) == (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
 
 
 def test_writer_egress_is_the_pinned_allowlist() -> None:

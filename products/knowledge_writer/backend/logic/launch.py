@@ -204,16 +204,7 @@ def start_writer(
 ) -> UUID:
     docs_folders = docs_folders_of(writer, request.docs_content_root)
     docs_url_path = urlparse(docs_source_for(writer.docs_repository).docs_url_prefix).path
-    state_entries = {
-        REQUEST_STATE_KEY: request_json.dump_python(
-            request, mode="json", exclude={"docs_content_root", *SOURCE_CHANGE_FIELDS}
-        ),
-        DOCS_CONTENT_ROOT_STATE_KEY: request.docs_content_root,
-        SOURCE_CHANGE_STATE_KEY: source_change_json.dump_python(source_change_of(request), mode="json"),
-        HEAD_BRANCH_STATE_KEY: f"{HEAD_BRANCH_PREFIX}{secrets.token_hex(6)}",
-        BASE_SHA_STATE_KEY: base_sha,
-        ROUTED_PAGE_KEYS_STATE_KEY: sorted(routed_page_keys_of(routing, docs_url_path)),
-    }
+    state_entries = writer_state_entries(request, routing, writer=writer, base_sha=base_sha)
     description = build_writer_prompt(
         request, routing, base_sha=base_sha, docs_folders=docs_folders, docs_url_path=docs_url_path
     )
@@ -228,9 +219,29 @@ def start_writer(
             before_task_create=before_task_create,
             before_task_dispatch=None if stored is None else attach_source_diff(team.id, description, stored),
         )
-        for key, value in state_entries.items():
-            tasks_facade.update_task_state_entry(task_id, team.id, key, replace_entry_with(value))
+        store_writer_state(task_id, team.id, state_entries)
     return task_id
+
+
+def writer_state_entries(
+    request: DocsRequest, routing: PageRouting, *, writer: WriterSettings, base_sha: str
+) -> dict[str, object]:
+    docs_url_path = urlparse(docs_source_for(writer.docs_repository).docs_url_prefix).path
+    return {
+        REQUEST_STATE_KEY: request_json.dump_python(
+            request, mode="json", exclude={"docs_content_root", *SOURCE_CHANGE_FIELDS}
+        ),
+        DOCS_CONTENT_ROOT_STATE_KEY: request.docs_content_root,
+        SOURCE_CHANGE_STATE_KEY: source_change_json.dump_python(source_change_of(request), mode="json"),
+        HEAD_BRANCH_STATE_KEY: f"{HEAD_BRANCH_PREFIX}{secrets.token_hex(6)}",
+        BASE_SHA_STATE_KEY: base_sha,
+        ROUTED_PAGE_KEYS_STATE_KEY: sorted(routed_page_keys_of(routing, docs_url_path)),
+    }
+
+
+def store_writer_state(task_id: UUID, team_id: int, state_entries: dict[str, object]) -> None:
+    for key, value in state_entries.items():
+        tasks_facade.update_task_state_entry(task_id, team_id, key, replace_entry_with(value))
 
 
 def create_writer_task(

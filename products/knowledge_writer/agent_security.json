@@ -131,14 +131,14 @@
         ],
         "C1": [
             {
-                "kind": "prose",
-                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+                "kind": "probe",
+                "by": ["planted-agent-config"]
             }
         ],
         "C2": [
             {
-                "kind": "prose",
-                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+                "kind": "probe",
+                "by": ["planted-agent-config"]
             }
         ],
         "D1": [
@@ -147,12 +147,16 @@
                 "by": [
                     "products/knowledge_writer/backend/tests/test_intake.py::test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_failed_run_is_a_duplicate"
                 ]
+            },
+            {
+                "kind": "probe",
+                "by": ["push-with-sandbox-token"]
             }
         ],
         "D2": [
             {
-                "kind": "prose",
-                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+                "kind": "probe",
+                "by": ["readable-credentials"]
             }
         ],
         "D3": [
@@ -167,6 +171,10 @@
                 "by": [
                     "products/knowledge_writer/backend/tests/test_agent_security.py::test_writer_egress_is_the_pinned_allowlist"
                 ]
+            },
+            {
+                "kind": "probe",
+                "by": ["unlisted-domain"]
             }
         ],
         "E2": [
@@ -250,8 +258,8 @@
         ],
         "I1": [
             {
-                "kind": "prose",
-                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+                "kind": "probe",
+                "by": ["planted-agent-config", "readable-credentials", "push-with-sandbox-token", "unlisted-domain"]
             }
         ],
         "I2": [
