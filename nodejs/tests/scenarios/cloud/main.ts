@@ -44,6 +44,9 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         return EXIT_CODE.invalid
     }
     const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
+    if (card.failsOver && profile.readerAcu.idleMax === undefined) {
+        throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
+    }
     const loaded = { ...inputs, card }
     const manifest = await lease(controller, loaded, admission.admitted)
     controller.print(`Leased run ${manifest.runId} until ${manifest.expiresAt}.`)

@@ -187,7 +187,10 @@ describe('cloud controller', () => {
     )
 
     it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {
-        const { controller } = prepare({ env: api.credentials })
+        const { controller } = prepare({
+            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+            env: api.credentials,
+        })
 
         await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(0)
 
@@ -215,6 +218,12 @@ describe('cloud controller', () => {
             FAILOVER_CARD,
             `cards/${FAILOVER_CARD}.yaml at ${COMMIT} is not a valid card`,
             { arrange: () => writeFileSync(path.join(dir, 'runner.yaml'), 'name: empty\n') },
+        ],
+        [
+            'a failover card under a cloud profile without the reader idle limit',
+            FAILOVER_CARD,
+            `${FAILOVER_CARD} fails the reader over, so the cloud profile needs readerAcu.idleMax`,
+            { profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }) },
         ],
         ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
         ['no card', undefined, 'Usage:', {}],
@@ -1119,22 +1128,6 @@ describe('cloud controller', () => {
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
             expect(out).toContain(`The reader sat at 2 ACU in the minute before T0 (${published().t0_at}).`)
         }
-    })
-
-    it('loads a cloud profile without readerAcu.idleMax and judges its failover run invalid, naming the field', async () => {
-        const { controller } = prepare({
-            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
-            cloud: { readerAcu: IDLE_THEN_PROMOTED },
-            env: api.credentials,
-        })
-
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
-
-        expect(parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)).not.toHaveProperty(
-            'readerIdleMaxAcu'
-        )
-        expect(published()).toMatchObject({ status: 'invalid', reader_acu_at_t0: 2 })
-        expect(published().status_reason).toContain('the cloud profile sets no readerAcu.idleMax')
     })
 
     it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {
