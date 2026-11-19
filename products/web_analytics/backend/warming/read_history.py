@@ -1,11 +1,28 @@
 from datetime import UTC, datetime, timedelta
 
+from prometheus_client import Counter
+
 from posthog import redis
 
 _REDIS_KEY_PREFIX = "web_analytics_shape_reads"
 HISTORY_DAYS = 7
 _TTL = timedelta(days=HISTORY_DAYS + 1)
 _RECORD_TIMEOUT_SECONDS = 0.25
+MAX_SHAPE_HOURS_PER_TEAM_DAY = 10_000
+
+_ADD_UNDER_CAP = """
+if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 or redis.call('SCARD', KEYS[1]) < tonumber(ARGV[2]) then
+    redis.call('SADD', KEYS[1], ARGV[1])
+    redis.call('EXPIRE', KEYS[1], ARGV[3])
+    return 1
+end
+return 0
+"""
+
+SHAPE_READS_OVER_CAP_COUNTER = Counter(
+    "posthog_web_analytics_shape_reads_over_cap_total",
+    "Shape reads not recorded because the team's history for that day reached its size cap",
+)
 
 
 def _hour_start(at: datetime) -> datetime:
@@ -18,12 +35,17 @@ def _redis_key(team_id: int, day: datetime) -> str:
 
 def record_shape_read(*, team_id: int, shape_key: str, at: datetime) -> None:
     hour = _hour_start(at)
-    key = _redis_key(team_id, hour)
     client = redis.get_client(socket_timeout=_RECORD_TIMEOUT_SECONDS, socket_connect_timeout=_RECORD_TIMEOUT_SECONDS)
-    pipeline = client.pipeline(transaction=False)
-    pipeline.sadd(key, f"{shape_key}:{hour.hour:02d}")
-    pipeline.expire(key, _TTL)
-    pipeline.execute()
+    added = client.eval(
+        _ADD_UNDER_CAP,
+        1,
+        _redis_key(team_id, hour),
+        f"{shape_key}:{hour.hour:02d}",
+        MAX_SHAPE_HOURS_PER_TEAM_DAY,
+        int(_TTL.total_seconds()),
+    )
+    if not added:
+        SHAPE_READS_OVER_CAP_COUNTER.inc()
 
 
 def shape_read_hours(*, team_id: int, now: datetime, hours: int = HISTORY_DAYS * 24) -> dict[str, list[datetime]]:

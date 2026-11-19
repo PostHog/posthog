@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from posthog import redis
 
+from products.web_analytics.backend.warming import read_history
 from products.web_analytics.backend.warming.read_history import record_shape_read, shape_read_hours
 
 TEAM_ID = 918273
@@ -34,4 +37,20 @@ class TestShapeReadHistory(SimpleTestCase):
         assert history == {
             "shape-a": [NOW_HOUR, NOW_HOUR - timedelta(hours=11), NOW_HOUR - timedelta(hours=167)],
             "shape-b": [NOW_HOUR - timedelta(days=2)],
+        }
+
+    def test_a_full_day_admits_no_new_shapes_but_keeps_recording_known_ones(self) -> None:
+        with patch.object(read_history, "MAX_SHAPE_HOURS_PER_TEAM_DAY", 2):
+            record_shape_read(team_id=TEAM_ID, shape_key="shape-a", at=NOW - timedelta(hours=1))
+            record_shape_read(team_id=TEAM_ID, shape_key="shape-b", at=NOW - timedelta(hours=1))
+            record_shape_read(team_id=TEAM_ID, shape_key="shape-c", at=NOW - timedelta(hours=1))
+            record_shape_read(team_id=TEAM_ID, shape_key="shape-a", at=NOW - timedelta(hours=1))
+            record_shape_read(team_id=TEAM_ID, shape_key="shape-c", at=NOW - timedelta(days=1))
+
+        history = shape_read_hours(team_id=TEAM_ID, now=NOW)
+
+        assert history == {
+            "shape-a": [NOW_HOUR - timedelta(hours=1)],
+            "shape-b": [NOW_HOUR - timedelta(hours=1)],
+            "shape-c": [NOW_HOUR - timedelta(days=1)],
         }

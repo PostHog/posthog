@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import time_machine
 from posthog.test.base import (
@@ -362,21 +363,23 @@ class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("user_read", None, True, True),
-            ("warming_run", "webAnalyticsQueryWarming", True, False),
-            ("switched_off", None, False, False),
+            ("user_read", {}, True, True),
+            ("warming_run", {"trigger": "webAnalyticsQueryWarming", "feature": Feature.CACHE_WARMUP}, True, False),
+            ("digest_run", {"feature": Feature.DIGEST}, True, False),
+            ("scheduled_workflow", {"kind": "temporal"}, True, False),
+            ("switched_off", {}, False, False),
         ]
     )
     def test_only_user_reads_enter_the_shape_read_history(
-        self, name: str, trigger: str | None, enabled: bool, recorded: bool
+        self, name: str, tags: dict[str, Any], enabled: bool, recorded: bool
     ) -> None:
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="-7d"),
             properties=[EventPropertyFilter(key="$host", value=name, operator=PropertyOperator.EXACT)],
         )
 
-        if trigger:
-            tag_queries(team_id=self.team.pk, trigger=trigger, feature=Feature.CACHE_WARMUP)
+        if tags:
+            tag_queries(team_id=self.team.pk, **tags)
         try:
             with override_instance_config("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED", enabled):
                 WebOverviewQueryRunner(team=self.team, query=query).run()
