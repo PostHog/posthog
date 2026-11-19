@@ -11,10 +11,8 @@ target=$2
 runner=$3
 wrapper=$4
 interval=${SCENARIO_LIVE_COPY_SECONDS:-5}
-final_limit=${SCENARIO_LIVE_COPY_FINAL_SECONDS:-20}
+limit=${SCENARIO_LIVE_COPY_LIMIT_SECONDS:-20}
 copied=0
-copying=
-sleeping=
 
 say() { printf 'host-live-copy: %s\n' "$1" >&2; }
 
@@ -36,11 +34,9 @@ copy() {
         return 0
     }
     [ "$size" -gt "$copied" ] || return 0
-    timeout "$1" aws s3 cp --only-show-errors - "$target" <"$snapshot" >/dev/null 2>&1 &
-    copying=$!
-    wait "$copying"
+    timeout -k 2 "$limit" aws s3 cp --only-show-errors - "$target" <"$snapshot" >/dev/null 2>&1 &
+    wait $!
     status=$?
-    copying=
     if [ "$status" = 0 ]; then
         copied=$size
     else
@@ -50,11 +46,14 @@ copy() {
 
 finish() {
     trap '' TERM
-    for child in $copying $sleeping; do
+    for child in $(jobs -p); do
         kill -TERM "$child" 2>/dev/null
     done
-    copying=
-    copy "$final_limit"
+    wait
+    while kill -0 "$runner" 2>/dev/null; do
+        sleep 0.2
+    done
+    copy
     rm -f "$snapshot"
     exit 0
 }
@@ -66,10 +65,8 @@ snapshot=$(mktemp) || exit 0
 trap finish TERM
 while kill -0 "$wrapper" 2>/dev/null; do
     kill -0 "$runner" 2>/dev/null || finish
-    copy "$interval"
+    copy
     sleep "$interval" </dev/null >/dev/null 2>&1 &
-    sleeping=$!
-    wait "$sleeping"
-    sleeping=
+    wait $!
 done
 rm -f "$snapshot"

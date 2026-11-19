@@ -35,6 +35,7 @@ fi
 case $target in
 */live.jsonl)
     [ -z "\${FAKE_LIVE_FAILS:-}" ] || exit 1
+    [ -z "\${FAKE_LIVE_DELAY:-}" ] || sleep "$FAKE_LIVE_DELAY"
     if [ -n "\${FAKE_LIVE_HANGS:-}" ]; then
         touch "$FAKE_S3.hanging"
         exec sleep 1000
@@ -47,12 +48,14 @@ cat >"$target.part" && mv "$target.part" "$target"
 const FAKE_RUNNER = `#!/usr/bin/env bash
 run="$XDG_CACHE_HOME/posthog-scenarios/${RUN_ID}"
 mkdir -p "$run"
+end_live_log() { [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s\\n' '${TICK.slice(14)}' '${END}' >>"$run/live.jsonl"; }
+[ -z "\${FAKE_SLOW_STOP:-}" ] || trap 'sleep "$FAKE_SLOW_STOP"; end_live_log; exit 0' TERM
 [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s' '${START}' '${TICK.slice(0, 14)}' >>"$run/live.jsonl"
 [ -z "\${FAKE_CARD_SECONDS:-}" ] || sleep "$FAKE_CARD_SECONDS"
 if [ -n "\${FAKE_HOLD:-}" ]; then
     while [ ! -e "$FAKE_RELEASE" ]; do sleep 0.02; done
 fi
-[ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s\\n' '${TICK.slice(14)}' '${END}' >>"$run/live.jsonl"
+end_live_log
 exit "\${FAKE_CARD_EXIT:-0}"
 `
 
@@ -98,6 +101,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
                 ...env,
             },
             stdio: 'ignore',
+            detached: true,
         })
         const exited = new Promise<number | null>((resolve) => wrapper.once('exit', (code) => resolve(code)))
         const run = { dir, wrapper, exited }
@@ -107,6 +111,11 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
     const object = (run: Run, key: string): string => path.join(run.dir, 's3', BUCKET, 'runs', RUN_ID, key)
     const release = (run: Run): void => writeFileSync(path.join(run.dir, 'release'), '')
+    const signalAll = (run: Run, signal: NodeJS.Signals): void => {
+        try {
+            process.kill(-run.wrapper.pid!, signal)
+        } catch {}
+    }
 
     async function until(check: () => boolean, what: string): Promise<void> {
         for (const deadline = Date.now() + 10_000; !check(); ) {
@@ -145,22 +154,27 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
     afterEach(() => {
         for (const run of runs.splice(0)) {
-            release(run)
-            run.wrapper.kill('SIGKILL')
+            signalAll(run, 'SIGKILL')
         }
         rmSync(root, { recursive: true, force: true })
     })
 
-    it('copies the whole lines of the live log to the run while the card runs, and the rest when it ends', async () => {
-        const run = start('run', { FAKE_LIVE: '1', FAKE_HOLD: '1' })
+    it.each([
+        ['', {}],
+        [', even when one copy takes longer than the interval', { FAKE_LIVE_DELAY: '0.5' }],
+    ])(
+        'copies the whole lines of the live log to the run while the card runs, and the rest when it ends%s',
+        async (_, env) => {
+            const run = start('run', { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1' })
 
-        await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
-        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n`)
+            await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
+            expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n`)
 
-        release(run)
-        await run.exited
-        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n${TICK}\n${END}\n`)
-    })
+            release(run)
+            await run.exited
+            expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n${TICK}\n${END}\n`)
+        }
+    )
 
     it('makes a final copy when the card ends between two copies', async () => {
         const run = start('run', { FAKE_LIVE: '1', FAKE_HOLD: '1', SCENARIO_LIVE_COPY_SECONDS: '600' })
@@ -170,6 +184,16 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         await run.exited
 
         expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(readFileSync(liveLogIn(run.dir, RUN_ID), 'utf8'))
+    })
+
+    it('copies the records the card writes as it stops when the whole run is stopped at once', async () => {
+        const run = start('run', { FAKE_LIVE: '1', FAKE_HOLD: '1', FAKE_SLOW_STOP: '0.5' })
+        await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
+
+        signalAll(run, 'SIGTERM')
+        await run.exited
+
+        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n${TICK}\n${END}\n`)
     })
 
     it.each([
@@ -205,7 +229,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
                 FAKE_HOLD: '1',
                 FAKE_LIVE_HANGS: '1',
                 SCENARIO_LIVE_COPY_SECONDS: '600',
-                SCENARIO_LIVE_COPY_FINAL_SECONDS: '1',
+                SCENARIO_LIVE_COPY_LIMIT_SECONDS: '1',
             },
             { runId: RUN_ID, content: `${START}\n` }
         )
