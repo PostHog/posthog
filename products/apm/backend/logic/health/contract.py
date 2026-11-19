@@ -72,6 +72,13 @@ class ServiceEdge:
     p95_ms: float | None
 
 
+class VersionSource(LabeledStrEnum):
+    """The resource attribute a deployment version is read from."""
+
+    SERVICE_VERSION = "service.version"
+    K8S_REPLICASET_NAME = "k8s.replicaset.name"
+
+
 class DependencyKind(LabeledStrEnum):
     SERVICE = "service"
     DATABASE = "database"
