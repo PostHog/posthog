@@ -13,7 +13,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             content: (
                 <>
                     <Markdown>
-                        Install via Swift Package Manager. PostHog requires Xcode 26 or later, and iOS 15, macOS 11,
+                        Install via Swift Package Manager. PostHog requires Xcode 26 or later, and iOS 15, macOS 12,
                         tvOS 15, watchOS 10, or visionOS 1 or later.
                     </Markdown>
                     <CodeBlock
