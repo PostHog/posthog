@@ -580,6 +580,29 @@ class TestWrappedEventJoins(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "event_table_cte",
+                "WITH '' AS properties, sub AS (WITH properties AS y SELECT y FROM events AS e) SELECT y FROM sub",
+                PropertyDefinition.Type.EVENT,
+            ),
+            (
+                "person_scalar_subquery",
+                "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) FROM raw_persons AS t)",
+                PropertyDefinition.Type.PERSON,
+            ),
+        ]
+    )
+    def test_inherited_scalar_alias_does_not_hide_local_property_column(
+        self, _name: str, query: str, property_type: int
+    ) -> None:
+        printed, context = self._compile(
+            query, restricted={RestrictedProperty(name="private_key", property_type=property_type)}
+        )
+        self.assertIn("JSONDropKeysPool(", printed)
+        self.assertTrue(any(isinstance(value, list) and "private_key" in value for value in context.values.values()))
+
+    @parameterized.expand(
+        [
+            (
                 "root",
                 "WITH (SELECT properties FROM raw_persons LIMIT 1) AS x, x AS y SELECT (SELECT y FROM numbers(1)) FROM numbers(1)",
             ),

@@ -1233,6 +1233,7 @@ class Resolver(CloningVisitor):
         node_type = ast.SelectQueryType()
         self._pending_scalar_ctes[-1]["scope"] = node_type
         self._pending_scalar_ctes[-1]["has_from"] = node.select_from is not None
+        self._pending_scalar_ctes[-1]["local_ctes"] = set(node.ctes or {})
         self.scopes.append(node_type)
 
         parent_ctes = self.ctes
@@ -2343,6 +2344,14 @@ class Resolver(CloningVisitor):
             if name in pending_ctes:
                 return False
             if name in self.ctes:
+                frame = self._pending_scalar_ctes[-1]
+                if (
+                    frame["has_from"]
+                    and name not in frame["local_ctes"]
+                    and not scope.tables
+                    and not scope.anonymous_tables
+                ):
+                    return False
                 continue
             if name in scope.aliases:
                 continue
