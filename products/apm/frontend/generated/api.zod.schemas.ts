@@ -78,6 +78,12 @@ export const DependenciesResponseApi = zod.object({
         )
         .describe('One edge per caller and callee, most requests first.'),
     truncated: zod.boolean().describe('True when more edges matched than the response holds.'),
+    sampled: zod
+        .boolean()
+        .describe(
+            'True when the window held more traces than the sample reads, so the counts cover only the sampled traces.'
+        ),
+    trace_count: zod.number().describe('How many whole traces the edges were computed from.'),
     environment: zod
         .string()
         .nullable()
@@ -229,6 +235,12 @@ export const HealthRowApi = zod.object({
     p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
     span_count: zod.number().describe('Requests counted in the window.'),
     error_count: zod.number().describe('Requests with an error status in the window.'),
+    apdex: zod
+        .number()
+        .nullable()
+        .describe(
+            'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+        ),
 })
 
 export type HealthRowApi = zod.input<typeof HealthRowApi>
@@ -268,6 +280,12 @@ export const EndpointHealthApi = zod.object({
             p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
             span_count: zod.number().describe('Requests counted in the window.'),
             error_count: zod.number().describe('Requests with an error status in the window.'),
+            apdex: zod
+                .number()
+                .nullable()
+                .describe(
+                    'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                ),
         })
         .describe('The health row every surface renders.'),
 })
@@ -314,6 +332,12 @@ export const EndpointsHealthResponseApi = zod.object({
                         p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
                         span_count: zod.number().describe('Requests counted in the window.'),
                         error_count: zod.number().describe('Requests with an error status in the window.'),
+                        apdex: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                            ),
                     })
                     .describe('The health row every surface renders.'),
             })
@@ -391,6 +415,12 @@ export const ServiceHealthApi = zod.object({
             p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
             span_count: zod.number().describe('Requests counted in the window.'),
             error_count: zod.number().describe('Requests with an error status in the window.'),
+            apdex: zod
+                .number()
+                .nullable()
+                .describe(
+                    'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                ),
         })
         .describe('The health row every surface renders.'),
     sparkline: zod.array(zod.number()).describe('Request counts per bucket across the window, oldest first.'),
@@ -425,6 +455,12 @@ export const ServicesHealthResponseApi = zod.object({
                         p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
                         span_count: zod.number().describe('Requests counted in the window.'),
                         error_count: zod.number().describe('Requests with an error status in the window.'),
+                        apdex: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                'Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.'
+                            ),
                     })
                     .describe('The health row every surface renders.'),
                 sparkline: zod
