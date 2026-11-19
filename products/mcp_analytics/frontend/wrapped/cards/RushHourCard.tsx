@@ -20,7 +20,7 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
                 {detail} Times are in {card.timezone}.
             </p>
             <div
-                className="MCPWrapped__rise grid grid-cols-[1rem_repeat(24,minmax(0,1fr))] gap-0.5 font-mono text-[9px]"
+                className="MCPWrapped__rise grid grid-cols-[1rem_repeat(24,minmax(0,1fr))] gap-0.5 text-xs"
                 aria-label="Calls by weekday and hour"
             >
                 {DAY_LETTERS.map((letter, dayIndex) => (

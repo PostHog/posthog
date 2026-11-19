@@ -19,11 +19,11 @@ export function ModelsCard({ card }: { card: MCPWrappedSharesCardApi }): JSX.Ele
                 {families.map((family, index) => (
                     <li
                         key={family.name}
-                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-2"
+                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-2 text-sm tabular-nums"
                     >
-                        <span className="text-lg font-bold">{index + 1}</span>
-                        <span className="truncate text-sm">{family.name}</span>
-                        <span className="text-sm">{formatPercent(family.share)}</span>
+                        <span className="font-bold">{index + 1}</span>
+                        <span className="truncate">{family.name}</span>
+                        <span>{formatPercent(family.share)}</span>
                         <span className="col-span-2 col-start-2 h-1.5 overflow-hidden rounded bg-white/20">
                             <span
                                 className={
@@ -35,7 +35,7 @@ export function ModelsCard({ card }: { card: MCPWrappedSharesCardApi }): JSX.Ele
                     </li>
                 ))}
             </ol>
-            <p className="MCPWrapped__rise m-0 text-xs opacity-75">
+            <p className="MCPWrapped__rise m-0 text-sm opacity-75">
                 Grouped by model family, as each agent reported it.
             </p>
         </WrappedCard>

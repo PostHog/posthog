@@ -17,7 +17,9 @@ export function TopToolsCard({
         <WrappedCard cardKey="top_tools" kicker="Your most-called tool">
             {top && (
                 <>
-                    <div className="MCPWrapped__pop break-all font-mono text-3xl font-bold">{top.tool}</div>
+                    <div className="MCPWrapped__pop break-all font-mono text-4xl font-bold leading-tight">
+                        {top.tool}
+                    </div>
                     <p className="MCPWrapped__rise m-0 text-base">
                         {humanFriendlyNumber(top.calls)} calls, {formatPercent(top.calls / totalCalls)} of all tool
                         calls.
@@ -28,11 +30,11 @@ export function TopToolsCard({
                 {card.tools.map((tool, index) => (
                     <li
                         key={tool.tool}
-                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-2"
+                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-2 text-sm tabular-nums"
                     >
-                        <span className="text-lg font-bold">{index + 1}</span>
-                        <span className="truncate font-mono text-sm">{tool.tool}</span>
-                        <span className="text-sm">{humanFriendlyNumber(tool.calls)}</span>
+                        <span className="font-bold">{index + 1}</span>
+                        <span className="truncate font-mono">{tool.tool}</span>
+                        <span>{humanFriendlyNumber(tool.calls)}</span>
                         <span className="col-span-2 col-start-2 h-1.5 overflow-hidden rounded bg-white/20">
                             <span
                                 className={
