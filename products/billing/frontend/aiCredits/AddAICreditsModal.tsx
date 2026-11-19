@@ -14,8 +14,9 @@ import { QuoteSummary } from './QuoteSummary'
 import { ReloadAmountFields } from './ReloadAmountFields'
 
 function AddFundsFooter(): JSX.Element {
-    const { isAddFundsFormSubmitting, quote, card, addFundsConsent } = useValues(aiCreditsLogic)
+    const { isAddFundsFormSubmitting, quote, card, addFundsConsent, purchaseStatus } = useValues(aiCreditsLogic)
     const { closeAddFundsModal, submitAddFundsForm } = useActions(aiCreditsLogic)
+    const paying = isAddFundsFormSubmitting || purchaseStatus === 'processing'
 
     return (
         <div className="flex w-full flex-col gap-4">
@@ -31,7 +32,7 @@ function AddFundsFooter(): JSX.Element {
                 <LemonButton
                     type="primary"
                     onClick={submitAddFundsForm}
-                    loading={isAddFundsFormSubmitting}
+                    loading={paying}
                     disabledReason={
                         !card?.card
                             ? 'Add a card to your billing details first'
@@ -79,7 +80,7 @@ function AutomaticReloadChoice(): JSX.Element {
 }
 
 export function AddAICreditsModal(): JSX.Element {
-    const { addFundsModalOpen, purchaseError, card, cardLoading, settings } = useValues(aiCreditsLogic)
+    const { addFundsModalOpen, purchaseError, purchaseStatus, card, cardLoading, settings } = useValues(aiCreditsLogic)
     const { closeAddFundsModal } = useActions(aiCreditsLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -122,6 +123,14 @@ export function AddAICreditsModal(): JSX.Element {
 
                 {!settings?.automatic_reload.enabled && cardOnFile && <AutomaticReloadChoice />}
 
+                {purchaseStatus === 'processing' && (
+                    <LemonBanner type="info">We're processing your payment. This takes a few seconds.</LemonBanner>
+                )}
+                {purchaseStatus === 'still_processing' && (
+                    <LemonBanner type="info">
+                        Your payment is still processing. Pay again to check on it. You won't be charged twice.
+                    </LemonBanner>
+                )}
                 {purchaseError && <LemonBanner type="error">{purchaseError}</LemonBanner>}
             </Form>
         </LemonModal>

@@ -62,14 +62,16 @@ export const AI_CREDIT_PRESET_AMOUNTS_USD = [20, 50, 100]
 export const MINIMUM_AI_CREDIT_USD = 20
 export const MAXIMUM_AI_CREDIT_USD = 1_000_000
 const HISTORY_PAGE_SIZE = 50
-// After a purchase, the page reads the history again at this interval until billing adds the credit.
-const HISTORY_POLL_INTERVAL_MS = 2000
-// Then it stops and leaves the entry pending. The next visit to the page shows the added credit.
-const HISTORY_POLL_TIMEOUT_MS = 60_000
+// While billing still processes a purchase, the page sends it again at this interval to get its final answer.
+// After billing answers paid, the page reads the history at the same interval until billing adds the credit.
+const POLL_INTERVAL_MS = 2000
+// Each stops after this long. A purchase then stays processing until the person pays again with the same key, and
+// a history entry stays pending until the next visit to the page.
+const POLL_TIMEOUT_MS = 60_000
 
 const PURCHASE_FAILED = "The purchase didn't finish. Try again."
 const STRIPE_UNAVAILABLE = "We couldn't load the payment form. Disable any ad blocker, reload the page and try again."
-const BANK_DID_NOT_CONFIRM = "Your bank didn't confirm the payment, so you weren't charged. Try again."
+const CARD_NOT_AUTHENTICATED = "Your card's authentication didn't finish, so you weren't charged. Try again."
 // Each of these ends the purchase without a charge, so paying again starts a new purchase.
 const PURCHASE_ENDING_CODES = ['ai_credits_card_declined', 'ai_credits_purchase_ended', 'ai_credits_total_changed']
 
@@ -194,11 +196,20 @@ async function readSpendLimit(): Promise<AISpendLimitResponseApi | null> {
     }
 }
 
-/** A purchase that billing didn't answer. Billing derives the Stripe idempotency keys from its key. */
+/** A purchase that billing hasn't given a final answer. Billing derives the Stripe idempotency keys from its key. */
 export interface UnansweredPurchase {
     key: string
     amountUsd: string
+    totalUsd: string
+    /** When the person last paid. The page sends a processing purchase again until the poll timeout after this. */
+    startedAt: number
+    reloadForm: AddFundsForm | null
 }
+
+export type PurchaseAnswer =
+    | { kind: 'paid'; paymentId: string | null; authenticated: boolean }
+    | { kind: 'processing' }
+    | { kind: 'failed'; failure: PurchaseFailure; authenticated: boolean }
 
 /** A purchase whose history entry the page reads again until billing adds its credit. */
 export interface PolledPurchase {
@@ -222,7 +233,7 @@ export function polledPurchaseEntry(
     return newest && (newest.payment_id ?? null) !== polled.newestPaymentBefore ? newest : undefined
 }
 
-interface PurchaseFailure {
+export interface PurchaseFailure {
     code: string | null
     message: string
     /** Billing charged nothing, so paying again needs a new idempotency key. */
@@ -290,8 +301,8 @@ async function saveReloadSettings(
     }
 }
 
-/** Lets the bank authenticate a payment that billing started, such as a 3D Secure check. */
-async function confirmWithBank(clientSecret: string | null | undefined): Promise<void> {
+/** Runs the card authentication that billing's payment asks for, such as a 3D Secure check. */
+async function confirmCardAuthentication(clientSecret: string | null | undefined): Promise<void> {
     if (!clientSecret || !window.STRIPE_PUBLIC_KEY) {
         throw new PaymentNotConfirmed(STRIPE_UNAVAILABLE)
     }
@@ -302,7 +313,33 @@ async function confirmWithBank(clientSecret: string | null | undefined): Promise
     }
     const { error, paymentIntent } = await stripe.handleNextAction({ clientSecret })
     if (error || !paymentIntent || !['succeeded', 'processing'].includes(paymentIntent.status)) {
-        throw new PaymentNotConfirmed(BANK_DID_NOT_CONFIRM)
+        throw new PaymentNotConfirmed(CARD_NOT_AUTHENTICATED)
+    }
+}
+
+/**
+ * Sends the purchase to billing once. The same key reaches the same purchase, so billing charges the card at most
+ * once however often the page sends it.
+ */
+async function sendPurchase(organizationId: string, purchase: UnansweredPurchase): Promise<PurchaseAnswer> {
+    let authenticated = false
+    try {
+        const answer = await billingAiCreditsPurchaseCreate({
+            organization_id: organizationId,
+            amount_usd: purchase.amountUsd,
+            total_usd: purchase.totalUsd,
+            idempotency_key: purchase.key,
+        })
+        if (answer.status === 'processing') {
+            return { kind: 'processing' }
+        }
+        if (answer.status === 'requires_action') {
+            authenticated = true
+            await confirmCardAuthentication(answer.client_secret)
+        }
+        return { kind: 'paid', paymentId: answer.payment_id ?? null, authenticated }
+    } catch (error) {
+        return { kind: 'failed', failure: purchaseFailure(error), authenticated }
     }
 }
 
@@ -345,6 +382,7 @@ export interface aiCreditsLogicValues {
     previousSpendLoading: boolean
     previousSpendPeriodsAgo: number | null
     purchaseError: string | null
+    purchaseStatus: 'processing' | 'still_processing' | null
     quote: AICreditQuoteResponseApi | null
     quoteError: string | null
     quoteLoading: boolean
@@ -517,19 +555,26 @@ export interface aiCreditsLogicActions {
     pollHistoryAgain: () => {
         value: true
     }
+    purchaseAnswered: (answer: PurchaseAnswer) => {
+        answer: PurchaseAnswer
+    }
     purchaseCompleted: (
         amountUsd: number,
         authenticated: boolean,
-        processing: boolean,
         paymentId: string | null
     ) => {
         amountUsd: number
         authenticated: boolean
         paymentId: string | null
-        processing: boolean
+    }
+    purchaseTimedOut: () => {
+        value: true
     }
     recordPageOrganization: (organizationId: string | null) => {
         organizationId: string | null
+    }
+    resendPurchase: () => {
+        value: true
     }
     resetAddFundsForm: (values?: AddFundsForm) => {
         values?: AddFundsForm
@@ -693,15 +738,12 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         closeSettingsModal: true,
         setUnansweredPurchase: (purchase: UnansweredPurchase | null) => ({ purchase }),
         setPurchaseError: (error: string | null) => ({ error }),
-        purchaseCompleted: (
-            amountUsd: number,
-            authenticated: boolean,
-            processing: boolean,
-            paymentId: string | null
-        ) => ({
+        purchaseAnswered: (answer: PurchaseAnswer) => ({ answer }),
+        resendPurchase: true,
+        purchaseTimedOut: true,
+        purchaseCompleted: (amountUsd: number, authenticated: boolean, paymentId: string | null) => ({
             amountUsd,
             authenticated,
-            processing,
             paymentId,
         }),
         startPollingHistory: (purchase: PolledPurchase) => ({ purchase }),
@@ -768,12 +810,19 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         ],
         addFundsModalOpen: [false, { openAddFundsModal: () => true, closeAddFundsModal: () => false }],
         settingsModalOpen: [false, { openSettingsModal: () => true, closeSettingsModal: () => false }],
-        // One key per purchase the person confirms. A retry after billing didn't answer reuses it, so billing
-        // charges the card at most once. The key stays until billing answers, also when the person closes the
+        // One key per purchase the person pays for. Every send of that purchase reuses it, so billing charges the
+        // card at most once. The key stays until billing gives a final answer, also when the person closes the
         // modal or the quote reloads.
         unansweredPurchase: [
             null as UnansweredPurchase | null,
             { setUnansweredPurchase: (_, { purchase }) => purchase, purchaseCompleted: () => null },
+        ],
+        purchaseStatus: [
+            null as 'processing' | 'still_processing' | null,
+            {
+                purchaseAnswered: (_, { answer }) => (answer.kind === 'processing' ? 'processing' : null),
+                purchaseTimedOut: () => 'still_processing',
+            },
         ],
         polledPurchase: [
             null as PolledPurchase | null,
@@ -831,41 +880,16 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 }
                 // Another amount is another purchase, so it gets a new key.
                 const unanswered = values.unansweredPurchase
-                const key = unanswered?.amountUsd === quote.amount_usd ? unanswered.key : uuid()
-                actions.setUnansweredPurchase({ key, amountUsd: quote.amount_usd })
+                const purchase: UnansweredPurchase = {
+                    key: unanswered?.amountUsd === quote.amount_usd ? unanswered.key : uuid(),
+                    amountUsd: quote.amount_usd,
+                    totalUsd: quote.total_usd,
+                    startedAt: Date.now(),
+                    reloadForm: form.reloadEnabled && !values.settings?.automatic_reload.enabled ? { ...form } : null,
+                }
+                actions.setUnansweredPurchase(purchase)
                 actions.setPurchaseError(null)
-                let authenticated = false
-                let processing = false
-                let paymentId: string | null = null
-                try {
-                    const purchase = await billingAiCreditsPurchaseCreate({
-                        organization_id: values.pageOrganizationId,
-                        amount_usd: quote.amount_usd,
-                        total_usd: quote.total_usd,
-                        idempotency_key: key,
-                    })
-                    processing = purchase.status === 'processing'
-                    paymentId = purchase.payment_id ?? null
-                    if (purchase.status === 'requires_action') {
-                        authenticated = true
-                        await confirmWithBank(purchase.client_secret)
-                    }
-                } catch (error) {
-                    const failure = purchaseFailure(error)
-                    if (failure.endsPurchase) {
-                        actions.setUnansweredPurchase(null)
-                    }
-                    if (failure.code === 'ai_credits_total_changed') {
-                        actions.loadQuote(form.amountUsd)
-                    }
-                    actions.setPurchaseError(failure.message)
-                    posthog.capture('ai credits purchase failed', { code: failure.code, authenticated })
-                    return
-                }
-                if (form.reloadEnabled && !values.settings?.automatic_reload.enabled) {
-                    await turnOnReloadAfterPurchase(values.pageOrganizationId, card, form, quote.total_usd)
-                }
-                actions.purchaseCompleted(Number(quote.amount_usd), authenticated, processing, paymentId)
+                actions.purchaseAnswered(await sendPurchase(values.pageOrganizationId, purchase))
             },
         },
         spendSettingsForm: {
@@ -1097,13 +1121,53 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             actions.loadPreviousSpend(periodsAgo)
             posthog.capture('ai credits period selected', { periods_ago: periodsAgo })
         },
-        purchaseCompleted: ({ amountUsd, authenticated, processing, paymentId }) => {
-            posthog.capture('ai credits purchase completed', { amount_usd: amountUsd, authenticated, processing })
-            lemonToast.success(
-                processing
-                    ? "We're still processing your payment. Your AI credits show as pending until they reach your balance."
-                    : 'Payment received. Your AI credits show as pending until they reach your balance.'
-            )
+        purchaseAnswered: async ({ answer }) => {
+            const purchase = values.unansweredPurchase
+            if (answer.kind === 'processing') {
+                if (!purchase || Date.now() - purchase.startedAt >= POLL_TIMEOUT_MS) {
+                    actions.purchaseTimedOut()
+                    return
+                }
+                cache.disposables.add(() => {
+                    const timerId = window.setTimeout(() => actions.resendPurchase(), POLL_INTERVAL_MS)
+                    return () => window.clearTimeout(timerId)
+                }, 'purchaseResend')
+                return
+            }
+            if (answer.kind === 'failed') {
+                const { failure } = answer
+                if (failure.endsPurchase) {
+                    actions.setUnansweredPurchase(null)
+                }
+                if (failure.code === 'ai_credits_total_changed') {
+                    actions.loadQuote(values.addFundsForm.amountUsd)
+                }
+                actions.setPurchaseError(failure.message)
+                // The person may have closed the modal while billing still processed the purchase.
+                if (!values.addFundsModalOpen) {
+                    lemonToast.error(failure.message)
+                }
+                posthog.capture('ai credits purchase failed', {
+                    code: failure.code,
+                    authenticated: answer.authenticated,
+                })
+                return
+            }
+            const card = values.card?.card
+            if (purchase?.reloadForm && card && !values.settings?.automatic_reload.enabled) {
+                await turnOnReloadAfterPurchase(values.pageOrganizationId, card, purchase.reloadForm, purchase.totalUsd)
+            }
+            actions.purchaseCompleted(Number(purchase?.amountUsd ?? 0), answer.authenticated, answer.paymentId)
+        },
+        resendPurchase: async () => {
+            const purchase = values.unansweredPurchase
+            if (purchase) {
+                actions.purchaseAnswered(await sendPurchase(values.pageOrganizationId, purchase))
+            }
+        },
+        purchaseCompleted: ({ amountUsd, authenticated, paymentId }) => {
+            posthog.capture('ai credits purchase completed', { amount_usd: amountUsd, authenticated })
+            lemonToast.success('Payment received. Your AI credits show as pending until they reach your balance.')
             actions.closeAddFundsModal()
             actions.startPollingHistory({
                 paymentId,
@@ -1134,12 +1198,12 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         // One timer at a time. Disposing it stops the polling, and unmounting the page disposes it too.
         pollHistoryAgain: () => {
             const polled = values.polledPurchase
-            if (!polled || Date.now() - polled.startedAt >= HISTORY_POLL_TIMEOUT_MS) {
+            if (!polled || Date.now() - polled.startedAt >= POLL_TIMEOUT_MS) {
                 actions.stopPollingHistory()
                 return
             }
             cache.disposables.add(() => {
-                const timerId = window.setTimeout(() => actions.loadHistory(), HISTORY_POLL_INTERVAL_MS)
+                const timerId = window.setTimeout(() => actions.loadHistory(), POLL_INTERVAL_MS)
                 return () => window.clearTimeout(timerId)
             }, 'historyPoll')
         },

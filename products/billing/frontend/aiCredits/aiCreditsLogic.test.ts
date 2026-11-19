@@ -52,9 +52,12 @@ describe('aiCreditsLogic', () => {
     let logic: ReturnType<typeof aiCreditsLogic.build>
     let purchaseKeys: string[]
     let firstPurchaseAnswer: [number, Record<string, string>]
+    // Billing's answers after the first send, in order. Once they run out, billing answers paid.
+    let laterPurchaseAnswers: [number, Record<string, string>][]
 
     beforeEach(() => {
         purchaseKeys = []
+        laterPurchaseAnswers = []
         useMocks({
             get: {
                 '/api/billing/ai_credits/settings/': () => [
@@ -88,9 +91,10 @@ describe('aiCreditsLogic', () => {
             post: {
                 '/api/billing/ai_credits/purchase/': async ({ request }) => {
                     purchaseKeys.push(((await request.json()) as { idempotency_key: string }).idempotency_key)
-                    return purchaseKeys.length === 1
-                        ? firstPurchaseAnswer
-                        : [200, { status: 'paid', total_usd: QUOTE.total_usd }]
+                    if (purchaseKeys.length === 1) {
+                        return firstPurchaseAnswer
+                    }
+                    return laterPurchaseAnswers.shift() ?? [200, { status: 'paid', total_usd: QUOTE.total_usd }]
                 },
             },
         })
@@ -111,7 +115,7 @@ describe('aiCreditsLogic', () => {
     it.each([
         ['billing never answered', 503, 'ai_credits_purchase_unfinished', 50, true],
         ['billing never answered and the amount changed', 503, 'ai_credits_purchase_unfinished', 100, false],
-        ['the bank declined the card', 402, 'ai_credits_card_declined', 50, false],
+        ['the card issuer declined the card', 402, 'ai_credits_card_declined', 50, false],
         ['the purchase ended', 409, 'ai_credits_purchase_ended', 50, false],
     ])('pays again after %s with the right key', async (_, status, code, retryAmountUsd, sameKey) => {
         firstPurchaseAnswer = [status, { code, detail: 'PostHog says what happened' }]
@@ -279,6 +283,97 @@ describe('aiCreditsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.spend?.period_start).toEqual('2026-10-18')
+    })
+
+    describe('while billing still processes a purchase', () => {
+        const PROCESSING: [number, Record<string, string>] = [202, { status: 'processing' }]
+
+        beforeEach(async () => {
+            firstPurchaseAnswer = PROCESSING
+            logic.actions.openAddFundsModal()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('sends the purchase again with the same key until billing answers paid', async () => {
+            laterPurchaseAnswers = [PROCESSING]
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.purchaseStatus).toEqual('processing')
+            expect(logic.values.addFundsModalOpen).toEqual(true)
+
+            await jest.advanceTimersByTimeAsync(4000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(purchaseKeys).toHaveLength(3)
+            expect(new Set(purchaseKeys).size).toEqual(1)
+            expect(logic.values.purchaseStatus).toBeNull()
+            expect(logic.values.unansweredPurchase).toBeNull()
+            expect(logic.values.addFundsModalOpen).toEqual(false)
+        })
+
+        it('shows a decline that billing answers after processing', async () => {
+            laterPurchaseAnswers = [[402, { code: 'ai_credits_card_declined', detail: 'Your card issuer declined' }]]
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(purchaseKeys).toHaveLength(2)
+            expect(logic.values.purchaseStatus).toBeNull()
+            expect(logic.values.purchaseError).toEqual('Your card issuer declined')
+            expect(logic.values.unansweredPurchase).toBeNull()
+            expect(logic.values.addFundsModalOpen).toEqual(true)
+        })
+
+        it('stops after the timeout and keeps the key, so paying again checks on the same purchase', async () => {
+            laterPurchaseAnswers = Array.from({ length: 40 }, () => PROCESSING)
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(61_000)
+            await expectLogic(logic).toFinishAllListeners()
+            const sendsAtTimeout = purchaseKeys.length
+
+            expect(logic.values.purchaseStatus).toEqual('still_processing')
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(purchaseKeys).toHaveLength(sendsAtTimeout)
+
+            laterPurchaseAnswers = []
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(new Set(purchaseKeys).size).toEqual(1)
+            expect(logic.values.addFundsModalOpen).toEqual(false)
+        })
+
+        it('turns automatic reload on only once the purchase is paid', async () => {
+            const reloadSaves: Record<string, unknown>[] = []
+            useMocks({
+                patch: {
+                    '/api/billing/ai_credits/settings/automatic_reload/': async ({ request }) => {
+                        reloadSaves.push((await request.json()) as Record<string, unknown>)
+                        return [200, RELOAD_ON]
+                    },
+                },
+            })
+            laterPurchaseAnswers = [PROCESSING]
+            logic.actions.setAddFundsFormValue('reloadEnabled', true)
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(reloadSaves).toEqual([])
+
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(reloadSaves).toHaveLength(1)
+            expect(reloadSaves[0]).toMatchObject({ enabled: true })
+        })
     })
 
     describe('after a purchase', () => {

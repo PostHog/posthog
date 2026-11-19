@@ -39,7 +39,8 @@ function balanceNote(balanceUsd: number, runwayDays: number | null, pendingUsd: 
 
 const DECLINED_MESSAGES: Record<string, (card: string) => string> = {
     card_declined: (card) => `${card} declined`,
-    authentication_required: () => 'Your bank wanted to approve a reload',
+    authentication_required: () => 'Your card needed authentication for a reload',
+    no_address: () => 'No billing address on your card for a reload',
     no_card: () => 'No card on file for a reload',
 }
 
