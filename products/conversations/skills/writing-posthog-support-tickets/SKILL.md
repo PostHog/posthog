@@ -66,7 +66,8 @@ Use this shape, and leave out any part you have nothing real for.
 Keep the labels plain, without Markdown bold, because the person reviews the ticket in a plain text box.
 
 ```text
-Request: <what they need PostHog to do or answer, in their words>
+Request: <what happened, in one sentence, with the numbers and dates>
+<each open question, or the action they need, one per line>
 
 Details:
 - Project: <name>, ID <id>, <US or EU> Cloud, <link>
@@ -83,7 +84,7 @@ Error:
 <exact text, top frames only>
 ```
 
-- **Request** holds only what you could not answer. Write each open question in one short sentence, on its own line, and ask at most three. Merge questions that support would answer from the same records. Keep the person's exact words only for a term or a quote that matters. Add why only when it changes what support does.
+- **Request** opens with the problem in one sentence: what happened, with the numbers and dates, such as "Our project used 6 PostHog AI credits on 16 October, but nobody on our team has a chat from that day". Support reads this first, so it carries the situation, not the Details. Then ask only what you could not answer: each question in one short sentence, on its own line, at most three. Merge questions that support would answer from the same records. Keep the person's exact words only for a term or a quote that matters.
 - **Already checked** keeps their steps ("I tried") apart from yours ("<your name> checked"), so support knows which ones happened in their app. When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - **Left for support** says in one sentence what only PostHog can do or see. For a request, it is the action, such as "Delete the 3,817 events this query returns". For questions, it names the records only PostHog holds, such as "Our AI usage and chat records for those two days".
 - Copy IDs, queries and errors exactly.
