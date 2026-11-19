@@ -10,9 +10,9 @@ from django.core import mail
 from django.db import DatabaseError
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 
-from posthog.email import WorkflowsEmailError
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord
@@ -102,10 +102,27 @@ class TestTaskDigestDelivery(BaseTest):
         assert record.sent_at is None
         assert record.campaign_count == MAX_SEND_ATTEMPTS
 
+    def test_workflows_timeout_retries_and_a_reused_key_counts_as_sent(self) -> None:
+        with (
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+            patch("posthog.email.requests.post", side_effect=requests.Timeout("no response")) as post,
+        ):
+            with self.assertRaises(TemporaryTaskDigestFailure):
+                deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+            # The retry renders the digest again, so its content differs from the attempt Workflows may have queued.
+            post.side_effect = None
+            post.return_value = MagicMock(
+                status_code=422, text="reused", json=MagicMock(return_value={"code": "idempotency_key_reused"})
+            )
+            deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+
+        assert len(mail.outbox) == 0
+        record = MessagingRecord.objects.get(campaign_key=self.campaign_key)
+        assert record.sent_at is not None
+
     @parameterized.expand(
         [
             ("temporary", smtplib.SMTPDataError(451, b"Try later"), True),
-            ("workflows_uncertain", WorkflowsEmailError("timeout", code="timeout"), True),
             ("permanent", smtplib.SMTPDataError(550, b"Rejected"), False),
             ("no_acceptance", None, False),
         ]

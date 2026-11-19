@@ -644,6 +644,27 @@ class TestEmail(BaseTest):
         record = MessagingRecord.objects.get(campaign_key="smtp_routing")
         self.assertIsNotNone(record.sent_at)
 
+    @patch("posthog.email.requests.post")
+    def test_a_workflows_failure_does_not_hold_back_the_rest_of_the_batch(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(status_code=503, text="unavailable", json=MagicMock(return_value={}))
+        with (
+            patch(
+                "posthog.email.posthoganalytics.feature_enabled",
+                side_effect=lambda _key, distinct_id, **_kwargs: distinct_id == "routed@posthog.com",
+            ),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(
+                campaign_key="batch_routing", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("routed@posthog.com")
+            message.add_recipient("smtp@posthog.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+
+        self.assertEqual([m.to for m in mail.outbox], [["smtp@posthog.com"]])
+
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")
     def test_retry_after_failing_to_mark_a_workflows_send_replays_it_under_the_same_key(
