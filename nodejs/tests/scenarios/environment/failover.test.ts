@@ -107,6 +107,12 @@ describe('pg.failover', () => {
             /was above its 2.5 ACU idle limit in its last 5 minutes: 3 at /,
         ],
         [
+            'a reader above the lower idle limit its run manifest names',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] } },
+            (run) => (run.manifest.readerIdleMaxAcu = 1.5),
+            /was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /,
+        ],
+        [
             'a run manifest without the reader idle limit',
             {},
             (run) => delete run.manifest.readerIdleMaxAcu,
