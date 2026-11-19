@@ -11,8 +11,11 @@ export function ContentTileFooter({
 }: {
     footer: ContentWidgetFooter
     refreshedAt?: string
-}): JSX.Element {
+}): JSX.Element | null {
     const updatedAt = footer.showUpdatedAt ? refreshedAt : undefined
+    if (!footer.text && !updatedAt && !footer.link) {
+        return null
+    }
     return (
         // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.
         <CardFooter className="DashboardV2__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
