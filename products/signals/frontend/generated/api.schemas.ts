@@ -3088,6 +3088,66 @@ export interface MonitoringLeadCheckApi {
     readings: MonitoringReadingApi[]
 }
 
+/**
+ * * `metric_threshold` - Metric Threshold
+ * * `agent` - Agent
+ */
+export type SignalReportCheckKindEnumApi =
+    (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
+
+export const SignalReportCheckKindEnumApi = {
+    MetricThreshold: 'metric_threshold',
+    Agent: 'agent',
+} as const
+
+/**
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ * * `not_on_track` - Not on track
+ * * `on_track` - On track
+ * * `awaiting_reading` - Awaiting first reading
+ * * `readings_hidden` - Readings hidden
+ * * `final_check_only` - Final check only
+ */
+export type MonitoringCheckStateEnumApi = (typeof MonitoringCheckStateEnumApi)[keyof typeof MonitoringCheckStateEnumApi]
+
+export const MonitoringCheckStateEnumApi = {
+    Passed: 'passed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+    NotOnTrack: 'not_on_track',
+    OnTrack: 'on_track',
+    AwaitingReading: 'awaiting_reading',
+    ReadingsHidden: 'readings_hidden',
+    FinalCheckOnly: 'final_check_only',
+} as const
+
+export interface MonitoringCheckSummaryApi {
+    /** The follow-up check. */
+    check_id: string
+    /** The check's short label. */
+    title: string
+    /** `metric_threshold` compares a query result with a target; `agent` runs a scout that judges the claim.
+     *
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent */
+    kind: SignalReportCheckKindEnumApi
+    /** Where this check stands. `passed` and `failed`: final verification recorded a verdict. `cancelled`: removed from verification. `on_track` and `not_on_track`: whether its latest interim reading meets its target. `awaiting_reading`: it takes interim readings and has none yet. `readings_hidden`: this viewer may not read its data. `final_check_only`: it takes no interim readings and is judged when its window ends.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only */
+    state: MonitoringCheckStateEnumApi
+    /** End of this check's observation window. */
+    ends_at: string
+}
+
 export interface ReportMonitoringSummaryApi {
     /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
      *
@@ -3104,6 +3164,65 @@ export interface ReportMonitoringSummaryApi {
     ends_at: string
     /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
     lead_check: MonitoringLeadCheckApi | null
+    /** Every check this Monitoring period is verified with, oldest first, including cancelled ones. */
+    checks: MonitoringCheckSummaryApi[]
+}
+
+/**
+ * * `resolved` - Resolved
+ * * `resolved_by_assessment` - Resolved by assessment
+ * * `resolved_manually` - Resolved manually
+ * * `resolved_unverified` - Resolved without verification
+ * * `closed` - Closed
+ */
+export type MonitoringOutcomeKindEnumApi =
+    (typeof MonitoringOutcomeKindEnumApi)[keyof typeof MonitoringOutcomeKindEnumApi]
+
+export const MonitoringOutcomeKindEnumApi = {
+    Resolved: 'resolved',
+    ResolvedByAssessment: 'resolved_by_assessment',
+    ResolvedManually: 'resolved_manually',
+    ResolvedUnverified: 'resolved_unverified',
+    Closed: 'closed',
+} as const
+
+export interface MonitoringFollowUpApi {
+    /** The follow-up report researching why the fix was not shown to work. */
+    report_id: string
+    /**
+     * The follow-up report's title. Null until research names it.
+     * @nullable
+     */
+    title: string | null
+    /** The follow-up report's current status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+}
+
+export interface ReportMonitoringOutcomeApi {
+    /** How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: the checks were inconclusive and a report-level assessment established the fix worked. `resolved_manually`: a person resolved it; `dismissal_reason` says why. `resolved_unverified`: every check was cancelled, so nothing verified the fix. `closed`: the fix was not shown to work, and follow-up research was requested.
+     *
+     * * `resolved` - Resolved
+     * * `resolved_by_assessment` - Resolved by assessment
+     * * `resolved_manually` - Resolved manually
+     * * `resolved_unverified` - Resolved without verification
+     * * `closed` - Closed */
+    kind: MonitoringOutcomeKindEnumApi
+    /** When Monitoring ended. */
+    ended_at: string
+    /** The report researching why this Monitoring period did not establish the fix. Null until grouping places its research signal. */
+    follow_up: MonitoringFollowUpApi | null
 }
 
 export interface SignalReportListApi {
@@ -3123,6 +3242,11 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly monitoring_started_at?: string | null
+    /**
+     * When this Monitoring period ended in resolved or closed. Null while Monitoring continues, when it was archived (archiving pauses it), and after the report is reopened. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_ended_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -3262,8 +3386,10 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly personal_reason: string | null
-    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with follow-up checks, or, with `view=monitoring_recent`, left Monitoring in the last 14 days. */
     readonly monitoring_summary: ReportMonitoringSummaryApi | null
+    /** How Monitoring ended, for a resolved or closed report that went through it. Null otherwise, and when Monitoring is disabled. */
+    readonly monitoring_outcome: ReportMonitoringOutcomeApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -3768,6 +3894,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly monitoring_started_at?: string | null
+    /**
+     * When this Monitoring period ended in resolved or closed. Null while Monitoring continues, when it was archived (archiving pauses it), and after the report is reopened. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_ended_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -7355,18 +7486,6 @@ export interface CommitDiffResponseApi {
     /** True when the diff was too large to return in full and has been truncated. */
     readonly truncated: boolean
 }
-
-/**
- * * `metric_threshold` - Metric Threshold
- * * `agent` - Agent
- */
-export type SignalReportCheckKindEnumApi =
-    (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
-
-export const SignalReportCheckKindEnumApi = {
-    MetricThreshold: 'metric_threshold',
-    Agent: 'agent',
-} as const
 
 /**
  * * `pending` - Pending
@@ -13506,6 +13625,10 @@ export type SignalsReportsListParams = {
      */
     channel_id?: string
     /**
+     * Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me.
+     */
+    connected?: string
+    /**
      * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
      */
     count_only?: boolean
@@ -13633,7 +13756,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
@@ -13832,6 +13955,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
+    /**
+     * Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me.
+     */
+    connected?: string
     /**
      * ISO 8601 datetime. Keeps reports created at or after this time.
      */
