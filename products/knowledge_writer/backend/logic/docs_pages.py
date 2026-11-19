@@ -1,9 +1,12 @@
 import os
 import re
 import json
+import shlex
 import base64
+import shutil
 import signal
 import string
+import hashlib
 import subprocess
 from bisect import bisect_right
 from collections import Counter
@@ -21,9 +24,15 @@ HARNESS_FOLDER = ".posthog"
 WRITER_QUOTES_PATH = ".git/writer-quotes.json"
 COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
 RULES_FILE_NAMES = frozenset({"AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"})
-WRITER_FORMAT_COMMAND_PATH = ".git/writer-format-command"
-FORMAT_TIMEOUT_SECONDS = 300
-FORMAT_OUTPUT_TAIL_LINES = 20
+ENFORCER_TIMEOUT_SECONDS = 300
+ENFORCER_OUTPUT_TAIL_LINES = 20
+ENFORCER_INSTALL_MARKER_PREFIX = ".git/writer-enforcer-install-"
+PRE_COMMIT_VERSION = "4.7.0"
+PRE_COMMIT_CONFIG_PATH = ".pre-commit-config.yaml"
+COREPACK_VERSION = "0.34.0"
+LINT_STAGED_RUN = ("node_modules/.bin/lint-staged", "--no-stash")
+MISSING_TOOL_PATTERN = re.compile(r"Executable `[^`]+` not found|ENOENT|command not found")
+LOCKFILE_BY_PACKAGE_MANAGER = {"pnpm": "pnpm-lock.yaml", "yarn": "yarn.lock", "npm": "package-lock.json"}
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
 SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
@@ -926,12 +935,12 @@ class SandboxChange:
 def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     if os.path.lexists(settings.manifest_path):
         os.remove(settings.manifest_path)
-    format_result = run_format_command(settings.base_sha)
-    subprocess.run(["git", "add", "-A", "--", ".", f":(exclude){HARNESS_FOLDER}"], check=True)
-    subprocess.run(["git", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", HARNESS_FOLDER], check=True)
+    edited_paths = paths_changed_since(settings.base_sha)
+    stage_change()
+    enforcer_entries, enforcer_problems = run_enforcers(settings.base_sha, edited_paths)
     listed = git_output("diff", "--cached", "--raw", "-z", "--no-renames", settings.base_sha).split(b"\0")
     change = SandboxChange(
-        problems=[], written={}, deleted=[], patches={}, changed_files=[], base_texts={}, head_texts={}
+        problems=enforcer_problems, written={}, deleted=[], patches={}, changed_files=[], base_texts={}, head_texts={}
     )
     for raw_entry, path in zip(listed[0::2], listed[1::2]):
         read_staged_path(change, settings, raw_entry, path)
@@ -956,7 +965,7 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
             "written": change.written,
             "deleted": change.deleted,
             "patches": change.patches,
-            **({"format": format_result} if format_result is not None else {}),
+            "enforcers": enforcer_entries,
         }
     )
     manifest_bytes = len(manifest.encode())
@@ -973,35 +982,182 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     return 0
 
 
-def run_format_command(base_sha: str) -> dict | None:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EnforcerRunner:
+    name: str
+    install: tuple[str, ...]
+    run: tuple[str, ...]
+    lockfile: str
+    is_given_changed_paths: bool
+    not_run_reason: str | None
+
+
+def stage_change() -> None:
+    subprocess.run(["git", "add", "-A", "--", ".", f":(exclude){HARNESS_FOLDER}"], check=True)
+    subprocess.run(["git", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", HARNESS_FOLDER], check=True)
+
+
+def run_enforcers(base_sha: str, edited_paths: frozenset[str]) -> tuple[list[dict], list[str]]:
+    entries: list[dict] = []
+    problems: list[str] = []
+    for runner in (lint_staged_runner(), pre_commit_runner()):
+        if runner is None:
+            continue
+        entry, problem = run_enforcer(runner, base_sha, edited_paths)
+        entries.append(entry)
+        if problem is not None:
+            problems.append(problem)
+    return entries, problems
+
+
+def lint_staged_runner() -> EnforcerRunner | None:
     try:
-        command = Path(WRITER_FORMAT_COMMAND_PATH).read_text().strip()
-    except OSError:
+        package = json.loads(Path("package.json").read_text())
+    except (OSError, ValueError):
+        package = {}
+    package = package if isinstance(package, dict) else {}
+    if not declares_lint_staged(package):
         return None
-    if not command:
-        return None
-    edited_before = paths_changed_since(base_sha)
-    exit_code, output = run_with_timeout(command)
-    restore_paths_formatted_outside_change(base_sha, edited_before)
-    if exit_code is None:
-        show_agent(f"warning: the format command `{command}` did not finish within {FORMAT_TIMEOUT_SECONDS} seconds")
-    if exit_code:
-        output_tail = "\n".join(output.splitlines()[-FORMAT_OUTPUT_TAIL_LINES:])
-        show_agent(f"warning: the format command `{command}` exited with {exit_code}:\n{output_tail}")
-    return {"exit_code": exit_code}
-
-
-def run_with_timeout(command: str) -> tuple[int | None, str]:
-    process = subprocess.Popen(
-        ["bash", "-c", command],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        errors="replace",
-        start_new_session=True,
+    package_manager = declared_package_manager(package.get("packageManager"))
+    lockfile = LOCKFILE_BY_PACKAGE_MANAGER.get(package_manager, "package-lock.json")
+    return EnforcerRunner(
+        name="lint-staged",
+        install=node_install_command(package_manager),
+        run=LINT_STAGED_RUN,
+        lockfile=lockfile,
+        is_given_changed_paths=False,
+        not_run_reason=node_install_refusal(package_manager, lockfile),
     )
+
+
+def declares_lint_staged(package: dict) -> bool:
+    dependency_lists = (package.get("dependencies"), package.get("devDependencies"))
+    return "lint-staged" in package or any(
+        isinstance(dependencies, dict) and "lint-staged" in dependencies for dependencies in dependency_lists
+    )
+
+
+def declared_package_manager(package_manager_field: object) -> str | None:
+    if isinstance(package_manager_field, str):
+        return package_manager_field.partition("@")[0]
+    return next((name for name, lockfile in LOCKFILE_BY_PACKAGE_MANAGER.items() if os.path.exists(lockfile)), None)
+
+
+def node_install_command(package_manager: str | None) -> tuple[str, ...]:
+    corepack = ("corepack",) if shutil.which("corepack") else ("npx", "--yes", f"corepack@{COREPACK_VERSION}")
+    if package_manager == "pnpm":
+        return (*corepack, "pnpm", "install", "--frozen-lockfile", "--ignore-scripts")
+    if package_manager == "yarn" and os.path.exists(".yarnrc.yml"):
+        return (*corepack, "yarn", "install", "--immutable", "--mode=skip-build")
+    if package_manager == "yarn":
+        return (*corepack, "yarn", "install", "--frozen-lockfile", "--ignore-scripts")
+    return ("npm", "ci", "--ignore-scripts")
+
+
+def node_install_refusal(package_manager: str | None, lockfile: str) -> str | None:
+    if package_manager is not None and package_manager not in LOCKFILE_BY_PACKAGE_MANAGER:
+        return f"the {package_manager} package manager is not supported"
+    if not os.path.exists(lockfile):
+        return f"there is no {lockfile} to install its tools from"
+    if subprocess.run(["git", "check-ignore", "-q", "node_modules/"]).returncode != 0:
+        return "node_modules is not ignored by git, so its tools cannot be installed"
+    return None
+
+
+def pre_commit_runner() -> EnforcerRunner | None:
+    if not os.path.exists(PRE_COMMIT_CONFIG_PATH):
+        return None
+    pre_commit = ("uvx", f"pre-commit@{PRE_COMMIT_VERSION}")
+    return EnforcerRunner(
+        name="pre-commit",
+        install=(*pre_commit, "install-hooks"),
+        run=(*pre_commit, "run", "--files"),
+        lockfile=PRE_COMMIT_CONFIG_PATH,
+        is_given_changed_paths=True,
+        not_run_reason=None if shutil.which("uvx") else "uvx is not installed",
+    )
+
+
+def run_enforcer(runner: EnforcerRunner, base_sha: str, edited_paths: frozenset[str]) -> tuple[dict, str | None]:
+    not_run_reason = runner.not_run_reason or install_runner(runner, base_sha, edited_paths)
+    if not_run_reason is None and shutil.which(runner.run[0]) is None:
+        not_run_reason = f"{runner.run[0]} is not installed"
+    if not_run_reason is not None:
+        show_agent(f"warning: the repository's {runner.name} could not run: {not_run_reason}")
+        return enforcer_entry(runner, None, not_run_reason), None
+    exit_code, output = run_enforcer_once(runner, base_sha, edited_paths)
+    if exit_code:
+        exit_code, output = run_enforcer_once(runner, base_sha, edited_paths)
+    missing_tool = MISSING_TOOL_PATTERN.search(output) if exit_code else None
+    if exit_code is None or missing_tool is not None:
+        not_run_reason = (
+            f"it did not finish within {ENFORCER_TIMEOUT_SECONDS} seconds"
+            if missing_tool is None
+            else f"a tool it calls is not installed ({missing_tool.group(0)})"
+        )
+        show_agent(f"warning: the repository's {runner.name} could not run: {not_run_reason}")
+        return enforcer_entry(runner, None, not_run_reason), None
+    if exit_code:
+        return enforcer_entry(runner, exit_code, None), (
+            f"the repository's {runner.name} failed with exit code {exit_code}. "
+            f"Fix what it reports and run the check again:\n{output_tail(output)}"
+        )
+    return enforcer_entry(runner, 0, None), None
+
+
+def install_runner(runner: EnforcerRunner, base_sha: str, edited_paths: frozenset[str]) -> str | None:
+    marker = Path(f"{ENFORCER_INSTALL_MARKER_PREFIX}{runner.name}")
+    lockfile_hash = hashlib.sha256(Path(runner.lockfile).read_bytes()).hexdigest()
+    if marker.exists() and marker.read_text() == lockfile_hash:
+        return None
+    exit_code, output = run_with_timeout(runner.install)
+    restore_paths_formatted_outside_change(base_sha, edited_paths)
+    stage_change()
+    if exit_code is None:
+        return f"installing its tools did not finish within {ENFORCER_TIMEOUT_SECONDS} seconds"
+    if exit_code:
+        show_agent(output_tail(output))
+        return f"installing its tools exited with {exit_code}"
+    marker.write_text(lockfile_hash)
+    return None
+
+
+def run_enforcer_once(runner: EnforcerRunner, base_sha: str, edited_paths: frozenset[str]) -> tuple[int | None, str]:
+    changed_files = sorted(path for path in edited_paths if os.path.isfile(path))
+    exit_code, output = run_with_timeout((*runner.run, *(changed_files if runner.is_given_changed_paths else [])))
+    restore_paths_formatted_outside_change(base_sha, edited_paths)
+    stage_change()
+    return exit_code, output
+
+
+def enforcer_entry(runner: EnforcerRunner, exit_code: int | None, not_run_reason: str | None) -> dict:
+    return {
+        "runner": runner.name,
+        "command": shlex.join(runner.run),
+        "exit_code": exit_code,
+        "not_run_reason": not_run_reason,
+    }
+
+
+def output_tail(output: str) -> str:
+    return "\n".join(output.splitlines()[-ENFORCER_OUTPUT_TAIL_LINES:])
+
+
+def run_with_timeout(argv: Sequence[str]) -> tuple[int | None, str]:
     try:
-        output, _ = process.communicate(timeout=FORMAT_TIMEOUT_SECONDS)
+        process = subprocess.Popen(
+            list(argv),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            start_new_session=True,
+            env={**os.environ, "CI": "1", "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"},
+        )
+    except FileNotFoundError:
+        return 127, f"{argv[0]} is not installed"
+    try:
+        output, _ = process.communicate(timeout=ENFORCER_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
@@ -1034,7 +1190,7 @@ def restore_paths_formatted_outside_change(base_sha: str, edited_before: frozens
         if os.path.lexists(created_path):
             os.remove(created_path)
     show_agent(
-        "The format command changed files you did not edit, so the check put them back: "
+        "The repository's tools changed files you did not edit, so the check put them back: "
         + ", ".join(formatted_outside_change)
     )
 

@@ -5,7 +5,7 @@
 - `logic/intake.py`: caps, page routing, and the start decision.
 - `logic/launch.py`: creates the writer task.
 - `logic/writer_change.py`: parses the `writer-change.json` artifact a run uploads.
-- `logic/pull_requests.py`: gates that change, commits it through `logic/server_commit.py`, and opens the docs pull request. It opens as a draft when grounding flags a line or did not run, an existing page outside the routed pages changed, a nav or redirect edit is flagged, the writer edited an `AGENTS.md`, `CLAUDE.md` or `CONTRIBUTING.md` above a changed page, or the docs repository's own format command failed in the sandbox.
+- `logic/pull_requests.py`: gates that change, commits it through `logic/server_commit.py`, and opens the docs pull request. It opens as a draft when grounding flags a line or did not run, an existing page outside the routed pages changed, a nav or redirect edit is flagged, the writer edited an `AGENTS.md`, `CLAUDE.md` or `CONTRIBUTING.md` above a changed page, or the docs repository's lint-staged or pre-commit checks could not run in the sandbox.
 - `logic/grounding.py`: checks each added page line against a verbatim quote from the source change.
 - `temporal/pull_request_workflow.py`: one workflow per docs pull request; it captures the `knowledge_writer outcome` event when the pull request closes and closes an unapproved one after 7 days.
 - `receivers.py`: calls `logic/pull_requests.py` when a writer run finishes.

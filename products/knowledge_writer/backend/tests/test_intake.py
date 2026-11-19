@@ -30,8 +30,8 @@ from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsR
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.docs_pages import (
+    PRE_COMMIT_CONFIG_PATH,
     SOURCE_DIFF_ATTACHMENT_NAME,
-    WRITER_FORMAT_COMMAND_PATH,
     WRITER_QUOTES_PATH,
 )
 from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
@@ -174,14 +174,14 @@ def _change(
     *,
     base_files: Mapping[str, str] = BASE_FILES,
     patches: Mapping[str, str] | None = None,
-    format_result: Mapping[str, object] | None = None,
+    enforcer_entry: Mapping[str, object] | None = None,
 ) -> bytes:
     written = written or {}
     encoded = {path: base64.b64encode(text.encode()).decode() for path, text in written.items()}
     git_patches = {path: _git_patch(base_files[path], text) for path, text in written.items() if path in base_files}
     shipped_patches = git_patches if patches is None else patches
     manifest = {"written": encoded, "deleted": list(deleted), "patches": shipped_patches}
-    return json.dumps({**manifest, "format": format_result} if format_result else manifest).encode()
+    return json.dumps({**manifest, "enforcers": [enforcer_entry] if enforcer_entry else []}).encode()
 
 
 DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
@@ -196,8 +196,13 @@ NEW_PAGE_AND_UNRELATED_NAV_EDIT_FILES = {
 }
 RULES_FILE_EDIT_FLAG = "AGENTS.md: edits a rules file that agents follow"
 ADDED_RULES_LINE = "Docs follow the style guide. Add each new page to the nav."
-FAILED_FORMAT = {"command": "pnpm format:docs", "exit_code": 2}
-FAILED_FORMAT_LINE = "format command exited with 2 in the writer's sandbox"
+UNRUN_ENFORCER = {
+    "runner": "lint-staged",
+    "command": "node_modules/.bin/lint-staged --no-stash",
+    "exit_code": None,
+    "not_run_reason": "installing its tools exited with 1",
+}
+UNRUN_ENFORCER_LINE = "lint-staged: installing its tools exited with 1"
 UNRELATED_NAV_EDIT_FLAGS = [
     f"{NAV_PATH}: changes a link to /pricing, which is not a page this change adds or removes",
     f"{NAV_PATH}: changes a link to /plans, which is not a page this change adds or removes",
@@ -730,7 +735,7 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
 
 
 @pytest.mark.parametrize(
-    "author_login, docs_github_state, create_reply, expected_review, published_files, published_format, quotes, "
+    "author_login, docs_github_state, create_reply, expected_review, published_files, published_enforcer, quotes, "
     "expected_draft, expected_body_flags, expected_event_flags",
     [
         pytest.param(
@@ -830,12 +835,12 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             OPENED,
             ("octo-person", None, None),
             {**NEW_PAGE_FILES, "AGENTS.md": f"{ADDED_RULES_LINE}\n"},
-            FAILED_FORMAT,
+            UNRUN_ENFORCER,
             SUPPORTED_QUOTES,
             True,
-            [RULES_FILE_EDIT_FLAG, FAILED_FORMAT_LINE],
+            [RULES_FILE_EDIT_FLAG, UNRUN_ENFORCER_LINE],
             (True, [ADDED_RULES_LINE], [], [RULES_FILE_EDIT_FLAG]),
-            id="rules_file_edit_and_failed_format_command_open_a_draft_listing_both",
+            id="rules_file_edit_and_an_enforcer_that_could_not_run_open_a_draft_listing_both",
         ),
     ],
 )
@@ -850,7 +855,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     create_reply: dict,
     expected_review: tuple[str | None, str | None, int | None],
     published_files: Mapping[str, str],
-    published_format: Mapping[str, object] | None,
+    published_enforcer: Mapping[str, object] | None,
     quotes: Mapping[str, str] | None,
     expected_draft: bool,
     expected_body_flags: list[str],
@@ -893,7 +898,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         _finish_run(
             started.task_id,
             django_capture_on_commit_callbacks,
-            change=_change(published_files, base_files=published_base_files, format_result=published_format),
+            change=_change(published_files, base_files=published_base_files, enforcer_entry=published_enforcer),
             github=docs_github,
         )
     create_for_new_page.assert_called_once()
@@ -953,10 +958,10 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         SHARING_PAGE_PATH,
         *UNRELATED_NAV_EDIT_FLAGS,
         RULES_FILE_EDIT_FLAG,
-        FAILED_FORMAT_LINE,
+        UNRUN_ENFORCER_LINE,
     )
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
-    assert "pnpm format:docs" not in body
+    assert "node_modules/.bin/lint-staged" not in body
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == OPENED_PULL_REQUEST_NUMBER
@@ -1471,8 +1476,25 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 """
 
 
+FAKE_UVX = """#!/bin/sh
+case "$*" in *install-hooks*) exit 0 ;; esac
+[ -f .git/fake-uvx-ran ] && exit 0
+touch .git/fake-uvx-ran
+printf '// formatted\\n' >> src/navs/index.js
+exit 1
+"""
+
+
+def _fake_uvx_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    folder = tmp_path_factory.mktemp("fake-bin")
+    uvx = folder / "uvx"
+    uvx.write_text(FAKE_UVX)
+    uvx.chmod(0o755)
+    return folder
+
+
 @pytest.mark.parametrize(
-    "is_adding_page_with_nav_edit, is_editing_rules_with_failing_format, source_diff, quote_by_line, "
+    "is_adding_page_with_nav_edit, is_editing_rules_with_pre_commit_fixing_files, source_diff, quote_by_line, "
     "routed_page_keys, expected_warnings",
     [
         (False, False, None, None, frozenset(), []),
@@ -1482,11 +1504,7 @@ NAV_HEAD_TEXT = """export const docsMenu = [
             None,
             None,
             frozenset(),
-            [
-                "warning: the format command `printf '// formatted\\n' >> src/navs/index.js; echo unformatted; "
-                "exit 3` exited with 3:",
-                "warning: AGENTS.md: edits a rules file that agents follow",
-            ],
+            ["warning: AGENTS.md: edits a rules file that agents follow"],
         ),
         (
             True,
@@ -1519,8 +1537,9 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 )
 def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
     is_adding_page_with_nav_edit: bool,
-    is_editing_rules_with_failing_format: bool,
+    is_editing_rules_with_pre_commit_fixing_files: bool,
     source_diff: str | None,
     quote_by_line: dict[str, str] | None,
     routed_page_keys: frozenset[str],
@@ -1533,6 +1552,7 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
             if name not in ("PYTHONPATH", "DJANGO_SETTINGS_MODULE") and not name.startswith("GIT_")
         },
         "HOME": str(tmp_path),
+        "PATH": f"{_fake_uvx_folder(tmp_path_factory)}{os.pathsep}{os.environ['PATH']}",
         **{
             f"GIT_{role}_{field}": value
             for role in ("AUTHOR", "COMMITTER")
@@ -1549,6 +1569,8 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     nav.write_text(NAV_BASE_TEXT)
     rules = tmp_path / "AGENTS.md"
     rules.write_text("Docs follow the style guide.\n")
+    if is_editing_rules_with_pre_commit_fixing_files:
+        (tmp_path / PRE_COMMIT_CONFIG_PATH).write_text("repos: []\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=git_env, check=True)
     tree = subprocess.run(["git", "write-tree"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True)
@@ -1565,11 +1587,8 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if is_adding_page_with_nav_edit:
         (page.parent / "exports.mdx").write_text("Export your recordings.\n")
         nav.write_text(NAV_HEAD_TEXT)
-    if is_editing_rules_with_failing_format:
+    if is_editing_rules_with_pre_commit_fixing_files:
         rules.write_text("Docs follow the style guide. Remove retired pages from the nav.\n")
-        (tmp_path / WRITER_FORMAT_COMMAND_PATH).write_text(
-            "printf '// formatted\\n' >> src/navs/index.js; echo unformatted; exit 3\n"
-        )
     if source_diff is not None:
         attachment = tmp_path / ".posthog" / "attachments" / "run" / "file" / SOURCE_DIFF_ATTACHMENT_NAME
         attachment.parent.mkdir(parents=True)
@@ -1595,6 +1614,17 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     assert "rules: AGENTS.md" in check.stdout.splitlines()
     manifest = json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())
     assert nav.read_text() == (NAV_HEAD_TEXT if is_adding_page_with_nav_edit else NAV_BASE_TEXT)
-    assert manifest.get("format") == ({"exit_code": 3} if is_editing_rules_with_failing_format else None)
+    assert manifest["enforcers"] == (
+        [
+            {
+                "runner": "pre-commit",
+                "command": "uvx pre-commit@4.7.0 run --files",
+                "exit_code": 0,
+                "not_run_reason": None,
+            }
+        ]
+        if is_editing_rules_with_pre_commit_fixing_files
+        else []
+    )
     assert manifest["patches"][DOCS_PAGE_PATH] == "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
     assert manifest["deleted"] == [str(removed_page.relative_to(tmp_path))]

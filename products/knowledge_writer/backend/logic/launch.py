@@ -133,11 +133,9 @@ def build_writer_prompt(
         "and in each folder above the pages you change, and the style guides they link, then follow them. "
         "The check prints each one that applies as a `rules:` line, so read any it names that you have not read. "
         "If your change makes one of those files wrong, update it in the same change, editing only what became wrong.",
-        "If those files or the repository's README name a command that formats or lints docs, write that command, "
-        f"unchanged, to `{docs_pages.WRITER_FORMAT_COMMAND_PATH}`. "
-        "The check runs it each time, before it stages your change. "
-        "Never install or download a tool or a dependency, and never swap in a different formatter or version: "
-        "if the command fails, the pull request lists the failure for the reviewer.",
+        "The check runs the repository's own lint-staged or pre-commit checks on your change. "
+        "Fix each failure they report and run the check again. "
+        "Never install or download a tool or a dependency yourself.",
     ]
     if routing.page_urls:
         sections.append(

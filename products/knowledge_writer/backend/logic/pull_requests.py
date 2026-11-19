@@ -118,7 +118,7 @@ class DraftFlags:
     extra_pages: tuple[str, ...]
     companion_flags: tuple[str, ...]
     rules_flags: tuple[str, ...] = ()
-    format_failure: str | None = None
+    unrun_enforcers: tuple[str, ...] = ()
 
     @property
     def is_ready_for_review(self) -> bool:
@@ -128,7 +128,7 @@ class DraftFlags:
             and not self.extra_pages
             and not self.companion_flags
             and not self.rules_flags
-            and self.format_failure is None
+            and not self.unrun_enforcers
         )
 
 
@@ -167,11 +167,12 @@ def flag_sections(flags: DraftFlags) -> list[str]:
         sections.append(fenced_block(listed_flags))
         if unlisted_count:
             sections.append(f"{unlisted_count} more edits outside the docs pages are not listed.")
-    if flags.format_failure is not None:
+    if flags.unrun_enforcers:
         sections.append(
-            f"The repository's format command {flags.format_failure} in the writer's sandbox. "
-            "Run it on the changed files before you merge."
+            "The repository's own checks could not run in the writer's sandbox. "
+            "Run them on the changed files before you merge:"
         )
+        sections.append(fenced_block(tuple(listed_line(enforcer) for enforcer in flags.unrun_enforcers)))
     return sections
 
 
@@ -442,7 +443,7 @@ def publish_change(
         extra_pages=extra_pages(changed_files, docs_folders, routed_page_keys(task_id, team_id)),
         companion_flags=publication.flags,
         rules_flags=publication.rules_flags,
-        format_failure=change.format_failure,
+        unrun_enforcers=change.unrun_enforcers,
     )
     draft = replace(draft, flags=flags)
     is_opening_pull_requests = open_pull_requests_flag_state(Team.objects.get(id=team_id))
@@ -624,8 +625,8 @@ def capture_draft(
             "companion_flags": [listed_line(flag) for flag in listed_companion_flags(flags)]
             if flags is not None
             else None,
-            "format_failure": listed_line(flags.format_failure)
-            if flags is not None and flags.format_failure is not None
+            "unrun_enforcers": [listed_line(enforcer) for enforcer in flags.unrun_enforcers]
+            if flags is not None
             else None,
             "team_id": draft.team_id,
         },
