@@ -12,6 +12,7 @@ import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
+import hooks_workflowsPublish from '@/tools/workflows/publishHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
@@ -738,26 +739,29 @@ const WorkflowsPublishSchema = () => {
 const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>, Schemas.HogFlowPublishResponse> => ({
     name: 'workflows-publish',
     schema: WorkflowsPublishSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.confirm !== undefined) {
-            body['confirm'] = params.confirm
+    handler: withToolHooks(
+        hooks_workflowsPublish,
+        async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.confirm !== undefined) {
+                body['confirm'] = params.confirm
+            }
+            if (params.confirm_token !== undefined) {
+                body['confirm_token'] = params.confirm_token
+            }
+            const result = await context.api.request<Schemas.HogFlowPublishResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
+                body: await transformRequestBody(hooks_workflowsPublish, context, params, body),
+            })
+            const filtered = omitResponseFields(result, [
+                'workflow.actions.*.config.inputs',
+                'workflow.draft.actions.*.config.inputs',
+            ]) as typeof result
+            return filtered
         }
-        if (params.confirm_token !== undefined) {
-            body['confirm_token'] = params.confirm_token
-        }
-        const result = await context.api.request<Schemas.HogFlowPublishResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, [
-            'workflow.actions.*.config.inputs',
-            'workflow.draft.actions.*.config.inputs',
-        ]) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const WorkflowsReputationGetSchema = () => {

@@ -84,4 +84,25 @@ describe('workflow write response shape', () => {
         expectStepWithoutInputs(result.workflow.actions[0])
         expectStepWithoutInputs(result.workflow.draft.actions[0])
     })
+
+    const TEST_SENDER_LIVE = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
+
+    it.each([
+        { tool: 'enable', warnings: TEST_SENDER_LIVE, noted: true },
+        { tool: 'enable', warnings: [], noted: false },
+        { tool: 'publish', warnings: TEST_SENDER_LIVE, noted: true },
+        { tool: 'publish', warnings: [], noted: false },
+    ])('$tool tells the agent to relay a test sender warning: $noted', async ({ tool, warnings, noted }) => {
+        const flow = { ...workflow(), warnings }
+        const request = vi.fn().mockResolvedValue(tool === 'enable' ? flow : { published: true, workflow: flow })
+        const handler = tool === 'enable' ? workflowsEnable().handler : GENERATED_TOOLS['workflows-publish']!().handler
+
+        const result: any = await handler(createMockContext(request), { id: 'wf-1', confirm: true } as any)
+
+        if (noted) {
+            expect(result._agentNote).toContain('test_sender_live')
+        } else {
+            expect(result._agentNote).toBeUndefined()
+        }
+    })
 })

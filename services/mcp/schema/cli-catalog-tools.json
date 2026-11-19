@@ -57337,8 +57337,8 @@
     "workflows-publish": {
         "name": "workflows-publish",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:workflows/publishHooks"],
+        "hooks": "workflows/publishHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -57358,7 +57358,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": true
         },
         "response": {
             "list": false,
