@@ -972,16 +972,23 @@ impl LabelCardinality {
         let now = (self.clock)();
         let ttl = self.settings.rule_ttl.as_secs() as i64;
         let mut merged = 0usize;
-        for key in bucket_keys(now, now + ttl) {
+        // A pod holds at most MAX_RULES, so reading more only adds load when senders fill Redis.
+        let mut budget = MAX_RULES;
+        'buckets: for key in bucket_keys(now, now + ttl) {
             let mut offset = 0usize;
             loop {
+                if budget == 0 {
+                    counter!("capture_metrics_label_cardinality_pull_capped").increment(1);
+                    break 'buckets;
+                }
+                let page_size = PULL_PAGE_SIZE.min(budget);
                 let page = match client
                     .zrangebyscore_limit_withscores(
                         key.clone(),
                         now.to_string(),
                         "+inf".to_string(),
                         offset as isize,
-                        PULL_PAGE_SIZE as isize,
+                        page_size as isize,
                     )
                     .await
                 {
@@ -990,6 +997,7 @@ impl LabelCardinality {
                     Err(e) => return Err(e),
                 };
                 let page_len = page.len();
+                budget -= page_len;
                 for (member, score) in page {
                     match serde_json::from_str::<Rule>(&member) {
                         Ok(mut rule) => {
@@ -1001,7 +1009,7 @@ impl LabelCardinality {
                         Err(e) => debug!("Skipping unreadable label drop rule: {e}"),
                     }
                 }
-                if page_len < PULL_PAGE_SIZE {
+                if page_len < page_size {
                     break;
                 }
                 offset += page_len;
@@ -2140,6 +2148,24 @@ mod tests {
 
         let actual: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
         assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn a_pull_stops_at_the_rule_cap() {
+        let members: Vec<(String, f64)> = (0..MAX_RULES + PULL_PAGE_SIZE)
+            .map(|i| (format!("unreadable-{i}"), (START + 60) as f64))
+            .collect();
+        let client =
+            MockRedisClient::new().zrangebyscore_withscores_ret(&bucket_key(START + 60), members);
+        let (detector, _) = detector(Mode::Enforce);
+        detector.pull_rules(&client).await.unwrap();
+
+        let reads = client
+            .get_calls()
+            .iter()
+            .filter(|call| call.op == "zrangebyscore_limit_withscores")
+            .count();
+        assert_eq!(reads, MAX_RULES / PULL_PAGE_SIZE);
     }
 
     #[tokio::test]
