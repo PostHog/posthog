@@ -777,14 +777,15 @@ def plain_text_from_html(html: str) -> str:
             zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
         )
     )
-    text = _HTML_LINK.sub(
-        lambda match: (
-            match.group(1)
-            if _HTML_TAG.sub("", match.group(2)).strip() == match.group(1)
-            else f"{_HTML_TAG.sub('', match.group(2)).strip()} ({match.group(1)})"
-        ),
-        text,
-    )
+
+    def plain_link(match: re.Match[str]) -> str:
+        # The tags the link drops can hold a condition too, so it stays around what the link prints.
+        opening = kept_control_flow(match.group(0)[: match.start(2) - match.start(0)].replace(match.group(1), ""))
+        label = _HTML_TAG.sub(lambda tag: kept_control_flow(tag.group(0)), match.group(2)).strip()
+        shown = _LIQUID_SLOT.sub("", label).strip()
+        return opening + (label if shown == match.group(1) else f"{label} ({match.group(1)})")
+
+    text = _HTML_LINK.sub(plain_link, text)
     text = _HTML_LINE_BREAK.sub("\n", text)
     text = html_lib.unescape(_HTML_TAG.sub(lambda match: kept_control_flow(match.group(0)), text))
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]

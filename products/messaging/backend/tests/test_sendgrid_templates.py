@@ -123,6 +123,18 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             converted.text.index("{% if") < converted.text.index("variables.token") < converted.text.index("{% endif")
         )
 
+    @parameterized.expand(
+        [
+            ("inside_the_link", '<a href="https://example.com">{{token}}<b {{#if allow}}>bold</b>{{/if}}</a>'),
+            ("on_the_link", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}'),
+        ]
+    )
+    def test_plain_text_keeps_a_condition_held_by_a_link_s_tags(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html})
+
+        assert converted.text.count("{% if variables.allow") == converted.text.count("{% endif %}") == 1
+        assert converted.text.index("{% if") < converted.text.index("{% endif")
+
     def test_a_note_names_a_tag_as_it_was_written(self) -> None:
         converted = convert_version({"html_content": "{{ x endraw <%subject%> }}", "generate_plain_content": False})
 
