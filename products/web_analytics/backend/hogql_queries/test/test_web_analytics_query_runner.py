@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -27,11 +29,13 @@ from posthog.schema import (
 
 from posthog.hogql.database.database import Database
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.actions.backend.facade.testing import create_action
 from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.web_analytics.backend.hogql_queries.shape_read_history import shape_read_hours
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -355,3 +359,29 @@ class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
             WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), self.team.timezone, []
         )
         assert props["shape_key"] == expected
+
+    @parameterized.expand(
+        [
+            ("user_read", None, True, True),
+            ("warming_run", "webAnalyticsQueryWarming", True, False),
+            ("switched_off", None, False, False),
+        ]
+    )
+    def test_only_user_reads_enter_the_shape_read_history(
+        self, name: str, trigger: str | None, enabled: bool, recorded: bool
+    ) -> None:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[EventPropertyFilter(key="$host", value=name, operator=PropertyOperator.EXACT)],
+        )
+
+        if trigger:
+            tag_queries(team_id=self.team.pk, trigger=trigger, feature=Feature.CACHE_WARMUP)
+        try:
+            with override_instance_config("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED", enabled):
+                WebOverviewQueryRunner(team=self.team, query=query).run()
+        finally:
+            reset_query_tags()
+
+        history = shape_read_hours(team_id=self.team.pk, now=datetime.now(UTC))
+        assert (compute_shape_key(query, self.team.timezone, []) in history) is recorded

@@ -2762,6 +2762,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                     if not query_run.is_warming:
                         cache_manager.record_read()
+                        self._record_runner_read()
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # The forced dispatch skips the result cache, but not the breaker: the
@@ -3598,6 +3599,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _runner_event_properties(self) -> dict[str, Any]:
         return {}
+
+    def _record_runner_read(self) -> None:
+        return None
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.
