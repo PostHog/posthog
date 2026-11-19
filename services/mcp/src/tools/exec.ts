@@ -30,7 +30,7 @@ import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from 
 import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
-import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
+import { compileSearchPattern, isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -120,7 +120,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
 function namesMatchingSearch(names: string[], term: string): string[] {
     if (isRegexPattern(term)) {
         try {
-            const regex = new RegExp(term, 'i')
+            const regex = compileSearchPattern(term)
             return names.filter((name) => regex.test(name))
         } catch {
             return []

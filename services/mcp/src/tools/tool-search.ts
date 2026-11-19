@@ -1,3 +1,5 @@
+import { RE2JS } from 're2js'
+
 /** The runtime `Tool` and the catalog's `ScopeGatedTool` both satisfy this shape. */
 export interface SearchableTool {
     name: string
@@ -30,12 +32,18 @@ export function isRegexPattern(pattern: string): boolean {
     return REGEX_METACHARACTER.test(pattern)
 }
 
+/** Compiles an agent's search pattern with RE2, whose matching time is linear in the input, because a
+ *  backtracking `RegExp` can block the process on a short pattern such as `(.*)+Z`. Throws on invalid syntax. */
+export function compileSearchPattern(pattern: string): RE2JS {
+    return RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE)
+}
+
 /** The `exec search` predicate for regex patterns, ordered by the field that matched so a name
  *  hit comes before a description mention, the way `searchToolsRanked` already orders words.
  *  Ties keep catalog order. Throws if the pattern is not a valid regex, so callers surface their
  *  own error message. */
 export function searchToolsRegex<T extends SearchableTool>(tools: readonly T[], pattern: string): T[] {
-    const regex = new RegExp(pattern, 'i')
+    const regex = compileSearchPattern(pattern)
     const matched: { tool: T; rank: number }[] = []
     for (const tool of tools) {
         const rank = ORDERED_FIELDS.findIndex((field) =>

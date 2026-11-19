@@ -76,8 +76,13 @@ describe('tool-search', () => {
             ])
         })
 
+        it('matches a nested-quantifier pattern without backtracking', () => {
+            const tools = [{ name: 'a', title: 'a', description: 'x'.repeat(32) }]
+            expect(searchToolsRegex(tools, '^(x+)+Z')).toEqual([])
+        })
+
         it('throws on an invalid regex so callers can surface their own message', () => {
-            expect(() => searchToolsRegex(TOOLS, '[invalid')).toThrow(/regular expression/i)
+            expect(() => searchToolsRegex(TOOLS, '[invalid')).toThrow(/parsing regexp/)
         })
     })
 
