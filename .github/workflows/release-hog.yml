@@ -16,7 +16,7 @@ on:
         paths:
             - 'hog/.sampo/changesets/*.md'
     schedule:
-        - cron: '0 10 * * 2'
+        - cron: '0 14 * * 2'
     workflow_dispatch:
 
 permissions:
