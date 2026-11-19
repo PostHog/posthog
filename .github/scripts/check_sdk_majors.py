@@ -37,7 +37,7 @@ SKIPPED_DIRS = {"node_modules", ".git", "dist", ".venv", "target", ".flox", "bui
 EXPECTED_MAJORS = {
     "posthoganalytics": 7,
     "posthog": 7,
-    "posthog-node": 5,
+    "posthog-node": 6,
     "posthog-js": 1,
     "@posthog/react": 1,
     "posthog-js-lite": 4,
@@ -53,6 +53,8 @@ NPM_WORKSPACES = (
     ("products/desktop/", "products/desktop/pnpm-workspace.yaml", "products/desktop/pnpm-lock.yaml"),
     ("", "pnpm-workspace.yaml", "pnpm-lock.yaml"),
 )
+# The desktop app is its own pnpm workspace with its own release, so it moves to posthog-node 6 in a separate migration PR.
+NPM_EXPECTED_MAJOR_OVERRIDES = {("products/desktop/", "posthog-node"): 5}
 
 # Wrapper packages that depend on an SDK. A routine wrapper release can raise its peer
 # range to the next SDK major, which is the same breaking change through a side door.
@@ -182,6 +184,12 @@ def npm_workspace_for(manifest: str) -> tuple[str, str]:
     raise AssertionError("unreachable: the root workspace matches every path")
 
 
+def npm_expected_major(path: str, package: str) -> int:
+    """The major `package` is held to in the pnpm workspace that owns `path`."""
+    prefix = next(prefix for prefix, _workspace_file, _lock in NPM_WORKSPACES if path.startswith(prefix))
+    return NPM_EXPECTED_MAJOR_OVERRIDES.get((prefix, package), EXPECTED_MAJORS[package])
+
+
 def npm_manifests(root: Path) -> list[tuple[str, str, str, str]]:
     """Every (manifest, section, package, spec) under root that names an npm SDK."""
     found = []
@@ -253,27 +261,25 @@ def check_node(root: Path) -> list[str]:
     problems = []
     for manifest, section, package, spec in npm_manifests(root):
         workspace_file, _lock = npm_workspace_for(manifest)
-        expected = EXPECTED_MAJORS[package]
+        expected = npm_expected_major(manifest, package)
         if spec == "catalog:":
             spec = pnpm_catalog(root / workspace_file).get(package, "")
         if not npm_pinned_to(spec, expected):
             problems.append(
                 f"{manifest} [{section}]: {package} declares {spec!r}, which is not pinned to major {expected}. {MIGRATION_HINT}"
             )
-    for _prefix, workspace_file, lock in NPM_WORKSPACES:
+    for prefix, workspace_file, lock in NPM_WORKSPACES:
         catalog = pnpm_catalog(root / workspace_file)
-        for package in NPM_SDKS:
-            if package in catalog and not npm_pinned_to(catalog[package], EXPECTED_MAJORS[package]):
-                problems.append(
-                    f"{workspace_file} catalog: {package} is {catalog[package]!r}, expected major {EXPECTED_MAJORS[package]}"
-                )
         lock_text = (root / lock).read_text(encoding="utf-8")
         for package in NPM_SDKS:
-            resolved = pnpm_lock_majors(lock_text, package)
-            if resolved and resolved != {EXPECTED_MAJORS[package]}:
+            expected = npm_expected_major(prefix, package)
+            if package in catalog and not npm_pinned_to(catalog[package], expected):
                 problems.append(
-                    f"{lock} resolves {package} to majors {sorted(resolved)}, expected {{{EXPECTED_MAJORS[package]}}}"
+                    f"{workspace_file} catalog: {package} is {catalog[package]!r}, expected major {expected}"
                 )
+            resolved = pnpm_lock_majors(lock_text, package)
+            if resolved and resolved != {expected}:
+                problems.append(f"{lock} resolves {package} to majors {sorted(resolved)}, expected {{{expected}}}")
     for lock, package, peer in NODE_WRAPPER_PEERS:
         lock_text = (root / lock).read_text(encoding="utf-8")
         ranges = pnpm_lock_peer_ranges(lock_text, package, peer)
