@@ -134,10 +134,20 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('loads properties', async () => {
+        const issuedQueries: string[] = []
+        useQueryMocks((query) => {
+            issuedQueries.push(query)
+            return { results: [S1_BASE_ROW, S2_BASE_ROW] }
+        })
+
         await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
+        expect(issuedQueries).toHaveLength(1)
+        const eventFilter = issuedQueries[0].split('WHERE event IN')[1].split('AND session_id')[0]
+        expect(eventFilter).toContain("'$pageview'")
+        expect(eventFilter).not.toContain("'$feature_flag_called'")
         expect(logic.values).toMatchObject({
             recordingProperties: EXPECTED_RECORDING_PROPERTIES,
             recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
@@ -206,7 +216,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(issuedQueries).toHaveLength(1)
-        // The WHERE clause lists every core event name, so a pin can only be found absent by looking
+        // The WHERE clause lists the core event names, so a pin can only be found absent by looking
         // at the select list. Searching the whole query trips over an unrelated event that shares the
         // pin's name as a substring.
         const selectList = issuedQueries[0].split('FROM events')[0]
