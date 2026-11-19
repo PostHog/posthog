@@ -596,6 +596,13 @@ class TestAbuseRules(SimpleTestCase):
                 content(hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  e(inputs.url)\n}"),
                 True,
             ),
+            (
+                "closure_called_as_a_tag_through_an_implicit_catch_local",
+                content(
+                    hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  return <e url={inputs.url} />\n}"
+                ),
+                True,
+            ),
             ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
             ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
             ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),

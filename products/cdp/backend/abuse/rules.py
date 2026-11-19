@@ -83,9 +83,10 @@ OUTBOUND_FUNCTIONS = INTERNAL_FUNCTIONS | {
 _NON_HOG_TEMPLATE_PREFIXES = ("plugin-", "segment-", "native-")
 
 _CALLBACK_FUNCTIONS = frozenset({"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce"})
-# The compiler declares locals of its own, such as `e` and `type` in a catch block, so a call is safe only when it names
-# a standard library function.
 _BUILTIN_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
+# Locals the bytecode compiler declares itself, which a call or a tag can reach like any other local.
+_CATCH_LOCALS = ("e", "type")
+_FOR_IN_LOCALS = ("__H_expr_H__", "__H_keys_H__", "__H_values_H__", "__H_index_H__", "__H_limit_H__")
 
 # Source that names none of these cannot match a rule that reads parsed Hog, so it is not parsed.
 _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "replaceAll"})))
@@ -276,7 +277,7 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
         self.visit(node.expr)
-        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
+        with self._scope([*_FOR_IN_LOCALS, node.valueVar, *([node.keyVar] if node.keyVar else [])]):
             self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
@@ -285,9 +286,10 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
-        for name, _error_type, handler in node.catches:
-            with self._scope([name] if name else []):
-                self.visit(handler)
+        with self._scope(_CATCH_LOCALS):
+            for name, _error_type, handler in node.catches:
+                with self._scope([name] if name else []):
+                    self.visit(handler)
         self.visit(node.finally_stmt)
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
