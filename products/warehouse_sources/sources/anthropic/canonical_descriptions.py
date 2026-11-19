@@ -418,4 +418,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "science_entitled_user_count": "Members holding a Claude Science seat entitlement at the time of the daily snapshot, independent of the organization-level Claude Science toggle.",
         },
     },
+    "organization": {
+        "description": "The Anthropic organization the configured Admin API key belongs to, as one row.",
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/retrieve",
+        "columns": {
+            "id": "Unique identifier (UUID) of the organization.",
+            "type": 'Object type, always "organization".',
+            "name": "Name of the organization.",
+        },
+    },
+    "analytics_chat_project_usage": {
+        "description": (
+            "Claude chat project activity, one row per project per UTC day. Data for a day lands "
+            "about a day later and may be revised by a few percent over the following days."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/analytics/apps/chat/projects/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and the project ID.",
+            "date": "UTC day the metrics are aggregated over, in RFC 3339 format.",
+            "project_id": "Tagged project identifier (claude_proj_...).",
+            "project_name": "Name of the project.",
+            "created_at": "RFC 3339 timestamp of when the project was created. Null if the project was deleted before attribution was recorded.",
+            "created_by_id": "Tagged ID (user_...) of the user who created the project. Null if unknown or the account no longer exists.",
+            "created_by_email_address": "Email address of the user who created the project.",
+            "distinct_conversation_count": "Distinct conversations in the project.",
+            "distinct_user_count": "Distinct users who used the project that day.",
+            "message_count": "Messages sent in the project that day.",
+        },
+    },
+    "analytics_artifact_activity": {
+        "description": (
+            "Artifact creation, one row per UTC day for each artifact MIME type and shared flag. "
+            "Covers artifacts created in Claude chat, Claude Code and Cowork."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/analytics/artifacts/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day, the artifact type and the shared flag.",
+            "date": "UTC day the metrics are aggregated over, in RFC 3339 format.",
+            "artifact_type": "Canonical artifact MIME type, such as text/markdown or application/vnd.ant.react, or other. Claude Code and Cowork artifacts report as text/html.",
+            "is_shared": "Whether the artifacts in this row have ever been shared beyond their creator.",
+            "artifacts_created_count": "Artifacts created that day.",
+            "published_artifacts_created_count": "Artifacts created that day that have been published. Never more than artifacts_created_count.",
+            "distinct_user_count": "Distinct users who created artifacts that day.",
+        },
+    },
 }

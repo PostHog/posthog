@@ -47,9 +47,16 @@ export function FailingDestinationsBanner({ sourceId }: { sourceId: string }): J
                                 <div className="text-xs break-words">{destination.latest_error}</div>
                             )}
                             <div>
-                                {paused
-                                    ? 'Open the destination and save it to resume.'
-                                    : 'Open the destination to fix its settings.'}
+                                {paused ? (
+                                    'Open the destination and save it to resume.'
+                                ) : (
+                                    <Link
+                                        to={urls.warehouseDestination(destination.id)}
+                                        data-attr="warehouse-destination-banner-errors-link"
+                                    >
+                                        See the error for each table
+                                    </Link>
+                                )}
                             </div>
                         </div>
                     </LemonBanner>

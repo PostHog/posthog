@@ -17,6 +17,10 @@ import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
@@ -35,6 +39,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManySimultaneousQueriesError,
 )
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.open_telemetry import CachingReplaySafeTracerProvider
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
@@ -105,7 +110,11 @@ from products.data_quality.backend.facade.enums import (
 from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, TrinoIncrementalWrite
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeTableResult,
+    StoredColumnType,
+    TrinoIncrementalWrite,
+)
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
@@ -236,7 +245,11 @@ class TestMaterializeViewManagedWarehouseActivity:
             use_trino=True,
         )
         asaved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
-        await database_sync_to_async(asaved_query.save)(update_fields=["origin"])
+        asaved_query.columns = {
+            "flag": {"clickhouse": "UInt8", "hogql": "IntegerDatabaseField", "valid": True},
+            "verified": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField", "valid": True},
+        }
+        await database_sync_to_async(asaved_query.save)(update_fields=["origin", "columns"])
         executable_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
 
         def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
@@ -280,6 +293,10 @@ class TestMaterializeViewManagedWarehouseActivity:
             saved_query_id=asaved_query.id,
             source_query=executable_query,
             incremental=None,
+            stored_column_types=(
+                StoredColumnType(name="flag", clickhouse_type="UInt8"),
+                StoredColumnType(name="verified", clickhouse_type="Nullable(Bool)"),
+            ),
             on_processed_bytes=unittest.mock.ANY,
             on_cpu_milliseconds=unittest.mock.ANY,
         )
@@ -2393,6 +2410,38 @@ class TestHogqlTableModifiers:
             assert "max_threads" not in client.arrow_query
         else:
             assert f"max_threads={expected_max_threads}" in client.arrow_query
+
+    async def test_a_failed_clickhouse_stream_marks_its_span_as_an_error(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+        client.arrow_error = ClickHouseError("Code: 241. Memory limit exceeded")
+        exporter = InMemorySpanExporter()
+        provider = CachingReplaySafeTracerProvider.create(Resource.create(attributes={"service.name": "test"}))
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with (
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client",
+                fake_get_client,
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.tracer",
+                provider.get_tracer(__name__),
+            ),
+            pytest.raises(ClickHouseError),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1 AS id", ateam, LOGGER.bind())]
+
+        (stream_span,) = [
+            span for span in exporter.get_finished_spans() if span.name == "materialize_view.clickhouse_stream"
+        ]
+        assert stream_span.status.status_code == StatusCode.ERROR
+        assert [event.attributes["exception.type"] for event in stream_span.events if event.attributes] == [
+            f"{ClickHouseError.__module__}.{ClickHouseError.__qualname__}"
+        ]
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [

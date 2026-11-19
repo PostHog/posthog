@@ -468,6 +468,109 @@ async fn test_insert_cohort_members_idempotent(
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::subset_across_chunks(120, 70)]
+#[case::empty_input(5, 0)]
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids(
+    #[case] members: usize,
+    #[case] to_delete: usize,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7710;
+    let other_cohort_id: i64 = 7711;
+
+    // Every person is in two cohorts, so a delete that ignores cohort_id empties the other one.
+    let mut person_ids = Vec::new();
+    for i in 0..members {
+        let p = ctx
+            .insert_person(&format!("cohort_delete_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        ctx.add_person_to_cohort(p.id, cohort_id)
+            .await
+            .expect("add to cohort");
+        ctx.add_person_to_cohort(p.id, other_cohort_id)
+            .await
+            .expect("add to other cohort");
+        person_ids.push(p.id);
+    }
+    let (stale, kept) = person_ids.split_at(to_delete);
+
+    let deleted = ctx
+        .storage
+        .delete_cohort_members_by_person_ids(cohort_id, stale)
+        .await
+        .expect("delete cohort members");
+
+    assert_eq!(deleted, to_delete as i64);
+    assert_eq!(cohort_row_count(&ctx.pool, cohort_id, stale).await, 0);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, kept).await,
+        kept.len() as i64
+    );
+    assert_eq!(
+        cohort_row_count(&ctx.pool, other_cohort_id, &person_ids).await,
+        members as i64
+    );
+
+    let retried = ctx
+        .storage
+        .delete_cohort_members_by_person_ids(cohort_id, stale)
+        .await
+        .expect("retry delete");
+    assert_eq!(retried, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::repeat_in_second_chunk(55, 1, 0)]
+#[case::partial_overlap_in_second_chunk(80, 10, 20)]
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids_with_repeats_across_chunks(
+    #[case] members: usize,
+    #[case] repeated_from_first: usize,
+    #[case] extra_distinct: usize,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7712;
+    let first_chunk = common::BULK_CHUNK_SIZE;
+
+    let mut person_ids = Vec::with_capacity(members);
+    for i in 0..members {
+        let p = ctx
+            .insert_person(&format!("cohort_repeat_delete_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        ctx.add_person_to_cohort(p.id, cohort_id)
+            .await
+            .expect("add to cohort");
+        person_ids.push(p.id);
+    }
+
+    let distinct_to_delete = first_chunk + extra_distinct;
+    let mut stale = person_ids[..first_chunk].to_vec();
+    stale.extend_from_slice(&person_ids[..repeated_from_first]);
+    stale.extend_from_slice(&person_ids[first_chunk..distinct_to_delete]);
+    let kept = &person_ids[distinct_to_delete..];
+
+    let deleted = ctx
+        .storage
+        .delete_cohort_members_by_person_ids(cohort_id, &stale)
+        .await
+        .expect("delete cohort members with repeats");
+
+    assert_eq!(deleted, distinct_to_delete as i64);
+    assert_eq!(cohort_row_count(&ctx.pool, cohort_id, &stale).await, 0);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, kept).await,
+        kept.len() as i64
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_delete_persons_clears_cohort_memberships() {
     // posthog_cohortpeople has no FK to posthog_person (no DB cascade), so the
