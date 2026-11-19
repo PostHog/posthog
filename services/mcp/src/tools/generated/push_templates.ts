@@ -44,6 +44,9 @@ const workflowsCreatePushTemplate = (): ToolBase<
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         body['type'] = 'push'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
