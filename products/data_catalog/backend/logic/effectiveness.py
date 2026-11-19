@@ -830,9 +830,9 @@ async def measure_team(
         fresh = [session for session in stitched.sessions if _queries_fresh_data(window_tools[session.session_id])]
         # Joined chains can hold more conversations than chains, so the read budget caps the sessions too.
         sessions = fresh[:EFFECTIVENESS_SESSION_LIMIT]
-        evidence = _conversation_evidence(sessions, chains, stitched)
+        conversations = _conversation_evidence(sessions, chains, stitched)
         motives: list[MotiveReading] = await gather_each(
-            (extract_motive(client, evidence[session.session_id]) for session in sessions), heartbeat
+            (extract_motive(client, conversations[session.session_id]) for session in sessions), heartbeat
         )
         # A week with every read failed would look like a week with no analysis, so the activity retries.
         if sessions and all(motive.failed for motive in motives):
