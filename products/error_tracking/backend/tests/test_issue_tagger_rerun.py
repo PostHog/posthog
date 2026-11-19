@@ -24,7 +24,13 @@ from products.error_tracking.backend.logic.issue_tags.runner import IssueTagging
 from products.error_tracking.backend.logic.issue_tags.taggers.base import Tagger
 from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
 from products.error_tracking.backend.logic.rules import compile_filter_bytecode
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueTag,
+    ErrorTrackingIssueTagRule,
+    sync_issues_to_clickhouse,
+)
 from products.event_definitions.backend.models import PropertyDefinition, PropertyType
 from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayError,
@@ -132,6 +138,22 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
         assert result == IssueTaggerRerun(selected=3, ran=2, skipped=1, failed=0)
         assert list(self._labels()) == [(labelled.id, self.rule.key, Source.RULE, str(self.rule.id))]
 
+    def test_a_split_issue_is_tagged_from_its_own_first_event(self) -> None:
+        original = self._issue(days_ago=3)
+        moved = f"moved-{original.id}"
+        self._exception(original, {"plan": "paid"}, at=original.created_at - timedelta(seconds=5), fingerprint=moved)
+        self._exception(original, {"plan": "free"}, at=original.created_at + timedelta(minutes=10))
+        split = self._issue(days_ago=1)
+        self._fingerprint(split, moved, first_seen=original.created_at - timedelta(seconds=5))
+        flush_persons_and_events()
+
+        # One issue per batch, so the original issue's window does not cover the split issue's events.
+        with patch.object(rerun, "BATCH_SIZE", 1):
+            result = self._rerun(taggers=(RuleTagger(),))
+
+        assert result == IssueTaggerRerun(selected=2, ran=2, skipped=0, failed=0)
+        assert [(issue_id, key) for issue_id, key, *_ in self._labels()] == [(split.id, "paid_plan")]
+
     def test_a_dry_run_counts_issues_without_a_current_answer_and_writes_nothing(self) -> None:
         answered = self._issue(days_ago=2)
         ErrorTrackingIssueTag.objects.for_team(self.team.id).create(
@@ -166,6 +188,15 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
 
         assert result == IssueTaggerRerun(selected=2, ran=2, skipped=0, failed=0)
         assert {issue_id for issue_id, *_ in self._labels()} == {issues[1].id, issues[2].id}
+
+    def test_paging_keeps_issues_created_at_the_same_time(self) -> None:
+        issues = [self._issue(days_ago=1) for _ in range(3)]
+        ErrorTrackingIssue.objects.filter(id__in=[issue.id for issue in issues]).update(created_at=issues[0].created_at)
+
+        with patch.object(rerun, "BATCH_SIZE", 1):
+            result = self._rerun(dry_run=True, taggers=(RuleTagger(),))
+
+        assert result == IssueTaggerRerun(selected=3, ran=0, skipped=0, failed=0)
 
     @parameterized.expand(
         [
@@ -280,14 +311,32 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
         issue = ErrorTrackingIssue.objects.create(team=self.team, status=status)
         ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=timezone.now() - timedelta(days=days_ago))
         issue.refresh_from_db()
+        self._fingerprint(issue, f"fingerprint-{issue.id}")
         return issue
 
-    def _exception(self, issue: ErrorTrackingIssue, properties: dict[str, object], *, at: datetime) -> None:
+    def _fingerprint(self, issue: ErrorTrackingIssue, fingerprint: str, *, first_seen: datetime | None = None) -> None:
+        row = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        # auto_now_add ignores a first_seen passed to create().
+        ErrorTrackingIssueFingerprintV2.objects.filter(id=row.id).update(first_seen=first_seen or issue.created_at)
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.id)
+
+    def _exception(
+        self,
+        issue: ErrorTrackingIssue,
+        properties: dict[str, object],
+        *,
+        at: datetime,
+        fingerprint: str | None = None,
+    ) -> None:
         _create_event(
             team=self.team,
             event="$exception",
             distinct_id="user",
-            properties={"$exception_issue_id": str(issue.id), **properties},
+            properties={
+                "$exception_issue_id": str(issue.id),
+                "$exception_fingerprint": fingerprint or f"fingerprint-{issue.id}",
+                **properties,
+            },
             timestamp=at,
         )
 

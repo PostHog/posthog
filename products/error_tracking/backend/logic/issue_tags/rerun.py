@@ -34,30 +34,34 @@ logger = structlog.get_logger(__name__)
 Source = ErrorTrackingIssueTag.Source
 
 BATCH_SIZE = 100
-# Cymbal creates an issue when it processes the issue's first event, so that event's timestamp is before created_at.
-# The window starts a day earlier for a late event, and ends an hour later for clock skew between hosts.
+# The window starts at the issue's first_seen, the timestamp cymbal stored for the first event of its first fingerprint.
+# A split issue's created_at is the time of the split, which can be days after its events. The window starts a day
+# earlier for a late event. It ends an hour later for an issue without a first_seen, which falls back to created_at:
+# cymbal sets that after it processes the event, and the hosts' clocks can differ.
 FIRST_EVENT_LEAD = timedelta(days=1)
 FIRST_EVENT_LAG = timedelta(hours=1)
 # The retry policy of the issue-created tag activity: three attempts, with the waits between them.
 RETRY_DELAYS = (timedelta(seconds=2), timedelta(seconds=4))
 
 # The inner query finds each issue's first event from small columns. The outer query then reads `properties`, a large
-# column, for those events only, so the other events of a busy issue cost no properties read.
+# column, for those events only, so the other events of a busy issue cost no properties read. `issue_id` maps an event
+# to its issue through the fingerprint. An event keeps the `$exception_issue_id` it was ingested with, so after a split
+# that property names the old issue.
 _FIRST_EXCEPTION_EVENTS = """
-    SELECT properties.$exception_issue_id, properties
+    SELECT issue_id, properties
     FROM events
     WHERE event = '$exception'
       AND timestamp >= {earliest} AND timestamp <= {latest}
-      AND properties.$exception_issue_id IN {issue_ids}
+      AND issue_id IN {issue_ids}
       AND uuid IN (
           SELECT argMin(uuid, timestamp)
           FROM events
           WHERE event = '$exception'
             AND timestamp >= {earliest} AND timestamp <= {latest}
-            AND properties.$exception_issue_id IN {issue_ids}
-          GROUP BY properties.$exception_issue_id
+            AND issue_id IN {issue_ids}
+          GROUP BY issue_id
       )
-    LIMIT 1 BY properties.$exception_issue_id
+    LIMIT 1 BY issue_id
     LIMIT {max_rows}
 """
 
@@ -77,7 +81,7 @@ class IssueTaggerRerun:
 @frozen
 class _StaleIssue:
     id: UUID
-    created_at: datetime
+    first_seen: datetime
     taggers: tuple[Tagger, ...]
     keys: frozenset[str]
 
@@ -165,22 +169,27 @@ def _stale_issues(
 ) -> list[_StaleIssue]:
     if not keys:
         return []
-    issues = ErrorTrackingIssue.objects.filter(
-        team_id=team.id, status=ErrorTrackingIssue.Status.ACTIVE, created_at__gte=since
-    ).order_by("-created_at", "-id")
+    issues = (
+        ErrorTrackingIssue.objects.with_first_seen()
+        .filter(team_id=team.id, status=ErrorTrackingIssue.Status.ACTIVE, created_at__gte=since)
+        .order_by("-created_at", "-id")
+    )
     tags = ErrorTrackingIssueTag.objects.for_team(team.parent_team_id or team.id, canonical=True)
     stale: list[_StaleIssue] = []
     page = issues
     # Page by keyset, not iterator(), which reads the whole result into memory when pgbouncer turns off server-side
     # cursors.
-    while batch := list(page.values_list("id", "created_at")[:BATCH_SIZE]):
-        last_id, last_created_at = batch[-1]
-        page = issues.filter(Q(created_at__lt=last_created_at) | Q(created_at=last_created_at, id__lt=last_id))
-        rows = tags.filter(issue_id__in=[issue_id for issue_id, _ in batch], key__in=keys)
+    while batch := list(page.values_list("id", "created_at", "first_seen")[:BATCH_SIZE]):
+        last_id, last_created_at, _ = batch[-1]
+        # The created_at bound lets the scan seek to the page in et_issue_active_created_idx. The OR alone only filters.
+        page = issues.filter(created_at__lte=last_created_at).filter(
+            Q(created_at__lt=last_created_at) | Q(created_at=last_created_at, id__lt=last_id)
+        )
+        rows = tags.filter(issue_id__in=[issue_id for issue_id, *_ in batch], key__in=keys)
         stored = {
             (row.issue_id, row.key): row for row in rows.only("issue_id", "key", "source", "question_version", "model")
         }
-        for issue_id, created_at in batch:
+        for issue_id, created_at, first_seen in batch:
             reruns = [
                 (tagger, definition)
                 for tagger, definitions in applicable
@@ -192,7 +201,7 @@ def _stale_issues(
             stale.append(
                 _StaleIssue(
                     id=issue_id,
-                    created_at=created_at,
+                    first_seen=first_seen or created_at,
                     taggers=tuple(dict.fromkeys(tagger for tagger, _ in reruns)),
                     keys=frozenset(definition.key for _, definition in reruns),
                 )
@@ -207,8 +216,8 @@ def _first_exception_events(team: Team, issues: Sequence[_StaleIssue]) -> dict[U
     response = execute_hogql_query(
         query=_FIRST_EXCEPTION_EVENTS,
         placeholders={
-            "earliest": ast.Constant(value=min(issue.created_at for issue in issues) - FIRST_EVENT_LEAD),
-            "latest": ast.Constant(value=max(issue.created_at for issue in issues) + FIRST_EVENT_LAG),
+            "earliest": ast.Constant(value=min(issue.first_seen for issue in issues) - FIRST_EVENT_LEAD),
+            "latest": ast.Constant(value=max(issue.first_seen for issue in issues) + FIRST_EVENT_LAG),
             "issue_ids": ast.Constant(value=[str(issue.id) for issue in issues]),
             "max_rows": ast.Constant(value=len(issues)),
         },
@@ -223,7 +232,7 @@ def _first_exception_events(team: Team, issues: Sequence[_StaleIssue]) -> dict[U
         if isinstance(properties, str):
             properties = json.loads(properties)
         if isinstance(properties, dict):
-            events[UUID(issue_id)] = properties
+            events[UUID(str(issue_id))] = properties
     return events
 
 
