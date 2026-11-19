@@ -172,8 +172,6 @@ const runningQueries = new Map<string, Promise<unknown>>()
 // After this limit the tab runs its query beside the unanswered one.
 export const RUNNING_QUERY_WAIT_LIMIT_MS = 60_000
 
-export const LINK_TAGGING_REFRESH_MS = 30_000
-
 async function settledOrTimedOut(query: Promise<unknown>, ms: number): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
@@ -342,27 +340,18 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setAlwaysSensitive(!!props.alwaysSensitive)
         }
     }),
-    afterMount(({ actions, cache, values }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadImpact()
         // The link tagging setting can change in another tab or window, including the one this tab's settings link
         // opens. kea-disposables runs this setup on mount and again each time the page is shown, and a settings window
-        // beside this one hands focus back without a show, so the step reads the setting on all three. The timer
-        // catches a save that committed after that read, or a read that failed. It skips a tick while a read is still
-        // running, so a slow read can finish. The read stays out of teamLogic, because a slow response there would
-        // replace a newer shared team.
+        // beside this one hands focus back without a show, so the step reads the setting on all three. A read that
+        // ran before a save committed, or that failed, is repaired by the next show or focus. The read stays out of
+        // teamLogic, because a slow response there would replace a newer shared team.
         cache.disposables.add(() => {
             const refresh = (): void => actions.loadStoredLinkTagging()
             refresh()
             window.addEventListener('focus', refresh)
-            const timer = window.setInterval(() => {
-                if (!values.storedLinkTaggingLoading) {
-                    refresh()
-                }
-            }, LINK_TAGGING_REFRESH_MS)
-            return () => {
-                window.removeEventListener('focus', refresh)
-                window.clearInterval(timer)
-            }
+            return () => window.removeEventListener('focus', refresh)
         }, 'refreshLinkTagging')
     }),
 ])

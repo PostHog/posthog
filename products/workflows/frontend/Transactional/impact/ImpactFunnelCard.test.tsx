@@ -6,6 +6,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
@@ -13,7 +15,7 @@ import { TeamType } from '~/types'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 
-import { LINK_TAGGING_REFRESH_MS, emailImpactLogic } from './emailImpactLogic'
+import { emailImpactLogic } from './emailImpactLogic'
 import { EmailImpactTab } from './EmailImpactTab'
 import { ImpactFunnelCard } from './ImpactFunnelCard'
 
@@ -80,7 +82,6 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(() => {
         cleanup()
-        jest.useRealTimers()
     })
 
     const renderCard = (sensitive = false): void => {
@@ -148,44 +149,14 @@ describe('ImpactFunnelCard', () => {
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
     })
 
-    it('waits for a slow read to answer before the timer reads again', async () => {
-        jest.useFakeTimers()
-        initKeaTests(true, teamWithLinkTagging(true))
-        let reads = 0
-        let releaseFirstRead = (): void => {}
-        useMocks({
-            get: {
-                [PROJECT_URL]: async () => {
-                    reads += 1
-                    if (reads === 1) {
-                        await new Promise<void>((resolve) => (releaseFirstRead = resolve))
-                    }
-                    return [200, teamWithLinkTagging(false)]
-                },
-            },
-        })
-        answer = [200, IMPACT]
-        renderCard()
-        await waitFor(() => expect(reads).toBe(1))
-
-        act(() => {
-            jest.advanceTimersByTime(LINK_TAGGING_REFRESH_MS * 2)
-        })
-        expect(reads).toBe(1)
-        releaseFirstRead()
-
-        expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
-        expect(reads).toBe(1)
-    })
-
-    it('keeps the stored setting through a failed read on show, and reads it again on a timer', async () => {
-        jest.useFakeTimers()
+    it('reads the setting on its own on open, keeps it through a failed read, and reads it again on focus', async () => {
         initKeaTests(true, teamWithLinkTagging(true))
         let stored: [number, unknown] = [200, teamWithLinkTagging(false)]
         useMocks({ get: { [PROJECT_URL]: () => stored } })
         answer = [200, IMPACT]
         renderCard()
         expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
+        expect(teamLogic.values.currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled).toBe(true)
 
         stored = [500, { detail: 'Server error' }]
         setPageHidden(true)
@@ -196,9 +167,7 @@ describe('ImpactFunnelCard', () => {
         expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
 
         stored = [200, teamWithLinkTagging(true)]
-        act(() => {
-            jest.advanceTimersByTime(LINK_TAGGING_REFRESH_MS)
-        })
+        fireEvent(window, new Event('focus'))
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
     })
