@@ -683,9 +683,6 @@ SPECTACULAR_SETTINGS = {
             # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
             # a plain enum no class can carry.
             "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
-            # The anomaly and explain bodies keep this name; the metrics query clause's own
-            # aggregation adds 'none' and is named by its MetricQueryAggregation class.
-            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
             "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
@@ -1599,14 +1596,6 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
-)
-
-WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
-    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
-)
-
-WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
-    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
 )
 
 # Stale-while-revalidate grace for user-facing web analytics precompute reads:

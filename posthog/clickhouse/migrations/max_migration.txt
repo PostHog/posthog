@@ -1,1 +1,1 @@
-0387_drop_surfacing_score_from_session_replay_events
+0388_drop_surfacing_score_from_session_replay_events

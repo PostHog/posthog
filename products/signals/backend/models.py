@@ -1415,6 +1415,9 @@ class SignalReportSlackThread(UUIDModel):
     target = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of each threaded reply of a scout report, in summary chunk order.
     reply_ts = models.JSONField(null=True, blank=True)
+    notified_pr_urls = ArrayField(models.URLField(max_length=2000), null=True, blank=True)
+    # Empty means a project destination; null means the route has no saved recipient scope.
+    recipient_user_ids = ArrayField(models.IntegerField(), null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1984,6 +1987,25 @@ class SignalReportArtefact(UUIDModel):
             created_before=created_before,
             created_after=created_after,
         ).afirst()
+        return cls._parse_as(artefact, model)
+
+    @classmethod
+    def latest_person_content(
+        cls, *, team_id: int, report_id: str, model: builtins.type[_ContentT]
+    ) -> _ContentT | None:
+        """The newest artefact of `model`'s type, parsed, when a person wrote it, else None.
+
+        A person is any write with a user principal (`created_by`), from the app or from their own
+        agent. A pipeline, scout, or system write leaves `created_by` null. Agent stages read this to
+        keep a decision a person made instead of writing their own over it.
+        """
+        artefact = (
+            cls._latest_of(team_id=team_id, report_id=report_id, model=model, created_before=None, created_after=None)
+            .only("content", "created_by_id")
+            .first()
+        )
+        if artefact is None or artefact.created_by_id is None:
+            return None
         return cls._parse_as(artefact, model)
 
     @classmethod
@@ -2793,6 +2815,7 @@ class SignalReportMonitoringAttempt(UUIDModel):
     check_versions = models.JSONField(default=dict)
     aggregation_state = models.CharField(max_length=24, choices=MonitoringAggregation, null=True, blank=True)
     aggregation_result_ids = models.JSONField(null=True, blank=True)
+    aggregation_cancelled_check_count = models.IntegerField(null=True, blank=True)
     aggregation_reason = models.TextField(null=True, blank=True)
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)

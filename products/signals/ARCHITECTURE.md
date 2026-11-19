@@ -16,7 +16,7 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by the `TEMPORAL` declaration in `backend/facade/temporal.py`.
 The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
@@ -1247,7 +1247,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`, `nudge_rendered`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
-- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
+- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable, `source_products`: the report's distinct signal source products, empty when the lookup fails). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
 - `signals_report_linked` — a typed `report_link` was written (+ `report_id`, `linked_report_id`, `kind`, `has_reason`, `actor_kind`, `actor_agent`). Fired from the one write path every producer shares, so links get a denominator they do not otherwise have. See Typed report links
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
@@ -1396,7 +1396,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 **Guard clause** — all must pass:
 
 - Report actionability is `immediately_actionable`
-- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
+- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). The issues a report was filed from never count: research lists them from GitHub issue signals and `source_issue` artefacts, so a requester who assigns their own issue does not block the work. Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)

@@ -20,6 +20,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from ..facade import eval_suggestions as facade
 from ..facade.contracts import EvalSuggestionNotFoundError
 from ..models.eval_suggestions import (
+    EvalFixProblem,
     EvalSuggestion,
     EvalSuggestionDismissReason,
     EvalSuggestionKind,
@@ -79,7 +80,7 @@ class EvalSuggestionSerializer(serializers.Serializer):
     headline = serializers.CharField(
         read_only=True,
         help_text=(
-            "A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the "
+            "A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the "
             "condition observed on the evaluation. It carries no counts; `observation` does."
         ),
     )
@@ -152,6 +153,15 @@ class EvalSuggestionSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Name of the evaluation a fix_eval suggestion repairs.",
+    )
+    fix_problem = serializers.ChoiceField(
+        choices=EvalFixProblem.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it "
+            "returned the same result and reasoning almost every time. Null for other kinds."
+        ),
     )
     similar_evaluation = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="Existing evaluation that may already cover this suggestion."

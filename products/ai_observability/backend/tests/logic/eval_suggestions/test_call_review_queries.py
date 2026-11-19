@@ -2,7 +2,6 @@ import uuid
 from datetime import timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -41,8 +40,7 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
         window = ProfileWindow(start=end - timedelta(days=1), end=end)
 
         call_types = call_review_queries.load_call_types(self.team, window, 1000)
-        with patch.object(call_review_queries, "CANDIDATES_PER_CALL_TYPE", 2):
-            calls = call_review_queries.load_review_calls(self.team, window, 1000, call_types)
+        calls = call_review_queries.load_review_calls(self.team, window, 1000, call_types, per_type=2)
 
         assert [(call_type.key, call_type.calls) for call_type in call_types] == [("prompt_name:support-reply", 3)]
         assert len({call.event_uuid for call in calls}) == len(calls) == 2
