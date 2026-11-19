@@ -989,7 +989,20 @@ export const routes: Record<string, [Scene | string, string]> = {
     ...productRoutes,
 }
 
-/** Route and redirect paths with no `:param`, `*`, query or hash, so they resolve the same in every project. */
-export const staticRoutePaths: ReadonlySet<string> = new Set(
-    [...Object.keys(routes), ...Object.keys(redirects)].filter((path) => !/[:*?#]/.test(path))
+const redirectPaths = new Set(Object.keys(redirects))
+
+/**
+ * Route and redirect paths with no `:param`, `*`, query or hash, whose parent path is a redirect.
+ * A section root that only redirects to its default tab, such as /data-management, marks the static
+ * paths under it as tabs. A section root that is a real page, such as /tracing, can have detail pages
+ * under it that need a query string, so its children are not included.
+ */
+export const sectionTabPaths: ReadonlySet<string> = new Set(
+    [...Object.keys(routes), ...redirectPaths].filter((path) => {
+        if (/[:*?#]/.test(path)) {
+            return false
+        }
+        const withoutTrailingSlash = path.replace(/\/+$/, '')
+        return redirectPaths.has(withoutTrailingSlash.slice(0, withoutTrailingSlash.lastIndexOf('/')))
+    })
 )

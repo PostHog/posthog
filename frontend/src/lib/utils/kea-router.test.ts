@@ -6,7 +6,7 @@ import {
     stripTrailingSlash,
     stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
-import { staticRoutePaths } from 'scenes/scenes'
+import { sectionTabPaths } from 'scenes/scenes'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -124,7 +124,7 @@ describe('router-utils', () => {
     })
 
     describe('getProjectSwitchTargetUrl', () => {
-        const staticPaths = new Set(['/data-management', '/data-management/sources', '/llm-analytics/traces'])
+        const tabPaths = new Set(['/data-management/sources', '/llm-analytics/traces'])
 
         it.each([
             ['/project/1/data-management/sources', '/project/2/data-management/sources'],
@@ -132,13 +132,15 @@ describe('router-utils', () => {
             ['/project/1/llm-analytics/traces/abc', '/project/2/llm-analytics/traces'],
             ['/project/1/insights/abc123', '/project/2/insights'],
         ])('switching to another project from %s lands on %s', (currentPath, expected) => {
-            expect(getProjectSwitchTargetUrl(currentPath, 2, 1, 2, staticPaths)).toEqual(expected)
+            expect(getProjectSwitchTargetUrl(currentPath, 2, 1, 2, tabPaths)).toEqual(expected)
         })
 
-        it('keeps the data management tab with the real route table', () => {
-            expect(getProjectSwitchTargetUrl('/project/1/data-management/sources', 2, 1, 2, staticRoutePaths)).toEqual(
-                '/project/2/data-management/sources'
-            )
+        it.each([
+            ['/project/1/data-management/sources', '/project/2/data-management/sources'],
+            ['/project/1/llm-analytics/traces', '/project/2/llm-analytics/traces'],
+            ['/project/1/tracing/operation', '/project/2/tracing'],
+        ])('with the real route table, switching from %s lands on %s', (currentPath, expected) => {
+            expect(getProjectSwitchTargetUrl(currentPath, 2, 1, 2, sectionTabPaths)).toEqual(expected)
         })
     })
 

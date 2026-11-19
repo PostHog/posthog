@@ -168,7 +168,7 @@ export function getProjectSwitchTargetUrl(
     newTeamId: number,
     currentProjectId: number | null | undefined,
     newProjectId: number | null | undefined,
-    staticRoutePaths: ReadonlySet<string>
+    sectionTabPaths: ReadonlySet<string>
 ): string {
     // Remove project ID and flag ID from the path
     let route = removeProjectIdIfPresent(currentPath)
@@ -194,12 +194,12 @@ export function getProjectSwitchTargetUrl(
         if (currentProjectId && newProjectId && currentProjectId === newProjectId) {
             return `/project/${newTeamId}${route}`
         }
-        // A static route has no ID in it, so it exists in every project. Keep the longest one, so a
-        // section tab such as /data-management/sources is kept and does not fall back to the
-        // section root, which redirects to that section's default tab.
+        // A section tab has no ID in it, so it exists in every project. Keep the longest one, so
+        // /data-management/sources is kept and does not fall back to the section root, which
+        // redirects to that section's default tab.
         for (let length = pathParts.length; length > 2; length--) {
             const prefix = pathParts.slice(0, length).join('/')
-            if (staticRoutePaths.has(prefix)) {
+            if (sectionTabPaths.has(prefix)) {
                 return `/project/${newTeamId}${prefix}`
             }
         }

@@ -6,7 +6,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { staticRoutePaths } from 'scenes/scenes'
+import { sectionTabPaths } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -122,7 +122,7 @@ export const todayProjectMenuLogic = kea<todayProjectMenuLogicType>([
                 teamId,
                 values.currentTeam?.project_id,
                 projectId,
-                staticRoutePaths
+                sectionTabPaths
             )
         },
         runProjectMenuAction: ({ key }) => {

@@ -15,7 +15,7 @@ import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { staticRoutePaths } from 'scenes/scenes'
+import { sectionTabPaths } from 'scenes/scenes'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
@@ -68,7 +68,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     item.team.id,
                     currentTeam?.project_id,
                     item.team.project_id,
-                    staticRoutePaths
+                    sectionTabPaths
                 )
                 closeProjectSwitcher()
                 window.location.href = targetUrl
