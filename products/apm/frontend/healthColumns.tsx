@@ -2,11 +2,11 @@ import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { ErrorRateBar } from './ErrorRateBar'
 import type { HealthRowApi, HealthStatusEnumApi } from './generated/api.schemas'
-import { compareNullable, formatMs, formatRateIn, tableRateUnit } from './healthDisplay'
+import { compareNullable, formatApdex, formatMs, formatRateIn, tableRateUnit } from './healthDisplay'
 import { HealthStatusTag } from './HealthStatusTag'
 
 /**
- * Status, requests, errors, and p95: the columns every health table shows for a row.
+ * Status, requests, errors, p95, and Apdex: the columns every health table shows for a row.
  * Takes the rows so the request rates share one unit, picked from the busiest row.
  */
 export function healthColumns<T extends { status: HealthStatusEnumApi; health: HealthRowApi }>(
@@ -39,6 +39,15 @@ export function healthColumns<T extends { status: HealthStatusEnumApi; health: H
             align: 'right',
             sorter: (a, b) => compareNullable(a.health.p95_ms, b.health.p95_ms),
             render: (_, row) => <span className="font-mono">{formatMs(row.health.p95_ms)}</span>,
+        },
+        {
+            title: 'Apdex',
+            key: 'apdex',
+            align: 'right',
+            tooltip:
+                'Share of satisfied requests, from 0 to 1. A request under 500 ms counts in full, one under 2 s counts half, and slower or failed requests count as zero.',
+            sorter: (a, b) => compareNullable(a.health.apdex ?? null, b.health.apdex ?? null),
+            render: (_, row) => <span className="font-mono">{formatApdex(row.health.apdex)}</span>,
         },
     ]
 }
