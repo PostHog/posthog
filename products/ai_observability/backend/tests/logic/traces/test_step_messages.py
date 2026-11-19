@@ -119,6 +119,23 @@ def test_keeps_a_tool_result_that_would_not_survive_parsing_as_its_exact_text(_n
             {"id": 9007199254740991, "rate": 0.1, "scale": 1e300, "small": -2.5e-7, "zero": -0.0},
         ),
         ("number_inside_a_string", '{"note": "id 1234567890123456789"}', {"note": "id 1234567890123456789"}),
+        (
+            "json_text_inside_a_text_block",
+            '{"content": [{"type": "text", "text": "{\\"rows\\": [1]}"}]}',
+            {"content": [{"type": "text", "text": {"rows": [1]}}]},
+        ),
+        ("text_after_nested_json_stays_text", '{"note": "[1, 2]\\n\\nmore"}', {"note": "[1, 2]\n\nmore"}),
+        ("nested_scalar_text_stays_text", '{"n": "42"}', {"n": "42"}),
+        (
+            "nested_number_that_would_lose_digits_stays_text",
+            '{"inner": "{\\"id\\": 9007199254740993}"}',
+            {"inner": '{"id": 9007199254740993}'},
+        ),
+        (
+            "nested_json_past_the_depth_bound_stays_text",
+            '{"inner": "' + "[" * 200 + "]" * 200 + '"}',
+            {"inner": "[" * 200 + "]" * 200},
+        ),
     ]
 )
 def test_tool_result_json_string_parses_to_structure(_name, content, expected):

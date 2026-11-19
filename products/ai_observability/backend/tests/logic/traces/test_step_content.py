@@ -327,6 +327,13 @@ def test_failing_side_falls_back_to_json(_name, error, error_class, reported):
     assert capture.called is reported
 
 
+def test_a_json_span_side_shows_json_text_parsed_at_any_depth():
+    content = content_of("span", {"query": '{"q": "x"}'}, '{"answer": "ok"}')
+
+    assert content.input == contracts.TraceJsonSide(kind="json", value={"query": {"q": "x"}})
+    assert content.output == contracts.TraceJsonSide(kind="json", value={"answer": "ok"})
+
+
 def test_span_failing_side_falls_back_to_the_original_value():
     wrapped = {"messages": REPLY}
 

@@ -1,11 +1,12 @@
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from typing import overload
 
 from ...facade import contracts
 from ..message_normalizer.errors import RecipeRuntimeError
 from ..message_normalizer.roles import AVAILABLE_TOOLS_ROLE, THINKING_ROLE, TOOL_RESULT_ROLE
 from ..message_normalizer.run_limits import OUTPUT_NODES_PER_CLOCK_CHECK, check_time_limit, execution_budget
-from ..message_normalizer.values import CompatMessage, JsonValue, charge_kept_parse, parse_json_text
+from ..message_normalizer.values import CompatMessage, JsonValue, Value, charge_kept_parse, parse_json_text
 from .attachments import is_attachment_item_type, to_attachment
 from .json_numbers import has_lossy_number
 
@@ -140,13 +141,58 @@ def _tool_value(value: JsonValue) -> JsonValue:
         parsed = _parse_json_text(value)
         if parsed is not value:
             charge_kept_parse(value, parsed)
-        return parsed
+        return parsed_json_text(parsed)
     # Text the response cannot hold stays text, but a value the engine already parsed has no text to fall back to.
     if not _renders(value):
         raise UnrenderableValueError(
             f"A tool call value nests deeper than {_MAX_TOOL_VALUE_DEPTH} levels or holds a value the response cannot encode"
         )
+    return parsed_json_text(value)
+
+
+@overload
+def parsed_json_text(value: JsonValue) -> JsonValue: ...
+
+
+@overload
+def parsed_json_text(value: Value) -> Value: ...
+
+
+def parsed_json_text(value: Value) -> Value:
+    """The value with every string that holds a whole JSON object or array replaced by it, at any depth.
+
+    The value comes back unchanged when the parsed result would nest too deeply or not render.
+    """
+    parsed = _with_json_text_parsed(value, depth=0)
+    return parsed if parsed is value or _renders(parsed) else value
+
+
+def _with_json_text_parsed(value: Value, *, depth: int) -> Value:
+    if depth >= _MAX_TOOL_VALUE_DEPTH:
+        return value
+    if isinstance(value, str):
+        parsed = _container_of_json_text(value)
+        return value if parsed is value else _with_json_text_parsed(parsed, depth=depth)
+    if isinstance(value, Mapping):
+        check_time_limit()
+        children = {key: _with_json_text_parsed(child, depth=depth + 1) for key, child in value.items()}
+        return value if all(children[key] is child for key, child in value.items()) else children
+    if isinstance(value, Sequence):
+        check_time_limit()
+        items = [_with_json_text_parsed(child, depth=depth + 1) for child in value]
+        return value if all(item is child for item, child in zip(items, value)) else items
     return value
+
+
+def _container_of_json_text(text: str) -> JsonValue:
+    if not text.lstrip().startswith(("{", "[")):
+        return text
+    parsed = _parse_json_text(text)
+    # Valid JSON only reaches the number scan, because its string pattern rescans malformed text from every quote.
+    if parsed is text or has_lossy_number(text):
+        return text
+    charge_kept_parse(text, parsed)
+    return parsed
 
 
 def _renderable_text(text: str) -> str:
@@ -162,7 +208,7 @@ def _renderable_attachment(part: contracts.TraceAttachmentPart) -> contracts.Tra
     return part
 
 
-def _renders(value: JsonValue) -> bool:
+def _renders(value: Value) -> bool:
     # The walk holds one child iterator per open container, so its memory follows the depth of the value, not its
     # width. It visits values that no budget has charged yet, so it checks the clock itself.
     if not _node_renders(value):
@@ -186,7 +232,7 @@ def _renders(value: JsonValue) -> bool:
     return True
 
 
-def _node_renders(node: JsonValue) -> bool:
+def _node_renders(node: Value) -> bool:
     if isinstance(node, dict):
         return not any(_SURROGATE.search(key) for key in node)
     if isinstance(node, str):
@@ -196,7 +242,7 @@ def _node_renders(node: JsonValue) -> bool:
     return True
 
 
-def _children(node: JsonValue) -> Iterator[JsonValue]:
+def _children(node: Value) -> Iterator[Value]:
     if isinstance(node, dict):
         return iter(node.values())
     return iter(node) if isinstance(node, list) else iter(())
