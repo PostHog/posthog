@@ -84436,9 +84436,6 @@ export namespace Schemas {
       properties?: TaggerConditionPropertiesItem[];
     }
 
-    /**
-     * Nested serializer for model configuration.
-     */
     export interface TaggerModelConfiguration {
       /** LLM provider to use for this tagger.
        *
@@ -84458,30 +84455,29 @@ export namespace Schemas {
          */
       model: string;
       /**
-         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+         * LLM provider key UUID pinned for this tagger, or null when none is pinned.
          * @nullable
          */
-      provider_key_id?: string | null;
+      provider_key_id: string | null;
       /** @nullable */
       readonly provider_key_name: string | null;
     }
 
     export interface Tagger {
       readonly id: string;
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
+      readonly name: string;
+      readonly description: string;
+      readonly enabled: boolean;
+      readonly tagger_type: TaggerTypeEnum;
       /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfiguration | null;
+      readonly tagger_config: TaggerConfig;
+      /** Conditions that scoped when the tagger ran */
+      readonly conditions: readonly TaggerCondition[];
+      readonly model_configuration: TaggerModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
-      deleted?: boolean;
+      readonly deleted: boolean;
       /**
          * The evaluation that replaced this tagger when it was migrated. Null until then.
          * @nullable
@@ -97592,45 +97588,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface TaggerModelConfigurationWrite {
-      /** LLM provider to use for this tagger.
-       *
-       * * `openai` - Openai
-       * * `anthropic` - Anthropic
-       * * `gemini` - Gemini
-       * * `openrouter` - Openrouter
-       * * `fireworks` - Fireworks
-       * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI
-       * * `minimax` - MiniMax
-       * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMCompletionProviderEnum;
-      /**
-         * Provider model identifier to use for this tagger.
-         * @maxLength 100
-         */
-      model: string;
-      /**
-         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-         * @nullable
-         */
-      provider_key_id?: string | null;
-    }
-
-    export interface PatchedTaggerUpdate {
-      /** @maxLength 400 */
-      name?: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config?: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-      deleted?: boolean;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -121160,20 +121117,6 @@ export namespace Schemas {
       sessions: number;
       /** Distinct people behind those sessions. */
       people: number;
-    }
-
-    export interface TaggerUpdate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-      deleted?: boolean;
     }
 
     /**

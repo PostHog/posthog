@@ -36,5 +36,5 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
         )
     }
 
-    return <AIObservabilityTag id={id} />
+    return <AIObservabilityTag id={id ?? 'new'} />
 }

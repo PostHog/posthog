@@ -1,31 +1,27 @@
-from typing import Any, cast
+from typing import Any
 
 from django.core.validators import EMPTY_VALUES
-from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
-from pydantic import ValidationError
-from rest_framework import mixins, serializers, status, viewsets
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.serializers import BaseSerializer
 
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.event_usage import report_user_action
+from posthog.models.utils import strict_fetch
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..models.model_configuration import LLMModelConfiguration
-from ..models.provider_keys import LLMProviderKey, llm_completion_provider_choices
-from ..models.taggers import Tagger, TaggerType, validate_tagger_config
+from ..models.provider_keys import llm_completion_provider_choices
+from ..models.taggers import Tagger, TaggerType
 from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
@@ -60,24 +56,6 @@ class LLMTaggerConfigSerializer(serializers.Serializer):
         required=False, allow_null=True, min_value=1, help_text="Maximum number of tags to apply (null = no limit)"
     )
 
-    def validate_tags(self, value: list[dict]) -> list[dict]:
-        if not value:
-            raise serializers.ValidationError("At least one tag is required")
-        names = [tag["name"] for tag in value]
-        if len(names) != len(set(names)):
-            raise serializers.ValidationError("Tag names must be unique")
-        return value
-
-    def validate(self, data: dict) -> dict:
-        min_tags = data.get("min_tags", 0)
-        max_tags = data.get("max_tags")
-        if max_tags is not None and min_tags > max_tags:
-            raise serializers.ValidationError({"min_tags": "min_tags cannot be greater than max_tags"})
-        tags = data.get("tags", [])
-        if max_tags is not None and max_tags > len(tags):
-            raise serializers.ValidationError({"max_tags": "max_tags cannot exceed the number of defined tags"})
-        return data
-
 
 class HogTaggerConfigSerializer(serializers.Serializer):
     source = serializers.CharField(  # type: ignore[assignment]
@@ -104,29 +82,14 @@ class TaggerConfigField(serializers.JSONField):
     pass
 
 
-class TaggerModelConfigurationWriteSerializer(serializers.Serializer):
+class TaggerModelConfigurationSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(
         choices=llm_completion_provider_choices(), help_text="LLM provider to use for this tagger."
     )
     model = serializers.CharField(max_length=100, help_text="Provider model identifier to use for this tagger.")
     provider_key_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key "
-            "ID returned by PostHog, or omit/null when no provider key should be pinned."
-        ),
+        allow_null=True, help_text="LLM provider key UUID pinned for this tagger, or null when none is pinned."
     )
-
-    def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, dict) and "provider_key_name" in data:
-            raise serializers.ValidationError({"provider_key_name": "This field is read-only."})
-        return super().to_internal_value(data)
-
-
-class TaggerModelConfigurationSerializer(TaggerModelConfigurationWriteSerializer):
-    """Nested serializer for model configuration."""
-
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -143,22 +106,30 @@ class TaggerModelConfigurationSerializer(TaggerModelConfigurationWriteSerializer
         }
 
 
-class TaggerBaseWriteSerializer(serializers.ModelSerializer):
-    model_configuration = TaggerModelConfigurationWriteSerializer(required=False, allow_null=True)
+class TaggerSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    model_configuration = TaggerModelConfigurationSerializer(read_only=True, allow_null=True)
     tagger_config = TaggerConfigField(
+        read_only=True,
         help_text=(
             "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. "
             "For tagger_type 'hog': {source, tags?}."
-        )
+        ),
     )
-    tagger_type = serializers.ChoiceField(choices=TaggerType.choices, default=TaggerType.LLM)
+    tagger_type = serializers.ChoiceField(choices=TaggerType.choices, read_only=True)
     conditions = TaggerConditionSerializer(
-        many=True, required=False, default=list, help_text="Conditions that scope when the tagger runs"
+        many=True, read_only=True, help_text="Conditions that scoped when the tagger ran"
+    )
+    migrated_to_evaluation_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="The evaluation that replaced this tagger when it was migrated. Null until then.",
     )
 
     class Meta:
         model = Tagger
         fields = [
+            "id",
             "name",
             "description",
             "enabled",
@@ -166,123 +137,13 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
             "tagger_config",
             "conditions",
             "model_configuration",
-        ]
-
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        if self.instance is not None and not self.instance.enabled and data.get("enabled") is True:
-            raise serializers.ValidationError(
-                {
-                    "enabled": "Taggers are deprecated, so a switched-off tagger can't be turned back on. "
-                    "Create an evaluation with a categorical output instead."
-                }
-            )
-
-        tagger_type = data.get("tagger_type", self.instance.tagger_type if self.instance else TaggerType.LLM)
-        tagger_config = data.get("tagger_config")
-
-        # If the caller is changing tagger_type on an existing tagger, they must also send a fresh
-        # tagger_config — the existing config is shaped for the old type and won't validate.
-        if (
-            self.instance is not None
-            and "tagger_type" in data
-            and tagger_type != self.instance.tagger_type
-            and tagger_config is None
-        ):
-            raise serializers.ValidationError({"tagger_config": "tagger_config is required when changing tagger_type"})
-
-        if tagger_config:
-            try:
-                data["tagger_config"] = validate_tagger_config(tagger_type, tagger_config)
-            except ValidationError as e:
-                # Only surface pydantic field messages, never the raw exception string —
-                # avoids leaking anything beyond intended validation feedback.
-                messages = [err.get("msg", "Invalid value") for err in e.errors()]
-                raise serializers.ValidationError({"tagger_config": messages})
-            except ValueError:
-                # validate_tagger_config only raises ValueError for unknown tagger_type, which is
-                # already constrained upstream by the ChoiceField. Use a static message so we don't
-                # surface user-controlled input in the response (CodeQL py/stack-trace-exposure).
-                raise serializers.ValidationError({"tagger_config": "Unsupported tagger type"})
-        return data
-
-    def _resolve_provider_key(self, model_config_data: dict[str, Any], team_id: int) -> LLMProviderKey | None:
-        provider_key_id = model_config_data.get("provider_key_id")
-        if not provider_key_id:
-            return None
-        try:
-            return LLMProviderKey.objects.get(id=provider_key_id, team_id=team_id)
-        except LLMProviderKey.DoesNotExist:
-            raise serializers.ValidationError({"model_configuration": {"provider_key_id": "Provider key not found"}})
-
-    def _create_or_update_model_configuration(
-        self,
-        model_config_data: dict[str, Any] | None,
-        team_id: int,
-        existing: LLMModelConfiguration | None = None,
-    ) -> LLMModelConfiguration | None:
-        if model_config_data is None:
-            return None
-
-        provider_key = self._resolve_provider_key(model_config_data, team_id)
-
-        if existing is not None:
-            # Update in place so the FK on the tagger stays stable and we avoid the delete+insert churn.
-            existing.provider = model_config_data["provider"]
-            existing.model = model_config_data["model"]
-            existing.provider_key = provider_key
-            existing.full_clean()
-            existing.save()
-            return existing
-
-        model_config = LLMModelConfiguration(
-            team_id=team_id,
-            provider=model_config_data["provider"],
-            model=model_config_data["model"],
-            provider_key=provider_key,
-        )
-        model_config.full_clean()
-        model_config.save()
-        return model_config
-
-    def update(self, instance: Tagger, validated_data: dict[str, Any]) -> Tagger:
-        model_config_data = validated_data.pop("model_configuration", None)
-
-        # Transaction wraps the model_configuration update and the tagger save so a failed
-        # tagger save rolls back the configuration changes.
-        with transaction.atomic():
-            if model_config_data is not None:
-                validated_data["model_configuration"] = self._create_or_update_model_configuration(
-                    model_config_data, instance.team_id, existing=instance.model_configuration
-                )
-
-            return super().update(instance, validated_data)
-
-
-class TaggerUpdateSerializer(TaggerBaseWriteSerializer):
-    class Meta(TaggerBaseWriteSerializer.Meta):
-        fields = [*TaggerBaseWriteSerializer.Meta.fields, "deleted"]
-
-
-class TaggerSerializer(TaggerBaseWriteSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
-    migrated_to_evaluation_id = serializers.UUIDField(
-        read_only=True,
-        allow_null=True,
-        help_text="The evaluation that replaced this tagger when it was migrated. Null until then.",
-    )
-
-    class Meta(TaggerBaseWriteSerializer.Meta):
-        fields = [
-            "id",
-            *TaggerBaseWriteSerializer.Meta.fields,
             "created_at",
             "updated_at",
             "created_by",
             "deleted",
             "migrated_to_evaluation_id",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        read_only_fields = fields
 
 
 class StableOrderingFilter(django_filters.OrderingFilter):
@@ -328,14 +189,12 @@ class TaggerFilter(django_filters.FilterSet):
         return queryset
 
 
-# Taggers are deprecated in favor of categorical evaluations, so the viewset has no create action.
+# Taggers are deprecated in favor of categorical evaluations, so the API only reads them.
 class TaggerViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    ForbidDestroyModel,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
-    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "tagger"
@@ -346,64 +205,15 @@ class TaggerViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_class = TaggerFilter
 
-    def get_serializer_class(self) -> type[BaseSerializer[Any]]:
-        if self.action in ("update", "partial_update"):
-            return TaggerUpdateSerializer
-        return super().get_serializer_class()
-
     def safely_get_queryset(self, queryset: QuerySet[Tagger]) -> QuerySet[Tagger]:
         queryset = (
-            queryset.filter(team_id=self.team_id)
+            queryset.filter(team_id=self.team_id, deleted=False)
             .select_related("created_by", "model_configuration", "model_configuration__provider_key")
             .order_by("-created_at", "id")
         )
-        if not self.action.endswith("update"):
-            queryset = queryset.filter(deleted=False)
-
+        if self.action == "list":
+            queryset = strict_fetch(queryset)
         return queryset
-
-    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
-        instance_before = cast(Tagger, serializer.instance)
-        is_deletion = serializer.validated_data.get("deleted") is True and not instance_before.deleted
-        old_enabled_value = instance_before.enabled
-
-        changed_fields: list[str] = []
-        for field in ["name", "description", "enabled", "tagger_config", "conditions", "deleted"]:
-            if field in serializer.validated_data:
-                old_value = getattr(serializer.instance, field)
-                new_value = serializer.validated_data[field]
-                if old_value != new_value:
-                    changed_fields.append(field)
-
-        instance = serializer.save()
-
-        if is_deletion:
-            report_user_action(
-                self.request.user,
-                "llma tagger deleted",
-                {
-                    "tagger_id": str(instance.id),
-                    "tagger_name": instance.name,
-                    "was_enabled": old_enabled_value,
-                },
-                team=self.team,
-                request=self.request,
-            )
-        elif changed_fields:
-            report_user_action(
-                self.request.user,
-                "llma tagger updated",
-                {
-                    "tagger_id": str(instance.id),
-                    "changed_fields": changed_fields,
-                },
-                team=self.team,
-                request=self.request,
-            )
-
-    def _serialize_saved_tagger(self, tagger: Tagger) -> dict[str, Any]:
-        hydrated_tagger = self.get_queryset().get(pk=tagger.pk)
-        return TaggerSerializer(hydrated_tagger, context=self.get_serializer_context()).data
 
     @llma_track_latency("llma_taggers_list")
     @monitor(feature=Feature.QUERY, endpoint="llma_taggers_list", method="GET")
@@ -414,31 +224,3 @@ class TaggerViewSet(
     @monitor(feature=Feature.QUERY, endpoint="llma_taggers_retrieve", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().retrieve(request, *args, **kwargs)
-
-    @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
-    @llma_track_latency("llma_taggers_update")
-    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_update", method="PUT")
-    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._update_tagger(request=request, partial=False)
-
-    @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
-    @llma_track_latency("llma_taggers_partial_update")
-    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_partial_update", method="PATCH")
-    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._update_tagger(request=request, partial=True)
-
-    def _update_tagger(self, request: Request, partial: bool) -> Response:
-        instance = self.get_object()
-        serializer = self.get_serializer(
-            instance,
-            data=request.data,
-            partial=partial,
-        )
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-
-        if getattr(instance, "_prefetched_objects_cache", None):
-            instance._prefetched_objects_cache = {}
-
-        updated_instance = cast(Tagger, serializer.instance)
-        return Response(self._serialize_saved_tagger(updated_instance), status=status.HTTP_200_OK)

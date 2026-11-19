@@ -1,45 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
 
-import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSkeleton,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
+import { IconSearch } from '@posthog/icons'
+import { LemonBanner, LemonInput, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { getUnhealthyProviderKey, providerKeyStateIssueDescription } from '../settings/providerKeyStateUtils'
+import type { TaggerApi } from '../generated/api.schemas'
 import { llmTaggersLogic } from './llmTaggersLogic'
-import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
 import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
-import { Tagger } from './types'
 
 export const scene: SceneExport = {
     component: AIObservabilityTagsScene,
@@ -48,8 +28,6 @@ export const scene: SceneExport = {
 
 function TaggerMetrics(): JSX.Element {
     const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic)
-
-    const enabledCount = taggers.filter((t) => t.enabled && !t.deleted).length
 
     if (runStatsLoading) {
         return <LemonSkeleton className="h-80 w-full mb-6" />
@@ -79,15 +57,14 @@ function TaggerMetrics(): JSX.Element {
                     </div>
                 ) : (
                     <div className="flex-[2] bg-bg-light border rounded p-8 flex items-center justify-center">
-                        <div className="text-muted text-center">No enabled taggers to display.</div>
+                        <div className="text-muted text-center">No taggers to display.</div>
                     </div>
                 )}
 
                 <div className="flex-1 grid grid-cols-1 gap-4">
                     <div className="bg-bg-light border rounded p-4 flex flex-col">
-                        <div className="text-muted text-xs font-medium uppercase mb-2">Enabled taggers</div>
-                        <div className="text-3xl font-semibold">{enabledCount}</div>
-                        <div className="text-muted text-sm mt-1">{taggers.length} total</div>
+                        <div className="text-muted text-xs font-medium uppercase mb-2">Taggers</div>
+                        <div className="text-3xl font-semibold">{taggers.length}</div>
                     </div>
                     <div className="bg-bg-light border rounded p-4 flex flex-col">
                         <div className="text-muted text-xs font-medium uppercase mb-2">Total runs</div>
@@ -98,14 +75,6 @@ function TaggerMetrics(): JSX.Element {
             </div>
         </div>
     )
-}
-
-function getTaggerProviderKeyIssue(tagger: Tagger, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
-    if (tagger.tagger_type === 'hog') {
-        return null
-    }
-
-    return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
 }
 
 function AIObservabilityTagsContent(): JSX.Element {
@@ -119,16 +88,11 @@ function AIObservabilityTagsContent(): JSX.Element {
         tagDistributionMap,
         someTaggersMigrated,
     } = useValues(taggersLogic)
-    const { providerKeys } = useValues(llmProviderKeysLogic)
-    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { push } = useActions(router)
+    const { setTaggersFilter, setDates } = useActions(taggersLogic)
     const { searchParams } = useValues(router)
     const taggerUrl = (id: string): string => combineUrl(urls.aiObservabilityTag(id), searchParams).url
-    const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
-    const [isEnableRetiredModalOpen, setIsEnableRetiredModalOpen] = useState(false)
 
-    const columns: LemonTableColumns<Tagger> = [
+    const columns: LemonTableColumns<TaggerApi> = [
         {
             title: 'Name',
             key: 'name',
@@ -156,46 +120,10 @@ function AIObservabilityTagsContent(): JSX.Element {
                         </Link>
                     )
                 }
-                const providerKeyIssue = tagger.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
-                if (providerKeyIssue) {
-                    return (
-                        <Tooltip
-                            title={`Paused because API key ${providerKeyIssue.name} ${providerKeyStateIssueDescription(
-                                providerKeyIssue.state
-                            )}. Open settings to fix.`}
-                        >
-                            <LemonTag
-                                type="warning"
-                                icon={<IconWarning />}
-                                forceClickable
-                                onClick={() => push(settingsUrl)}
-                                data-attr="tagger-status-key-issue"
-                            >
-                                Key issue
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                }
-
                 return (
-                    <div className="flex items-center gap-2">
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Tagger}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonSwitch
-                                checked={tagger.enabled}
-                                onChange={() =>
-                                    tagger.enabled ? toggleTaggerEnabled(tagger.id) : setIsEnableRetiredModalOpen(true)
-                                }
-                                size="small"
-                                data-attr="toggle-tagger-enabled"
-                            />
-                        </AccessControlAction>
-                        <span className={tagger.enabled ? 'text-success' : 'text-muted'}>
-                            {tagger.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                    </div>
+                    <span className={tagger.enabled ? 'text-success' : 'text-muted'}>
+                        {tagger.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
                 )
             },
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
@@ -261,50 +189,6 @@ function AIObservabilityTagsContent(): JSX.Element {
                 )
             },
         },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, tagger) => (
-                <div className="flex gap-1">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Tagger}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPencil />}
-                            onClick={() =>
-                                push(
-                                    combineUrl(urls.aiObservabilityTag(tagger.id), {
-                                        ...searchParams,
-                                        tab: 'configuration',
-                                    }).url
-                                )
-                            }
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Tagger}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status="danger"
-                            icon={<IconTrash />}
-                            onClick={() => {
-                                deleteWithUndo({
-                                    endpoint: `environments/${currentTeamId}/taggers`,
-                                    object: tagger,
-                                    callback: () => loadTaggers(),
-                                })
-                            }}
-                        />
-                    </AccessControlAction>
-                </div>
-            ),
-        },
     ]
 
     return (
@@ -336,19 +220,12 @@ function AIObservabilityTagsContent(): JSX.Element {
                 nouns={['tagger', 'taggers']}
                 emptyState={<div className="text-center p-8 text-muted">No taggers found.</div>}
             />
-            <TaggerCreationRetiredModal
-                action="enable"
-                isOpen={isEnableRetiredModalOpen}
-                onClose={() => setIsEnableRetiredModalOpen(false)}
-            />
         </div>
     )
 }
 
 export function AIObservabilityTagsScene(): JSX.Element {
-    const [isCreationRetiredModalOpen, setIsCreationRetiredModalOpen] = useState(false)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!receivedFeatureFlags) {
         return (
@@ -370,40 +247,10 @@ export function AIObservabilityTagsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Taggers"
-                description="Set up taggers to automatically add custom tags to your AI generations."
+                description="Tags that taggers added to your AI generations."
                 resourceType={{ type: 'llm_tags' }}
-                actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Tagger}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        {todayRailNav ? (
-                            <Button
-                                variant="primary"
-                                onClick={() => setIsCreationRetiredModalOpen(true)}
-                                data-attr="create-tagger-button"
-                            >
-                                <IconPlus />
-                                Create tagger
-                            </Button>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                onClick={() => setIsCreationRetiredModalOpen(true)}
-                                data-attr="create-tagger-button"
-                            >
-                                Create tagger
-                            </LemonButton>
-                        )}
-                    </AccessControlAction>
-                }
             />
             <AIObservabilityTagsContent />
-            <TaggerCreationRetiredModal
-                isOpen={isCreationRetiredModalOpen}
-                onClose={() => setIsCreationRetiredModalOpen(false)}
-            />
         </SceneContent>
     )
 }

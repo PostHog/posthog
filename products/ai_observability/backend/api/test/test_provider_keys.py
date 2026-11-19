@@ -10,7 +10,7 @@ from django.utils import timezone
 
 import httpx
 from parameterized import parameterized
-from rest_framework import serializers, status
+from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
@@ -19,7 +19,6 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
 from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, models_cache_key
-from products.ai_observability.backend.api.taggers import TaggerModelConfigurationWriteSerializer
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
@@ -29,9 +28,8 @@ from products.ai_observability.backend.models.provider_keys import LLMProviderKe
 
 
 class TestProviderKeySerializer(SimpleTestCase):
-    @parameterized.expand([(LLMProxyCompletionSerializer,), (TaggerModelConfigurationWriteSerializer,)])
-    def test_system_one_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
-        serializer = serializer_class(
+    def test_system_one_is_not_a_completion_provider(self) -> None:
+        serializer = LLMProxyCompletionSerializer(
             data={
                 "provider": "system_one",
                 "model": "example-judge-v1",
