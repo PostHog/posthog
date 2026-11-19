@@ -73,8 +73,9 @@ describe('mergeReportRows', () => {
         lead_step_id: lead,
         position: null,
     })
-    const planRow = (id: string, key: number, lead: string): SignalReport =>
+    const planRow = (id: string, key: number, lead: string, overrides: Partial<SignalReport> = {}): SignalReport =>
         report(id, {
+            ...overrides,
             inbox_merge_key: key,
             link_summary: {
                 kind: id === 'plan' ? 'plan' : 'part_of',
@@ -85,7 +86,8 @@ describe('mergeReportRows', () => {
             },
         })
 
-    // A plan shows once, at its best-ranked loaded row, as its lead layer when that layer is loaded.
+    // A plan shows once, at its best-ranked loaded row, as its lead layer when that layer is loaded. The
+    // last column is the report whose place in the order the card took.
     it.each([
         {
             name: 'the lead layer takes the best rank of the plan',
@@ -96,21 +98,36 @@ describe('mergeReportRows', () => {
                 planRow('plan', 4, 'layer-3'),
             ],
             expected: [
-                ['layer-3', ['layer-1', 'plan']],
-                ['other', []],
+                ['layer-3', ['layer-1', 'plan'], 'layer-1'],
+                ['other', [], null],
             ],
         },
         {
             name: 'the best-ranked layer stands in when the lead is not loaded',
             rows: [planRow('plan', 1, 'layer-1'), planRow('layer-2', 2, 'layer-1'), planRow('layer-3', 3, 'layer-1')],
-            expected: [['layer-2', ['plan', 'layer-3']]],
+            expected: [['layer-2', ['plan', 'layer-3'], 'plan']],
         },
         {
             name: 'the plan shows itself when no layer is loaded',
             rows: [report('other', { inbox_merge_key: 1 }), planRow('plan', 2, 'layer-1')],
             expected: [
-                ['other', []],
-                ['plan', []],
+                ['other', [], null],
+                ['plan', [], null],
+            ],
+        },
+        {
+            name: 'a plan with its own pull request in flight keeps its card',
+            rows: [
+                planRow('plan', 1, 'layer-1', {
+                    implementation_pr_url: 'https://github.com/org/repo/pull/1',
+                    implementation_pr_state: 'open',
+                }),
+                planRow('layer-1', 2, 'layer-1'),
+                planRow('layer-2', 3, 'layer-1'),
+            ],
+            expected: [
+                ['plan', [], null],
+                ['layer-1', ['layer-2'], null],
             ],
         },
     ])('collapses plan layers: $name', ({ rows, expected }) => {
@@ -118,6 +135,8 @@ describe('mergeReportRows', () => {
             collapsePlans: true,
         })
 
-        expect(merged.map((row) => [row.report.id, row.collapsedReportIds ?? []])).toEqual(expected)
+        expect(merged.map((row) => [row.report.id, row.collapsedReportIds ?? [], row.slotReport?.id ?? null])).toEqual(
+            expected
+        )
     })
 })

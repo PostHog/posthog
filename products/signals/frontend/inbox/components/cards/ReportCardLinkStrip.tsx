@@ -77,48 +77,88 @@ function stepLabel(step: LinkPlanSummaryApi['steps'][number]): string {
     return `${step.title ?? 'Untitled layer'} · ${STEP_STATE_LABEL[step.state]}`
 }
 
+type StripCapture = (
+    params: Omit<Parameters<typeof captureInboxReportLinkStripClicked>[0], 'report' | 'summary'>
+) => void
+
+/**
+ * Reports which linked report a menu entry opened. Captured on the way down, because Link returns before
+ * its own onClick on a Cmd/Ctrl-click, and those opens count too. The menu renders in a portal, and React
+ * still passes its clicks up through this wrapper.
+ */
+function MenuOpenCapture({
+    onOpen,
+    children,
+}: {
+    onOpen: (reportId: string) => void
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <span
+            className="contents"
+            onClickCapture={(event) => {
+                const reportId = (event.target as Element)
+                    .closest('a')
+                    ?.querySelector<HTMLElement>('[data-linked-report-id]')?.dataset.linkedReportId
+                if (reportId) {
+                    onOpen(reportId)
+                }
+            }}
+        >
+            {children}
+        </span>
+    )
+}
+
 function PlanSteps({
     plan,
     currentId,
-    onOpenStep,
+    reportUrl,
+    capture,
 }: {
     plan: LinkPlanSummaryApi
     currentId: string
-    onOpenStep: (stepId: string, position: number) => void
+    reportUrl: (reportId: string) => string
+    capture: StripCapture
 }): JSX.Element {
+    const position = (stepId: string): number => plan.steps.findIndex((step) => step.id === stepId) + 1
+    const openStep = (stepId: string): void =>
+        capture({ target: 'plan_step', linkedReportId: stepId, stepPosition: position(stepId) })
+
     if (plan.steps.length > MAX_NUMBERED_STEPS) {
         const merged = plan.steps.filter((step) => step.state === 'merged').length
         return (
             <span className="flex items-center gap-2">
-                <LemonMenu
-                    items={plan.steps.map((step, index) => ({
-                        label: `${index + 1}. ${stepLabel(step)}`,
-                        to: inboxReportDetailUrl(step.id),
-                        active: step.id === currentId,
-                        onClick: () => onOpenStep(step.id, index + 1),
-                    }))}
-                >
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        aria-label="Show every layer of this plan"
-                        data-attr="report-card-link-strip-layers"
+                <MenuOpenCapture onOpen={openStep}>
+                    <LemonMenu
+                        items={plan.steps.map((step, index) => ({
+                            label: <span data-linked-report-id={step.id}>{`${index + 1}. ${stepLabel(step)}`}</span>,
+                            to: reportUrl(step.id),
+                            active: step.id === currentId,
+                        }))}
                     >
-                        <span className="flex items-center gap-0.5">
-                            {plan.steps.map((step) => (
-                                <span
-                                    key={step.id}
-                                    className={clsx(
-                                        'size-2 rounded-xs',
-                                        STEP_DOT_CLASS[step.state],
-                                        step.id === currentId && 'ring-1 ring-accent ring-offset-1'
-                                    )}
-                                />
-                            ))}
-                        </span>
-                    </LemonButton>
-                </LemonMenu>
-                <span className="whitespace-nowrap text-tertiary tabular-nums">{merged} merged</span>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            aria-label="Show every layer of this plan"
+                            data-attr="report-card-link-strip-layers"
+                        >
+                            <span className="flex items-center gap-0.5">
+                                {plan.steps.map((step) => (
+                                    <span
+                                        key={step.id}
+                                        className={clsx(
+                                            'size-2 rounded-xs',
+                                            STEP_DOT_CLASS[step.state],
+                                            step.id === currentId && 'ring-1 ring-accent ring-offset-1'
+                                        )}
+                                    />
+                                ))}
+                            </span>
+                        </LemonButton>
+                    </LemonMenu>
+                </MenuOpenCapture>
+                <span className="whitespace-nowrap text-tertiary tabular-nums">{`${merged} merged`}</span>
             </span>
         )
     }
@@ -129,8 +169,8 @@ function PlanSteps({
                     {index > 0 && <span className="h-px w-1.5 bg-[var(--color-border-primary)]" />}
                     <Tooltip title={stepLabel(step)}>
                         <Link
-                            to={inboxReportDetailUrl(step.id)}
-                            onClick={() => onOpenStep(step.id, index + 1)}
+                            to={reportUrl(step.id)}
+                            onClickCapture={() => openStep(step.id)}
                             aria-label={`Layer ${index + 1}: ${stepLabel(step)}`}
                             data-attr="report-card-link-strip-step"
                             className={clsx(
@@ -141,7 +181,7 @@ function PlanSteps({
                             )}
                         >
                             <span className={clsx('size-1.5 shrink-0 rounded-full', STEP_DOT_CLASS[step.state])} />
-                            {index + 1}
+                            <span>{index + 1}</span>
                         </Link>
                     </Tooltip>
                 </span>
@@ -149,10 +189,6 @@ function PlanSteps({
         </span>
     )
 }
-
-type StripCapture = (
-    params: Omit<Parameters<typeof captureInboxReportLinkStripClicked>[0], 'report' | 'summary'>
-) => void
 
 /** The relationship the strip names, and the report its title links to, if any. */
 function stripHeading(summary: ReportLinkSummaryApi): {
@@ -174,26 +210,41 @@ function stripHeading(summary: ReportLinkSummaryApi): {
 
 function OtherLinksMenu({
     links,
+    reportUrl,
     capture,
 }: {
     links: ReportLinkSummaryApi['other_links']
+    reportUrl: (reportId: string) => string
     capture: StripCapture
 }): JSX.Element | null {
     if (links.length === 0) {
         return null
     }
     return (
-        <LemonMenu
-            items={links.map((link) => ({
-                label: `${KIND_LABEL[link.kind]} ${link.report.title ?? 'Untitled report'}`,
-                to: inboxReportDetailUrl(link.report.id),
-                onClick: () => capture({ target: 'other_link', linkedReportId: link.report.id, linkedKind: link.kind }),
-            }))}
+        <MenuOpenCapture
+            onOpen={(reportId) =>
+                capture({
+                    target: 'other_link',
+                    linkedReportId: reportId,
+                    linkedKind: links.find((link) => link.report.id === reportId)?.kind ?? null,
+                })
+            }
         >
-            <LemonButton size="xsmall" type="tertiary" data-attr="report-card-link-strip-more">
-                +{links.length} more
-            </LemonButton>
-        </LemonMenu>
+            <LemonMenu
+                items={links.map((link) => ({
+                    label: (
+                        <span data-linked-report-id={link.report.id}>
+                            {`${KIND_LABEL[link.kind]} ${link.report.title ?? 'Untitled report'}`}
+                        </span>
+                    ),
+                    to: reportUrl(link.report.id),
+                }))}
+            >
+                <LemonButton size="xsmall" type="tertiary" data-attr="report-card-link-strip-more">
+                    {`+${links.length} more`}
+                </LemonButton>
+            </LemonMenu>
+        </MenuOpenCapture>
     )
 }
 
@@ -204,27 +255,34 @@ function OtherLinksMenu({
 export function ReportCardLinkStrip({
     report,
     summary,
+    backUrl,
 }: {
     report: SignalReport
     summary: ReportLinkSummaryApi
+    /** Where the opened report's back button returns to, for cards rendered outside the inbox. */
+    backUrl?: string
 }): JSX.Element {
     const Icon = KIND_ICON[summary.kind]
     const isRecurrence = summary.kind === 'recurrence_of'
     const { label, target } = stripHeading(summary)
+    const reportUrl = (reportId: string): string => inboxReportDetailUrl(reportId, backUrl)
     const capture: StripCapture = (params) => captureInboxReportLinkStripClicked({ report, summary, ...params })
 
     return (
         <div
             className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary bg-surface-secondary px-4 py-1.5 text-xs @lg:flex-nowrap"
             data-attr="report-card-link-strip"
+            // The card's context menu acts on the card's own report. Over a strip link the browser menu
+            // acts on that link instead.
+            onContextMenu={(event) => event.stopPropagation()}
         >
             <span className="flex min-w-0 basis-full items-center gap-1.5 @lg:flex-1 @lg:basis-auto">
                 <Icon className={clsx('size-4 shrink-0', isRecurrence ? 'text-warning' : 'text-secondary')} />
                 <span className={clsx('shrink-0 font-semibold', isRecurrence && 'text-warning')}>{label}</span>
                 {target && (
                     <Link
-                        to={inboxReportDetailUrl(target.id)}
-                        onClick={() => capture({ target: 'linked_report', linkedReportId: target.id })}
+                        to={reportUrl(target.id)}
+                        onClickCapture={() => capture({ target: 'linked_report', linkedReportId: target.id })}
                         className="min-w-0 truncate"
                         data-attr="report-card-link-strip-report"
                     >
@@ -234,17 +292,11 @@ export function ReportCardLinkStrip({
             </span>
             <span className="flex shrink-0 items-center gap-2 @lg:ml-auto">
                 {summary.plan ? (
-                    <PlanSteps
-                        plan={summary.plan}
-                        currentId={report.id}
-                        onOpenStep={(stepId, position) =>
-                            capture({ target: 'plan_step', linkedReportId: stepId, stepPosition: position })
-                        }
-                    />
+                    <PlanSteps plan={summary.plan} currentId={report.id} reportUrl={reportUrl} capture={capture} />
                 ) : summary.report ? (
                     <LinkedReportState report={summary.report} />
                 ) : null}
-                <OtherLinksMenu links={summary.other_links} capture={capture} />
+                <OtherLinksMenu links={summary.other_links} reportUrl={reportUrl} capture={capture} />
             </span>
         </div>
     )

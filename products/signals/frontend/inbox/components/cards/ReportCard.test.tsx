@@ -12,7 +12,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    type LinkedReportRefApi,
+    PullRequestCiStatusEnumApi,
+    type ReportMetricApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
@@ -202,6 +206,55 @@ describe('ReportCard', () => {
         // cancel the browser's open-in-a-new-tab gesture.
         expect(fireEvent.click(scoutLink, { metaKey: true })).toBe(true)
         expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    // Link returns before its own onClick on a Cmd/Ctrl-click, so a strip that tracked in onClick would
+    // miss every open in a new tab, from the strip and from its menu alike.
+    it.each([
+        { name: 'the linked report', open: () => screen.getByText('The old report'), target: 'linked_report' },
+        {
+            name: 'a menu entry',
+            open: () => {
+                fireEvent.click(screen.getByText('+1 more'))
+                return screen.getByText('Waiting on The lock')
+            },
+            target: 'other_link',
+        },
+    ])('records a Cmd-click on $name in the link strip', ({ open, target }) => {
+        cleanup()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS], {
+            [FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS]: true,
+        })
+        const linked = (id: string, title: string): LinkedReportRefApi => ({
+            id,
+            title,
+            status: SignalReportStatus.RESOLVED,
+            implementation_pr_url: null,
+            implementation_pr_state: null,
+        })
+        render(
+            <ReportCard
+                report={makeReport('r-3', {
+                    link_summary: {
+                        kind: 'recurrence_of',
+                        report: linked('old', 'The old report'),
+                        also_follow_up: false,
+                        plan: null,
+                        other_links: [{ kind: 'depends_on', report: linked('lock', 'The lock') }],
+                    },
+                })}
+                backUrl="/customer_analytics/feed"
+            />
+        )
+        const link = open().closest('a') as HTMLElement
+
+        expect(fireEvent.click(link, { metaKey: true })).toBe(true)
+        expect(link.getAttribute('href')).toContain('back=')
+        expect(posthog.capture).toHaveBeenCalledWith(
+            INBOX_EVENTS.REPORT_LINK_STRIP_CLICKED,
+            expect.objectContaining({ report_id: 'r-3', strip_kind: 'recurrence_of', target }),
+            undefined
+        )
     })
 
     it('does not show a checkbox on hover or when selected', () => {

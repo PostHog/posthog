@@ -447,7 +447,7 @@ function ReportCardRaw({
                 <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
             ) : null}
             {row}
-            {linkSummary ? <ReportCardLinkStrip report={report} summary={linkSummary} /> : null}
+            {linkSummary ? <ReportCardLinkStrip report={report} summary={linkSummary} backUrl={backUrl} /> : null}
         </div>
     )
 }

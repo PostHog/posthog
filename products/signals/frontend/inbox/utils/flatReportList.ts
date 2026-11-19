@@ -7,6 +7,7 @@ import {
     SignalReport,
 } from '../types'
 import { compareSignalReports } from './reportOrdering'
+import { hasActiveReportPullRequest } from './reportPullRequests'
 
 /** One row of the flat Reports list: the report and the state whose response contributed it. */
 export interface MergedReportRow {
@@ -14,6 +15,11 @@ export interface MergedReportRow {
     sectionKey: InboxReportSectionKey
     /** The other loaded reports of the same plan that this row stands for, when plan layers collapse. */
     collapsedReportIds?: string[]
+    /**
+     * The report whose place in the order a collapsed card took, when the card shows a different report.
+     * Order-dependent reads, such as where the unscored rows start, read this one.
+     */
+    slotReport?: SignalReport
 }
 
 /**
@@ -98,10 +104,16 @@ export function mergeReportRows(
     return collapsePlans ? collapsePlanRows(rows) : rows
 }
 
-/** The plan a row collapses into: the plan it is a layer of, or its own id when it is the plan. */
+/**
+ * The plan a row collapses into: the plan it is a layer of, or its own id when it is the plan. A plan
+ * with its own pull request in flight keeps its own card, because hiding it would hide that review.
+ */
 function planKey(report: SignalReport): string | null {
     const summary = report.link_summary
     if (!summary?.plan || (summary.kind !== 'part_of' && summary.kind !== 'plan')) {
+        return null
+    }
+    if (summary.kind === 'plan' && hasActiveReportPullRequest(report)) {
         return null
     }
     return summary.plan.id
@@ -142,6 +154,7 @@ export function collapsePlanRows(rows: MergedReportRow[]): MergedReportRow[] {
         collapsed.push({
             ...card,
             collapsedReportIds: group.filter((member) => member !== card).map((member) => member.report.id),
+            ...(card !== row ? { slotReport: row.report } : {}),
         })
     }
     return collapsed

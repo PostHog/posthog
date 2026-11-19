@@ -324,7 +324,7 @@ export function ReportsTab(): JSX.Element {
     const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
-        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        ? rows.findIndex(({ report, slotReport }) => rankingSortScore(slotReport ?? report, rankingSortField) === null)
         : -1
     useReportImpressions(rows, selectedSections, linkStrips)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
