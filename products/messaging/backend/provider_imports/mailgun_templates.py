@@ -412,6 +412,7 @@ class _Converter:
         if match.escaped is not None:
             return _literal(token[1:]), False
         if token.startswith(("{{!", "{{~!", "{{/*", "{{- /*")):
+            self._dropped()
             return "", True
         triple, body = match.triple, match.body
         if triple is None and body is None:
@@ -808,12 +809,15 @@ class _Converter:
         self.unsupported.append(token)
         if not self.is_html:
             return _literal(token)
-        # Anything left in an HTML body could turn into markup, so the tag is left out and named in a note. Inside a
-        # tag but outside a quoted value, the text on either side then meets and could name a `<script>`, so later Go
-        # values are left for a person too.
+        # Anything left in an HTML body could turn into markup, so the tag is left out and named in a note.
+        self._dropped()
+        return ""
+
+    def _dropped(self) -> None:
+        # Inside a tag but outside a quoted value, the text on either side of something left out meets and could name
+        # a `<script>`, so later Go values are left for a person too.
         if self.tag.in_tag and not self.tag.quote:
             self.unclear_context = True
-        return ""
 
 
 def _escaped(path: str) -> str:

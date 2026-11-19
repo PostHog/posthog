@@ -184,8 +184,15 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     def test_a_tag_that_cannot_convert_stays_as_text_in_the_subject(self) -> None:
         assert convert_text("{{lookup a b}}", is_html=False).text == '{{ "{{" }}lookup a b}}'
 
-    def test_a_go_value_after_a_dropped_tag_that_joins_a_tag_name_is_left_out(self) -> None:
-        converted = convert_text('<scr{{printf ""}}ipt>var x = {{.X}};</script>', engine="go")
+    @parameterized.expand(
+        [
+            ("unconverted_tag", '<scr{{printf ""}}ipt>var x = {{.X}};</script>'),
+            ("go_comment", "<scr{{/* c */}}ipt>var x = {{.X}};</script>"),
+            ("handlebars_comment", "<scr{{! c }}ipt>var x = {{.X}};</script>"),
+        ]
+    )
+    def test_a_go_value_after_something_left_out_of_a_tag_name_is_left_out(self, _name: str, source: str) -> None:
+        converted = convert_text(source, engine="go")
 
         assert "variables." not in converted.text
 
