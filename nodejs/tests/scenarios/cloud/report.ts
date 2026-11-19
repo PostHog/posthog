@@ -181,13 +181,14 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
     ]
 }
 
-function environmentOf(profile: CloudProfile, manifest: Manifest, runnerFingerprint: unknown) {
+function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest: Manifest, runnerFingerprint: unknown) {
+    const { idleMax } = profile.readerAcu
     const environment = {
         environment_kind: ENVIRONMENT_KIND,
         writer_class: profile.writerClass,
         reader_acu_min: profile.readerAcu.min,
         reader_acu_max: profile.readerAcu.max,
-        reader_acu_idle_max: profile.readerAcu.idleMax,
+        ...(card.failsOver && idleMax !== undefined && { reader_acu_idle_max: idleMax }),
         reader_monitoring_interval_seconds: profile.readerMonitoringIntervalSeconds,
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
@@ -261,7 +262,7 @@ export async function report(
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
-    const environment = environmentOf(profile, manifest, host?.event.fingerprint)
+    const environment = environmentOf(profile, card, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: card.id,

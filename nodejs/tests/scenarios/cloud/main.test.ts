@@ -1468,11 +1468,11 @@ describe('cloud controller', () => {
         expect(lowerIdleLimit).not.toBe(first)
     })
 
-    it('keeps the fingerprint of a profile without an idle limit', async () => {
-        const { controller } = prepare({
-            profile: ({ readerAcu: { idleMax: _, ...readerAcu }, ...p }) => ({ ...p, readerAcu }),
-            env: api.credentials,
-        })
+    it.each<[string, Setup['profile']]>([
+        ['without an idle limit', ({ readerAcu: { idleMax: _, ...readerAcu }, ...p }) => ({ ...p, readerAcu })],
+        ['with an idle limit', (p) => p],
+    ])('keeps the fingerprint of a scale run under a profile %s', async (_, profile) => {
+        const { controller } = prepare({ profile, env: api.credentials })
 
         await main(['run', profilePath(), 'cyclotron-scale'], controller)
 
