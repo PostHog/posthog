@@ -299,6 +299,9 @@ export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {
     return bars.map(({ name, params }) => {
         const definition = definitionOf(name)
         const result = { name, unit: definition.unit, limit: definition.limit(params) }
+        if (evidence.steps.length === 0) {
+            return { ...result, passed: false, unjudged: 'the drive ended before its first step' }
+        }
         for (let i = 0; i < evidence.steps.length; i++) {
             const live = evidence.settled?.get(i)?.find((settled) => settled.name === name)
             const verdict = verdictOf(definition, params, evidence, i, i === evidence.steps.length - 1, live)

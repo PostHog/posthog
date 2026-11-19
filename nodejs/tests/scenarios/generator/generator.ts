@@ -140,6 +140,9 @@ export async function drive(
         attempted += 1
         const unitId = `${context.runId}-${attempted}`
         const offeredAt = Date.now()
+        if (kind.intake !== 'event') {
+            answeredAts.get(step)?.push(-Infinity)
+        }
         const offer = kind.offer({ unitId, teamId, flowId }, context).then(async (answer) => {
             const answeredAt = kind.intake === 'event' ? Date.now() : -Infinity
             const counts = kind.intake !== 'event' || answer.accepted
@@ -148,6 +151,8 @@ export async function drive(
             }
             if (counts) {
                 step.offeredUnits += 1
+            }
+            if (counts && kind.intake === 'event') {
                 answeredAts.get(step)?.push(answeredAt)
             }
             let followUp: FollowUpAnswer | undefined

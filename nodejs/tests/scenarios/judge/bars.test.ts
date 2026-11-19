@@ -311,6 +311,14 @@ describe('judgeBars', () => {
             HELD,
         ],
         [
+            'the drive was interrupted before its first step',
+            { steps: [] },
+            [
+                unjudged(0, 'the drive ended before its first step'),
+                unjudged(1, 'the drive ended before its first step'),
+            ],
+        ],
+        [
             'the drive was interrupted before its 10x step',
             { drive: { startedAt: T, endedAt: T + MINUTE } },
             [unjudged(0, 'the drive ended before the 10x step'), unjudged(1, 'the drive ended before the 10x step')],

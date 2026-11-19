@@ -293,6 +293,66 @@ describe('drive', () => {
         }
     })
 
+    it('counts a transactional unit for the gate of a step that stops on a break once it was sent, before cdp-api answers', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        const held: http.ServerResponse[] = []
+        let arrive = (): void => undefined
+        const arrived = new Promise<void>((resolve) => (arrive = resolve))
+        const server = http.createServer((request, response) => {
+            request.resume()
+            if (held.length === 2) {
+                response.writeHead(202).end('{}')
+                return
+            }
+            held.push(response)
+            if (held.length === 2) {
+                arrive()
+            }
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        const loaded = rampedCard(
+            20,
+            [
+                { scale: 1, for: '100ms' },
+                { scale: 1, for: '100ms' },
+            ],
+            '200ms',
+            true
+        )
+        const transactional = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                drive: { ...loaded.card.drive, traffic: [{ name: 'transactional_email', params: {} }] },
+            },
+            profile: { ...loaded.profile, traffic: { transactional_email: { ratePerSecond: 20 } } },
+        } satisfies LoadedCard
+        let offered = (): number => -1
+        const gate: StepGate = (_step, offeredSoFar) => {
+            offered = offeredSoFar
+            return Promise.resolve()
+        }
+        try {
+            const { driving } = startDrive(transactional, ACKNOWLEDGED, {
+                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                gate,
+            })
+
+            await jest.advanceTimersByTimeAsync(50)
+            await arrived
+            await jest.advanceTimersByTimeAsync(60)
+            const live = offered()
+            held.forEach((response) => response.writeHead(202).end('{}'))
+            await jest.advanceTimersByTimeAsync(200)
+
+            expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 4 } })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
     it('stops waiting for acknowledgements on an interrupt and leaves the pending units out of the summary and the journal', async () => {
         const kafka = heldKafka()
         const interrupt = new AbortController()
