@@ -217,16 +217,16 @@ class TestSendGridImport(BaseTest):
         assert receipt.content["templating"] == "liquid"
         assert email["subject"] == 'Your order {{ variables.order.id | join: "," }}'
         assert "Old" not in email["html"]
-        assert "{{ unsubscribe_url }}" in email["html"]
-        assert '{{ variables.preheader | join: "," | escape' in email["html"]
-        assert '{{ variables.first_name | join: ","' in email["text"] or "default" in email["text"]
+        # The receipt uses formatDate, so its body stays as text for a person to rewrite.
+        assert "{{ unsubscribe_url }}" not in email["html"]
+        assert "variables.preheader" not in email["html"]
         assert '"first_name": "Ada"' in receipt.description
         assert templates["d-4444444444444444444444444444dddd"].content["email"]["html"] == "<p>Newest</p>"
 
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
         assert any("Old draft" in note for note in items["Order receipt"]["notes"])
-        assert any("{{customHelper name}}" in note for note in items["Přivítání 🦔"]["notes"])
-        assert any("Sender_Name" in note for note in items["Přivítání 🦔"]["notes"])
+        assert any("this template's tags" in note for note in items["Order receipt"]["notes"])
+        assert any("this template's tags" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("design editor" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("no version" in note for note in items["Empty template"]["notes"])
         assert run.progress["templates"]["counts"]["no_version"] == 1
