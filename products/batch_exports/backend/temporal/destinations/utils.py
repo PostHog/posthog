@@ -33,7 +33,7 @@ def get_allowed_template_variables(
         ("second", "%S"),
     ):
         variables[name] = end.strftime(fmt) if end else None
-        variables[f"start_{name}"] = start.strftime(fmt).zfill(4 if name == "year" else 2) if start else None
+        variables[f"start_{name}"] = start.strftime(fmt) if start else None
     return variables
 
 
