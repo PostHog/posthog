@@ -18,7 +18,8 @@ _UNSAFE_IN_LIQUID_STRING = re.compile(r"\\|&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _MAX_TAG_LENGTH = 2000
 _LONG_COMMENT_CLOSE = re.compile(r"--~?\}\}")
 # Handlebars identifiers never hold these, and the converter writes identifiers into Liquid.
-_UNSAFE_IN_IDENTIFIER = re.compile(r"[{}%|\"'\\<>]")
+# The renderer decodes HTML entities inside a tag, so `&` is refused too.
+_UNSAFE_IN_IDENTIFIER = re.compile(r"[{}%|\"'\\<>&]")
 _MAX_DEPTH = 50
 _EXPRESSION_TOKEN = re.compile(
     r"""\s*(?:

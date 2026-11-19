@@ -106,6 +106,8 @@ class TestSendGridHandlebars(SimpleTestCase):
             ("closing_braces_in_a_name", "a}}b"),
             ("quote_in_a_block_name", 'each xs as |x"|'),
             ("string_as_a_hash_key", 'each xs "x}}y"=3'),
+            ("entity_in_a_name", "if a&quot;b"),
+            ("entity_in_a_hash_key", "each xs key&quot;=3"),
         ]
     )
     def test_expressions_outside_the_grammar_are_refused(self, _name: str, body: str) -> None:
