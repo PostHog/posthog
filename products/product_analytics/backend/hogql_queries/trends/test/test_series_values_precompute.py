@@ -287,6 +287,26 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert closed.verification is None
         assert closed.values[datetime(2024, 1, 9)] == 1
 
+    def test_failed_verification_serves_stored_values_and_retries_after_backoff(self) -> None:
+        self._seed()
+        with (
+            time_machine.travel(_NOW, tick=False),
+            patch(
+                "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.execute_hogql_query",
+                side_effect=Exception("count query timed out"),
+            ),
+        ):
+            failed = self._closed(verify=True)
+        with time_machine.travel("2024-01-15T12:10:00Z", tick=False):
+            backing_off = self._closed(verify=True)
+        with time_machine.travel("2024-01-15T12:20:00Z", tick=False):
+            retried = self._closed(verify=True)
+
+        assert failed.verification is None
+        assert failed.values[datetime(2024, 1, 9)] == 1
+        assert backing_off.verification is None
+        assert retried.verification is not None
+
     @time_machine.travel(_NOW, tick=False)
     def test_cold_cache_without_inserts_returns_none(self) -> None:
         self._seed()

@@ -9,6 +9,7 @@ from django.core.cache import cache
 
 import structlog
 from prometheus_client import Counter
+from temporalio.exceptions import CancelledError
 
 from posthog.schema import (
     ActionsNode,
@@ -31,6 +32,7 @@ from posthog.clickhouse.preaggregation.series_values_preaggregated_sql import (
     DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
@@ -106,7 +108,10 @@ MAX_WINDOW_DAYS = 7
 LATE_EVENTS_SETTLING_SECONDS = 60 * 60
 MAX_RANGE_DAYS = 366
 VERIFY_INTERVAL_SECONDS = 6 * 60 * 60
+VERIFY_RETRY_SECONDS = 15 * 60
 ENGINE_VERSION = "series_values_v2"
+
+_CANCELLATION = (CancelledError, CHQueryErrorQueryWasCancelled)
 
 _BUCKET_EXPRS: dict[str, str] = {
     "hour": "toStartOfHour(toTimeZone(time_window_start, %(tz)s))",
@@ -357,19 +362,29 @@ def _changed_days(
     return sorted(day for day in stored.keys() | current.keys() if stored.get(day, 0) != current.get(day, 0))
 
 
-def _verification_due(runner: TrendsQueryRunner) -> bool:
+def _verification_key(runner: TrendsQueryRunner) -> str:
     series = runner.query.series[0]
     assert isinstance(series, EventsNode)
     shape = json.dumps(
         [series.event, [prop.model_dump(mode="json", exclude_none=True) for prop in _properties(runner)]],
         sort_keys=True,
     )
-    key = f"series_values_verify:{ENGINE_VERSION}:{runner.team.pk}:{hashlib.sha256(shape.encode()).hexdigest()}"
+    return f"series_values_verify:{ENGINE_VERSION}:{runner.team.pk}:{hashlib.sha256(shape.encode()).hexdigest()}"
+
+
+def _verification_due(runner: TrendsQueryRunner) -> bool:
     try:
-        return bool(cache.add(key, True, timeout=VERIFY_INTERVAL_SECONDS))
+        return bool(cache.add(_verification_key(runner), True, timeout=VERIFY_INTERVAL_SECONDS))
     except Exception:
         logger.warning("series_values_verify_throttle_unavailable", team_id=runner.team.pk, exc_info=True)
         return False
+
+
+def _retry_verification_soon(runner: TrendsQueryRunner) -> None:
+    try:
+        cache.set(_verification_key(runner), True, timeout=VERIFY_RETRY_SECONDS)
+    except Exception:
+        logger.warning("series_values_verify_throttle_unavailable", team_id=runner.team.pk, exc_info=True)
 
 
 def _live_tail_values(runner: TrendsQueryRunner, *, live_from: datetime, date_to: datetime) -> dict[datetime, int]:
@@ -455,16 +470,24 @@ def closed_series_values(
     remaining = _remaining_seconds(started, wait_timeout_seconds)
     if verify and (remaining is None or remaining > 0) and _verification_due(runner):
         verify_started = time.monotonic()
-        stale_days = _changed_days(
-            runner,
-            job_ids=[str(job_id) for job_id in result.job_ids],
-            start=range_start,
-            end=range_end,
-            timeout_seconds=remaining,
-        )
-        verification = SeriesValuesVerification(
-            stale_days=len(stale_days), duration_ms=round((time.monotonic() - verify_started) * 1000)
-        )
+        try:
+            stale_days = _changed_days(
+                runner,
+                job_ids=[str(job_id) for job_id in result.job_ids],
+                start=range_start,
+                end=range_end,
+                timeout_seconds=remaining,
+            )
+        except _CANCELLATION:
+            raise
+        except Exception:
+            logger.warning("series_values_verify_failed", team_id=runner.team.pk, exc_info=True)
+            _retry_verification_soon(runner)
+            stale_days = None
+        if stale_days is not None:
+            verification = SeriesValuesVerification(
+                stale_days=len(stale_days), duration_ms=round((time.monotonic() - verify_started) * 1000)
+            )
         if stale_days:
             expire_ready_jobs_covering(runner.team, result.job_ids, stale_days)
             result = _ensure(
@@ -475,7 +498,7 @@ def closed_series_values(
                 wait_timeout_seconds=_remaining_seconds(started, wait_timeout_seconds),
             )
             if not result.ready or not result.job_ids:
-                return SeriesValuesUnavailable(reason="not_ready")
+                return SeriesValuesUnavailable(reason="stale_rebuild_not_ready")
             freshly_built = freshly_built or result.freshly_built
 
     stored = _read_values(
