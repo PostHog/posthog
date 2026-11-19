@@ -2,7 +2,12 @@
     "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
-            "inputs": ["backend/__init__.py", "backend/facade/**", "backend/migrations/**", "backend/apps.py"],
+            "inputs": [
+                "backend/facade/**",
+                "backend/migrations/**",
+                "backend/apps.py",
+                "backend/destinations/__init__.py"
+            ],
             "outputs": [],
             "cache": true
         }

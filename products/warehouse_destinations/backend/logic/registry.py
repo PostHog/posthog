@@ -6,7 +6,9 @@ from ..facade.contracts import DestinationFactory, UnsupportedDestinationError
 
 # Destination type -> "module.path:Attribute". `resolve` imports the module on first
 # use, so vendor SDKs load only when a caller asks for that destination.
-_BUILTIN_FACTORIES: dict[str, str] = {}
+_BUILTIN_FACTORIES: dict[str, str] = {
+    "Postgres": "products.warehouse_destinations.backend.destinations.postgres.destination:PostgresDestination",
+}
 
 _registry: dict[str, DestinationFactory] = {}
 

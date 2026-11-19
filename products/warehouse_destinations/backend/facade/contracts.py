@@ -173,7 +173,9 @@ class Destination(Protocol):
     ) -> WriteOutcome:
         """Write `batches` into `prepared.write_into`.
 
-        A retried write with the same `batch_key` does not duplicate rows.
+        A retried write with the same `batch_key` does not duplicate rows. Only MERGE and
+        REPLACE writes go through a staging table that can carry the key, so an APPEND write
+        with a `batch_key` raises `ValueError`.
         """
         ...
 
