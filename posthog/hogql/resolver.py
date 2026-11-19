@@ -621,7 +621,6 @@ class Resolver(CloningVisitor):
         self._entered_root_select: bool = False
         # Separate SELECT frames prevent nested joins from consuming an outer query's deferred aliases.
         self._pending_scalar_ctes: list[dict[str, Any]] = []
-        self._terminal_cte_errors: dict[int, object] = {}
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -1179,17 +1178,9 @@ class Resolver(CloningVisitor):
         )
         scopes_before = len(self.scopes)
         ctes_before = self.ctes
-        errors_before = len(self.context.errors)
         try:
             with self.context.entering_select(node.view_name):
-                resolved = self._resolve_select_query(node)
-            self._terminal_cte_errors.update((id(error), error) for error in self.context.errors[errors_before:])
-            return resolved
-        except QueryError as error:
-            # An outer FROM cannot repair an error in a completed inner scope, except for an outer pending alias.
-            if not isinstance(error, _PendingScalarAliasError):
-                self._terminal_cte_errors[id(error)] = error
-            raise
+                return self._resolve_select_query(node)
         finally:
             del self.scopes[scopes_before:]
             self.ctes = ctes_before
@@ -1217,7 +1208,11 @@ class Resolver(CloningVisitor):
             current_level_ctes = {}
             for cte in node.ctes.values():
                 if cte.cte_type == "column":
-                    if _collect_field_root_names(cte.expr) - self.ctes.keys() - (self.context.globals or {}).keys():
+                    if not self._required_tables_available(
+                        cte,
+                        self.scopes[-1] if self.scopes else EMPTY_SCOPE,
+                        self._pending_scalar_ctes[-1]["pending"],
+                    ):
                         self._pending_scalar_ctes[-1]["pending"][cte.name] = cte
                         continue
                     resolved_cte = self._try_resolve_scalar_cte(cte)
@@ -2250,14 +2245,9 @@ class Resolver(CloningVisitor):
         return column_names
 
     def _try_resolve_scalar_cte(self, cte: ast.CTE) -> Optional[ast.CTE]:
-        """Resolve a scalar ("column") WITH alias, returning None when it needs a table that is
-        not in scope yet.
+        """Resolve an available scalar alias, deferring only references to pending aliases in this frame.
 
-        Unresolvable fields raise QueryError in the clickhouse dialect, but only record context
-        errors in the SQL-target dialects. Errors from an inner SELECT are terminal unless
-        they reference an outer pending scalar alias. A deferred attempt leaves no trace:
-        recorded errors are dropped, scopes pushed by nested
-        visitors are rolled back, and the CTE registration (a visit_cte side effect) is undone.
+        A deferred attempt rolls back CTE registrations, scopes, and diagnostics.
         """
         errors_before = len(self.context.errors)
         warnings_before = len(self.context.warnings)
@@ -2266,18 +2256,10 @@ class Resolver(CloningVisitor):
         cte_counter_before = self.cte_counter
         ctes_before = dict(self.ctes)
         try:
-            resolved_cte = self.visit(cte)
-        except QueryError as error:
-            if id(error) in self._terminal_cte_errors:
+            return self.visit(cte)
+        except _PendingScalarAliasError as error:
+            if error.frame is not self._pending_scalar_ctes[-1]:
                 raise
-            if isinstance(error, _PendingScalarAliasError) and error.frame is not self._pending_scalar_ctes[-1]:
-                raise
-            resolved_cte = None
-        if resolved_cte is not None and any(
-            id(error) in self._terminal_cte_errors for error in self.context.errors[errors_before:]
-        ):
-            return resolved_cte
-        if resolved_cte is None or len(self.context.errors) > errors_before:
             del self.context.errors[errors_before:]
             del self.context.warnings[warnings_before:]
             del self.context.notices[notices_before:]
@@ -2285,7 +2267,6 @@ class Resolver(CloningVisitor):
             self.cte_counter = cte_counter_before
             self.ctes = ctes_before
             return None
-        return resolved_cte
 
     def _required_tables_available(
         self,
@@ -2332,7 +2313,7 @@ class Resolver(CloningVisitor):
                 if len(field.chain) > 1 and lookup_table_by_nested_name(curr, field):
                     is_available = True
                     break
-                if name in curr.aliases:
+                if name in curr.aliases or name in curr.columns:
                     is_available = True
                     break
                 if any(_table_has_field(t, name, self.context) for t in curr.tables.values()) or any(

@@ -942,6 +942,25 @@ class TestResolver(BaseTest):
         self.assertIsInstance(resolved.type, ast.SelectQueryType)
         self.assertEqual(self.context.errors, [])
 
+    def test_scalar_keyword_alias_is_available_to_a_table_cte_before_from(self):
+        resolved = resolve_types(
+            self._select("WITH 1 AS seed, current_date AS d, t AS (SELECT d) SELECT * FROM t"),
+            self.context,
+            dialect="postgres",
+        )
+        assert resolved.ctes is not None
+        self.assertIsInstance(resolved.ctes["d"].expr, ast.Keyword)
+        self.assertEqual(self.context.errors, [])
+
+    def test_scalar_outer_field_alias_is_available_to_a_table_cte_before_from(self):
+        resolved = resolve_types(
+            self._select("SELECT (WITH number AS n, t AS (SELECT n) SELECT * FROM t) FROM numbers(1)"),
+            self.context,
+            dialect="clickhouse",
+        )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
     def test_ctes_column_alias_referencing_joined_table(self):
         self.assertEqual(
             self._print_hogql(
@@ -1056,6 +1075,26 @@ class TestResolver(BaseTest):
             )
             self.assertIn("equals(v, n0.number)", printed)
             self.assertEqual(attempts.get("v"), 1)
+
+    def test_invalid_scalar_field_is_not_retried_as_joins_enter_scope(self):
+        attempts: list[str] = []
+        original = Resolver._try_resolve_scalar_cte
+
+        def tracked(resolver, cte):
+            attempts.append(cte.name)
+            return original(resolver, cte)
+
+        with patch.object(Resolver, "_try_resolve_scalar_cte", tracked):
+            with self.assertRaises(QueryError):
+                resolve_types(
+                    self._select(
+                        "WITH n0.missing AS v SELECT 1 FROM numbers(1) n0 "
+                        "JOIN numbers(1) n1 ON 1=1 JOIN numbers(1) n2 ON v=1"
+                    ),
+                    self.context,
+                    dialect="clickhouse",
+                )
+        self.assertEqual(attempts, ["v"])
 
     def test_ctes_failed_speculative_resolution_does_not_leak_scopes(self):
         with self.assertRaises(QueryError) as e:
