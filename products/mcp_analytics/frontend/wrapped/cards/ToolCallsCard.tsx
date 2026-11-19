@@ -1,3 +1,5 @@
+import { IconCrown } from '@posthog/icons'
+
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -32,15 +34,18 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                 {months.map((month, index) => (
                     <li
                         key={month.month}
-                        className="MCPWrapped__rise grid grid-cols-[2.25rem_1fr_3rem] items-center gap-2 text-sm tabular-nums"
+                        className="MCPWrapped__rise grid grid-cols-[3rem_1fr_3rem] items-center gap-2 text-sm tabular-nums"
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
-                        <span>{formatMonth(month.month, 'short')}</span>
+                        <span className="flex items-center gap-1">
+                            {formatMonth(month.month, 'short')}
+                            {month.calls === busiest && <IconCrown className="size-3.5" aria-label="Busiest month" />}
+                        </span>
                         <span className="h-3 overflow-hidden rounded-full bg-white/20">
                             <span
                                 className={cn(
                                     'MCPWrapped__grow-x block h-full rounded-full',
-                                    month.calls === busiest ? 'bg-warning' : 'bg-white/85'
+                                    month.calls === busiest ? 'bg-white' : 'bg-white/60'
                                 )}
                                 style={{
                                     width: `${Math.max(2, (month.calls / busiest) * 100)}%`,
