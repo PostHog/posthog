@@ -66,7 +66,7 @@ export function DashboardV2Actions(): JSX.Element {
                             <DropdownMenuGroup>
                                 <DropdownMenuLabel>Tile density</DropdownMenuLabel>
                                 <DropdownMenuRadioGroup
-                                    value={dashboard.appearance?.tileSpacing ?? 'standard'}
+                                    value={dashboard.appearance?.tileSpacing ?? 'compact'}
                                     onValueChange={(value) =>
                                         applyDashboardEdit({
                                             edit: 'setAppearance',
