@@ -17,8 +17,8 @@ from products.tasks.backend.facade.contracts import FencedRunTokensRow
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.run_token_fencing import (
     MAX_TOKENS_PER_RUN,
+    REVOKE_PENDING_STATE_KEY,
     TOKEN_HASHES_STATE_KEY,
-    record_run_gateway_token,
 )
 from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.temporal.process_task.ai_gateway_token import mint_scoped_token
@@ -55,6 +55,7 @@ class TestRunTokenFencing(TestCase):
         environment: str = TaskRun.Environment.CLOUD,
         ended_ago: timedelta = timedelta(minutes=5),
         token_hashes: tuple[str, ...] = (TOKEN_HASH,),
+        revoke_pending: bool = False,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -68,7 +69,10 @@ class TestRunTokenFencing(TestCase):
             team=self.team,
             status=status,
             environment=environment,
-            state={TOKEN_HASHES_STATE_KEY: list(token_hashes)} if token_hashes else {},
+            state={
+                **({TOKEN_HASHES_STATE_KEY: list(token_hashes)} if token_hashes else {}),
+                **({REVOKE_PENDING_STATE_KEY: True} if revoke_pending else {}),
+            },
         )
         ended_at = django_timezone.now() - ended_ago
         TaskRun.objects.filter(id=run.id).update(
@@ -104,16 +108,16 @@ class TestRunTokenFencing(TestCase):
         assert token is None
         assert post.call_args.kwargs["json"] == {"token": "phe_abc"}
 
-    def test_a_run_keeps_only_its_newest_token_hashes(self) -> None:
-        run = self._run(status=TaskRun.Status.IN_PROGRESS, token_hashes=())
+    def test_a_run_at_its_limit_revokes_the_hash_it_drops(self) -> None:
+        stored = tuple(f"{number:064d}" for number in range(MAX_TOKENS_PER_RUN))
+        run = self._run(status=TaskRun.Status.IN_PROGRESS, token_hashes=stored)
 
-        for number in range(MAX_TOKENS_PER_RUN + 2):
-            record_run_gateway_token(run.id, f"phe_{number}")
+        with patch(GATEWAY_POST, side_effect=[_answer(201, {"token": "phe_abc"}), _answer(200)]) as post:
+            mint_scoped_token(ai_product="signals_scout", team_id=self.team.id, run_id=str(run.id))
 
         run.refresh_from_db()
-        newest = hashlib.sha256(f"phe_{MAX_TOKENS_PER_RUN + 1}".encode()).hexdigest()
-        assert len(run.state[TOKEN_HASHES_STATE_KEY]) == MAX_TOKENS_PER_RUN
-        assert run.state[TOKEN_HASHES_STATE_KEY][-1] == newest
+        assert post.call_args.kwargs["json"] == {"token_hashes": [stored[0]]}
+        assert run.state[TOKEN_HASHES_STATE_KEY] == [*stored[1:], hashlib.sha256(b"phe_abc").hexdigest()]
 
     @parameterized.expand(
         [
@@ -126,6 +130,18 @@ class TestRunTokenFencing(TestCase):
             ("resumed_run_back_in_the_queue", "enforce", {"status": TaskRun.Status.QUEUED}, None),
             ("local_run", "enforce", {"environment": TaskRun.Environment.LOCAL}, None),
             ("run_that_ended_over_an_hour_ago", "enforce", {"ended_ago": timedelta(hours=2)}, None),
+            (
+                "older_run_whose_revoke_failed_before",
+                "enforce",
+                {"ended_ago": timedelta(hours=2), "revoke_pending": True},
+                "revoked",
+            ),
+            (
+                "failed_revoke_older_than_any_token",
+                "enforce",
+                {"ended_ago": timedelta(hours=25), "revoke_pending": True},
+                None,
+            ),
         ]
     )
     def test_fencing_revokes_only_tokens_of_recently_ended_cloud_runs(
@@ -143,9 +159,39 @@ class TestRunTokenFencing(TestCase):
         revoked = outcome == "revoked"
         assert rows == ([FencedRunTokensRow(profile=USER.key, outcome=outcome, count=1)] if outcome else [])
         assert (TOKEN_HASHES_STATE_KEY in run.state) is not revoked
+        assert not (revoked and REVOKE_PENDING_STATE_KEY in run.state)
         assert [call.kwargs["json"] for call in post.call_args_list] == (
             [{"token_hashes": [TOKEN_HASH]}] if revoked else []
         )
+
+    @parameterized.expand(
+        [
+            ("a_number", 5, []),
+            ("a_string", TOKEN_HASH, []),
+            ("entries_that_are_not_hashes", ["not-a-hash", 7, None], []),
+            ("one_real_hash_among_junk", ["not-a-hash", "b" * 64], ["b" * 64]),
+            (
+                "more_hashes_than_a_run_can_have",
+                [f"{number:064d}" for number in range(MAX_TOKENS_PER_RUN + 5)],
+                [f"{number:064d}" for number in range(5, MAX_TOKENS_PER_RUN + 5)],
+            ),
+        ]
+    )
+    def test_fencing_only_trusts_stored_hashes_that_look_like_hashes(
+        self, _name: str, stored: Any, sent_for_that_run: list[str]
+    ) -> None:
+        tampered = self._run()
+        TaskRun.objects.filter(id=tampered.id).update(state={TOKEN_HASHES_STATE_KEY: stored})
+        self._run()
+
+        with (
+            patch(FLAG_PAYLOAD, return_value={USER.key: "enforce"}),
+            patch(GATEWAY_POST, return_value=_answer(200, {"revoked": True})) as post,
+        ):
+            tasks_facade.fence_ended_task_runs()
+
+        sent = [token_hash for call in post.call_args_list for token_hash in call.kwargs["json"]["token_hashes"]]
+        assert sorted(sent) == sorted([*sent_for_that_run, TOKEN_HASH])
 
     def test_a_failed_revoke_keeps_the_hashes_for_the_next_pass(self) -> None:
         run = self._run()
@@ -159,10 +205,11 @@ class TestRunTokenFencing(TestCase):
         run.refresh_from_db()
         assert rows == []
         assert run.state[TOKEN_HASHES_STATE_KEY] == [TOKEN_HASH]
+        assert run.state[REVOKE_PENDING_STATE_KEY] is True
 
     def test_fencing_sends_at_most_a_hundred_hashes_per_request(self) -> None:
-        for number in range(6):
-            self._run(token_hashes=tuple(f"{number:02d}{position:062d}" for position in range(MAX_TOKENS_PER_RUN)))
+        for number in range(3):
+            self._run(token_hashes=tuple(f"{number:02d}{position:062d}" for position in range(40)))
 
         with (
             patch(FLAG_PAYLOAD, return_value={USER.key: "enforce"}),
@@ -170,5 +217,5 @@ class TestRunTokenFencing(TestCase):
         ):
             rows = tasks_facade.fence_ended_task_runs()
 
-        assert sorted(len(call.kwargs["json"]["token_hashes"]) for call in post.call_args_list) == [20, 100]
+        assert sorted(len(call.kwargs["json"]["token_hashes"]) for call in post.call_args_list) == [40, 80]
         assert rows == [FencedRunTokensRow(profile=USER.key, outcome="revoked", count=120)]

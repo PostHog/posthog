@@ -16863,7 +16863,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertNotIn("mobile_push_user_ids", task.state or {})
 
-    @parameterized.expand([("ai_gateway_product", "slack_app"), ("billing_product", "posthog_ai")])
+    @parameterized.expand(
+        [
+            ("ai_gateway_product", "slack_app"),
+            ("billing_product", "posthog_ai"),
+            ("gateway_token_hashes", ["a" * 64]),
+            ("gateway_token_revoke_pending", True),
+        ]
+    )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_forge_billing_or_gateway_product(self, key, original, _mock_publish):
         task = self.create_task()
