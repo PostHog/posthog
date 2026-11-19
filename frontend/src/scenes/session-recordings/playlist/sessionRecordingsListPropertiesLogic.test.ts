@@ -145,9 +145,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(issuedQueries).toHaveLength(1)
-        const eventFilter = issuedQueries[0].split('WHERE event IN')[1].split('AND session_id')[0]
-        expect(eventFilter).toContain("'$pageview'")
-        expect(eventFilter).not.toContain("'$feature_flag_called'")
+        expect(issuedQueries[0]).toContain("'$pageview'")
+        expect(issuedQueries[0]).not.toContain("'$feature_flag_called'")
         expect(logic.values).toMatchObject({
             recordingProperties: EXPECTED_RECORDING_PROPERTIES,
             recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
