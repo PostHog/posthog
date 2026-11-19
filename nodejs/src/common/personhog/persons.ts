@@ -129,8 +129,6 @@ export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
         uuid: proto.uuid,
         team_id: Number(proto.teamId),
         properties: parseJsonBytes(proto.properties) ?? {},
-        properties_last_updated_at: parseJsonBytes(proto.propertiesLastUpdatedAt) ?? {},
-        properties_last_operation: parseJsonBytes(proto.propertiesLastOperation) ?? null,
         created_at: epochMsToDateTime(proto.createdAt),
         version: Number(proto.version),
         is_identified: proto.isIdentified,
@@ -140,10 +138,7 @@ export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
 }
 
 /** An identity answer: no properties, because the partition leader owns them. */
-export type PersonIdentity = Omit<
-    InternalPerson,
-    'properties' | 'properties_last_updated_at' | 'properties_last_operation'
->
+export type PersonIdentity = Omit<InternalPerson, 'properties'>
 
 export function protoPersonToIdentity(proto: ProtoPerson): PersonIdentity {
     return {

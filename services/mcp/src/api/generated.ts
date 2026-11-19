@@ -119915,6 +119915,12 @@ export namespace Schemas {
       description?: string | null;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
     }
 
     export interface SourceSetupWebhook {
@@ -127360,8 +127366,13 @@ export namespace Schemas {
       readonly scanners_period_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
-      /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-      readonly free_monthly_credits: number;
+      /**
+         * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+         * @nullable
+         */
+      readonly free_monthly_credits: number | null;
+      /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+      readonly awaiting_billing_sync: boolean;
     }
 
     export interface VisionSpendDay {
