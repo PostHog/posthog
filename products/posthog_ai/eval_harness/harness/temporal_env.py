@@ -136,7 +136,7 @@ class TemporalWorkerThread:
             metrics_port=0,
             namespace=settings.TEMPORAL_NAMESPACE,
             task_queue=settings.TASKS_TASK_QUEUE,
-            workflows=TASKS_WORKFLOWS + NOTEBOOK_WORKFLOWS + CANVAS_WORKFLOWS,
+            workflows=[*TASKS_WORKFLOWS, *NOTEBOOK_WORKFLOWS, *CANVAS_WORKFLOWS],
             activities=TASKS_ACTIVITIES + NOTEBOOK_ACTIVITIES + CANVAS_ACTIVITIES,
             max_concurrent_workflow_tasks=self._max_concurrent_workflow_tasks,
             max_concurrent_activities=self._max_concurrent_activities,
