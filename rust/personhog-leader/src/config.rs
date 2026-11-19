@@ -160,6 +160,14 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub warm_fetch_watermarks_timeout_secs: u64,
 
+    /// Seconds of changelog a newly warmed partition refills its cache from; zero is off.
+    #[envconfig(default = "0")]
+    pub cache_fill_lookback_secs: u64,
+
+    /// Offsets the fill reads per backward step.
+    #[envconfig(default = "5000")]
+    pub cache_fill_chunk_offsets: i64,
+
     /// Per-message receive timeout while consuming the warming range. If
     /// hit, warming aborts with the offsets seen so far so the partition
     /// can be retried fresh.
@@ -434,6 +442,14 @@ const MIN_MESSAGE_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(900);
 
 impl Config {
+    pub fn cache_fill(&self) -> Option<crate::warming::FillConfig> {
+        (self.cache_fill_lookback_secs > 0).then(|| crate::warming::FillConfig {
+            lookback: Duration::from_secs(self.cache_fill_lookback_secs),
+            chunk_offsets: self.cache_fill_chunk_offsets.max(1),
+            room_fraction: crate::warming::FILL_ROOM_FRACTION,
+        })
+    }
+
     /// The runway the keepalive reserves for the local fence: it
     /// declares lease loss after two thirds of the TTL, leaving the
     /// final third for the fence to land before the coordinator can

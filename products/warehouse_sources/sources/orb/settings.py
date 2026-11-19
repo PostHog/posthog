@@ -207,6 +207,30 @@ ORB_ENDPOINTS: dict[str, OrbEndpointConfig] = {
         primary_keys=["subscription_id", "start_date"],
         fanout=_subscription_fanout(),
     ),
+    # Usage of the current billing period in daily data points, returned in one unpaginated response
+    # with Orb's default (cumulative) view mode. Each billable metric record nests its data points;
+    # orb.py flattens them to one row per data point.
+    "SubscriptionUsage": OrbEndpointConfig(
+        name="SubscriptionUsage",
+        path="/subscriptions/{subscription_id}/usage",
+        table_name="subscription_usage",
+        partition_key="timeframe_start",
+        primary_keys=["subscription_id", "billable_metric_id", "timeframe_start", "timeframe_end"],
+        paginated=False,
+        fanout=_subscription_fanout(),
+    ),
+    # Subscription change objects carry no created_at, and their status moves from pending to applied
+    # or cancelled, so this is full refresh.
+    "SubscriptionChanges": OrbEndpointConfig(
+        name="SubscriptionChanges",
+        path="/subscription_changes",
+        table_name="subscription_changes",
+    ),
+    "DimensionalPriceGroups": OrbEndpointConfig(
+        name="DimensionalPriceGroups",
+        path="/dimensional_price_groups",
+        table_name="dimensional_price_groups",
+    ),
 }
 
 ENDPOINTS = tuple(ORB_ENDPOINTS.keys())

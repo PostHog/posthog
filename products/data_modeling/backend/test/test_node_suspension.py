@@ -9,6 +9,7 @@ from products.data_modeling.backend.logic.node_frequency import get_declared_tar
 from products.data_modeling.backend.logic.node_suspension import (
     mark_node_suspended,
     query_fingerprint,
+    suspended_nodes,
     suspension_reset_at,
     suspension_state,
     unsuspend_nodes,
@@ -115,6 +116,24 @@ class TestUnsuspendNodes(BaseTest):
         self.assertEqual(unsuspend_nodes([node], by="api"), 0)
         node.refresh_from_db()
         self.assertIsNone(suspension_reset_at(node, ENGINE))
+
+    def test_suspended_nodes_leaves_out_healthy_and_resumed_nodes(self) -> None:
+        nodes: dict[str, Node] = {}
+        for name in ("suspended_model", "resumed_model", "healthy_model"):
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                name=name,
+                team=self.team,
+                query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            )
+            node = sync_saved_query_to_dag(saved_query)
+            assert node is not None
+            nodes[name] = node
+        for name in ("suspended_model", "resumed_model"):
+            mark_node_suspended(nodes[name], engine=ENGINE, reason="boom", job_id=str(uuid4()), fingerprint=None)
+            nodes[name].save()
+        unsuspend_nodes([nodes["resumed_model"]], by="api")
+
+        self.assertEqual(list(suspended_nodes(Node.objects.filter(team=self.team))), [nodes["suspended_model"]])
 
 
 class TestSuspensionClearedOnRevert(BaseTest):

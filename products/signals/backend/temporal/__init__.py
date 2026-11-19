@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
     capture_activity_summary_tick_activity,
@@ -143,6 +145,7 @@ from products.signals.backend.temporal.spend import (
     confirm_signal_spend_activity,
     update_signal_spend_activity,
 )
+from products.signals.backend.temporal.spend_cleanup import SignalSpendCleanupWorkflow, delete_expired_spend_activity
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
@@ -172,6 +175,7 @@ WORKFLOWS = [
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
     SignalGroupingRecordCleanupWorkflow,
+    SignalSpendCleanupWorkflow,
     BufferSignalsWorkflow,
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
@@ -190,9 +194,10 @@ WORKFLOWS = [
     SignalReportInboxNotificationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     assigned_signal_ids_activity,
     delete_expired_grouping_records_activity,
+    delete_expired_spend_activity,
     check_signals_ai_consent_activity,
     discard_signal_batches_activity,
     poll_monitoring_assessment_activity,
@@ -286,7 +291,7 @@ SELF_DRIVING_WORKFLOWS = [
     AnomalyScoringTickWorkflow,
     AnomalyScoringDueListRefreshWorkflow,
 ]
-SELF_DRIVING_ACTIVITIES = [
+SELF_DRIVING_ACTIVITIES: list[Callable[..., object]] = [
     score_inbox_reports_activity,
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,

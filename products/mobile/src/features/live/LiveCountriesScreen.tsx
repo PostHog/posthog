@@ -1,7 +1,7 @@
 import { type ReactElement, useEffect } from 'react'
 import { Text, useWindowDimensions, View } from 'react-native'
 import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated'
-
+import { useInternalUsersFilter } from '@/features/settings/internalUsersPreference'
 import { useViewBack, ViewScreenFrame } from '@/features/views/screen/ViewScreenFrame'
 import { ViewSkeleton } from '@/features/views/screen/ViewSkeleton'
 import { useViewsContext } from '@/features/views/useViewsContext'
@@ -33,6 +33,7 @@ const MAP_MAX_HEIGHT_SHARE = 0.4
 
 export function LiveCountriesScreen(): ReactElement {
     const { access, identity } = useViewsContext()
+    const internalUsersFilter = useInternalUsersFilter()
     const users = useLiveWorldShare((share) => share.users)
     const scrollTitle = useScrollTitle(users ? 'Users by country' : 'Visitors by country')
     const back = useViewBack()
@@ -42,7 +43,11 @@ export function LiveCountriesScreen(): ReactElement {
             chrome={<ScreenChrome onBack={back} backTestID="view-back" title={scrollTitle.title} />}
         >
             {access.state === 'ok' ? (
-                <CountriesBody key={identity} scrollTitle={scrollTitle} />
+                <CountriesBody
+                    key={`${identity}|${internalUsersFilter}`}
+                    scrollTitle={scrollTitle}
+                    internalUsersFilter={internalUsersFilter}
+                />
             ) : (
                 <ViewsReauthState access={access} />
             )}
@@ -50,12 +55,18 @@ export function LiveCountriesScreen(): ReactElement {
     )
 }
 
-function CountriesBody({ scrollTitle }: { scrollTitle: ScrollTitleState }): ReactElement {
+function CountriesBody({
+    scrollTitle,
+    internalUsersFilter,
+}: {
+    scrollTitle: ScrollTitleState
+    internalUsersFilter: boolean | undefined
+}): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
-    const feed = useLiveWorld()
+    const feed = useLiveWorld(internalUsersFilter ?? false, internalUsersFilter !== undefined)
     const { world } = feed
     const users = useLiveWorldShare((share) => share.users) ?? false
     useEffect(() => clearLiveWorldShare, [])

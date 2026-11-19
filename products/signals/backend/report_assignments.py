@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from functools import partial
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from django.db import transaction
 from django.utils import timezone
@@ -46,9 +46,13 @@ from products.signals.backend.report_claims import (
     get_active_claim,
     is_claim_of_person,
     is_claim_of_task_creator,
+    responsible_user,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
 
 logger = structlog.get_logger(__name__)
 
@@ -418,7 +422,28 @@ def sync_task_pull_request_to_assignments(
         return len(reports)
 
 
-def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged_at: datetime | None = None) -> None:
+def _pr_work_owner(report: SignalReport, prs: Sequence[ImplementationPr]) -> User | None:
+    """The person behind the pull request work: the claim holder, else who attached a PR, else who started its task."""
+    claim = get_active_claim(team_id=report.team_id, report_id=report.id)
+    if claim is not None and (user := responsible_user(claim)) is not None:
+        return user
+    for pr in prs:
+        if pr.attached_by_user is not None:
+            return pr.attached_by_user
+    creators = tasks_facade.get_task_creator_ids([pr.task_id for pr in prs if pr.task_id], [report.team_id])
+    for pr in prs:
+        if pr.task_id and (creator_id := creators.get(pr.task_id)) is not None:
+            return User.objects.filter(id=creator_id).first()
+    return None
+
+
+def _apply_pr_report_state(
+    report: SignalReport,
+    pr_state: str | None,
+    *,
+    merged_at: datetime | None = None,
+    prs: Sequence[ImplementationPr] = (),
+) -> None:
     target = None
     if pr_state == SignalReportAssignment.PrState.MERGED:
         target = SignalReport.Status.RESOLVED
@@ -434,6 +459,8 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
         SignalReport.Status.MONITORING,
     }:
         return
+    # The transition stays a system one. The owner is credited only in the status-change analytics.
+    owner = _pr_work_owner(report, prs)
     try:
         if target == SignalReport.Status.RESOLVED:
             complete_implementation(
@@ -441,6 +468,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
                 report_id=report.id,
                 monitoring_started_at=merged_at,
                 attribution=ArtefactAttribution.system(),
+                credited_user=owner,
                 from_pr_merge=True,
             )
             report.refresh_from_db()
@@ -457,6 +485,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
     # GitHub already reports this pull request as closed or merged. Without this marker the
     # dismissal receiver queues a redundant close for every report that shares the pull request.
     report._status_from_pr_state = True  # type: ignore[attr-defined]
+    report._credited_user = owner  # type: ignore[attr-defined]
     with transaction.atomic():
         report.save(update_fields=updated_fields)
         if target == SignalReport.Status.SUPPRESSED:

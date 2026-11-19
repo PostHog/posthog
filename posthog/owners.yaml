@@ -6,6 +6,8 @@ rules:
           - '/admin/console/organization_sign_in_panels.py'
           - '/admin/test_organization_sign_in_panels.py'
       owners: team-platform-features
+    - match: ['/user_analytics_deletion.py', '/test/test_user_analytics_deletion.py']
+      owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'

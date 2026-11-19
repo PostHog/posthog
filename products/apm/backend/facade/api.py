@@ -59,6 +59,12 @@ from products.apm.backend.logic.health.dependencies import (
     DependenciesResult,
     get_dependencies as _get_dependencies,
 )
+from products.apm.backend.logic.health.deployments import (
+    DeploymentsResult,
+    DeploymentVersion,
+    VersionSource,
+    list_deployments as _list_deployments,
+)
 from products.apm.backend.logic.health.sources import (
     ServiceMapResult,
     ServicesHealthResult,
@@ -86,6 +92,10 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 __all__ = [
+    "DeploymentsResult",
+    "DeploymentVersion",
+    "VersionSource",
+    "list_deployments",
     "DependenciesResult",
     "DependencyEdge",
     "DependencyKind",
@@ -165,6 +175,13 @@ def get_service_map(
 ) -> ServiceMapResult:
     """Service-to-service call edges in the environment and window, from a bounded sample of traces."""
     return _get_service_map(team=team, date_from=date_from, date_to=date_to, environment=environment)
+
+
+def list_deployments(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None, service: str
+) -> DeploymentsResult:
+    """One service's versions in the window, oldest first, each compared with the version before it."""
+    return _list_deployments(team=team, date_from=date_from, date_to=date_to, environment=environment, service=service)
 
 
 def get_dependencies(
