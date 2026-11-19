@@ -13,6 +13,7 @@ import {
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
+    MinimalAppMetric,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -401,6 +402,31 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
     // time back. Spread them over the next horizon so they do not arrive as one herd
     // asking for tokens that will not be there.
     return Math.floor(parkMs * (1 + Math.random()))
+}
+
+const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
+
+function wasDelayedBySendingLimitOverAnHour(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const cappedAt = invocation.queueMetadata?.teamCappedAt
+    if (typeof cappedAt !== 'string') {
+        return false
+    }
+    const cappedAtMs = DateTime.fromISO(cappedAt, { zone: 'utc' }).toMillis()
+    return Number.isFinite(cappedAtMs) && Date.now() - cappedAtMs > SENDING_LIMIT_LONG_DELAY_MS
+}
+
+function emailMetric(
+    invocation: CyclotronJobInvocationHogFunction,
+    metricName: 'email_sending_limit_delayed' | 'email_sending_limit_delayed_over_1h'
+): MinimalAppMetric {
+    return {
+        team_id: invocation.teamId,
+        app_source_id: invocation.parentRunId ?? invocation.functionId,
+        instance_id: invocation.state.actionId || invocation.id,
+        metric_kind: 'email',
+        metric_name: metricName,
+        count: 1,
+    }
 }
 
 const teamEmailCapDelayedTotal = new Counter({
@@ -809,6 +835,10 @@ export class EmailService {
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
+                if (capDelay.label && !invocation.queueMetadata?.teamCappedAt) {
+                    result.invocation.queueMetadata.teamCappedAt = DateTime.utc().toISO()
+                    result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed'))
+                }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -1015,6 +1045,10 @@ export class EmailService {
                     count: 1,
                     ...sendVersion,
                 })
+            }
+
+            if (success && wasDelayedBySendingLimitOverAnHour(invocation)) {
+                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             if (success && assetRow) {

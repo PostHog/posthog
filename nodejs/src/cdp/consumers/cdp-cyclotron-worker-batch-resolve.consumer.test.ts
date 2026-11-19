@@ -235,6 +235,52 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
+        describe('a run the audience limit cuts short', () => {
+            const truncatedMetrics = (): any[] =>
+                queueAppMetrics.mock.calls
+                    .flatMap(([metrics]) => metrics)
+                    .filter((m) => m.metric_name === 'audience_truncated')
+
+            const processCrossingPage = async (overrides: Partial<BatchResolverState> = {}): Promise<void> => {
+                ;(consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons.mockResolvedValue({
+                    users_affected: ['person-1', 'person-2', 'person-3'],
+                    cursor: 'person-3',
+                    has_more: true,
+                })
+                await (consumer as any).processOnePage(
+                    { bulkCreateAndCheckIn, reschedule: jest.fn() },
+                    { ...state, maxAudienceSize: 2, ...overrides }
+                )
+            }
+
+            it('records the audience it left out against the batch job', async () => {
+                const getBlastRadius = jest.fn().mockResolvedValue({ affected: 10, total: 50 })
+                Object.assign((consumer as any).hogFlowBatchPersonQueryService, { getBlastRadius })
+
+                await processCrossingPage()
+
+                expect(truncatedMetrics()).toEqual([
+                    {
+                        team_id: team.id,
+                        app_source_id: BATCH_JOB_ID,
+                        metric_kind: 'other',
+                        metric_name: 'audience_truncated',
+                        count: 8,
+                    },
+                ])
+            })
+
+            it('still enrolls the page when the audience count fails', async () => {
+                const getBlastRadius = jest.fn().mockRejectedValue(new Error('clickhouse timed out'))
+                Object.assign((consumer as any).hogFlowBatchPersonQueryService, { getBlastRadius })
+
+                await processCrossingPage()
+
+                expect(truncatedMetrics()).toEqual([])
+                expect(triggeredMetrics()).toHaveLength(2)
+            })
+        })
+
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 

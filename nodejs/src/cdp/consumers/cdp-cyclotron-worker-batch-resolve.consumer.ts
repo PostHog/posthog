@@ -676,7 +676,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
 
         if (pageTruncated) {
-            this.emitTruncationLog(newState)
+            await this.recordTruncation(newState, team)
         }
 
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
@@ -685,6 +685,55 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             '📝',
             `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
         )
+    }
+
+    private async recordTruncation(state: BatchResolverState, team?: Team | null): Promise<void> {
+        this.emitTruncationLog(state)
+        const notEnrolled = await this.countAudienceNotEnrolled(state, team)
+        if (!notEnrolled) {
+            return
+        }
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            [
+                {
+                    team_id: state.teamId,
+                    app_source_id: state.batchJobId,
+                    metric_kind: 'other',
+                    metric_name: 'audience_truncated',
+                    count: notEnrolled,
+                },
+            ],
+            'hog_flow'
+        )
+    }
+
+    /**
+     * How many of the audience the limit kept out of the run, from one fresh count of the frozen
+     * filters. The count skips the email dedupe and reads the audience after the run started, so it
+     * is an estimate. Account audiences have no count endpoint and record nothing.
+     */
+    private async countAudienceNotEnrolled(state: BatchResolverState, team?: Team | null): Promise<number | null> {
+        if (state.filters.audience_type === 'accounts') {
+            return null
+        }
+        try {
+            const audienceTeam = team ?? (await this.deps.teamManager.getTeam(state.teamId))
+            if (!audienceTeam) {
+                return null
+            }
+            const { affected } = await this.hogFlowBatchPersonQueryService.getBlastRadius(
+                audienceTeam,
+                state.filters,
+                state.groupTypeIndex
+            )
+            return Math.max(0, affected - state.totalEnqueued)
+        } catch (error) {
+            logger.warn('⚠️', `${this.name} - could not count the truncated audience`, {
+                batchJobId: state.batchJobId,
+                error: serializeError(error),
+            })
+            return null
+        }
     }
 
     private emitTruncationLog(state: BatchResolverState): void {
@@ -710,7 +759,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
-        this.emitTruncationLog(state)
+        await this.recordTruncation(state)
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',

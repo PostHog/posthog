@@ -40,7 +40,7 @@ import {
 import { v2JobToInvocation } from '~/cdp/services/cyclotron-v2/job-codec'
 import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -1174,7 +1174,11 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
-                expect(result.invocation.queueMetadata).toEqual({ ...invocation.queueMetadata, teamCapped: true })
+                expect(result.invocation.queueMetadata).toEqual({
+                    ...invocation.queueMetadata,
+                    teamCapped: true,
+                    teamCappedAt: expect.any(String),
+                })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(drainedAt + minMs)
                 expect(scheduledMs).toBeLessThanOrEqual(after + maxMs)
@@ -1256,6 +1260,57 @@ describe('EmailService', () => {
                 const messages = result.logs.map((log) => log.message).join(' ')
                 expect(messages).not.toContain('reached its email sending limit')
                 expect(messages).toContain("Could not check this project's email sending limit")
+            })
+
+            describe('per-project delay metrics', () => {
+                const metricNames = (result: CyclotronJobInvocationResult): string[] =>
+                    result.metrics.map((metric) => metric.metric_name)
+
+                it('counts an email once however many times the limit delays it', async () => {
+                    const cappedService = createCappedService(10)
+                    await drainTeamCap(team.id, 10)
+
+                    const first = await cappedService.executeSendEmail(invocation)
+                    const second = await cappedService.executeSendEmail({
+                        ...invocation,
+                        queueMetadata: first.invocation.queueMetadata,
+                    })
+
+                    expect(metricNames(first)).toEqual(['email_sending_limit_delayed'])
+                    expect(metricNames(second)).toEqual([])
+                    expect(second.invocation.queueMetadata?.teamCappedAt).toEqual(
+                        first.invocation.queueMetadata?.teamCappedAt
+                    )
+                })
+
+                it('does not count a wait on an unreachable limiter as a limit delay', async () => {
+                    const cappedService = createCappedService(
+                        200,
+                        new RateLimiterService(unreachableValkey, { name: 'unreachable' })
+                    )
+
+                    const result = await cappedService.executeSendEmail(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(metricNames(result)).toEqual([])
+                })
+
+                it.each([
+                    ['more than an hour', 61, true],
+                    ['less than an hour', 59, false],
+                ])('marks a send the limit held for %s', async (_name, minutesAgo, overAnHour) => {
+                    const result = await createCappedService(200).executeSendEmail({
+                        ...invocation,
+                        queueMetadata: {
+                            ...invocation.queueMetadata,
+                            teamCapped: true,
+                            teamCappedAt: DateTime.utc().minus({ minutes: minutesAgo }).toISO(),
+                        },
+                    })
+
+                    expect(result.finished).toBe(true)
+                    expect(metricNames(result).includes('email_sending_limit_delayed_over_1h')).toBe(overAnHour)
+                })
             })
 
             it('sends while the team has budget left', async () => {
