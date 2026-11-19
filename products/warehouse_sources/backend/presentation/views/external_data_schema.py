@@ -3255,7 +3255,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {
                         "destination_ids": [str(link.destination_id) for link in links] if overridden else None,
                         "inherits_from_source": not overridden,
-                        "effective_destination_ids": [str(d.id) for d in resolve_destinations(schema)],
+                        "effective_destination_ids": [
+                            str(d.id) for d in resolve_destinations(schema, create_default=False)
+                        ],
                     }
                 ).data,
             )

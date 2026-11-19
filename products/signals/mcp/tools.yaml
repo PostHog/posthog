@@ -1840,7 +1840,7 @@ tools:
             - signal_scout:write
             - llm_skill:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Read one private scout run's output

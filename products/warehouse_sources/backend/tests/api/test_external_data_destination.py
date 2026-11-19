@@ -1528,6 +1528,16 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
         assert body["destination_ids"] is None
         assert body["effective_destination_ids"] == [str(self.destination.id)]
 
+    def test_reading_an_unconfigured_table_creates_no_warehouse_destination(self) -> None:
+        response = self.client.get(self.schema_url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (
+            not ExternalDataDestination.objects.for_team(self.team.pk)
+            .filter(type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE)
+            .exists()
+        )
+
     def test_overriding_a_table_stops_it_following_the_source(self) -> None:
         other = self._create_destination(name="table only", integration=self._integration().pk)
         self.client.patch(self.source_url, {"destination_ids": [str(self.destination.id)]})
