@@ -6363,7 +6363,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard_v2_ui: values.dashboardV2Enabled,
                     total_tile_count: totalTileCount,
                     tiles_stale_count: tilesStaleCount,
-                    tiles_deferred_count: staleTiles.length - tilesStaleCount,
+                    // Only tiles skipped for being off screen. Tiles in a closed group or another tab are counted apart.
+                    tiles_deferred_count: openStaleTiles.length - tilesStaleCount,
+                    tiles_collapsed_count: staleTiles.length - openStaleTiles.length,
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
