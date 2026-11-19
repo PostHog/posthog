@@ -295,6 +295,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("sent", None),
             ("delivered", None),
         ]
+        listed = self.client.get(self._url()).json()["results"]
+        assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
+            ("bob@example.com", "sent", None),
+            ("jane@example.com", "delivered", None),
+        ]
+        assert self.client.get(self._url(), {"reason": "untracked"}).json()["results"] == []
 
     def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
         # Missing from email_status hours after it was queued, a send is gone, not waiting on a lagging consumer.
@@ -694,6 +700,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},
         }
+
+    def test_counts_a_send_with_tracking_off_in_the_period_it_was_queued_in(self, _flag):
+        self._send(3 * 24 * 60, "queued-before@example.com", [("sent", 2 * 86400, "untracked")])
+        self._send(24 * 60, "queued-inside@example.com", [("sent", 1, "untracked")])
+
+        impact = self._impact(date_from=(NOW - timedelta(days=2)).isoformat())
+
+        assert (impact["sent"], impact["untracked"]) == (1, 1)
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
