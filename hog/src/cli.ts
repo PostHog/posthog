@@ -341,7 +341,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
         addNode(program, name, node)
     }
     // Listed in help only: run() turns a shortcut into the command it names before commander parses.
-    for (const [name, shortcut] of Object.entries(SHORTCUTS)) {
+    for (const [name, shortcut] of SHORTCUTS) {
         program.command(name).description(`${shortcut.description}, the same as hog ${shortcut.use}`)
     }
     return program
@@ -393,7 +393,7 @@ interface ResolvedRoute {
 
 function expandShortcut(argv: readonly string[]): string[] {
     const index = preParse(argv).tokens.find((token) => token.kind === 'positional')?.index
-    const shortcut = index === undefined ? undefined : SHORTCUTS[argv[index]!]
+    const shortcut = index === undefined ? undefined : SHORTCUTS.get(argv[index]!)
     if (index === undefined || !shortcut) {
         return [...argv]
     }
@@ -445,7 +445,7 @@ function feedbackCommand(route: ResolvedRoute, failure: HogError): string | unde
 }
 
 // posthog-cli commands that hog groups under a new name, with the flags that changed.
-const RENAMED: Record<string, { to: string; hint: string }> = {
+const RENAMED: Readonly<Record<string, { to: string; hint: string }>> = {
     sourcemap: {
         to: 'error-tracking inject|upload|process',
         hint: 'Pass the folders as arguments instead of --directory, as in `hog error-tracking process dist`.',
@@ -490,7 +490,8 @@ function toHogError(caught: unknown): HogError {
         const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
-            const renamed = RENAMED[name]
+            // The name comes from the command line, so only RENAMED's own keys count, never `constructor`.
+            const renamed = Object.hasOwn(RENAMED, name) ? RENAMED[name] : undefined
             if (renamed) {
                 return new HogError(
                     'unknown_command',

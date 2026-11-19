@@ -19,7 +19,7 @@ export default defineCommand({
         commands: describeCommands(ctx.tree),
         aliases: {
             ...describeAliases(ctx.tree),
-            ...Object.fromEntries(Object.entries(SHORTCUTS).map(([name, shortcut]) => [name, shortcut.use])),
+            ...Object.fromEntries([...SHORTCUTS].map(([name, shortcut]) => [name, shortcut.use])),
         },
         exitCodes: EXIT_CODES,
     }),

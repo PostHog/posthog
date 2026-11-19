@@ -26,6 +26,8 @@ describe('hog', () => {
 
     test.each([
         ['an unknown command', ['nope'], 'unknown_command', 'hog feedback "<what happened>"'],
+        ['a name only Object.prototype has', ['constructor'], 'unknown_command', 'hog feedback "<what happened>"'],
+        ['__proto__', ['__proto__'], 'unknown_command', 'hog feedback "<what happened>"'],
         [
             'a missing argument',
             ['query', 'check'],
@@ -48,6 +50,7 @@ describe('hog', () => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code, feedback })
+        expect(result.error().message).not.toContain('undefined')
     })
 
     test.each([
