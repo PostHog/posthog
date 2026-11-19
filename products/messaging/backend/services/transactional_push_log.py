@@ -27,6 +27,8 @@ PUSH_LOG_RETENTION_DAYS = 30
 RETENTION = timedelta(days=PUSH_LOG_RETENTION_DAYS)
 # The send API stamps a run with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
+# A retry moves a run's row to a later time, so the runs query reads this much past the window to keep its last row.
+_RETRY_MARGIN = timedelta(days=1)
 # A send's step logs a line per device platform, so a handful covers every reason.
 _MAX_MESSAGES = 10
 # The step logs its terminal error twice, once more behind "Errored: Error:", and the run records it a third time.
@@ -35,7 +37,7 @@ _ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*(?:Errored:\s*(?:Error:\s*)?)
 _RUNS = """
     SELECT
         invocation_id,
-        min(scheduled_at) AS queued_at,
+        min(first_scheduled_at) AS queued_at,
         argMax(status, version) AS run_status,
         argMax(error_message, version) AS run_error,
         argMax(distinct_id, version) AS run_distinct_id,
@@ -47,7 +49,9 @@ _RUNS = """
       AND function_kind = 'hog_flow'
       AND function_id IN %(workflows)s
       AND scheduled_at >= toDateTime64(%(start)s, 6)
-      AND scheduled_at < toDateTime64(%(end)s, 6)
+      AND scheduled_at < toDateTime64(%(end)s, 6) + toIntervalSecond(%(retry_margin)s)
+      AND first_scheduled_at >= toDateTime64(%(start)s, 6)
+      AND first_scheduled_at < toDateTime64(%(end)s, 6)
       {search}
     GROUP BY invocation_id
 """
@@ -64,6 +68,7 @@ _SEND_STATUS = """
               AND kind = 'push'
               AND function_id IN %(workflows)s
               AND sent_at >= toDateTime64(%(start)s, 6)
+              {search}
         ), 'sent',
         'not_sent'
     )
@@ -183,13 +188,21 @@ def list_transactional_pushes(
         "workflows": workflow_ids,
         "start": _ch_time(period.start),
         "end": _ch_time(period.end),
+        "retry_margin": int(_RETRY_MARGIN.total_seconds()),
         "limit": limit + 1,
         "offset": offset,
     }
     search_condition = ""
+    asset_condition = ""
     if search and search.strip():
         params["search"] = search.strip()
         search_condition = "AND (distinct_id = %(search)s OR invocation_id = %(search)s)"
+        # A search names a few runs, so the sent lookup reads only theirs instead of every push since the start.
+        asset_condition = (
+            "AND invocation_id IN (SELECT invocation_id FROM hog_invocation_results WHERE team_id = %(team_id)s "
+            "AND function_kind = 'hog_flow' AND function_id IN %(workflows)s "
+            "AND scheduled_at >= toDateTime64(%(start)s, 6) " + search_condition + ")"
+        )
     status_condition = ""
     if status:
         params["status"] = status.value
@@ -200,7 +213,7 @@ def list_transactional_pushes(
         f"""
         SELECT invocation_id, queued_at, send_status, run_error, run_distinct_id, run_person_id, run_workflow_id
         FROM (
-            SELECT *, {_SEND_STATUS} AS send_status
+            SELECT *, {_SEND_STATUS.format(search=asset_condition)} AS send_status
             FROM ({_RUNS.format(search=search_condition)})
             WHERE run_is_deleted = 0
         )
@@ -260,13 +273,18 @@ def transactional_push_stats(
             countIf(send_status = 'not_sent'),
             countIf(send_status = 'failed')
         FROM (
-            SELECT run_workflow_id, {_SEND_STATUS} AS send_status
+            SELECT run_workflow_id, {_SEND_STATUS.format(search="")} AS send_status
             FROM ({_RUNS.format(search="")})
             WHERE run_is_deleted = 0
         )
         GROUP BY run_workflow_id
         """,
-        {"workflows": list(templates), "start": _ch_time(period.start), "end": _ch_time(period.end)},
+        {
+            "workflows": list(templates),
+            "start": _ch_time(period.start),
+            "end": _ch_time(period.end),
+            "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+        },
     )
     stats = [
         TransactionalPushStatsRow(

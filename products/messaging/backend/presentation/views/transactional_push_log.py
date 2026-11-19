@@ -2,7 +2,7 @@ from typing import Any
 
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -120,6 +120,9 @@ class TransactionalPushLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         description=f"List the project's transactional push notification sends, newest first. {RETENTION_NOTE}",
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        # A token scope check skips session logins, so this also stops a member without access to people.
+        if not self.user_access_control.check_access_level_for_resource("person", "viewer"):
+            raise exceptions.PermissionDenied("You need access to people to see who each push notification went to.")
         query = request.validated_query_data
         with query_concurrency_slots(self.team):
             entries, has_more = list_transactional_pushes(

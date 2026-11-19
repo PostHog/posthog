@@ -21,15 +21,18 @@ export function useTransactionalChannel(): {
     channel: TransactionalChannel
     setChannel: (channel: TransactionalChannel) => void
 } {
-    const { sendablePushTemplates, transactionalTemplatesLoading } = useValues(transactionalTemplatesLogic)
+    const { sendablePushTemplates, transactionalTemplatesLoading, transactionalTemplatesFailed } =
+        useValues(transactionalTemplatesLogic)
     const { searchParams, location, hashParams } = useValues(router)
     const { replace } = useActions(router)
 
     const pushEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
     const hasPush = pushEnabled && sendablePushTemplates.length > 0
-    // A reload of a push link stays on push while the templates load, instead of showing the email log first.
+    // A reload of a push link stays on push while the templates load, instead of showing the email log first. A failed
+    // load stays on push too, because it says nothing about whether the project has push notifications.
     const channel: TransactionalChannel =
-        searchParams[CHANNEL_PARAM] === 'push' && (hasPush || (pushEnabled && transactionalTemplatesLoading))
+        searchParams[CHANNEL_PARAM] === 'push' &&
+        (hasPush || (pushEnabled && (transactionalTemplatesLoading || transactionalTemplatesFailed)))
             ? 'push'
             : 'email'
 

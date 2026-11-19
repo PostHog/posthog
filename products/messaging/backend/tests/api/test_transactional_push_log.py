@@ -4,11 +4,14 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.uuidt import UUIDT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -38,6 +41,7 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
         logs: list[tuple[str, str]] | None = None,
         error: str = "",
         workflow_id: str | None = None,
+        retried_after: timedelta | None = None,
     ) -> str:
         workflow_id = workflow_id or self.workflow_id
         at = NOW - timedelta(minutes=minutes_ago)
@@ -46,11 +50,26 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
             """
             INSERT INTO hog_invocation_results_data
                 (team_id, function_kind, function_id, invocation_id, parent_run_id, status, scheduled_at,
-                 error_message, distinct_id, person_id, version, _timestamp)
+                 first_scheduled_at, error_message, distinct_id, person_id, version, _timestamp)
             VALUES
             """,
             [
-                (self.team.id, "hog_flow", workflow_id, run_id, "", status_, at, err, distinct_id, "", version, at)
+                (
+                    self.team.id,
+                    "hog_flow",
+                    workflow_id,
+                    run_id,
+                    "",
+                    status_,
+                    # A retry moves the run's later rows, and keeps the time it was first queued.
+                    at + (retried_after or timedelta()) if version > 1 else at,
+                    at,
+                    err,
+                    distinct_id,
+                    "",
+                    version,
+                    at,
+                )
                 for status_, err, version in [
                     ("running", "", 1),
                     *([] if run_status == "running" else [(run_status, error, 2)]),
@@ -163,6 +182,26 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
                 "failed": 1,
             }
         ]
+
+    def test_a_send_retried_past_the_end_of_the_range_shows_its_outcome(self, _flag):
+        run_id = self._run(30, "ada", "failed", retried_after=timedelta(minutes=25))
+
+        date_to = (NOW - timedelta(minutes=10)).isoformat()
+        response = self.client.get(f"/api/projects/{self.team.id}/transactional_push_log/", {"date_to": date_to})
+
+        assert [(row["run_id"], row["status"]) for row in response.json()["results"]] == [(run_id, "failed")]
+
+    @parameterized.expand([("no_person_access", "none", 403), ("person_viewer", "viewer", 200)])
+    def test_listing_sends_needs_access_to_people(self, _flag, _name, person_access, expected_status):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="person", resource_id=None, access_level=person_access)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/transactional_push_log/")
+
+        assert response.status_code == expected_status, response.json()
 
     def test_pages_through_sends(self, _flag):
         runs = [self._run(minutes_ago, f"person-{minutes_ago}", "succeeded", title="Hi") for minutes_ago in range(3)]
