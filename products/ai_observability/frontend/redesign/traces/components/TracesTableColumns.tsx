@@ -7,7 +7,8 @@ import type {
     TraceSentimentApi,
 } from '../../../generated/api.schemas'
 import { PartialTotal } from '../../shared/components/PartialTotal'
-import { formatCostUsd, formatLatencyMs, formatTokenCounts } from '../../trace/components/formatStats'
+import { formatCostUsd } from '../../shared/formatCost'
+import { formatLatencyMs, formatTokenCounts } from '../../trace/components/formatStats'
 import { ShortTimestamp } from '../../trace/components/ShortTimestamp'
 import type { TraceCellLoad, TraceCellStatus } from '../types'
 import { TraceCellValue } from './TraceCellValue'

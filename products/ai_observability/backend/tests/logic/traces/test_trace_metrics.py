@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from parameterized import parameterized
 
+from products.ai_observability.backend.logic.docs_urls import COST_DOCS_URL, INSTALLATION_DOCS_URL, SESSIONS_DOCS_URL
 from products.ai_observability.backend.logic.traces.trace_metrics import (
     BucketSize,
     ChangeTone,
@@ -119,18 +120,15 @@ def test_cost_not_set_up_when_no_trace_has_cost() -> None:
     assert tile(tiles, MetricKey.TRACES).status == TileStatus.OK
 
 
-DOCS = "https://posthog.com/docs/ai-observability"
-
-
 @parameterized.expand(
     [
-        (MetricKey.COST, "traces_with_cost", SetupGuide(label="Track costs", docs_url=f"{DOCS}/calculating-costs")),
+        (MetricKey.COST, "traces_with_cost", SetupGuide(label="Track costs", docs_url=COST_DOCS_URL)),
         (
             MetricKey.P95_LATENCY,
             "traces_with_latency",
-            SetupGuide(label="Capture latency", docs_url=f"{DOCS}/installation"),
+            SetupGuide(label="Capture latency", docs_url=INSTALLATION_DOCS_URL),
         ),
-        (MetricKey.SESSIONS, "traces_with_session", SetupGuide(label="Add session IDs", docs_url=f"{DOCS}/sessions")),
+        (MetricKey.SESSIONS, "traces_with_session", SetupGuide(label="Add session IDs", docs_url=SESSIONS_DOCS_URL)),
     ]
 )
 def test_coverage_decides_not_set_up_and_its_setup_guide(key: MetricKey, field: str, setup: SetupGuide) -> None:
@@ -162,7 +160,7 @@ def test_users_not_set_up_when_no_generation_is_identified() -> None:
     users = tile(totals_tiles(totals, None), MetricKey.USERS)
     assert (users.status, users.setup) == (
         TileStatus.NOT_SET_UP,
-        SetupGuide(label="Identify users", docs_url=f"{DOCS}/installation"),
+        SetupGuide(label="Identify users", docs_url=INSTALLATION_DOCS_URL),
     )
 
 

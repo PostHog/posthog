@@ -4,10 +4,8 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
+from products.ai_observability.backend.logic.docs_urls import COST_DOCS_URL, INSTALLATION_DOCS_URL, SESSIONS_DOCS_URL
 from products.ai_observability.backend.logic.traces.trace_selection import TraceWindow, shift
-
-_DOCS_URL = "https://posthog.com/docs/ai-observability"
-_INSTALLATION_DOCS_URL = f"{_DOCS_URL}/installation"
 
 HOURLY_BUCKET_MAX_SPAN = timedelta(days=2)
 
@@ -107,17 +105,17 @@ _METRICS = {
     MetricKey.COST: _MetricSpec(
         label="Cost",
         change_unit=ChangeUnit.PERCENT,
-        setup=SetupGuide(label="Track costs", docs_url=f"{_DOCS_URL}/calculating-costs"),
+        setup=SetupGuide(label="Track costs", docs_url=COST_DOCS_URL),
     ),
     MetricKey.USERS: _MetricSpec(
         label="Users",
         change_unit=ChangeUnit.PERCENT,
-        setup=SetupGuide(label="Identify users", docs_url=_INSTALLATION_DOCS_URL),
+        setup=SetupGuide(label="Identify users", docs_url=INSTALLATION_DOCS_URL),
     ),
     MetricKey.SESSIONS: _MetricSpec(
         label="Sessions",
         change_unit=ChangeUnit.PERCENT,
-        setup=SetupGuide(label="Add session IDs", docs_url=f"{_DOCS_URL}/sessions"),
+        setup=SetupGuide(label="Add session IDs", docs_url=SESSIONS_DOCS_URL),
     ),
     MetricKey.TRACES: _MetricSpec(label="Traces", change_unit=ChangeUnit.PERCENT),
     MetricKey.ERROR_RATE: _MetricSpec(label="Error rate", change_unit=ChangeUnit.POINTS, rising_is_bad=True),
@@ -125,7 +123,7 @@ _METRICS = {
         label="p95 latency",
         change_unit=ChangeUnit.SECONDS,
         rising_is_bad=True,
-        setup=SetupGuide(label="Capture latency", docs_url=_INSTALLATION_DOCS_URL),
+        setup=SetupGuide(label="Capture latency", docs_url=INSTALLATION_DOCS_URL),
     ),
 }
 
