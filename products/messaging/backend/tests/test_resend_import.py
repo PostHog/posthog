@@ -41,6 +41,8 @@ from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 from products.workflows.backend.facade.workflows import get_workflow
 
+# A contacts run must import who opted out or bounced in Resend too.
+OPT_OUT_STEPS = ["suppressions", "opt_outs", "topic_opt_outs"]
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
 ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
 API_KEY = "re_full_access_key"
@@ -234,9 +236,17 @@ class TestResendImport(BaseTest):
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
+    def test_contacts_need_the_opt_out_steps_in_the_run(self) -> None:
+        with self.assertRaisesRegex(
+            runs.InvalidImportSteps, "Contacts needs Suppression list, Topic preferences selected too"
+        ):
+            runs.start_run(self.team.id, "resend", ["opt_outs", "contacts", "new_people"], API_KEY, self.user.id)
+
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
     def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
         self.resend.failures["/contacts"] = [(500, {})] * 10
-        run = runs.start_run(self.team.id, "resend", ["opt_outs", "contacts"], API_KEY, self.user.id)
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
 
         with self.assertRaises(ImportProviderUnavailable):
             runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
@@ -605,9 +615,10 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             team_id=self.team.id, identifier="happy@example.com", preferences={"$all": "OPTED_OUT"}
         )
 
-        run = runs.start_run(self.team.id, "resend", ["contacts"], API_KEY, self.user.id)
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
         with self.captureOnCommitCallbacks(execute=True):
-            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
 
         preferences = dict(
             MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
@@ -621,7 +632,9 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
 
-        run = runs.start_run(self.team.id, "resend", ["contacts", "contact_properties"], API_KEY, self.user.id)
+        run = runs.start_run(
+            self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "contact_properties"], API_KEY, self.user.id
+        )
         with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
                 runs.run_step(self.team.id, run.id, step, attempt=1)
@@ -647,14 +660,14 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         [
             (
                 "with_new_people",
-                ["contacts", "new_people", "automations"],
+                [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
                 [("send Resend contacts", ["unsubscribed@example.com", "left-a-topic@example.com", "user-hal"])],
                 # The people import only takes addresses Django validates, which leaves out Björk's.
                 {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
             ),
             (
                 "matching_people_only",
-                ["contacts", "automations"],
+                [*OPT_OUT_STEPS, "contacts", "automations"],
                 [("send Resend contacts", ["user-hal"])],
                 {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
             ),

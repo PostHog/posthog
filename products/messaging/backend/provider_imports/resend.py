@@ -178,16 +178,20 @@ class ResendImportProvider(ImportProvider):
             ),
             count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
         ),
-        # After the opt-out steps, so no imported contact can be sent marketing email they left in Resend.
+        # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
+        # they left in Resend.
         ImportStepSpec(
             key="contacts",
             label="Contacts",
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their first and last name where "
-                "PostHog has none. Fills a cohort with all your contacts. Each person updated counts as one event."
+                "PostHog has none. Fills a cohort with all your contacts. Each person updated counts as one event. "
+                "Needs Suppression list, Unsubscribed contacts and Topic preferences selected too, so no one who left in "
+                "Resend gets marketing email."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=("suppressions", "opt_outs", "topic_opt_outs"),
+            needs=("suppressions", "opt_outs", "topic_opt_outs"),
         ),
         new_people_step("Resend"),
         ImportStepSpec(
