@@ -52,6 +52,24 @@ describe('todayRecentsLogic', () => {
         expect(added[0].href).toBe('/new')
     })
 
+    it('keeps the order a person dragged Recents into, and gives a new recent its slot by name', () => {
+        initKeaTests()
+        const logic = todayRecentsLogic()
+        logic.mount()
+        const names = (): string[] => logic.values.peopleRecentRows.map((item) => item.name)
+        for (const name of ['Beta', 'Alpha', 'Gamma']) {
+            logic.actions.addRecent(recent(`/${name}`, name))
+        }
+        expect(names()).toEqual(['Alpha', 'Beta', 'Gamma'])
+
+        logic.actions.moveRecent('people', '/Gamma', '/Alpha')
+        expect(names()).toEqual(['Gamma', 'Alpha', 'Beta'])
+
+        logic.actions.addRecent(recent('/Alpha', 'Alpha'))
+        logic.actions.addRecent(recent('/Aardvark', 'Aardvark'))
+        expect(names()).toEqual(['Aardvark', 'Gamma', 'Alpha', 'Beta'])
+    })
+
     test.each([
         [
             'a cohort with today-rail-nav on',

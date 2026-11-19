@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -147,6 +148,7 @@ export const sidebarPinsLogic = kea<sidebarPinsLogicType>([
             }
             ids.splice(to, 0, ...ids.splice(from, 1))
             actions.reorderShortcuts(ids)
+            posthog.capture('sidebar pin reordered')
         },
         togglePinned: ({ target }) => {
             // Every pin control is disabled while a change saves. This also stops a repeated dispatch.

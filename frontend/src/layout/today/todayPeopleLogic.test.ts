@@ -269,7 +269,13 @@ describe('todayPeopleLogic', () => {
         await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         expect(logic.values.pinnedRows).toEqual([
-            { key: 'cohort:/cohorts/12', type: 'cohort', name: 'Power users', href: '/cohorts/12' },
+            {
+                key: 'cohort:/cohorts/12',
+                shortcutId: 'sc-cohort',
+                type: 'cohort',
+                name: 'Power users',
+                href: '/cohorts/12',
+            },
         ])
         expect(logic.values.matchingRecentRows.map((recent) => recent.name)).toEqual(['Ada'])
 

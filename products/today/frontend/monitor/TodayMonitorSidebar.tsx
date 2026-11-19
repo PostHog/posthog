@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { TodayPinnedRecentSections } from '~/layout/today/TodayPinnedRecentSections'
 import { recentRowKey } from '~/layout/today/todayRecents'
+import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 
 import { todayMonitorLogic } from './todayMonitorLogic'
 import { TodayMonitorProductRow } from './TodayMonitorProductRow'
@@ -22,6 +24,8 @@ export function TodayMonitorSidebar(): JSX.Element {
         searchQuery,
     } = useValues(todayMonitorLogic)
     const { toggleSection, setSearchQuery } = useActions(todayMonitorLogic)
+    const { movePinned } = useActions(sidebarPinsLogic)
+    const { moveRecent } = useActions(todayRecentsLogic)
 
     const noMatches =
         isSearching &&
@@ -72,6 +76,14 @@ export function TodayMonitorSidebar(): JSX.Element {
                             dataAttr="monitor-sidebar-recent"
                         />
                     )}
+                    onMovePin={
+                        isSearching ? undefined : (pin, overPin) => movePinned(pin.shortcutId, overPin.shortcutId)
+                    }
+                    onMoveRecent={
+                        isSearching
+                            ? undefined
+                            : (recent, overRecent) => moveRecent('monitor', recent.href, overRecent.href)
+                    }
                     isSectionOpen={isSectionOpen}
                     onToggleSection={toggleSection}
                     dataAttrPrefix="monitor"

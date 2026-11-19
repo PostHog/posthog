@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { customNavCountRegistry } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 
@@ -13,6 +14,7 @@ import { TodayPeopleNavRow } from './TodayPeopleNavRow'
 import { TodayPeopleRecentRow } from './TodayPeopleRecentRow'
 import { TodayPinnedRecentSections } from './TodayPinnedRecentSections'
 import { recentRowKey } from './todayRecents'
+import { todayRecentsLogic } from './todayRecentsLogic'
 
 function rowMeta(key: TodayPeopleRowKey, counts: Partial<Record<TodayPeopleRowKey, number>>): string | undefined {
     const count = counts[key]
@@ -32,6 +34,8 @@ export function TodayPeopleSidebar(): JSX.Element {
         searchQuery,
     } = useValues(todayPeopleLogic)
     const { toggleSection, setSearchQuery } = useActions(todayPeopleLogic)
+    const { movePinned } = useActions(sidebarPinsLogic)
+    const { moveRecent } = useActions(todayRecentsLogic)
 
     // The unread ticket count comes from the logic behind the classic nav's Support badge, so it is fetched once.
     // No unread tickets shows no number, like that badge.
@@ -74,6 +78,14 @@ export function TodayPeopleSidebar(): JSX.Element {
                     renderRecent={(recent) => (
                         <TodayPeopleRecentRow recent={recent} active={activeRow === recentRowKey(recent.href)} />
                     )}
+                    onMovePin={
+                        isSearching ? undefined : (pin, overPin) => movePinned(pin.shortcutId, overPin.shortcutId)
+                    }
+                    onMoveRecent={
+                        isSearching
+                            ? undefined
+                            : (recent, overRecent) => moveRecent('people', recent.href, overRecent.href)
+                    }
                     isSectionOpen={isSectionOpen}
                     onToggleSection={toggleSection}
                     dataAttrPrefix="people"

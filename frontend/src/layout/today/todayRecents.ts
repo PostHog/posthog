@@ -16,6 +16,9 @@ export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseR
 
 export type TodayRecentPane = 'people' | 'monitor' | 'release'
 
+/** The panes whose Recents a person can drag into their own order. */
+export type TodaySortableRecentPane = 'people' | 'monitor'
+
 /**
  * A scene logic that opens one record has a selector with this name. It gives the record as a recent, or null until
  * the record has loaded. It reads the logic's own record, so its name and href always belong together.
@@ -39,6 +42,16 @@ export function addTodayRecent<T extends TodayRecent>(recents: T[], recent: T): 
         return recents
     }
     return [recent, ...recents.filter((item) => item.href !== recent.href)].slice(0, TODAY_RECENTS_LIMIT)
+}
+
+/** Puts the recents a person dragged in their saved order. A recent they never dragged keeps its own slot in `rows`. */
+export function applyRecentOrder<T extends { href: string }>(rows: T[], order: string[]): T[] {
+    const rank = new Map(order.map((href, index) => [href, index]))
+    const dragged = rows
+        .filter((row) => rank.has(row.href))
+        .sort((first, second) => (rank.get(first.href) ?? 0) - (rank.get(second.href) ?? 0))
+    let next = 0
+    return rows.map((row) => (rank.has(row.href) ? dragged[next++] : row))
 }
 
 /** The id of a recent's row, for the active row and the row's own value. */
