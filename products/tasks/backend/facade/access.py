@@ -69,11 +69,7 @@ def may_read_task_run_context(
 
 
 def _log_chain_run_ids(runs: QuerySet[TaskRun]) -> set[UUID]:
-    return {
-        chained.id
-        for run in runs.select_related("task")
-        for chained in (*run.get_resume_chain(), *run.get_history_chain())
-    }
+    return {chained.id for run in runs.select_related("task") for chained in run.get_history_chain()}
 
 
 __all__ = [
