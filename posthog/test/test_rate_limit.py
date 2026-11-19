@@ -1,13 +1,17 @@
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, Mock, call, patch
 
+from django.conf import settings
 from django.core.cache import cache, caches
 from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
@@ -15,7 +19,7 @@ from django.utils.timezone import now
 from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
-from redis.exceptions import RedisError
+from redis import Redis
 from rest_framework import exceptions, status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -1318,29 +1322,47 @@ class TestReserveUnits(BaseTest):
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
             self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
 
+    def _redis_cache(self, location: str) -> RedisCache:
+        return RedisCache(location, {"KEY_PREFIX": self.cache_prefix})
+
+    @contextmanager
+    def _redis_that_refuses_writes(self) -> Iterator[RedisCache]:
+        admin = Redis.from_url(settings.REDIS_URL)
+        user, password = unique_key_prefix("read-only"), uuid4().hex
+        admin.acl_setuser(user, enabled=True, passwords=[f"+{password}"], keys=["*"], categories=["+@all", "-@write"])
+        primary = urlsplit(settings.REDIS_URL)
+        credentials = f"{user}:{password}@{primary.hostname or 'localhost'}:{primary.port or 6379}"
+        try:
+            yield self._redis_cache(f"{primary.scheme}://{credentials}{primary.path}?{primary.query}")
+        finally:
+            admin.acl_deluser(user)
+            admin.close()
+
     @parameterized.expand(
         [
-            (
-                "read_fails_open_over_budget",
-                lambda: patch.object(_PSAKThrottleForTest, "cache", RedisCache("redis://127.0.0.1:1/0", {})),
-                2,
-                [True, False],
-            ),
-            (
-                "write_fails_without_refusing",
-                lambda: patch("django.core.cache.cache.set", side_effect=RedisError("down")),
-                0,
-                [True, True, True, False],
-            ),
+            ("read_fails_open_over_budget", "unreachable", 2, [True, False]),
+            ("write_fails_without_refusing", "refuses_writes", 0, [True, True, True, False]),
         ]
     )
-    def test_a_reservation_passes_when_the_cache_fails(self, _name, cache_failure, spent, singles_after):
-        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
-            self._singles_allowed(_PSAKThrottleForTest, spent)
-            with cache_failure():
-                self._reserve([_PSAKThrottleForTest], 2)
+    def test_a_reservation_passes_when_redis_fails(self, _name, failure, spent, singles_after):
+        shared = self._redis_cache(settings.REDIS_URL)
+        failing = (
+            nullcontext(RedisCache("redis://127.0.0.1:1/0", {}))
+            if failure == "unreachable"
+            else self._redis_that_refuses_writes()
+        )
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
+            patch.object(_PSAKThrottleForTest, "cache", shared),
+        ):
+            try:
+                self._singles_allowed(_PSAKThrottleForTest, spent)
+                with failing as failing_cache, patch.object(_PSAKThrottleForTest, "cache", failing_cache):
+                    self._reserve([_PSAKThrottleForTest], 2)
 
-            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
+                self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
+            finally:
+                shared.delete_pattern("*")
 
     def test_a_primary_reading_throttle_passes_a_request_it_keys_to_nothing_without_an_error(self):
         with (

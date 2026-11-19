@@ -25,9 +25,11 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.rate_limit import is_rate_limit_enabled
 from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.access_control.backend.facade.testing import create_access_control
@@ -843,10 +845,11 @@ class TestTransactionalEmail(APIBaseTest):
         client = self._sender_client(sender)
         with (
             override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
-            patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
+            override_instance_config("RATE_LIMIT_ENABLED", True),
             patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
         ):
             try:
+                is_rate_limit_enabled.cache_clear()
                 statuses = [
                     (
                         client.post("/api/messaging/send/email/", self._flat(self.body), format="json")
@@ -859,6 +862,7 @@ class TestTransactionalEmail(APIBaseTest):
                 redis_cache = caches["default"]
                 assert isinstance(redis_cache, RedisCache)
                 redis_cache.delete_pattern("*")
+                is_rate_limit_enabled.cache_clear()
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, status.HTTP_429_TOO_MANY_REQUESTS]
 
