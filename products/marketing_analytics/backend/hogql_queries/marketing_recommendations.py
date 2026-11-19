@@ -232,6 +232,7 @@ class RecommendationInputs:
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
+    excluded_searches: frozenset[tuple[str, str]] = frozenset()
 
 
 @frozen
@@ -243,6 +244,7 @@ class _Term:
     conversions: float
     status: str
     excluded_everywhere: bool
+    excluded_anywhere: bool
     top_campaign_id: str
     ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
@@ -319,9 +321,9 @@ def _word_stems(text: str) -> frozenset[str]:
     )
 
 
-def _is_excluded(status: str) -> bool:
+def _is_keyword(status: str) -> bool:
     # Google reports ADDED_EXCLUDED for a search that is both a keyword and a negative.
-    return "EXCLUDED" in status
+    return "ADDED" in status
 
 
 def _page_key(url: str) -> str:
@@ -853,7 +855,7 @@ class _Recommender:
 
     def _review_steps(self, campaign: CampaignStats, cpa: float | None, benchmark: _Benchmark) -> tuple[Step, ...]:
         spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
-        # ADDED means the search is already a keyword and EXCLUDED means it is already a negative.
+        # A keyword or a negative already handles the search, so it is not worth listing again.
         targeted_or_excluded: set[str] = set()
         excluded: set[str] = set()
         for row in self.inputs.search_terms:
@@ -861,9 +863,10 @@ class _Recommender:
                 continue
             spend[row.term][0] += row.cost
             spend[row.term][1] += row.conversions
-            if row.status not in ("NONE", ""):
+            is_excluded = (row.term, row.campaign_id) in self.inputs.excluded_searches
+            if _is_keyword(row.status) or is_excluded:
                 targeted_or_excluded.add(row.term)
-            if _is_excluded(row.status):
+            if is_excluded:
                 excluded.add(row.term)
         competitors = self._competitor_names()
         draining = sorted(
@@ -989,7 +992,7 @@ class _Recommender:
             and term.term not in self.brand_terms
             and term.conversions == 0
             and term.cost >= 2 * benchmark.cpa
-            and (term.status in ("NONE", "") or term.excluded_everywhere)
+            and (term.excluded_everywhere or not (_is_keyword(term.status) or term.excluded_anywhere))
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
         ]
@@ -1318,7 +1321,6 @@ class _Recommender:
     def _aggregate_terms(self) -> dict[str, _Term]:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
-        excluded_everywhere: dict[str, bool] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
@@ -1329,7 +1331,6 @@ class _Recommender:
             total[2] += row.conversions
             total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
-            excluded_everywhere[row.term] = excluded_everywhere.get(row.term, True) and _is_excluded(row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
             ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
@@ -1343,7 +1344,12 @@ class _Recommender:
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
-                excluded_everywhere=excluded_everywhere[term],
+                excluded_everywhere=all(
+                    (term, campaign_id) in self.inputs.excluded_searches for campaign_id in cost_by_campaign[term]
+                ),
+                excluded_anywhere=any(
+                    (term, campaign_id) in self.inputs.excluded_searches for campaign_id in cost_by_campaign[term]
+                ),
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
@@ -1370,7 +1376,7 @@ class _Recommender:
             if (
                 row.campaign_id not in campaign_ids
                 or row.status == "ADDED"
-                or _is_excluded(row.status)
+                or (row.term, row.campaign_id) in self.inputs.excluded_searches
                 or row.term not in self.brand_terms
             ):
                 continue

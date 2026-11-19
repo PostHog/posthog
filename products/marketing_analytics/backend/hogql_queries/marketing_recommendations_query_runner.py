@@ -189,6 +189,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        excluded_searches=self._excluded_searches(source),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -591,6 +592,29 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             for row in rows
             if row[1]
         ]
+
+    def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[tuple[str, str]]:
+        table = source.searchTermTable
+        if not table or not self._readable(table) or not self._has_field(table, "search_term_view_status"):
+            return frozenset()
+        # Read up to today, so a negative added after the selected dates still counts. An excluded search stops getting
+        # rows, so the latest day decides, and on that day an ad group that still serves the search outranks one that
+        # excludes it.
+        rows = self._select(
+            f"""
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id) AS campaign
+            FROM {{table}}
+            WHERE toDate(segments_date) >= toDate({{date_from}}) AND notEmpty(term)
+            GROUP BY term, campaign
+            HAVING argMax(
+                toString(search_term_view_status),
+                tuple(segments_date, toString(search_term_view_status) NOT LIKE '%EXCLUDED%')
+            ) LIKE '%EXCLUDED%'
+            LIMIT {ROW_LIMIT}
+            """,
+            table,
+        )
+        return frozenset((row[0], row[1]) for row in rows)
 
     def _ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[Ad]:
         if not source.adTable or not self._readable(source.adTable):

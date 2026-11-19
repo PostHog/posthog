@@ -516,11 +516,12 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
             _term("example login", "c2", cost=600, conversions=0),
             _term("cheap keeper", "c2", cost=50, conversions=1),
-            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("cheap but excluded", "c2", cost=40, conversions=1),
             _term("costly converter", "c2", cost=300, conversions=1),
         )
+        inputs = replace(_inputs((good, costly), terms), excluded_searches=frozenset({("cheap but excluded", "c2")}))
 
-        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+        review = next(rec for rec in recommend(inputs) if rec.rule == "review_campaign")
 
         steps = review.steps or []
         assert review.subject == "Costly"
@@ -958,6 +959,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("now_a_negative", "ELIGIBLE", ("EXCLUDED",), ["negative_keyword"], 0),
             ("keyword_and_negative", "ELIGIBLE", ("ADDED_EXCLUDED",), ["negative_keyword"], 0),
             ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [], 0),
+            ("negative_in_the_second_of_two_campaigns", "ELIGIBLE", ("NONE", "EXCLUDED"), [], 0),
         ]
     )
     def test_spend_without_conversions_needs_a_serving_campaign_and_detects_negatives(
@@ -977,7 +979,14 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("product analytics", "c2", cost=500, conversions=10),
         )
 
-        rows = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "spend_without_conversions"]
+        excluded = frozenset(
+            ("free analytics template", campaign_id)
+            for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            if "EXCLUDED" in status
+        )
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
+
+        rows = [rec for rec in recommend(inputs) if rec.rule == "spend_without_conversions"]
 
         assert [rec.detectedChange for rec in rows] == expected_changes
         assert len(apply_resolutions(rows, {}, include_resolved=False)) == expected_unresolved

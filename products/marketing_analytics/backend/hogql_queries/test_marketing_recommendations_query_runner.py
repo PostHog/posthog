@@ -275,7 +275,11 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "analytics pricing,1,11,2026-01-15,10,100,400000000,0,NONE\n"
             "product analytics,1,11,2026-01-15,10,100,350000000,10,NONE\n"
             "patient records,1,11,2026-01-14,5,50,150000000,0,NONE\n"
-            "patient records,1,11,2026-01-15,5,50,150000000,0,EXCLUDED\n",
+            "patient records,1,11,2026-01-15,5,50,150000000,0,EXCLUDED\n"
+            # Another ad group excludes it on the same day that ad group 11 still serves it.
+            "dentist crm,1,12,2026-01-15,0,1,0,0,EXCLUDED\n"
+            # Excluded after the selected dates end.
+            "analytics pricing,1,11,2026-02-05,0,1,0,0,EXCLUDED\n",
         )
         ad_columns = {
             "ad_group_id": "Int64",
@@ -319,7 +323,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
         assert [(rec.subject, rec.detectedChange) for rec in wasted] == [
             ("dentist crm", None),
-            ("analytics pricing", None),
+            ("analytics pricing", "negative_keyword"),
             ("patient records", "negative_keyword"),
         ]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
