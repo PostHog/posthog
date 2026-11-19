@@ -21,7 +21,7 @@ export function SharesCard({ cardKey, card, kicker, headline, footnote }: Shares
     return (
         <WrappedCard cardKey={cardKey} kicker={kicker}>
             {leader && (
-                <h2 className="MCPWrapped__rise m-0 text-3xl font-bold leading-tight">
+                <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
                     {headline(leader.name, formatPercent(leader.share))}
                 </h2>
             )}
@@ -54,7 +54,7 @@ export function SharesCard({ cardKey, card, kicker, headline, footnote }: Shares
                     </li>
                 ))}
             </ul>
-            {footnote && <p className="MCPWrapped__rise m-0 text-xs opacity-75">{footnote}</p>}
+            {footnote && <p className="MCPWrapped__rise m-0 text-sm opacity-75">{footnote}</p>}
         </WrappedCard>
     )
 }

@@ -59,14 +59,14 @@ export function ShareCard({
 
     return (
         <WrappedCard ref={cardRef} cardKey="share" kicker={`${projectName} · MCP Wrapped ${year}`}>
-            <h2 className="MCPWrapped__rise m-0 text-3xl font-bold leading-tight">
+            <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
                 {ARCHETYPE_NAMES[cards.archetype.archetype]}
             </h2>
             <div className="MCPWrapped__rise grid grid-cols-2 gap-2.5">
                 {shareTiles(cards).map((tile) => (
                     <div key={tile.label} className="min-w-0 rounded-xl bg-white/15 p-2.5">
-                        <div className="font-mono text-[10px] font-semibold uppercase opacity-80">{tile.label}</div>
-                        <div className="truncate text-lg font-bold">{tile.value}</div>
+                        <div className="text-sm opacity-75">{tile.label}</div>
+                        <div className="truncate font-bold">{tile.value}</div>
                     </div>
                 ))}
             </div>
