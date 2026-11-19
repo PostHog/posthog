@@ -222,7 +222,7 @@ describe('EmailTrackingService', () => {
                 [
                     'a self-closing opening tag',
                     '<a href="https://example.com/a" />a</a>',
-                    '<a href="https://example.com/a" ses:tags="phl:0">a</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0"/>a</a>',
                 ],
                 [
                     'a stray opener inside the tag',
@@ -303,6 +303,21 @@ describe('EmailTrackingService', () => {
                     'an encoded comment end in the ses:tags of an Outlook link',
                     '<!--[if mso]><a href="https://example.com/" ses:tags="a--&gt;b">a</a><![endif]-->',
                     '<!--[if mso]><a href="https://example.com/" ses:tags="a--&gt;b;phl:0">a</a><![endif]-->',
+                ],
+                [
+                    'a self-closing anchor in SVG',
+                    '<svg><a href="https://example.com/"/><text>a</text></svg>',
+                    '<svg><a href="https://example.com/" ses:tags="phl:0"/><text>a</text></svg>',
+                ],
+                [
+                    'an opted-out link after a style end tag with a slash',
+                    '<style>p{}</style/><a href="https://example.com/" data-ph-no-track>a</a>',
+                    '<style>p{}</style/><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'an opted-out link after a comment that ends in --!>',
+                    '<!-- <a title=" --!><a href="https://example.com/" data-ph-no-track>a</a>',
+                    '<!-- <a title=" --!><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
                 ],
                 [
                     'an entity-encoded javascript href before a link',

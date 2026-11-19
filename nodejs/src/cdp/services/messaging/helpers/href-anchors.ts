@@ -35,8 +35,6 @@ type ScannedTag = {
     attributes: ScannedAttribute[]
     // Where an added attribute goes: the `>`, or the `/` of a self-closing `/>`.
     insertAt: number
-    // Just past the `>`.
-    end: number
 }
 
 const JAVASCRIPT_SCHEME = /^javascript:/i
@@ -48,6 +46,17 @@ const isSpace = (char: string): boolean =>
 const asciiLowercase = (text: string): string => text.replace(/[A-Z]/g, (char) => char.toLowerCase())
 
 const noop = (): void => {}
+
+// A browser ends a comment at `--!>` and a raw-text element at `</style/`, where the tokenizer does not.
+const BROWSER_ONLY_ENDINGS = /--!>|<\/(?:script|style|textarea|title)\//gi
+
+// Rewrites that keep the length, so every offset still points into `html`. Inside a comment, `<!--` is text.
+const alignWithBrowser = (markup: string, inComment: boolean): string => {
+    const aligned = markup.replace(BROWSER_ONLY_ENDINGS, (ending) =>
+        ending === '--!>' ? ' -->' : `${ending.slice(0, -1)} `
+    )
+    return inComment ? aligned.replaceAll('<!--', '_!--') : aligned
+}
 
 // Collects the opening `<a>` tags of `html[from, to)` in document order. Comment content is scanned as markup
 // too, because Outlook renders the links inside its `<!--[if mso]>` blocks. That scan reads a `<!--` as text, so
@@ -62,9 +71,9 @@ const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTa
             scanAnchorTags(html, from + start, from + end - endOffset, found, true)
         }
     }
-    const closeTag = (insertAt: number, end: number): void => {
+    const closeTag = (insertAt: number): void => {
         if (isAnchor) {
-            found.push({ attributes, insertAt, end })
+            found.push({ attributes, insertAt })
         }
         isAnchor = false
     }
@@ -110,14 +119,14 @@ const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTa
                 attribute = null
             },
             onopentagend(end) {
-                closeTag(from + end, from + end + 1)
+                closeTag(from + end)
             },
             onselfclosingtag(end) {
                 let slash = from + end - 1
                 while (isSpace(html[slash])) {
                     slash--
                 }
-                closeTag(slash, from + end + 1)
+                closeTag(slash)
             },
             oncomment: scanInner,
             oncdata: scanInner,
@@ -129,9 +138,7 @@ const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTa
             ontextentity: noop,
         }
     )
-    const markup = html.slice(from, to)
-    // `<!--` becomes ` !--`, the same length, so every offset still points into `html`.
-    tokenizer.write(inComment ? markup.replaceAll('<!--', ' !--') : markup)
+    tokenizer.write(alignWithBrowser(html.slice(from, to), inComment))
     tokenizer.end()
 }
 
@@ -180,16 +187,17 @@ export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => Anch
         const last = tag.attributes[tag.attributes.length - 1]
         if (last?.hasValue && !last.quoted && last.value === '') {
             // `title=>` followed by ` name` would make `name` the value of `title`, so the empty value gets quotes.
-            pieces.push(html.slice(copiedUpTo, last.start), `${last.rawName}="" ${written}>`)
+            pieces.push(html.slice(copiedUpTo, last.start), `${last.rawName}="" ${written}`)
         } else {
             // A loop, not /\s+$/, which backtracks quadratically over a long run of spaces inside the tag.
             let before = tag.insertAt
             while (before > 0 && isSpace(html[before - 1])) {
                 before--
             }
-            pieces.push(html.slice(copiedUpTo, before), ` ${written}>`)
+            pieces.push(html.slice(copiedUpTo, before), ` ${written}`)
         }
-        copiedUpTo = tag.end
+        // From the `/` of a self-closing `/>`, which closes an SVG link.
+        copiedUpTo = tag.insertAt
     }
     pieces.push(html.slice(copiedUpTo))
     return pieces.join('')

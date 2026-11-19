@@ -231,6 +231,11 @@ describe('addUtmTagsToEmail', () => {
             expected: '<!-- <a title=" --><a href="https://example.com/?ph_workflow_run=run-1">x</a>',
         },
         {
+            case: 'tags the whole unquoted href of an Outlook link that holds a comment opening',
+            html: '<!--[if mso]><a href=https://example.com/p<!--x>x</a><![endif]-->',
+            expected: '<!--[if mso]><a href="https://example.com/p&lt;!--x?ph_workflow_run=run-1">x</a><![endif]-->',
+        },
+        {
             case: 'reads the first of two clicktracking values',
             html: '<a clicktracking="on" clicktracking="off" href="https://example.com/">x</a><a clicktracking="off" clicktracking="on" href="https://example.com/">y</a>',
             expected:
