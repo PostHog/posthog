@@ -1494,10 +1494,13 @@ def _tiers_missing(obj: dict[str, Any]) -> bool:
     return obj.get("billing_scheme") == "tiered" and not obj.get("tiers")
 
 
-def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+def _subscription_discounts(obj: Mapping[str, Any]) -> list[Any]:
     items = (obj.get("items") or {}).get("data") or []
-    discounts = [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
-    return any(isinstance(discount, str) for discount in discounts)
+    return [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
+
+
+def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+    return any(isinstance(discount, str) for discount in _subscription_discounts(obj))
 
 
 def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
@@ -1509,14 +1512,8 @@ def _with_tiers(obj: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, An
 
 
 def _with_expanded_discounts(subscription: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
-    fetched_items = (fetched.get("items") or {}).get("data") or []
     expanded = {
-        discount["id"]: discount
-        for discount in [
-            *(fetched.get("discounts") or []),
-            *(d for item in fetched_items for d in (item.get("discounts") or [])),
-        ]
-        if isinstance(discount, Mapping)
+        discount["id"]: discount for discount in _subscription_discounts(fetched) if isinstance(discount, Mapping)
     }
 
     # An id the subscription no longer lists stays an id, so a later removal does not reach the event's state.

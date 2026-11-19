@@ -1935,6 +1935,18 @@ _INCOMPLETE_INVOICE = {
 }
 
 
+def _subscription_is(
+    *, status: str, discounts: list[Any], items: list[dict[str, Any]]
+) -> Callable[[dict[str, Any]], bool]:
+    def check(row: dict[str, Any]) -> bool:
+        assert row["status"] == status
+        assert orjson.loads(row["discounts"]) == discounts
+        assert orjson.loads(row["items"])["data"] == items
+        return True
+
+    return check
+
+
 class TestWebhookRefetch:
     def _transform(self, endpoint: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
         refetcher = WebhookObjectRefetcher(
@@ -2002,7 +2014,10 @@ class TestWebhookRefetch:
                     "object": "subscription",
                     "status": "active",
                     "discounts": ["di_1", "di_removed"],
-                    "items": {"object": "list", "data": [{"id": "si_1", "discounts": ["di_2"]}]},
+                    "items": {
+                        "object": "list",
+                        "data": [{"id": "si_1", "discounts": ["di_2"]}, {"id": "si_2", "discounts": []}],
+                    },
                 },
                 {
                     "/v1/subscriptions/sub_1": (
@@ -2021,17 +2036,20 @@ class TestWebhookRefetch:
                                     {
                                         "id": "si_1",
                                         "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}],
-                                    }
+                                    },
+                                    {"id": "si_2", "discounts": []},
                                 ],
                             },
                         },
                     )
                 },
-                lambda row: (
-                    row["status"] == "active"
-                    and orjson.loads(row["discounts"])
-                    == [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}, "di_removed"]
-                    and orjson.loads(row["items"])["data"][0]["discounts"][0]["coupon"]["id"] == "co_2"
+                _subscription_is(
+                    status="active",
+                    discounts=[{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}, "di_removed"],
+                    items=[
+                        {"id": "si_1", "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}]},
+                        {"id": "si_2", "discounts": []},
+                    ],
                 ),
             ),
         ]
