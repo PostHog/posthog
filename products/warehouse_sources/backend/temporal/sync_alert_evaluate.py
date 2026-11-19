@@ -6,6 +6,7 @@ because the dispatcher passes the kind in its inputs.
 """
 
 import datetime as dt
+from collections.abc import Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -82,4 +83,4 @@ class WarehouseAlertEvaluateWorkflow(PostHogWorkflow):
 
 
 WAREHOUSE_ALERT_EVALUATION_WORKFLOWS = [WarehouseAlertEvaluateWorkflow]
-WAREHOUSE_ALERT_EVALUATION_ACTIVITIES = [evaluate_warehouse_alerts_activity]
+WAREHOUSE_ALERT_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [evaluate_warehouse_alerts_activity]

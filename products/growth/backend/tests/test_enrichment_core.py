@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from products.growth.backend.enrichment.bridge import ClayBridgeInputs, OrganizationBridgeInputs, WizardBridgeInputs
+from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import _MISS_PAYLOAD, enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
@@ -103,31 +103,18 @@ class TestEnrichmentCore(BaseTest):
         lookup: ProviderLookup,
         is_recheck: bool = False,
         role_at_organization=None,
-        clay=None,
         wizard=None,
         pha_client=None,
         distinct_id=None,
-        person=None,
         geoip_country_code=None,
         domain="stripe.com",
         provider=None,
         phase=None,
     ):
-        person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
-        bridge_error = None
-        if isinstance(clay, Exception):
-            bridge_error = clay
-        elif isinstance(wizard, Exception):
-            bridge_error = wizard
         bridge_patch_kwargs = (
-            {"side_effect": bridge_error}
-            if bridge_error is not None
-            else {
-                "return_value": OrganizationBridgeInputs(
-                    clay=clay or ClayBridgeInputs(),
-                    wizard=wizard or WizardBridgeInputs(),
-                )
-            }
+            {"side_effect": wizard}
+            if isinstance(wizard, Exception)
+            else {"return_value": OrganizationBridgeInputs(wizard=wizard or WizardBridgeInputs())}
         )
         ctx = EnrichmentContext(
             organization_id=str(self.organization.id),
@@ -137,15 +124,12 @@ class TestEnrichmentCore(BaseTest):
             role_at_organization=role_at_organization,
             geoip_country_code=geoip_country_code,
         )
-        with (
-            patch("products.growth.backend.enrichment.core.read_organization_bridge_inputs", **bridge_patch_kwargs),
-            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", **person_patch_kwargs),
-        ):
+        with patch("products.growth.backend.enrichment.core.read_organization_bridge_inputs", **bridge_patch_kwargs):
             return async_to_sync(enrich_organization)(
                 ctx, provider=provider or _FakeProvider(lookup), pha_client=pha_client or MagicMock()
             )
 
-    # ---------- archive + legacy clay behavior (unchanged contracts) ----------
+    # ---------- archive and field writes ----------
 
     def test_archives_raw_payload_and_writes_live_stores_on_match(self):
         company = {"companyType": "STARTUP", "funding": {"fundingStage": "SEED"}}
@@ -194,42 +178,7 @@ class TestEnrichmentCore(BaseTest):
         rows = OrganizationEnrichmentFetch.objects.filter(organization=self.organization).order_by("fetched_at")
         assert [r.is_recheck for r in rows] == [False, True]
 
-    def test_clay_scores_from_our_fields_the_signup_role_and_clays_columns(self):
-        # First attempt: Clay's bridge columns are already present, so they feed the clay
-        # score too — but the clay person mirror is recheck-only, so the only person write
-        # is the fit mirror, and this payload's fit evaluation is score-less (insufficient).
-        pha_client = MagicMock()
-        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021, ownership_status="PRIVATE")
-        self._enrich(
-            ProviderLookup(fields=fields, raw_payload=_empty_shell()),
-            role_at_organization="Founder",
-            clay=ClayBridgeInputs(est_revenue=25_000_000, clay_processed=True),
-            pha_client=pha_client,
-            distinct_id="signer-distinct-id",
-        )
-
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 21
-        assert record.data["icp_score_version"] == "clay-parity-2"
-        properties = pha_client.group_identify.call_args.kwargs["properties"]
-        assert properties["icp_score"] == 21
-        assert properties["icp_score_version"] == "clay-parity-2"
-        pha_client.set.assert_called_once_with(
-            distinct_id="signer-distinct-id", properties={"icp_fit_status": "insufficient_data"}
-        )
-
-    def test_clay_first_attempt_scores_without_waiting_for_clay(self):
-        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
-        outcome = self._enrich(
-            ProviderLookup(fields=fields, raw_payload=_empty_shell()), role_at_organization="engineering"
-        )
-
-        assert outcome.provider_fields is fields
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12
-        assert record.data["icp_score_version"] == "clay-parity-2"
-
-    def test_first_attempt_miss_reconstructs_fields_from_a_prior_record_and_clay_scores(self):
+    def test_first_attempt_miss_reconstructs_fields_from_a_prior_record(self):
         OrganizationEnrichment.objects.create(
             organization=self.organization,
             data={"headcount": 750, "country": "US", "founded_year": 2021, "company_type_deterministic": "yc"},
@@ -245,7 +194,8 @@ class TestEnrichmentCore(BaseTest):
 
         assert outcome.provider_fields is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12
+        assert record.data["headcount"] == 750
+        assert "icp_score" not in record.data
         assert record.data["company_type_deterministic"] == "yc"
         pha_client.set.assert_called_once_with(
             distinct_id="signer-distinct-id", properties={"icp_fit_status": "not_found"}
@@ -253,12 +203,12 @@ class TestEnrichmentCore(BaseTest):
 
     @parameterized.expand(
         [
-            ("geoip_fills_missing_provider_country", None, "US", 12, "US"),
-            ("provider_country_wins_over_geoip", "DE", "BR", 12, "DE"),
-            ("both_missing_keeps_the_penalty", None, None, 7, None),
+            ("geoip_fills_missing_provider_country", None, "US", "US"),
+            ("provider_country_wins_over_geoip", "DE", "BR", "DE"),
+            ("both_missing_stays_missing", None, None, None),
         ]
     )
-    def test_country_falls_back_to_signup_geoip(self, _name, provider_country, geoip_country, score, stored_country):
+    def test_country_falls_back_to_signup_geoip(self, _name, provider_country, geoip_country, stored_country):
         pha_client = MagicMock()
         fields = EnrichmentFields(headcount=750, country=provider_country, founded_year=2021)
         self._enrich(
@@ -270,7 +220,6 @@ class TestEnrichmentCore(BaseTest):
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == score
         assert record.data.get("country") == stored_country
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties.get("icp_country") == stored_country
@@ -293,95 +242,20 @@ class TestEnrichmentCore(BaseTest):
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data.get("country") == "DE"
-        assert record.data["icp_score"] == 12
 
-    @parameterized.expand(
-        [
-            ("no_prior_person", None, True),
-            ("person_with_no_icp_score", MagicMock(properties={}), True),
-            ("person_with_clay_owned_score", MagicMock(properties={"icp_score": 18}), False),
-            (
-                "person_with_our_own_versioned_score",
-                MagicMock(properties={"icp_score": 9, "icp_score_version": "clay-parity-1"}),
-                True,
-            ),
-            ("person_lookup_raises", RuntimeError("personhog down"), False),
-        ]
-    )
-    def test_clay_recheck_mirror_policy(self, _name, person, expect_mirror):
-        # Empty-shell payload keeps the fit evaluation score-less, and the fit mirror always
-        # sends its status regardless of person state, so isolate the guarded clay mirror by
-        # its own key rather than asserting on `set` calls overall.
-        pha_client = MagicMock()
-        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
-        self._enrich(
-            ProviderLookup(fields=fields, raw_payload=_empty_shell()),
-            is_recheck=True,
-            pha_client=pha_client,
-            distinct_id="signer-distinct-id",
-            person=person,
-        )
-
-        clay_calls = [c for c in pha_client.set.call_args_list if "icp_score" in c.kwargs["properties"]]
-        assert bool(clay_calls) is expect_mirror
-
-    def test_first_attempt_does_not_look_up_the_person(self):
-        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
-        ctx = EnrichmentContext(
-            organization_id=str(self.organization.id),
-            domain="stripe.com",
-            phase=EnrichmentPhase.AT_SIGNUP,
-            distinct_id="signer-distinct-id",
-            role_at_organization="engineering",
-        )
-        with (
-            patch(
-                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
-                return_value=OrganizationBridgeInputs(),
-            ),
-            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
-        ):
-            async_to_sync(enrich_organization)(
-                ctx,
-                provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_empty_shell())),
-                pha_client=MagicMock(),
-            )
-
-        person_mock.assert_not_called()
-
-    def test_bridge_read_failure_still_clay_scores_from_own_fields(self):
+    def test_bridge_read_failure_still_writes_own_fields(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         with patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock:
             outcome = self._enrich(
                 ProviderLookup(fields=fields, raw_payload=_empty_shell()),
                 role_at_organization="engineering",
-                clay=RuntimeError("group store down"),
+                wizard=RuntimeError("group store down"),
             )
 
         assert outcome.provider_fields is fields
         capture_mock.assert_called_once()
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12
         assert record.data["headcount"] == 750
-
-    def test_bridge_read_failure_never_downgrades_a_persisted_clay_score(self):
-        OrganizationEnrichment.objects.create(
-            organization=self.organization,
-            data={"icp_score": 15, "icp_score_version": "clay-parity-1", "headcount": 750},
-        )
-        fields = EnrichmentFields(headcount=800, country="US", founded_year=2021)
-
-        outcome = self._enrich(
-            ProviderLookup(fields=fields, raw_payload=_empty_shell()),
-            is_recheck=True,
-            role_at_organization="engineering",
-            clay=RuntimeError("group store down"),
-        )
-
-        assert outcome.provider_fields is fields
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 15
-        assert record.data["headcount"] == 800
 
     def test_archive_failure_does_not_break_enrich(self):
         fields = EnrichmentFields(company_type="STARTUP")
@@ -401,7 +275,7 @@ class TestEnrichmentCore(BaseTest):
 
     # ---------- fit evaluation ----------
 
-    def test_fit_scores_the_raw_payload_next_to_the_clay_score(self):
+    def test_fit_scores_the_raw_payload(self):
         pha_client = MagicMock()
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
         outcome = self._enrich(
@@ -421,15 +295,13 @@ class TestEnrichmentCore(BaseTest):
             "headcount_growth": 10,
             "software_relevance": 10,
         }
-        # The clay score wrote its own family from the same enrichment, untouched by fit.
-        assert record.data["icp_score_version"] == "clay-parity-2"
+        assert "icp_score" not in record.data
         properties = pha_client.group_identify.call_args.kwargs["properties"]
+        assert "icp_score" not in properties
         assert properties["icp_fit_score"] == 100
         assert properties["icp_fit_status"] == "scored"
 
-    def test_fit_mirrors_the_person_on_the_first_attempt_without_a_person_read(self):
-        # icp_fit_score is a brand-new person key nothing else writes: no ownership guard,
-        # no person lookup, mirrored on every attempt — unlike the guarded clay mirror.
+    def test_fit_mirrors_the_person_on_the_first_attempt(self):
         pha_client = MagicMock()
         fields = EnrichmentFields(company_type="STARTUP")
         ctx = EnrichmentContext(
@@ -438,12 +310,9 @@ class TestEnrichmentCore(BaseTest):
             phase=EnrichmentPhase.AT_SIGNUP,
             distinct_id="signer-distinct-id",
         )
-        with (
-            patch(
-                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
-                return_value=OrganizationBridgeInputs(),
-            ),
-            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
+        with patch(
+            "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+            return_value=OrganizationBridgeInputs(),
         ):
             async_to_sync(enrich_organization)(
                 ctx,
@@ -451,7 +320,6 @@ class TestEnrichmentCore(BaseTest):
                 pha_client=pha_client,
             )
 
-        person_mock.assert_not_called()
         pha_client.set.assert_called_once_with(
             distinct_id="signer-distinct-id",
             properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
@@ -512,7 +380,6 @@ class TestEnrichmentCore(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_status"] == "not_found"
         assert "icp_fit_score" not in record.data
-        assert "icp_score" not in record.data  # no fields -> no clay score either
 
     def test_fresh_miss_records_not_found_for_the_reenrichment_sweep(self):
         outcome = self._enrich(ProviderLookup(fields=None, raw_payload=None))
@@ -547,7 +414,7 @@ class TestEnrichmentCore(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_evaluation_kind"] == expected_kind
 
-    def test_no_active_lists_degrades_to_clay_and_fields_only(self):
+    def test_no_active_lists_degrades_to_fields_only(self):
         IcpScoringConfig.objects.update(is_active=False)
         clear_lists_cache()
         pha_client = MagicMock()
@@ -564,7 +431,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.provider_fields is fields
         assert outcome.fit is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12  # clay unaffected by the fit degrade
+        assert record.data["headcount"] == 750
         assert "icp_fit_status" not in record.data
 
     def test_no_active_lists_and_a_miss_writes_nothing(self):
@@ -578,7 +445,7 @@ class TestEnrichmentCore(BaseTest):
         assert not OrganizationEnrichment.objects.filter(organization=self.organization).exists()
         pha_client.group_identify.assert_not_called()
 
-    def test_fit_scoring_failure_degrades_to_clay_and_fields_only(self):
+    def test_fit_scoring_failure_degrades_to_fields_only(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         with (
             patch(
@@ -595,7 +462,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.provider_fields is fields
         assert outcome.fit is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12
+        assert record.data["headcount"] == 750
         assert "icp_fit_score" not in record.data
 
     def test_recheck_reads_the_wizard_bridge(self):
@@ -807,7 +674,7 @@ class TestEnrichmentCore(BaseTest):
         assert row.payload["enrichmentStatus"] is None
         assert row.payload["enrichmentUrn"] == "urn:harmonic:enrichment:new"
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12
+        assert record.data["headcount"] == 750
 
     def test_first_attempt_never_polls_status(self):
         # A prior archived urn exists (e.g. from a backfill re-run), so an unguarded call

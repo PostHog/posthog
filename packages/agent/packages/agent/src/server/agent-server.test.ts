@@ -8481,7 +8481,7 @@ describe("AgentServer HTTP Mode", () => {
         // brevity
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain("do NOT enumerate every change");
-        // plain footer, no Slack link; Slack-origin PRs are branded "PostHog"
+        // plain footer, no Slack link; without a thread link the PR is branded "PostHog"
         expect(prompt).toContain(
           "*Created with [PostHog](https://posthog.com?ref=pr)*",
         );
@@ -8495,7 +8495,7 @@ describe("AgentServer HTTP Mode", () => {
           origin: "slack",
           launchOptions: { slack_thread_url: SLACK_THREAD_URL },
           source: undefined,
-          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          footer: `*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
         },
         {
           label: "inbox report on a signal_report run",
@@ -8575,7 +8575,7 @@ describe("AgentServer HTTP Mode", () => {
         ).buildCloudSystemPrompt();
 
         expect(prompt).toContain(
-          `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          `*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
         );
       });
     });

@@ -566,9 +566,11 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
 function NativeEmailTemplaterForm({
     mode,
     fieldsHidden,
+    switchInHeader,
 }: {
     mode: EmailEditorMode
     fieldsHidden?: boolean
+    switchInHeader?: boolean
 }): JSX.Element {
     const {
         unlayerEditorProjectId,
@@ -605,7 +607,7 @@ function NativeEmailTemplaterForm({
             !documentEditorActive)
     const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
     // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
-    const showContentSwitch = mode === 'full' && logicProps.layout === 'inline'
+    const showContentSwitch = mode === 'full' && logicProps.layout === 'inline' && !switchInHeader
     const preheaderVisible = isHeaderFieldShown(visibleFields, 'preheader')
 
     return (
@@ -616,7 +618,7 @@ function NativeEmailTemplaterForm({
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                <div className={fieldsHidden && !documentEditorActive ? 'h-0 overflow-hidden' : ''}>
+                <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
                     {compactHeader ? (
                         <>
                             {showSenderRow && <EmailSenderRow />}
@@ -723,7 +725,7 @@ function NativeEmailTemplaterForm({
 
                 {documentEditorActive ? (
                     <div className="relative flex flex-col flex-1 min-h-0">
-                        {logicProps.layout === 'inline' ? (
+                        {showContentSwitch && !compactHeader ? (
                             <div className="flex justify-end px-2 py-1 border-b shrink-0">
                                 <LemonSegmentedButton
                                     size="xsmall"
@@ -939,7 +941,16 @@ function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JS
     )
 }
 
-function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fieldsHidden?: boolean }): JSX.Element {
+function EmailTemplaterForm({
+    mode,
+    fieldsHidden,
+    switchInHeader,
+}: {
+    mode: EmailEditorMode
+    fieldsHidden?: boolean
+    /** The panel around the form already shows the visual/plain-text switch. */
+    switchInHeader?: boolean
+}): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
@@ -949,7 +960,7 @@ function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fie
         case 'native_email_transactional_template':
         case 'native_email':
         case 'native_email_sandbox':
-            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
+            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} switchInHeader={switchInHeader} />
     }
 }
 
@@ -1030,7 +1041,7 @@ function EmailTemplaterEditorPanel({
     // The takeover has no LemonModal chrome, so it asks for an explicit close button here.
     onClose?: () => void
 }): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, activeContentTab, usesDocumentEditor } = useValues(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, activeContentTab } = useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, setIsSaveTemplateModalOpen, setActiveContentTab } =
         useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
@@ -1051,16 +1062,14 @@ function EmailTemplaterEditorPanel({
                 {saveIndicator}
                 {/* The toggle label changes width; keeping it left of the right-anchored
                     tabs means the tabs never shift when it flips */}
-                {!usesDocumentEditor && (
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
-                        onClick={() => setFieldsHidden(!fieldsHidden)}
-                    >
-                        {fieldsHidden ? 'Show fields' : 'Hide fields'}
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                    onClick={() => setFieldsHidden(!fieldsHidden)}
+                >
+                    {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                </LemonButton>
                 <LemonSegmentedButton
                     size="small"
                     value={activeContentTab}
@@ -1074,7 +1083,7 @@ function EmailTemplaterEditorPanel({
                     <LemonButton size="small" icon={<IconX />} onClick={onClose} tooltip="Close" aria-label="Close" />
                 )}
             </div>
-            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
+            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} switchInHeader />
             <div className="flex gap-2 items-center shrink-0">
                 <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
                     Save as new template

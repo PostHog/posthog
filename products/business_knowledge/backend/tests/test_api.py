@@ -24,6 +24,8 @@ from products.business_knowledge.backend.models import (
     KnowledgeLibrarySource,
     KnowledgeRunCitation,
     KnowledgeSource,
+    KnowledgeUsageKey,
+    KnowledgeUsageRecord,
     SafetyVerdict,
     SourceStatus,
     SourceType,
@@ -1075,6 +1077,12 @@ class TestKnowledgeUsageAPI(APIBaseTest):
             created_at=cited_at,
         )
 
+    def _meter(self, usage_key: KnowledgeUsageKey, quantity: int, surface: str, at: datetime, team_id: int = 0) -> None:
+        record = KnowledgeUsageRecord.objects.unscoped().create(
+            team_id=team_id or self.team.id, usage_key=usage_key, quantity=quantity, surface=surface
+        )
+        KnowledgeUsageRecord.objects.unscoped().filter(id=record.id).update(created_at=at)
+
     def test_usage_counts_runs_in_the_period_for_sources_that_still_exist(self, _ff) -> None:
         now = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
         yesterday = now - timedelta(days=1)
@@ -1088,6 +1096,16 @@ class TestKnowledgeUsageAPI(APIBaseTest):
         self._cite("run-2", learned.id, yesterday)
         self._cite("run-old", docs.id, now - timedelta(days=3))
         self._cite("run-deleted-source", uuid4(), now)
+        # The sources above metered their own chunks at the real time, outside the frozen period.
+        KnowledgeUsageRecord.objects.unscoped().all().delete()
+        self._meter(KnowledgeUsageKey.CHUNKS, 5, "url", now)
+        self._meter(KnowledgeUsageKey.CHUNKS, 4, "url", yesterday)
+        self._meter(KnowledgeUsageKey.CHUNKS, 2, "text", yesterday)
+        self._meter(KnowledgeUsageKey.CHUNKS, 9, "url", now - timedelta(days=3))
+        self._meter(KnowledgeUsageKey.QUERIES, 1, "support", now)
+        self._meter(KnowledgeUsageKey.QUERIES, 1, "api", now)
+        self._meter(KnowledgeUsageKey.QUERIES, 1, "api", yesterday)
+        self._meter(KnowledgeUsageKey.QUERIES, 1, "api", now, team_id=self.team.id + 1000)
 
         with time_machine.travel(now, tick=False):
             usage = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/usage/?days=2")
@@ -1100,9 +1118,13 @@ class TestKnowledgeUsageAPI(APIBaseTest):
             "learned_cited_run_count": 1,
             "source_count": 3,
             "cited_source_count": 2,
+            "chunks_ingested": 11,
+            "query_count": 3,
+            "chunks_by_surface": [{"surface": "url", "total": 9}, {"surface": "text", "total": 2}],
+            "queries_by_surface": [{"surface": "api", "total": 2}, {"surface": "support", "total": 1}],
             "daily": [
-                {"date": "2026-05-19", "cited_run_count": 1},
-                {"date": "2026-05-20", "cited_run_count": 1},
+                {"date": "2026-05-19", "cited_run_count": 1, "chunks_ingested": 6, "query_count": 1},
+                {"date": "2026-05-20", "cited_run_count": 1, "chunks_ingested": 5, "query_count": 2},
             ],
             "top_sources": [
                 {

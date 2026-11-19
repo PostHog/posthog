@@ -44,7 +44,7 @@ const EVENTS = {
 } as const
 
 export type SummaryShownSource = 'just_generated' | 'stored'
-export type CopyFailureReason = 'too_large' | 'export_failed' | 'error'
+export type CopyFailureReason = 'too_large' | 'export_failed' | 'network' | 'error'
 
 export interface TraceFeedbackCounts {
     scores: number | null
@@ -57,8 +57,13 @@ export const traceViewTracking = {
      * Sent each time the trace resource answers: on the trace page, and for each trace the drawer opens or steps to.
      * `trace_load_ms` is the wait for that read. `node_count` counts every step, the root included.
      */
-    viewLoaded: (traceLoadMs: number, nodeCount: number): void => {
-        posthog.capture(EVENTS.viewLoaded, { trace_load_ms: traceLoadMs, node_count: nodeCount })
+    viewLoaded: (traceLoadMs: number, nodeCount: number, traceCreatedAt: string): void => {
+        const traceAgeMinutes = (Date.now() - Date.parse(traceCreatedAt)) / 60_000
+        posthog.capture(EVENTS.viewLoaded, {
+            trace_load_ms: traceLoadMs,
+            node_count: nodeCount,
+            trace_age_minutes: Number.isFinite(traceAgeMinutes) ? traceAgeMinutes : null,
+        })
     },
     /**
      * Sent when the content of a step loads. A failed read sends no event, because it reports through error tracking.

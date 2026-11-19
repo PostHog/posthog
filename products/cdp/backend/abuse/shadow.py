@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterable
+from dataclasses import replace
 from enum import StrEnum
 from typing import Any
 
@@ -20,7 +21,7 @@ from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
-from products.cdp.backend.abuse import metrics
+from products.cdp.backend.abuse import metrics, rules
 from products.cdp.backend.abuse.classifier import (
     AbuseVerdict,
     ClassificationFailed,
@@ -40,7 +41,8 @@ from products.cdp.backend.services.hog_function_content import comparable_conten
 
 logger = structlog.get_logger(__name__)
 
-# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9}.
+# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
+# "control_threshold": 0.7}.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
@@ -65,6 +67,24 @@ class ScoredHogFunction:
     code_modified_from_template: bool | None
     verdict: AbuseVerdict | None
     failure: FailureReason | None
+    rule_hits: tuple[rules.Rule, ...]
+
+    @property
+    def would_alert(self) -> bool:
+        return bool(self.rule_hits) or (self.verdict is not None and self.verdict.would_alert)
+
+    @property
+    def would_block(self) -> bool:
+        blocked_by_rule = any(rule in rules.BLOCKING_RULES for rule in self.rule_hits)
+        return blocked_by_rule or (self.verdict is not None and self.verdict.would_block)
+
+    @property
+    def label(self) -> str:
+        if self.would_block:
+            return "would_block"
+        if self.would_alert:
+            return "alert"
+        return "clean" if self.verdict is not None else "none"
 
 
 def content_of(hog_function: HogFunction, template: HogFunctionTemplate | None = None) -> HogFunctionContent:
@@ -138,7 +158,10 @@ def thresholds_for(team: Team) -> Thresholds:
         if isinstance(payload, str):
             payload = json.loads(payload)
         if isinstance(payload, dict):
-            return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]))
+            control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
+            return Thresholds(
+                alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control
+            )
     except Exception:
         logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team.id, exc_info=True)
     return Thresholds()
@@ -233,10 +256,11 @@ def classify_if_due(hog_function: HogFunction) -> None:
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
-    if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):
+    rule_hits = rules.matched_rules(_with_secret_inputs(hog_function, content))
+    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -251,10 +275,13 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
-    return _score(hog_function, content_of(hog_function, hog_function.template))
+    content = content_of(hog_function, hog_function.template)
+    return _score(hog_function, content, rules.matched_rules(_with_secret_inputs(hog_function, content)))
 
 
-def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogFunction:
+def _score(
+    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]
+) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
@@ -266,7 +293,34 @@ def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogF
         code_modified_from_template=content.code_modified_from_template,
         verdict=verdict,
         failure=failure,
+        rule_hits=rule_hits,
     )
+
+
+def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) -> HogFunctionContent:
+    """The content with the values of secret inputs, which run as Hog templates like any other input. Only the
+    rules read it, here in the worker, so the values never reach Jev, the content hash or the event."""
+    config = comparable_content(
+        {
+            "inputs": {**(hog_function.inputs or {}), **_decrypted_secret_inputs(hog_function)},
+            "mappings": hog_function.mappings,
+        }
+    )
+    return replace(content, inputs=config["inputs"] or {}, mappings=config["mappings"] or [])
+
+
+def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
+    """Empty when the field returns the ciphertext as a string because its key is unavailable, so the public inputs
+    still score."""
+    secret_inputs = hog_function.encrypted_inputs
+    return secret_inputs if isinstance(secret_inputs, dict) else {}
+
+
+def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...]) -> str:
+    """The model sees only the public content, and secret inputs change only the rule hits. Keeping both means a
+    secret change that matches a rule scores the function again, while the cache holds nothing derived from a
+    secret value."""
+    return f"{public_content_hash}:{','.join(rule_hits)}"
 
 
 def report(
@@ -274,15 +328,20 @@ def report(
 ) -> None:
     function_type = hog_function.type or ""
     run = {"trigger": trigger.value} | ({"backfill_run_id": backfill_run_id} if backfill_run_id else {})
+    for rule in scored.rule_hits:
+        metrics.RULE_HITS.labels(rule.value).inc()
+    rule_hits = [rule.value for rule in scored.rule_hits]
     if scored.verdict is None:
         reason = scored.failure or FailureReason.GATEWAY_ERROR
         metrics.ERRORS.labels(reason.value).inc()
-        metrics.CLASSIFICATIONS.labels(function_type, "none", "error").inc()
-        _capture(hog_function, scored, {**run, "error": reason.value})
+        metrics.CLASSIFICATIONS.labels(function_type, scored.label, "error").inc()
+        # Without a model verdict, a function no rule matched is unknown rather than clean.
+        rule_verdict = {"would_alert": scored.would_alert, "would_block": scored.would_block} if rule_hits else {}
+        _capture(hog_function, scored, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
         return
 
     verdict = scored.verdict
-    metrics.CLASSIFICATIONS.labels(function_type, verdict.label, "ok").inc()
+    metrics.CLASSIFICATIONS.labels(function_type, scored.label, "ok").inc()
     metrics.RISK_SCORE.labels(function_type).observe(verdict.risk_score)
     metrics.LATENCY.observe(verdict.latency_ms / 1000)
     metrics.INPUT_TOKENS.labels(function_type).inc(verdict.input_tokens)
@@ -293,8 +352,9 @@ def report(
             **run,
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
             "risk_score": verdict.risk_score,
-            "would_alert": verdict.would_alert,
-            "would_block": verdict.would_block,
+            "rule_hits": rule_hits,
+            "would_alert": scored.would_alert,
+            "would_block": scored.would_block,
             "state_truncated": verdict.state_truncated,
             "model": verdict.model,
             "latency_ms": verdict.latency_ms,
@@ -302,7 +362,7 @@ def report(
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
-    cache.set(_hash_key(str(hog_function.id)), scored.content_hash, _HASH_TTL_SECONDS)
+    cache.set(_hash_key(str(hog_function.id)), _cache_entry(scored.content_hash, scored.rule_hits), _HASH_TTL_SECONDS)
 
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
