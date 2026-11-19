@@ -425,7 +425,11 @@ describe("createPreToolUseHook", () => {
   const posthogExecPermissionRegex =
     /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i;
 
-  test.each(["mcp__posthog__exec", "mcp__posthog__exec-write"])(
+  test.each([
+    "mcp__posthog__exec",
+    "mcp__posthog__exec-read",
+    "mcp__posthog__exec-write",
+  ])(
     "defers destructive %s sub-tool to canUseTool via ask",
     async (toolName) => {
       const settingsManager = buildSettingsManagerStub({
@@ -458,7 +462,7 @@ describe("createPreToolUseHook", () => {
 
   test.each([
     ["mcp__posthog__exec", "experiment-get"],
-    ["mcp__posthog__exec-read", "dashboard-update"],
+    ["mcp__posthog__exec-read", "dashboard-get"],
   ])("allows %s %s via settings rule", async (toolName, subTool) => {
     const settingsManager = buildSettingsManagerStub({
       decision: "allow",

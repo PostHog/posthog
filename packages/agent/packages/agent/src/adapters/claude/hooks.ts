@@ -6,7 +6,6 @@ import {
 import { SIGNED_COMMIT_QUALIFIED_TOOL_NAME } from "@posthog/harness/extensions/local-tools";
 import {
   extractPostHogSubTool,
-  isPostHogDispatcherTool,
   isPostHogExecTool,
   matchesPostHogExecPermission,
 } from "@posthog/harness/extensions/posthog-mcp-policy";
@@ -225,7 +224,7 @@ export const createPostToolUseHook =
       // Record PostHog product usage from the MCP exec dispatcher. Only the
       // `call <sub-tool>` verb counts as "used a resource" — extractPostHogSubTool
       // matches that verb and ignores introspection (tools/info/schema/search).
-      if (onPostHogResourceUsed && isPostHogDispatcherTool(toolName)) {
+      if (onPostHogResourceUsed && isPostHogExecTool(toolName)) {
         const subTool = extractPostHogSubTool(input.tool_input);
         if (subTool) {
           const command = (input.tool_input as { command?: unknown })?.command;

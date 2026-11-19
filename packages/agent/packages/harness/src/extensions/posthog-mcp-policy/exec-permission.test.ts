@@ -3,7 +3,6 @@ import {
   compilePostHogExecPermissionRegex,
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
   extractPostHogSubTool,
-  isPostHogDispatcherTool,
   isPostHogExecDescriptor,
   isPostHogExecTool,
   matchesPostHogExecPermission,
@@ -20,6 +19,7 @@ describe("PostHog exec identification", () => {
     expect(isPostHogExecTool("mcp__posthog_posthog__exec")).toBe(true);
     expect(isPostHogExecTool("mcp__posthog_cloud__exec")).toBe(true);
     expect(isPostHogExecTool("mcp__posthog__exec-write")).toBe(true);
+    expect(isPostHogExecTool("mcp__posthog__exec-read")).toBe(true);
     expect(isPostHogExecDescriptor({ server: "posthog", tool: "exec" })).toBe(
       true,
     );
@@ -28,22 +28,11 @@ describe("PostHog exec identification", () => {
   it("rejects other servers and tools", () => {
     expect(isPostHogExecTool("mcp__posthog__list")).toBe(false);
     expect(isPostHogExecTool("mcp__other__exec")).toBe(false);
-    expect(isPostHogExecTool("mcp__posthog__exec-read")).toBe(false);
+    expect(isPostHogExecTool("mcp__posthog__execute-sql")).toBe(false);
+    expect(isPostHogExecTool("mcp__other__exec-read")).toBe(false);
     expect(isPostHogExecDescriptor({ server: "other", tool: "exec" })).toBe(
       false,
     );
-  });
-});
-
-describe("isPostHogDispatcherTool", () => {
-  it.each([
-    ["mcp__posthog__exec", true],
-    ["mcp__posthog__exec-read", true],
-    ["mcp__posthog_cloud__exec-write", true],
-    ["mcp__posthog__execute-sql", false],
-    ["mcp__other__exec-read", false],
-  ])("recognises %s: %s", (toolName, expected) => {
-    expect(isPostHogDispatcherTool(toolName)).toBe(expected);
   });
 });
 

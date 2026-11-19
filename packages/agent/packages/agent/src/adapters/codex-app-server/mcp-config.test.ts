@@ -60,11 +60,12 @@ describe("toCodexMcpServers", () => {
 
   it.each([
     [
-      "prompts for PostHog exec and exec-write when gating is enabled",
+      "prompts for every PostHog dispatcher when gating is enabled",
       { gatePosthogExec: true },
       {
         tools: {
           exec: { approval_mode: "prompt" },
+          "exec-read": { approval_mode: "prompt" },
           "exec-write": { approval_mode: "prompt" },
         },
       },

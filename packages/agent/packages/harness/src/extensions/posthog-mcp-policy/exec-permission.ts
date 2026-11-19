@@ -19,14 +19,15 @@ import { z } from "zod/v4";
  */
 const POSTHOG_SERVER_PREFIX = "^mcp__posthog(?:_[^_]+)*__";
 
-/** `exec-read` is left out: the server refuses every write on it. */
-export const POSTHOG_GATED_EXEC_TOOLS = ["exec", "exec-write"] as const;
+/** `exec-read` is gated too: a Tasks regex can name cross-project reads, which the server allows there. */
+export const POSTHOG_GATED_EXEC_TOOLS = [
+  "exec",
+  "exec-read",
+  "exec-write",
+] as const;
 
 const POSTHOG_EXEC_TOOL_RE = new RegExp(
   `${POSTHOG_SERVER_PREFIX}(?:${POSTHOG_GATED_EXEC_TOOLS.join("|")})$`,
-);
-const POSTHOG_DISPATCHER_TOOL_RE = new RegExp(
-  `${POSTHOG_SERVER_PREFIX}exec(?:-read|-write)?$`,
 );
 
 // Skip every `--flag` token after `call` (`--json`, `--confirm`, future ones)
@@ -93,13 +94,9 @@ export function isPostHogExecTool(toolName: string): boolean {
   return POSTHOG_EXEC_TOOL_RE.test(toolName);
 }
 
-export function isPostHogDispatcherTool(toolName: string): boolean {
-  return POSTHOG_DISPATCHER_TOOL_RE.test(toolName);
-}
-
 /** `exec-read` and `exec-write` replace `exec` on a split connection, so a permission rule written for `exec` covers them. */
 export function postHogExecRuleName(toolName: string): string | undefined {
-  return isPostHogDispatcherTool(toolName)
+  return isPostHogExecTool(toolName)
     ? toolName.replace(/-(?:read|write)$/, "")
     : undefined;
 }

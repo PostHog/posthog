@@ -2,7 +2,6 @@ export {
   compilePostHogExecPermissionRegex,
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
   extractPostHogSubTool,
-  isPostHogDispatcherTool,
   isPostHogExecDescriptor,
   isPostHogExecTool,
   matchesPostHogExecPermission,
