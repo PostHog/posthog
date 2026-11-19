@@ -14,6 +14,7 @@ from products.messaging.backend.provider_imports.sendgrid_handlebars import (
     _Path,
     _Text,
     _tokenize,
+    _Unconvertible,
 )
 
 
@@ -47,6 +48,55 @@ class TestSendGridHandlebars(SimpleTestCase):
         )
         assert set(expression.hash_args) == {"limit"}
         assert expression.block_params == ("order", "i")
+
+    def test_three_backslashes_print_two_and_run_the_tag_as_handlebars_does(self) -> None:
+        nodes = _parse("\\\\\\{{n}}")
+
+        assert nodes[0] == _Text(text="\\\\")
+        assert isinstance(nodes[1], _Output) and nodes[1].body == "n"
+
+    @parameterized.expand(
+        [
+            ("trimmed_opening", "{{~!-- hidden }} {{secret}} --}}x", "x"),
+            ("trimmed_closing", "{{!-- note --~}}  x", "x"),
+        ]
+    )
+    def test_a_long_comment_with_whitespace_control_hides_everything_inside(
+        self, _name: str, source: str, text: str
+    ) -> None:
+        assert [node for node in _parse(source) if not isinstance(node, _Text) or node.text] == [_Text(text=text)]
+
+    def test_any_whitespace_after_else_chains_the_next_condition(self) -> None:
+        (block,) = _parse("{{#if a}}A{{else\tif b}}B{{/if}}")
+
+        assert isinstance(block, _Block) and block.body == (_Text(text="A"),)
+        (chained,) = block.inverse
+        assert isinstance(chained, _Block) and chained.chained
+
+    def test_a_trimmed_closing_tag_alone_on_its_line_drops_its_line_first(self) -> None:
+        nodes = _parse("{{#if a}}\nBODY\n{{~/if}}\nTAIL")
+
+        assert isinstance(nodes[0], _Block) and nodes[0].body == (_Text(text="BODY"),)
+        assert nodes[1] == _Text(text="TAIL")
+
+    def test_a_string_turns_only_an_escaped_quote_into_a_quote(self) -> None:
+        quoted = _parse_expression('eq x "say \\"hi\\""').params[1]
+
+        assert isinstance(quoted, _Literal) and quoted.text == 'say "hi"'
+        with self.assertRaises(_Unconvertible):
+            _parse_expression('eq x "C:\\temp"')
+
+    @parameterized.expand(
+        [
+            ("deep_groups", "eq " + "(a " * 996 + "b"),
+            ("braces_in_a_name", "if a{%b"),
+            ("closing_braces_in_a_name", "a}}b"),
+            ("quote_in_a_block_name", 'each xs as |x"|'),
+        ]
+    )
+    def test_expressions_outside_the_grammar_are_refused(self, _name: str, body: str) -> None:
+        with self.assertRaises(_Unconvertible):
+            _parse_expression(body)
 
     @parameterized.expand(
         [

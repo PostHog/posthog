@@ -16,6 +16,9 @@ _OPENING = re.compile(r"\{[{%]")
 # The email renderer treats a backslash or an HTML entity inside a filter argument differently from SendGrid.
 _UNSAFE_IN_LIQUID_STRING = re.compile(r"\\|&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _MAX_TAG_LENGTH = 2000
+_LONG_COMMENT_CLOSE = re.compile(r"--~?\}\}")
+# Handlebars identifiers never hold these, and the converter writes identifiers into Liquid.
+_UNSAFE_IN_IDENTIFIER = re.compile(r"[{}%|\"'\\<>]")
 _MAX_DEPTH = 50
 _EXPRESSION_TOKEN = re.compile(
     r"""\s*(?:
@@ -133,11 +136,14 @@ def _tokenize(source: str, is_html: bool) -> list[_Tag]:
 def _read_tag(source: str, start: int, is_html: bool) -> tuple[_Tag, int]:
     if source.startswith("{{{{", start):
         raise _Malformed("raw blocks")
-    if source.startswith("{{!--", start):
-        close = source.find("--}}", start)
-        if close == -1:
+    if source.startswith(("{{!--", "{{~!--"), start):
+        comment_close = _LONG_COMMENT_CLOSE.search(source, start)
+        if comment_close is None:
             raise _Malformed("an unclosed comment")
-        return _Tag(kind="comment", source=source[start : close + 4]), close + 4
+        raw = source[start : comment_close.end()]
+        return _Tag(
+            kind="comment", source=raw, strip_before=raw.startswith("{{~"), strip_after=raw.endswith("~}}")
+        ), comment_close.end()
     triple = source.startswith("{{{", start)
     closer = "}}}" if triple else "}}"
     close = source.find(closer, start)
@@ -161,7 +167,7 @@ def _read_tag(source: str, start: int, is_html: bool) -> tuple[_Tag, int]:
         return replace(comment, kind="open", body=body[1:].strip(), inverted=True), end
     if body.startswith("/"):
         return replace(comment, kind="close", body=body[1:].strip()), end
-    if body == "^" or body == "else" or body.startswith("else "):
+    if body == "^" or body == "else" or re.match(r"else\s", body):
         return replace(comment, kind="else", body=body[4:].strip() if body != "^" else ""), end
     return replace(comment, kind="output", body=body, raw=triple), end
 
@@ -170,21 +176,28 @@ def _strip_whitespace(tags: list[_Tag]) -> list[_Tag]:
     """`~` removes the whitespace beside a tag. So does Handlebars for a block tag alone on its line, and leaving that
     in would add blank lines to every plain text email."""
     texts = {i: tag.source for i, tag in enumerate(tags) if tag.kind == "text"}
+    # Handlebars decides whether a tag stands alone from the template as written, before any `~` trims it.
+    alone = {
+        i
+        for i, tag in enumerate(tags)
+        if tag.kind in ("open", "close", "else", "comment")
+        and _alone_on_line(i, texts.get(i - 1), texts.get(i + 1), len(tags))
+    }
     for i, tag in enumerate(tags):
         if tag.kind in ("text", "liquid"):
             continue
         before = texts.get(i - 1)
         after = texts.get(i + 1)
-        if tag.strip_before and before is not None:
-            texts[i - 1] = before = before.rstrip()
-        if tag.strip_after and after is not None:
-            texts[i + 1] = after = after.lstrip()
-        if tag.kind in ("open", "close", "else", "comment") and _alone_on_line(i, before, after, len(tags)):
+        if i in alone:
             if before is not None:
-                texts[i - 1] = before[: before.rfind("\n") + 1]
+                texts[i - 1] = before = before[: before.rfind("\n") + 1]
             if after is not None:
                 newline = after.find("\n")
-                texts[i + 1] = after[newline + 1 :] if newline != -1 else ""
+                texts[i + 1] = after = after[newline + 1 :] if newline != -1 else ""
+        if tag.strip_before and before is not None:
+            texts[i - 1] = before.rstrip()
+        if tag.strip_after and after is not None:
+            texts[i + 1] = after.lstrip()
     return [_Tag(kind="text", source=texts[i]) if tag.kind == "text" else tag for i, tag in enumerate(tags)]
 
 
@@ -343,6 +356,8 @@ def _parse_expression(body: str) -> _Expression:
     match = re.search(r"\bas\s*\|([^|]*)\|\s*$", body)
     if match:
         block_params = tuple(match.group(1).split())
+        if any(not re.fullmatch(r"[A-Za-z_][\w-]*", name) for name in block_params):
+            raise _Unconvertible(body)
         body = body[: match.start()]
     tokens = list(_expression_tokens(body))
     if not tokens or tokens[0].kind != "path":
@@ -369,16 +384,22 @@ def _expression_tokens(body: str) -> Iterator[_Token]:
         if not match or match.end() == position:
             raise _Unconvertible(body)
         kind = match.lastgroup or ""
+        if kind == "path" and _UNSAFE_IN_IDENTIFIER.search(match.group(kind)):
+            raise _Unconvertible(body)
         yield _Token(kind=kind, value=match.group(kind))
         position = match.end()
 
 
-def _parse_param(tokens: list[_Token], position: int) -> tuple[object, int]:
+def _parse_param(tokens: list[_Token], position: int, depth: int = 0) -> tuple[object, int]:
     if position >= len(tokens):
         raise _Unconvertible("missing value")
+    if depth > _MAX_DEPTH:
+        raise _Unconvertible("nested groups")
     kind, value = tokens[position].kind, tokens[position].value
     if kind == "string":
-        text = re.sub(r"\\(.)", r"\1", value[1:-1])
+        # Handlebars only turns an escaped quote into a quote and keeps every other backslash.
+        quote = value[0]
+        text = value[1:-1].replace("\\" + quote, quote)
         return _Literal(liquid=_required_string(text), text=text), position + 1
     if kind == "number":
         return _Literal(liquid=value, text=value), position + 1
@@ -389,7 +410,7 @@ def _parse_param(tokens: list[_Token], position: int) -> tuple[object, int]:
         position += 2
         params: list[object] = []
         while position < len(tokens) and tokens[position].kind != "close":
-            param, position = _parse_param(tokens, position)
+            param, position = _parse_param(tokens, position, depth + 1)
             params.append(param)
         if position >= len(tokens):
             raise _Unconvertible("unclosed group")
