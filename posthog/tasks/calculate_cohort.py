@@ -1036,7 +1036,6 @@ def _finish_owned_population(
     *,
     log_prefix: str,
     processing_error: BaseException | None,
-    replace_marker: str | None,
     pg_membership_written: bool,
     stored_marker: datetime | None,
 ) -> None:
@@ -1052,15 +1051,10 @@ def _finish_owned_population(
         is_calculating=cohort.is_calculating,
         errors_calculating=cohort.errors_calculating,
     )
-    # Clean up ClickHouse rows only when nothing in this replace lineage wrote Postgres membership,
+    # Clean up ClickHouse rows only when nothing in this replace lineage resolved replace rows in Postgres,
     # so Postgres stays a subset of ClickHouse. Worker interrupts (BaseException) skip cleanup
     # because the sweep redispatches them.
-    if (
-        replace_marker is None
-        and not pg_membership_written
-        and stored_marker is not None
-        and isinstance(processing_error, Exception)
-    ):
+    if stored_marker is not None and isinstance(processing_error, Exception) and not pg_membership_written:
         try:
             delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, marker=stored_marker)
         except Exception:
@@ -1146,6 +1140,7 @@ def _populate_static_cohort(
     log_prefix: str,
     supports_replace: bool = False,
     replace_marker: str | None = None,
+    pg_membership_written: bool = False,
     append_only: bool = False,
 ) -> None:
     """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
@@ -1155,7 +1150,9 @@ def _populate_static_cohort(
 
     A replace (only the query task supports one) stamps every match with a marker stored on the
     cohort, and checks that marker before each write. ``replace_marker`` and ``rows_written`` carry
-    a finished insert's marker and row count into a retry.
+    a finished insert's marker and row count into a retry; ``pg_membership_written`` records whether
+    this lineage's replace rows resolved in Postgres on an earlier attempt (a kept add is already in
+    Postgres from the add itself and does not set it).
 
     ``append_only`` is for runs dispatched without a claim, such as the staff re-sync. Such a run only
     ever adds members: it stops without writing anything while a replace is pending.
@@ -1180,7 +1177,6 @@ def _populate_static_cohort(
     superseded: PopulationSuperseded | None = None
     marker: datetime | None = None
     finished_replace: tuple[datetime, datetime] | None = None
-    pg_membership_written = False
     try:
         if team_id is not None:
             cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
@@ -1234,9 +1230,9 @@ def _populate_static_cohort(
         if marker is not None:
             require_current_population_marker(cohort_id, marker)
 
-        # Stop fresh runs, failed-insert retries, and sweep redispatches if the replace flag is off.
-        # Marker-carrying retries keep going so a partially pruned cohort converges cleanly.
-        replace_disabled = replacing and replace_marker is None and not is_static_cohort_replace_enabled(team)
+        # Stop any replace whose lineage has not resolved replace rows in Postgres yet if the flag is off.
+        # Lineages that already wrote Postgres membership keep going so a partially pruned cohort converges cleanly.
+        replace_disabled = replacing and not pg_membership_written and not is_static_cohort_replace_enabled(team)
         claim_incomplete = replacing and cohort.population_claimed_at is None
         if replacing and marker is None and not replace_disabled and not claim_incomplete:
             # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
@@ -1301,7 +1297,7 @@ def _populate_static_cohort(
                 marker=marker,
                 floor=floor,
                 rows_written=rows_written,
-                check_replace_enabled=replace_marker is None,
+                check_replace_enabled=not pg_membership_written,
                 on_pg_write=_mark_pg_membership_written,
                 log_prefix=log_prefix,
             )
@@ -1328,7 +1324,10 @@ def _populate_static_cohort(
                 "written_since": written_since,
             }
             if marker is not None and ch_insert_done:
-                retry_kwargs.update(replace_marker=marker.isoformat())
+                retry_kwargs.update(
+                    replace_marker=marker.isoformat(),
+                    pg_membership_written=pg_membership_written,
+                )
             retry = _schedule_population_retry(task, cohort_id, err, team_id=team_id, kwargs=retry_kwargs)
             raise retry
         logger.exception(
@@ -1395,7 +1394,6 @@ def _populate_static_cohort(
                     claimed,
                     log_prefix=log_prefix,
                     processing_error=processing_error,
-                    replace_marker=replace_marker,
                     pg_membership_written=pg_membership_written,
                     stored_marker=stored_marker,
                 )
@@ -1419,6 +1417,7 @@ def insert_cohort_from_query(
     rows_written: int = 0,
     written_since: Optional[str] = None,
     replace_marker: Optional[str] = None,
+    pg_membership_written: bool = False,
     append_only: bool = False,
 ) -> None:
     """
@@ -1430,7 +1429,8 @@ def insert_cohort_from_query(
 
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done, rows_written,
-    written_since and replace_marker. The staff re-sync sets append_only, so it never runs a pending replace.
+    written_since, replace_marker and pg_membership_written (whether this lineage's replace rows
+    resolved in Postgres). The staff re-sync sets append_only, so it never runs a pending replace.
     """
     from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
@@ -1445,6 +1445,7 @@ def insert_cohort_from_query(
         log_prefix="insert_cohort_from_query",
         supports_replace=True,
         replace_marker=replace_marker,
+        pg_membership_written=pg_membership_written,
         append_only=append_only,
     )
 

@@ -2341,13 +2341,18 @@ class TestCohortCalculationTasks(APIBaseTest):
             insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
             try:
                 with (
-                    patch(PG_SYNC_PATH, side_effect=ClickHouseAtCapacity("transient")),
+                    patch(
+                        "products.cohorts.backend.models.util.prune_members_absent_from_replace",
+                        side_effect=ClickHouseAtCapacity("transient"),
+                    ),
                     self.assertRaises(Retry) as scheduled,
                 ):
                     insert_cohort_from_query.run(cohort.id, self.team.pk)
                 self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
+                self.assertTrue(scheduled.exception.sig.kwargs["pg_membership_written"])
 
-                # Turn off the kill switch before the marker-carrying retry runs.
+                # Turn off the kill switch before the retry runs; because this lineage already wrote
+                # replace rows to Postgres, it finishes converging instead of stranding stale members.
                 self.mock_replace_flag.return_value = False
                 clock.shift(10)
                 insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
@@ -2358,6 +2363,59 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertIsNone(cohort.pending_population_mode)
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [kept.id])
+
+    def test_query_replace_marker_retry_without_pg_writes_stops_and_cleans_up_when_flag_is_turned_off(self) -> None:
+        run = uuid4().hex[:8]
+        stale = create_person(
+            team=self.team, distinct_ids=[f"{run}-stale"], properties={"tag": f"{run}-old"}, uuid=uuid4()
+        )
+        create_person(team=self.team, distinct_ids=[f"{run}-kept"], properties={"tag": f"{run}-keep"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-keep'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+
+        with time_machine.travel(start, tick=False) as clock:
+            cohort.insert_users_list_by_uuid([str(stale.uuid)], team_id=self.team.pk)
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now().replace(microsecond=0),
+            )
+            clock.shift(10)
+            insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+            try:
+                with (
+                    patch(PG_SYNC_PATH, side_effect=ClickHouseAtCapacity("transient")),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    insert_cohort_from_query.run(cohort.id, self.team.pk)
+                self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
+                self.assertFalse(scheduled.exception.sig.kwargs["pg_membership_written"])
+
+                self.mock_replace_flag.return_value = False
+                clock.shift(10)
+                insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
+            finally:
+                insert_cohort_from_query.pop_request()
+
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, history.error_code),
+            (False, None, CohortErrorCode.REPLACE_DISABLED),
+        )
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [stale.id])
+        rows = sync_execute(
+            "SELECT person_id, _offset FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.pk, "cohort_id": cohort.pk},
+        )
+        self.assertEqual([(str(pid), offset) for pid, offset in rows], [(str(stale.uuid), 0)])
 
     def test_sweep_redispatched_replace_stopped_when_flag_is_off(self) -> None:
         now = timezone.now().replace(microsecond=0)
