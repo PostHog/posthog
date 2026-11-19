@@ -21,15 +21,13 @@ version=$3
 # long as their code is unchanged, so they must not carry the per-release ID the first pass injects.
 readonly STABLE_CHUNKS='*-S[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F].js'
 
-# Runs outside the checkout, so hog reads no .git and no posthog.json but the one written here.
+# Runs outside the checkout, so hog reads no .git and no posthog.json but the one written here, which
+# takes the host and project from the repository's posthog.json.
+config="$(cd "${GITHUB_WORKSPACE:-.}" && pwd)/posthog.json"
 cd "$out/code"
-cat >posthog.json <<EOF
-{
-    "host": "https://us.posthog.com",
-    "projectId": 2,
-    "errorTracking": { "sources": [{ "path": "frontend/dist", "ignore": ["**/$STABLE_CHUNKS"] }] }
-}
-EOF
+jq --arg ignore "**/$STABLE_CHUNKS" \
+    '{host, projectId, errorTracking: {sources: [{path: "frontend/dist", ignore: [$ignore]}]}}' \
+    "$config" >posthog.json
 export HOG_NO_UPDATE_CHECK=1
 
 "$hog" error-tracking process -o text \

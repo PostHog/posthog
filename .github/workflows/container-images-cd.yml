@@ -184,44 +184,34 @@ jobs:
                       echo "Image for $SHA already present in ECR ($digest); skipping build." >&2
                   fi
 
-            # hog uploads the frontend sourcemaps from this job, with the job's OIDC token, so no
-            # credential ever enters the image build. PostHog trusts pushes to master in this
-            # repository for error_tracking:write in project 2 (set up with `hog ci setup`). None of
-            # these steps may block a deploy: each one continues on error, and a build without the
-            # processed frontend keeps its .map files, as it did when an upload failed.
-            - name: Install hog
-              id: hog
-              if: steps.preflight.outputs.digest == ''
-              continue-on-error: true
-              timeout-minutes: 5
-              run: |
-                  path=$(.github/scripts/install-hog.sh)
-                  echo "path=$path" >> "$GITHUB_OUTPUT"
-
             # Create the error tracking release for this commit before the build, so the build can
             # bake its id into the image as POSTHOG_RELEASE_ID (see the final stage of the Dockerfile).
             # The Python SDK sends that id as $release_id on every event, which links a backend
             # exception to the same release the frontend bundles carry: the sourcemap upload below
-            # resolves the release by the same name and version, so it finds this one. An empty id is
-            # fine: the SDK treats a blank value as unset.
+            # resolves the release by the same name and version, so it finds this one.
+            # The action logs in with hog and this job's OIDC token, so no PostHog key is stored:
+            # PostHog trusts pushes to master in this repository for error_tracking:write in the
+            # project posthog.json names (set up with `hog ci setup`). Pin hog-version and its
+            # checksum, because what hog injects into frontend/dist ships in the image.
+            # None of these steps may block a deploy: each continues on error, and a build without
+            # the processed frontend keeps its .map files, as it did when an upload failed. An empty
+            # release id is fine: the SDK treats a blank value as unset.
             - name: Resolve error tracking release
               id: release
-              if: steps.hog.outputs.path != ''
+              if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 5
-              env:
-                  HOG: ${{ steps.hog.outputs.path }}
-                  HOG_HOST: https://us.posthog.com
-                  HOG_PROJECT_ID: '2'
-                  HOG_NO_UPDATE_CHECK: '1'
-              run: |
-                  id=$("$HOG" error-tracking release --release-name posthog --release-version "$GITHUB_SHA" -o text)
-                  echo "release-id=$id" >> "$GITHUB_OUTPUT"
+              uses: PostHog/resolve-release@02cec09e5548a10d1d1da6c0ec43a053bf9acc0c # v2.0.0
+              with:
+                  hog-version: 0.1.0
+                  hog-sha256: 811999531f50e991cbb3f19944e2d18a050dcca5880db7924c7456f7fa374565
+                  release-name: posthog
+                  release-version: ${{ github.sha }}
 
             # The same frontend build the image build runs, from the shared Depot layer cache.
             - name: Export the frontend build
               id: frontend
-              if: steps.hog.outputs.path != ''
+              if: steps.release.outputs.hog-path != ''
               continue-on-error: true
               timeout-minutes: 20
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -238,7 +228,7 @@ jobs:
               continue-on-error: true
               timeout-minutes: 15
               env:
-                  HOG: ${{ steps.hog.outputs.path }}
+                  HOG: ${{ steps.release.outputs.hog-path }}
               run: .github/scripts/upload-frontend-sourcemaps.sh "$HOG" "$RUNNER_TEMP/sourcemap-upload" "$GITHUB_SHA"
 
             - name: Build and push container image

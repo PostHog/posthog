@@ -53,57 +53,6 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            # The same steps as in container-images-cd.yml, so an image built during an outage links
-            # backend exceptions to its release and uploads its sourcemaps like a normal build does.
-            # Depot CI isn't trusted for OIDC in PostHog, so hog uses the upload key. The key stays
-            # in this job and never enters the image build. None of these steps blocks the build:
-            # each continues on error, and an image built without the processed frontend keeps its
-            # .map files. An empty release id is fine: the SDK treats a blank value as unset.
-            - name: Install hog
-              id: hog
-              continue-on-error: true
-              timeout-minutes: 5
-              run: |
-                  path=$(.github/scripts/install-hog.sh)
-                  echo "path=$path" >> "$GITHUB_OUTPUT"
-
-            - name: Resolve error tracking release
-              id: release
-              if: steps.hog.outputs.path != ''
-              continue-on-error: true
-              timeout-minutes: 5
-              env:
-                  HOG: ${{ steps.hog.outputs.path }}
-                  HOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
-                  HOG_HOST: https://us.posthog.com
-                  HOG_PROJECT_ID: '2'
-                  HOG_NO_UPDATE_CHECK: '1'
-              run: |
-                  id=$("$HOG" error-tracking release --release-name posthog --release-version "$GITHUB_SHA" -o text)
-                  echo "release-id=$id" >> "$GITHUB_OUTPUT"
-
-            - name: Export the frontend build
-              id: frontend
-              if: steps.hog.outputs.path != ''
-              continue-on-error: true
-              timeout-minutes: 20
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
-              with:
-                  context: .
-                  target: frontend-dist
-                  platforms: linux/amd64
-                  outputs: type=local,dest=${{ runner.temp }}/sourcemap-upload
-
-            - name: Upload frontend sourcemaps
-              id: sourcemaps
-              if: steps.frontend.outcome == 'success'
-              continue-on-error: true
-              timeout-minutes: 15
-              env:
-                  HOG: ${{ steps.hog.outputs.path }}
-                  HOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
-              run: .github/scripts/upload-frontend-sourcemaps.sh "$HOG" "$RUNNER_TEMP/sourcemap-upload" "$GITHUB_SHA"
-
             - name: Build and push
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -111,13 +60,12 @@ jobs:
                   context: .
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ github.sha }}
                   platforms: linux/amd64,linux/arm64
+                  # Outage builds upload no sourcemaps and resolve no error tracking release: PostHog
+                  # can trust only pushed Depot CI runs, and this one is dispatched. The image keeps
+                  # its .map files, and an empty release id is fine (the SDK treats it as unset).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
-                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                   push: true
-                  # Replaces the Dockerfile's sourcemap-upload stage with the processed frontend, once
-                  # the upload above worked. Without it the image keeps the .map files.
-                  build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('sourcemap-upload={0}/sourcemap-upload', runner.temp) || '' }}
 
             # This branch never ran CI, so a fatal import must fail here rather than
             # crash-loop in production. Web alone is not enough: temporal and celery
