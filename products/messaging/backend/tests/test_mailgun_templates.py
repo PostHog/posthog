@@ -149,6 +149,10 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("event_handler", '<a onclick="send({{.X}})">x</a>', "{{.X}}"),
             ("script", "<script>var x = {{.X}};</script>", "{{.X}}"),
             ("style", "<style>p { color: {{.C}} }</style>", "{{.C}}"),
+            ("script_with_a_lookalike_end_tag", "<script>/* </scriptx> */ var x = {{.X}};</script>", "{{.X}}"),
+            ("script_after_a_stray_less_than", "a<3 <script>var x = {{.X}};</script>", "{{.X}}"),
+            ("after_a_script_ends", "<script>x</script><p>{{.X}}</p>", "{{.X}}"),
+            ("after_many_scripts", "<SCRIPT></SCRIPT>" * 10000 + "{{.X}}", "{{.X}}"),
         ]
     )
     def test_a_go_value_where_go_escapes_by_context_stays_text(self, _name: str, source: str, value: str) -> None:
@@ -158,8 +162,8 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert "variables." not in converted.html
         assert any("rewrite them in Liquid" in note for note in converted.notes)
 
-    def test_a_go_value_after_a_script_converts(self) -> None:
-        converted = convert_text("<script>x</script><p>{{.Name}}</p>", engine="go")
+    def test_a_go_value_in_page_text_converts(self) -> None:
+        converted = convert_text("<p>{{.Name}}</p>", engine="go")
 
         assert ESCAPED_X.replace("variables.x", "variables.Name") in converted.text
 

@@ -44,7 +44,7 @@ _FIXED_VARIABLE = re.compile(
     r"%(recipient|recipient_email|recipient_name|recipient_fname|recipient_lname"
     r"|unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url|unsubscribe_email)%"
 )
-_RAW_ELEMENTS = frozenset({"script", "style"})
+_CODE_ELEMENT = re.compile(r"<\s*(?:script|style)", re.IGNORECASE)
 _IDENTIFIER = re.compile(r"^[A-Za-z_][\w-]*$")
 # Text every Handlebars or Go parser would read as an argument, such as "x", 5 or true.
 _LITERAL_ARGUMENT = re.compile(r"""^(?:"[^"\\{}%]*"|'[^'\\{}%]*'|-?\d+(?:\.\d+)?|true|false)$""")
@@ -82,11 +82,6 @@ class _TagState:
 
     in_tag: bool = False
     quote: str = ""
-    # The name of the tag being read, up to the length of the longest name it is checked against.
-    name: str = ""
-    name_done: bool = False
-    # `script` or `style` while inside that element, where Go escapes values as code.
-    raw_element: str = ""
 
 
 @frozen
@@ -161,7 +156,8 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
     if any(part.go_value_in_tag for part in parts):
         notes.append(
             "Go templates escape a value by where it lands, such as a link's address or a script, and PostHog can't. "
-            "Values inside HTML tags, scripts and styles stay as plain text, so rewrite them in Liquid."
+            "Values inside HTML tags, and every value after a script or style starts, stay as plain text, so rewrite "
+            "them in Liquid."
         )
     if engine == "go":
         notes.append(
@@ -269,6 +265,7 @@ class _Converter:
         self.has_tags = False
         self.go_variables: dict[str, str] = {}
         self.tag = _TagState()
+        self.after_code = False
         self.go_value_in_tag = False
         # Per open block: the tag state where it opened, and where each earlier branch ended.
         self.tag_branches: list[tuple[_TagState, list[_TagState]]] = []
@@ -329,49 +326,32 @@ class _Converter:
         )
 
     def _track_tag(self, text: str) -> None:
+        # Go escapes values in a script or style as code. Once either opens, every later Go value is left for a person,
+        # since telling where the element really ends is easy to get wrong.
+        self.after_code = self.after_code or bool(_CODE_ELEMENT.search(text))
         # A `>` inside a quoted attribute value doesn't close the tag. Long values, such as an inline image, are only
         # scanned for a quote, never copied.
-        state = self.tag
-        in_tag, quote, name, name_done, raw_element = (
-            state.in_tag,
-            state.quote,
-            state.name,
-            state.name_done,
-            state.raw_element,
-        )
+        in_tag, quote = self.tag.in_tag, self.tag.quote
         index = 0
         while index < len(text):
-            if raw_element:
-                close = text.lower().find(f"</{raw_element}", index)
-                if close < 0:
-                    break
-                raw_element, index = "", close
-                continue
-            if not in_tag:
-                next_open = text.find("<", index)
-                if next_open < 0:
-                    break
-                in_tag, quote, name, name_done = True, "", "", False
-                index = next_open + 1
-                continue
             if quote:
                 close = text.find(quote, index)
                 if close < 0:
                     break
                 quote, index = "", close + 1
-                continue
-            character = text[index]
-            if character in "\"'":
-                quote, name_done = character, True
-            elif character == ">":
-                in_tag = False
-                raw_element = name if name in _RAW_ELEMENTS else ""
-            elif not name_done and character.isalnum():
-                name = (name + character.lower()) if len(name) < 6 else "-"
+            elif not in_tag:
+                next_open = text.find("<", index)
+                if next_open < 0:
+                    break
+                in_tag, index = True, next_open + 1
             else:
-                name_done = True
-            index += 1
-        self.tag = _TagState(in_tag=in_tag, quote=quote, name=name, name_done=name_done, raw_element=raw_element)
+                character = text[index]
+                if character in "\"'":
+                    quote = character
+                elif character == ">":
+                    in_tag = False
+                index += 1
+        self.tag = _TagState(in_tag=in_tag, quote=quote)
 
     def _track_branches(self, depth: int) -> None:
         """Only one branch of an if/else renders, so after the block a value is inside a tag if any branch left one
@@ -382,7 +362,7 @@ class _Converter:
         elif len(self.blocks) < depth and self.tag_branches:
             opened, ended = self.tag_branches.pop()
             states = [*ended, self.tag, opened]
-            self.tag = next((state for state in states if state.in_tag or state.raw_element), states[-1])
+            self.tag = next((state for state in states if state.in_tag), states[-1])
         elif self.took_branch and self.tag_branches:
             opened, ended = self.tag_branches[-1]
             ended.append(self.tag)
@@ -674,7 +654,7 @@ class _Converter:
             return self._unsupported(token)
         if not self.is_html:
             return f"{{{{ {path} }}}}"
-        if self.tag.in_tag or self.tag.raw_element:
+        if self.tag.in_tag or self.after_code:
             # Go escapes a value by where it lands, such as a link's address, an attribute name or a script, and
             # Liquid can't, so a person rewrites these.
             self.go_value_in_tag = True
