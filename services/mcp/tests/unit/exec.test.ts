@@ -1667,6 +1667,23 @@ describe('exec tool', () => {
             expect(parsed.note).toBeUndefined()
         })
 
+        it('keeps the description on the first copy of a repeated sub-schema only', async () => {
+            const repeated = z
+                .object({ key: z.string().describe('Property key to match against the event or person.') })
+                .describe('A property filter. The key names the property and the operator compares its value.')
+            const tool = makeMockTool({
+                schema: z.object({ filter: z.object({ include: repeated, exclude: repeated }) }),
+            })
+            const exec = createExec([tool])
+            const parsed = JSON.parse(
+                (await exec.handler(mockContext, { command: 'schema mock-tool filter' })) as string
+            )
+            expect([
+                parsed.schema.properties.include.description,
+                parsed.schema.properties.exclude.description,
+            ]).toEqual([expect.stringContaining('A property filter'), undefined])
+        })
+
         // The bare `schema <tool>` view is the recursive step where models
         // historically guessed the deeper shape of complex fields (like `series`
         // or `retentionFilter`) rather than running another `schema` for the
@@ -1869,17 +1886,17 @@ describe('exec tool', () => {
                 field?: string
                 schema?: {
                     type?: string
-                    items?: { variants?: Array<{ properties?: Record<string, unknown> }> }
+                    items?: { anyOf?: Array<{ properties?: Record<string, unknown> }> }
                 }
             }
 
             expect(drilled.field).toBe('series')
             expect(drilled.schema?.type).toBe('array')
             // The historical bug returned `{ type: "array", properties: {} }` with no
-            // `items` at all. The item schema — here a summarized union of variants —
-            // must now be present, and the variants must carry real field names. The old
-            // empty output exposes none of these keys, so this fails on a regression.
-            const variants = drilled.schema?.items?.variants
+            // `items` at all. The item schema, a union of variants, must now be present,
+            // and the variants must carry real field names. The old empty output exposes
+            // none of these keys, so this fails on a regression.
+            const variants = drilled.schema?.items?.anyOf
             expect(variants?.length).toBeGreaterThan(0)
             const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
             expect(variantFields).toContain('kind')
