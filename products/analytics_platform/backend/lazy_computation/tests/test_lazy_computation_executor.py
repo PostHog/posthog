@@ -1,5 +1,5 @@
 import time as time_mod
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import time_machine
@@ -54,6 +54,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     compute_query_hash,
     create_lazy_computation_job,
     ensure_precomputed,
+    expire_ready_jobs_covering,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
     is_non_retryable_error,
@@ -1260,6 +1261,26 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         job = PreaggregationJob.objects.get(id=result.job_ids[0])
         assert job.status == PreaggregationJob.Status.READY
         assert job.team == self.team
+
+    def test_expired_jobs_are_rebuilt_even_under_stale_grace(self) -> None:
+        def ensure(start_day: int, end_day: int):
+            return ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=datetime(2024, 1, start_day, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, end_day, tzinfo=UTC),
+                stale_while_revalidate_seconds=3600,
+            )
+
+        [kept] = ensure(1, 2).job_ids
+        [expired] = ensure(2, 3).job_ids
+
+        assert expire_ready_jobs_covering(self.team, [kept, expired], [date(2024, 1, 2)]) == 1
+        rebuilt = ensure(1, 3)
+
+        assert rebuilt.freshly_built
+        assert kept in rebuilt.job_ids and expired not in rebuilt.job_ids
+        assert len(rebuilt.job_ids) == 2
 
     @parameterized.expand([("unchanged", None), ("versioned", {"classification": "v1"})])
     def test_reuses_existing_jobs(self, _name: str, cache_key_context: dict[str, str] | None) -> None:
