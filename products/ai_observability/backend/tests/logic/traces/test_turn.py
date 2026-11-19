@@ -468,6 +468,18 @@ def test_state_conversation_wins() -> None:
     assert sides.output == state.output
 
 
+def test_an_empty_state_side_falls_through_to_the_generation() -> None:
+    state = reading(conversation(text_message("user", "from state")), conversation())
+    first = reading(
+        at_node("gen-1", text_message("user", "refund?")), at_node("gen-1", text_message("assistant", "gen answer"))
+    )
+
+    sides = sides_of(state=state, first=first, latest=first)
+
+    assert sides.input == state.input
+    assert sides.output == first.output
+
+
 def test_json_sides_pass_through() -> None:
     first = reading(json_side({"query": "refund?"}), json_side({"answer": 1}))
 

@@ -138,7 +138,11 @@ _NOTHING_READ: Final[StepSide] = Side(value=None, unread=None)
 
 
 def _conversation_or(state_side: StepSide | None, fallback: Callable[[], StepSide]) -> StepSide:
-    if state_side is not None and isinstance(state_side.value, contracts.TraceMessagesSide):
+    if (
+        state_side is not None
+        and isinstance(state_side.value, contracts.TraceMessagesSide)
+        and state_side.value.messages
+    ):
         return state_side
     return fallback()
 
