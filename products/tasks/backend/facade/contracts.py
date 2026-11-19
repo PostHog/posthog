@@ -1136,6 +1136,13 @@ class SweptRunRow:
 
 
 @dataclass(frozen=True)
+class FencedRunTokensRow:
+    profile: str
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 

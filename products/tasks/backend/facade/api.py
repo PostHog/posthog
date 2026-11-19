@@ -246,6 +246,7 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.run_token_fencing import fence_ended_runs
 from products.tasks.backend.stale_runs import (
     StaleRule,
     WorkflowLiveness,
@@ -502,6 +503,7 @@ __all__ = [
     "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
     "sweep_stale_live_task_runs",
+    "fence_ended_task_runs",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -2190,6 +2192,15 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
         if claimed:
             swept[run.profile] += 1
     return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
+    from products.tasks.backend.temporal.process_task.ai_gateway_token import revoke_scoped_token_hashes
+
+    return [
+        contracts.FencedRunTokensRow(profile=row.profile, outcome=row.outcome.value, count=row.count)
+        for row in fence_ended_runs(revoke_scoped_token_hashes)
+    ]
 
 
 def collect_stale_live_task_runs() -> list[contracts.StaleLiveRunRow]:
