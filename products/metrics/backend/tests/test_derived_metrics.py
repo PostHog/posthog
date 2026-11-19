@@ -446,6 +446,9 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             values = self.client.get(
                 f"/api/projects/{self.team.id}/metrics/attribute_values/", {**window, "key": "span.kind"}
             ).json()
+            services = self.client.get(
+                f"/api/projects/{self.team.id}/metrics/attribute_values/", {**window, "key": "service.name"}
+            ).json()
 
         # Keys without values in the window (service.version, http.status_code) are left out.
         assert [(k["name"], k["value_count"]) for k in keys["results"]] == [
@@ -457,6 +460,13 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             ("span.name", 1),
         ]
         assert [(v["name"], v["count"]) for v in values["results"]] == [("server", 6), ("internal", 5), ("client", 1)]
+        # Services rank by server spans first, so "worker" (3 spans, none server) comes last.
+        assert [(v["name"], v["count"]) for v in services["results"]] == [
+            ("web", 6),
+            ("jobs", 2),
+            ("api", 1),
+            ("worker", 3),
+        ]
 
     @parameterized.expand([("test_variant", "test", True), ("control_variant", "control", False)])
     @time_machine.travel(DATE_TO, tick=False)

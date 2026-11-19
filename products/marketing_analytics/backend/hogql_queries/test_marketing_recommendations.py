@@ -135,6 +135,27 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("under_one_percent_of_account_spend", 500.0, True),
+            ("one_percent_or_more", 1000.0, False),
+        ]
+    )
+    def test_minor_marks_impact_under_one_percent_of_monthly_account_spend(
+        self, _name: str, wasted: float, expected: bool
+    ) -> None:
+        campaign = _campaign(cost=100000, conversions=1000, status_reasons=("HAS_ADS_DISAPPROVED",))
+        terms = (_term("product analytics", "c1", 99000, 1000), _term("waste", "c1", wasted, 0))
+        inputs = replace(_inputs((campaign,), terms), days=15)
+
+        recs = {rec.rule.value: rec for rec in recommend(inputs)}
+
+        assert (recs["spend_without_conversions"].impact, recs["spend_without_conversions"].minor) == (
+            wasted * 2,
+            expected,
+        )
+        assert recs["policy_limited"].minor is False
+
+    @parameterized.expand(
+        [
             (
                 "cheap_campaign_losing_impressions",
                 "Cheap",
@@ -902,6 +923,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
         scale = next(rec for rec in recs if rec.rule == "scale_campaign")
         assert "target CPA" in (scale.steps or [])[1].text
+        assert [step.linkText for step in scale.steps or [] if step.linkText] == ["Campaigns", "Asset groups"]
         policy = next(rec for rec in recs if rec.rule == "policy_limited")
         assert [step.linkText for step in policy.steps or [] if step.linkText] == [
             "Campaigns",

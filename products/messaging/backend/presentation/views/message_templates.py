@@ -748,7 +748,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
 class SendWarningSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=SendWarningCode.choices,
-        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        help_text="What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender "
         "because the project has no verified sending domain, so it only reaches members of the organization.",
     )
     message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
@@ -902,11 +902,11 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
         "the project has reached its limit of template keys and the `template_key` is new. A code send from a "
-        "project with no verified sending domain goes out from the sandbox sender, which refuses `cc`, `bcc`, "
+        "project with no verified sending domain goes out from the PostHog test sender, which refuses `cc`, `bcc`, "
         "`reply_to`, `attachments` and a custom `from`"
     ),
     403: OpenApiResponse(
-        description="The project has no verified sending domain, and the sandbox sender isn't available for its "
+        description="The project has no verified sending domain, and the PostHog test sender isn't available for its "
         "organization"
     ),
     404: OpenApiResponse(description="Template not found"),
@@ -914,7 +914,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request, or the email would go out from the sandbox sender to someone outside the "
+        "used for a different request, or the email would go out from the PostHog test sender to someone outside the "
         "organization"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
@@ -1070,6 +1070,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            outcome["sender_kind"] = "sandbox" if queued.sent_from_sandbox else "own_domain"
             if queued.warnings:
                 outcome["warning_codes"] = [warning.code for warning in queued.warnings]
             if attachments:

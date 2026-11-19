@@ -52,6 +52,10 @@ export interface DependenciesResponseApi {
     edges: DependencyEdgeApi[]
     /** True when more edges matched than the response holds. */
     truncated: boolean
+    /** True when the window held more traces than the sample reads, so the counts cover only the sampled traces. */
+    sampled: boolean
+    /** How many whole traces the edges were computed from. */
+    trace_count: number
     /**
      * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
      * @nullable
@@ -220,8 +224,20 @@ export interface HealthRowApi {
 export interface EndpointHealthApi {
     /** The service.name resource attribute. */
     service_name: string
-    /** The entry span name, for example the HTTP route or the job name. */
+    /** The endpoint label: the entry span name, or "<METHOD> <route>" when the span name is only an HTTP method and the span carries a route. */
     endpoint: string
+    /** The raw entry span name the row counts, for tracing filters. */
+    span_name: string
+    /**
+     * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+     * @nullable
+     */
+    route_attribute: string | null
+    /**
+     * The route appended to the span name, or null.
+     * @nullable
+     */
+    route: string | null
     /**
      * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
      * @nullable
@@ -434,7 +450,7 @@ export type ApmEndpointTimeSpentListParams = {
      */
     date_to?: string
     /**
-     * The endpoint's entry span name, as listed by apm/endpoints.
+     * The endpoint label, as listed by apm/endpoints.
      * @minLength 1
      * @maxLength 2000
      */

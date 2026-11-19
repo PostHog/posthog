@@ -210,6 +210,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
+        minor: true,
     }),
     recommendation({
         rule: 'content_gap',
