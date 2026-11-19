@@ -13,7 +13,11 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 from products.warehouse_sources.sources.sleekplan._config import SleekplanSourceConfig
-from products.warehouse_sources.sources.sleekplan.settings import SLEEKPLAN_ENDPOINTS, SURVEY_LOOKBACK_DAYS
+from products.warehouse_sources.sources.sleekplan.settings import (
+    PLAN_UPGRADE_REQUIRED_MESSAGE,
+    SLEEKPLAN_ENDPOINTS,
+    SURVEY_LOOKBACK_DAYS,
+)
 from products.warehouse_sources.sources.sleekplan.sleekplan import (
     SleekplanPaginator,
     SleekplanResumeConfig,
@@ -32,6 +36,18 @@ def _driver(api_key: str = "key") -> SourceDriver:
 def _posts_page(has_more: bool = False, *post_ids: int) -> ScriptedResponse:
     items = {str(post_id): {"feedback_id": post_id} for post_id in post_ids}
     return ScriptedResponse(json={"data": {"items": items, "has_more": has_more}})
+
+
+def _v2_page(items: list[dict], has_more: bool = False) -> ScriptedResponse:
+    return ScriptedResponse(json={"status": "success", "data": {"items": items, "has_more": has_more}})
+
+
+_UPGRADE_REQUIRED = ScriptedResponse(
+    json={
+        "status": "error",
+        "data": {"code": "upgrade_required", "message": "This feature is not on your plan.", "feature": "groups"},
+    }
+)
 
 
 def _page_response(body: Any) -> Mock:
@@ -98,6 +114,8 @@ class TestResource:
             ("Updates", "/updates", "data.items.*", {}),
             ("Satisfaction", "/satisfaction", "data", {}),
             ("Promoter", "/promoter", "data", {}),
+            ("Groups", "/groups", "data.items", {"sort": "created", "sort_dir": "asc"}),
+            ("Documents", "/documents", "data.items", {}),
         ]
     )
     def test_endpoint_request_shape(self, name: str, path: str, selector: str, extra_params: dict) -> None:
@@ -109,7 +127,7 @@ class TestResource:
         assert endpoint["params"] == {"per_page": 100, **extra_params}
         assert isinstance(endpoint["paginator"], SleekplanPaginator)
 
-    @parameterized.expand(["Users", "Posts", "Updates"])
+    @parameterized.expand(["Users", "Posts", "Updates", "Groups", "Documents"])
     def test_endpoints_without_a_server_side_filter_never_go_incremental(self, name: str) -> None:
         resource = _resource(SLEEKPLAN_ENDPOINTS[name], should_use_incremental_field=True, incremental_field="updated")
 
@@ -259,3 +277,59 @@ class TestFanOutSource:
         assert result.params("page")[1] == "3"
         saved = result.saved_states[-1]
         assert set(saved.fanout_state["completed"]) == {"/post/1/comments", "/post/2/comments"}
+
+
+class TestV2Source:
+    @parameterized.expand(
+        [
+            ("Groups", "/v2/groups", "group_id"),
+            ("Documents", "/v2/documents", "document_id"),
+        ]
+    )
+    def test_walks_zero_based_pages_until_has_more_is_false(self, name: str, path: str, key: str) -> None:
+        result = _driver().run(
+            name,
+            [
+                _v2_page([{key: 1}, {key: 2}], has_more=True),
+                _v2_page([{key: 3}], has_more=False),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [path, path]
+        assert result.params("page") == ["0", "1"]
+        assert [row[key] for row in result.rows] == [1, 2, 3]
+
+    def test_resumes_a_v2_endpoint_from_the_saved_page(self) -> None:
+        result = _driver().run(
+            "Documents", [_v2_page([{"document_id": 1}])], resume_state=SleekplanResumeConfig(page=3)
+        )
+
+        assert result.params("page") == ["3"]
+
+    @parameterized.expand(["Groups", "Documents", "GroupMembers"])
+    def test_plan_gated_feature_fails_loudly_instead_of_syncing_no_rows(self, name: str) -> None:
+        result = _driver().run(name, always(_UPGRADE_REQUIRED))
+
+        assert result.rows == []
+        assert isinstance(result.raised, ValueError)
+        assert PLAN_UPGRADE_REQUIRED_MESSAGE in str(result.raised)
+
+    def test_group_members_fan_out_over_groups_and_carry_the_group_id(self) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v2/groups":
+                return _v2_page([{"group_id": 5}, {"group_id": 6}])
+            if request.path == "/v2/groups/5/members":
+                return _v2_page([{"user_id": 11}, {"user_id": 12}])
+            # Group 6 was deleted after the parent listing.
+            return ScriptedResponse(status=404, json={"status": "error", "data": {"key": "not_found"}})
+
+        result = _driver().run("GroupMembers", script)
+
+        assert result.raised is None
+        assert result.paths == ["/v2/groups", "/v2/groups/5/members", "/v2/groups/6/members"]
+        assert result.params("page") == ["0", "0", "0"]
+        assert result.params("sort")[0] == "created"
+        assert [(row["group_id"], row["user_id"]) for row in result.rows] == [(5, 11), (5, 12)]
+        assert result.response is not None
+        assert result.response.primary_keys == ["group_id", "user_id"]

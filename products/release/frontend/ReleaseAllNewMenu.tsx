@@ -17,7 +17,7 @@ import { RELEASE_ALL_TYPE_INFO } from './releaseAllTypeInfo'
 import { releaseLogic } from './releaseLogic'
 
 export function ReleaseAllNewMenu(): JSX.Element {
-    const { canEditReleases } = useValues(releaseLogic)
+    const { canEditReleases, releasesEnabled } = useValues(releaseLogic)
     const { setNewReleaseOpen } = useActions(releaseLogic)
     const icon = (type: keyof typeof RELEASE_ALL_TYPE_INFO): JSX.Element => (
         // eslint-disable-next-line react/forbid-dom-props
@@ -33,17 +33,23 @@ export function ReleaseAllNewMenu(): JSX.Element {
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                    disabledReason={
-                        canEditReleases ? undefined : 'You need editor access to feature flags to create a release.'
-                    }
-                    onClick={() => setNewReleaseOpen(true)}
-                    data-attr="release-all-new-release"
-                >
-                    {icon('release')}
-                    Release
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
+                {releasesEnabled && (
+                    <>
+                        <DropdownMenuItem
+                            disabledReason={
+                                canEditReleases
+                                    ? undefined
+                                    : 'You need editor access to feature flags to create a release.'
+                            }
+                            onClick={() => setNewReleaseOpen(true)}
+                            data-attr="release-all-new-release"
+                        >
+                            {icon('release')}
+                            Release
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                    </>
+                )}
                 <DropdownMenuItem
                     onClick={() => router.actions.push(urls.featureFlag('new'))}
                     data-attr="release-all-new-flag"

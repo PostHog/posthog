@@ -15,7 +15,7 @@ const meta: Meta<typeof ComposerCodexBillingIndicator> = {
     title: 'Products/PostHog AI/Composer billing',
     component: ComposerCodexBillingIndicator,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD],
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE],
         testOptions: { snapshotBrowsers: [] },
         msw: { mocks: { get: { '/api/users/@me/integrations/codex/': { status: 'not_connected' } } } },
     },

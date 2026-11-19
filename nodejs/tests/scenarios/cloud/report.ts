@@ -179,6 +179,7 @@ function environmentOf(profile: CloudProfile, manifest: Manifest, runnerFingerpr
         writer_class: profile.writerClass,
         reader_acu_min: profile.readerAcu.min,
         reader_acu_max: profile.readerAcu.max,
+        reader_monitoring_interval_seconds: profile.readerMonitoringIntervalSeconds,
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
