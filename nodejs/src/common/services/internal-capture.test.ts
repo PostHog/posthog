@@ -3,6 +3,7 @@ import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
 import { InternalCaptureService } from './internal-capture'
 
@@ -38,7 +39,7 @@ describe('InternalCaptureService', () => {
               [
                 "http://localhost:8010/capture",
                 {
-                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"$geoip_disable":true,"capture_internal":true}}",
+                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"$geoip_disable":true,"capture_internal":true,"$ignore_sent_at":true}}",
                   "headers": {
                     "Content-Type": "application/json",
                   },
@@ -58,6 +59,7 @@ describe('InternalCaptureService', () => {
         expect(parseJSON(mockInternalFetch.mock.calls[0][1].body).properties).toEqual({
             ...expected,
             capture_internal: true,
+            $ignore_sent_at: true,
         })
     })
 
@@ -81,6 +83,7 @@ describe('InternalCaptureService', () => {
               "event": "event-name",
               "properties": {
                 "$geoip_disable": true,
+                "$ignore_sent_at": true,
                 "capture_internal": true,
                 "foo": "bar",
               },
@@ -101,7 +104,7 @@ describe('InternalCaptureService', () => {
             text: () => Promise.resolve(''),
             dump: () => Promise.resolve(),
         })
-        const sentUuids = (): string[] => mockInternalFetch.mock.calls.map((call) => parseJSON(call[1].body).uuid)
+        const sentBodies = (): string[] => mockInternalFetch.mock.calls.map((call) => call[1].body)
 
         beforeEach(() => {
             jest.useFakeTimers()
@@ -113,14 +116,25 @@ describe('InternalCaptureService', () => {
         it.each([
             ['a socket error', () => mockInternalFetch.mockRejectedValueOnce(new Error('other side closed'))],
             ['a 5xx', () => mockInternalFetch.mockResolvedValueOnce(response(503))],
-        ])('retries %s once with the same uuid', async (_name, failFirst) => {
+        ])('retries %s once with the same body', async (_name, failFirst) => {
             failFirst()
             const pending = service.capture(event)
             await jest.runAllTimersAsync()
             expect((await pending).status).toBe(200)
-            const [first, second, ...rest] = sentUuids()
+            const [first, second, ...rest] = sentBodies()
             expect(rest).toEqual([])
+            expect(parseJSON(first).uuid).toMatch(/^[0-9a-f-]{36}$/)
             expect(second).toBe(first)
+        })
+
+        it('returns the 5xx with a warning when the retry fails too', async () => {
+            const warn = jest.spyOn(logger, 'warn')
+            mockInternalFetch.mockResolvedValue(response(503))
+            const pending = service.capture(event)
+            await jest.runAllTimersAsync()
+            expect((await pending).status).toBe(503)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+            expect(warn).toHaveBeenCalledWith('Internal capture event rejected', { status: 503 })
         })
 
         it('does not retry a 4xx', async () => {

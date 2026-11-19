@@ -12,6 +12,12 @@ const internalCaptureCounter = new Counter({
     labelNames: ['status'],
 })
 
+const internalCaptureRetryCounter = new Counter({
+    name: 'internal_capture_retries',
+    help: 'Number of internal capture requests sent again after a failed first attempt, by what failed',
+    labelNames: ['reason'],
+})
+
 export type InternalCaptureEvent = {
     team_token: string
     event: string
@@ -44,10 +50,18 @@ export class InternalCaptureService {
     constructor(private config: Pick<CommonConfig, 'CAPTURE_INTERNAL_URL'>) {}
 
     private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormat {
-        const properties = { ...disableGeoipWithoutClientIp(event.properties ?? {}), capture_internal: true }
+        const properties = {
+            ...disableGeoipWithoutClientIp(event.properties ?? {}),
+            capture_internal: true,
+            // Without this, capture shifts the timestamp by its own receive time, so a resend is stored
+            // with a different timestamp and never collapses with the first copy.
+            $ignore_sent_at: true,
+        }
         const now = DateTime.utc().toISO()
         return {
-            // Reused on retry so the events table collapses a resend that capture already ingested.
+            // Reused on retry, so both copies of a resend that capture already ingested share a key and
+            // ClickHouse collapses them when it merges. Until that merge, and in CDP consumers, the event
+            // can appear twice.
             uuid: new UUIDT().toString(),
             api_key: event.team_token,
             timestamp: event.timestamp ?? now,
@@ -71,19 +85,24 @@ export class InternalCaptureService {
                     body,
                 })
                 if (response.status < 500 || attempt >= MAX_ATTEMPTS) {
-                    logger.debug('Internal capture event captured', { status: response.status })
+                    if (response.status >= 400) {
+                        logger.warn('Internal capture event rejected', { status: response.status })
+                    } else {
+                        logger.debug('Internal capture event captured', { status: response.status })
+                    }
                     internalCaptureCounter.inc({ status: response.status.toString() })
                     return response
                 }
                 await response.dump()
+                internalCaptureRetryCounter.inc({ reason: 'server_error' })
             } catch (e) {
                 if (attempt >= MAX_ATTEMPTS) {
                     internalCaptureCounter.inc({ status: 'error' })
                     logger.error('Error capturing internal event', { error: e })
                     throw e
                 }
+                internalCaptureRetryCounter.inc({ reason: 'error' })
             }
-            internalCaptureCounter.inc({ status: 'retry' })
             await delay(RETRY_DELAY_MS / 2 + Math.random() * (RETRY_DELAY_MS / 2))
         }
     }
