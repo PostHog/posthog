@@ -8,7 +8,7 @@ from typing import Literal
 from uuid import uuid4
 
 import time_machine
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
@@ -19,6 +19,8 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.ai_observability.backend.logic.offline_evaluations.mutations import mutate_offline_evaluation
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
@@ -825,6 +827,31 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
             return sweep
         finally:
             connection.close()
+
+    def test_retention_racing_a_payload_update_uses_the_original_deadline(self) -> None:
+        item = replace(self.submission.items[0], payload={"output": "first"})
+        receipt = self.ingestion.upload(self.experiment.id, replace(self.submission, items=[item]))
+        deadline = receipt.items[0].accepted_at + timedelta(days=30)
+        with (
+            ThreadPoolExecutor(max_workers=1) as executor,
+            patch("products.ai_observability.backend.offline_payload_retention.timezone") as cleanup_clock,
+        ):
+            cleanup_clock.now.return_value = deadline
+            with transaction.atomic():
+                mutate_offline_evaluation(
+                    team_id=self.team.id,
+                    experiment_id=self.experiment.id,
+                    resource_id=item.id,
+                    target="item_payload",
+                    expected_revision=0,
+                    changes={"payload": {"output": "second"}},
+                    access=Mock(spec=UserAccessControl),
+                )
+                self.assertEqual(executor.submit(self._run_retention).result(timeout=10).item_payloads_expired, 0)
+            self.assertEqual(executor.submit(self._run_retention).result(timeout=10).item_payloads_expired, 1)
+        self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).filter(pk=item.id).exists())
+        owned = OfflineExperimentItem.objects.for_team(self.team.id).get(pk=item.id)
+        self.assertEqual((owned.payload_state, owned.payload_expires_at), (PayloadState.EXPIRED, deadline))
 
     @parameterized.expand([("item",), ("result",)])
     def test_retention_skips_locked_payload_owners_and_recovers_on_next_run(self, locked_type: str) -> None:

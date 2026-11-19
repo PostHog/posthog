@@ -107,6 +107,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'inbox-reports-create-mcp': true,
         'workflows-bulk-suppressions-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
+        'ai-observability-offline-evaluation-mutations': true,
         'ai-observability-composite-validation': true,
         'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,

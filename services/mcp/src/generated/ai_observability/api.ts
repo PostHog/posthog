@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 99 enabled ops
+ * PostHog API - MCP 103 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -400,6 +400,54 @@ export const AiObservabilityOfflineExperimentsItemsRetrieveParams = () => zod.ob
         ),
 })
 
+export const AiObservabilityOfflineExperimentsItemsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyRevisionMin = 0
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyCaseKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyTrialMax = 255
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdateBodyApplicationTraceIdMax = 255
+
+export const AiObservabilityOfflineExperimentsItemsPartialUpdateBody = () => zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyRevisionMin)
+        .optional()
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    case_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyCaseKeyMax)
+        .nullish()
+        .describe('Case identifier.'),
+    trial: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyTrialMax)
+        .nullish()
+        .describe('Trial identifier.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyModelVersionMax)
+        .nullish()
+        .describe('Model used for this item.'),
+    application_trace_id: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyApplicationTraceIdMax)
+        .nullish()
+        .describe("Trace for this item's application execution."),
+})
+
 export const AiObservabilityOfflineExperimentsItemsPayloadRetrieveParams = () => zod.object({
     id: zod.string().describe('Experiment UUID.'),
     item_id: zod.string().describe('Item UUID within the experiment.'),
@@ -408,6 +456,62 @@ export const AiObservabilityOfflineExperimentsItemsPayloadRetrieveParams = () =>
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBodyRevisionMin = 0
+
+export const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody = () => zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBodyRevisionMin)
+        .optional()
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    payload: zod
+        .object({
+            input: zod
+                .union([
+                    zod.record(zod.string(), zod.unknown()),
+                    zod.array(zod.unknown()),
+                    zod.string(),
+                    zod.number(),
+                    zod.boolean(),
+                    zod.null(),
+                ])
+                .optional(),
+            output: zod
+                .union([
+                    zod.record(zod.string(), zod.unknown()),
+                    zod.array(zod.unknown()),
+                    zod.string(),
+                    zod.number(),
+                    zod.boolean(),
+                    zod.null(),
+                ])
+                .optional(),
+            expected_output: zod
+                .union([
+                    zod.record(zod.string(), zod.unknown()),
+                    zod.array(zod.unknown()),
+                    zod.string(),
+                    zod.number(),
+                    zod.boolean(),
+                    zod.null(),
+                ])
+                .optional(),
+            metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+        })
+        .optional()
+        .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 
 export const AiObservabilityOfflineExperimentsItemsResultsListParams = () => zod.object({
@@ -475,6 +579,53 @@ export const AiObservabilityOfflineExperimentsResultCellsRetrieveQueryParams = (
         .describe('Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.'),
 })
 
+export const AiObservabilityOfflineExperimentsResultsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    result_id: zod.string().describe('Result UUID within the experiment.'),
+})
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin = 0
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax = 128
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax = 128
+
+export const AiObservabilityOfflineExperimentsResultsPartialUpdateBody = () => zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin)
+        .optional()
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    status: zod
+        .enum(['ok', 'error', 'skipped', 'not_applicable'])
+        .describe('\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable')
+        .optional()
+        .describe(
+            'Execution status for this reported result.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+        ),
+    value: zod
+        .union([
+            zod.number(),
+            zod.boolean(),
+            zod
+                .array(zod.string().max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyValueThreeItemMax))
+                .min(1),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Score for a successful result, validated against the pinned version.'),
+    error_code: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyErrorCodeMax)
+        .nullish()
+        .describe('Error code for a failed execution.'),
+})
+
 export const AiObservabilityOfflineExperimentsResultsPayloadRetrieveParams = () => zod.object({
     id: zod.string().describe('Experiment UUID.'),
     project_id: zod
@@ -483,6 +634,34 @@ export const AiObservabilityOfflineExperimentsResultsPayloadRetrieveParams = () 
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     result_id: zod.string().describe('Result UUID within the experiment.'),
+})
+
+export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    result_id: zod.string().describe('Result UUID within the experiment.'),
+})
+
+export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin = 0
+
+export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = () => zod.object({
+    revision: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin)
+        .optional()
+        .describe('Revision returned by the latest read of this item, result, or payload.'),
+    payload: zod
+        .object({
+            reasoning: zod.string().nullish(),
+            error_message: zod.string().nullish(),
+            metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+        })
+        .optional()
+        .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 
 export const AiObservabilityOfflineExperimentsScorerSummariesListParams = () => zod.object({

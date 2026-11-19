@@ -356,6 +356,7 @@ rules:
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
+                              |OfflineDeletedIdentity
                               |OfflineEvaluationResult
                               |OfflineEvaluationResultPayload
                               |OfflineEvaluationUsageLedger
@@ -901,6 +902,7 @@ rules:
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
+                        |OfflineDeletedIdentity
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
                         |OfflineEvaluationUsageLedger
@@ -1318,6 +1320,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |ObjectMediaPreview
+                        |OfflineDeletedIdentity
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
                         |OfflineEvaluationUsageLedger

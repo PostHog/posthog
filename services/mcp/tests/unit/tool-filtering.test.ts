@@ -1205,10 +1205,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'release-objects',
             ])
         )
+        expect(flags).toContain('ai-observability-offline-evaluation-mutations')
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

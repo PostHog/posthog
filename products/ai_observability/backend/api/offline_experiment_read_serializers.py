@@ -228,6 +228,12 @@ class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    updated_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Most recent item, result, or payload change."
+    )
+    closed_item_count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Number of items when the experiment closed."
+    )
     created_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who submitted the experiment, or null for service credentials."
     )
@@ -294,7 +300,16 @@ class OfflineScorerVersionReadSerializer(serializers.Serializer):
     config = ScoreDefinitionConfigField(help_text="Pinned immutable configuration used to interpret these results.")
 
 
+PAYLOAD_AVAILABILITY_CHOICES = [*PayloadState.choices, ("deleted", "Deleted")]
+
+
 class OfflineResultFieldsSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(required=False, help_text="Current revision for updates and deletes.")
+    score_updated_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Time of the latest score update. For composites, the oldest input score time.",
+    )
     input_result_ids = serializers.ListField(
         child=serializers.UUIDField(),
         allow_null=True,
@@ -310,7 +325,9 @@ class OfflineResultFieldsSerializer(serializers.Serializer):
     )
     evaluated_at = serializers.DateTimeField(allow_null=True, help_text="Caller-supplied evaluation time.")
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
-    payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Result payload storage state.")
+    payload_state = serializers.ChoiceField(
+        choices=PAYLOAD_AVAILABILITY_CHOICES, help_text="Result payload storage state."
+    )
     payload_expires_at = serializers.DateTimeField(
         allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
@@ -337,6 +354,10 @@ class OfflineResultCellsSerializer(serializers.Serializer):
 
 
 class OfflineItemReadSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(required=False, help_text="Current revision for updates and deletes.")
+    content_updated_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Last change to the input, output, or expected output."
+    )
     model_version = serializers.CharField(
         allow_null=True, required=False, help_text="Model used for the item, falling back to the experiment's model."
     )
@@ -355,7 +376,9 @@ class OfflineItemReadSerializer(serializers.Serializer):
         allow_null=True, help_text="Optional application trace navigation reference."
     )
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
-    payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Item payload storage state.")
+    payload_state = serializers.ChoiceField(
+        choices=PAYLOAD_AVAILABILITY_CHOICES, help_text="Item payload storage state."
+    )
     payload_expires_at = serializers.DateTimeField(
         allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
@@ -365,8 +388,14 @@ class OfflineItemReadSerializer(serializers.Serializer):
 
 
 class OfflineItemPayloadReadSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(required=False, help_text="Current revision of the payload owner.")
+    deleted_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Time of explicit payload deletion."
+    )
     id = serializers.UUIDField(help_text="Owning item UUID.")
-    payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Durable payload storage state.")
+    payload_state = serializers.ChoiceField(
+        choices=PAYLOAD_AVAILABILITY_CHOICES, help_text="Durable payload storage state."
+    )
     payload_expires_at = serializers.DateTimeField(allow_null=True, help_text="Payload retention deadline.")
     available = serializers.BooleanField(help_text="Whether the stored payload is currently available.")
 

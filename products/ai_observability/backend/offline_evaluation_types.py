@@ -5,6 +5,9 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+MAX_ITEM_PAYLOAD_BYTES = 1024 * 1024
+MAX_RESULT_PAYLOAD_BYTES = 256 * 1024
+
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
 type ResultValue = float | bool | list[str]
 type RunSource = Literal["ci", "local", "scheduled"]

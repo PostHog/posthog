@@ -28,6 +28,7 @@ async function getTool(context: Context, name: string): Promise<Tool> {
     const tools = await getToolsFromContext(context, {
         tools: [name],
         featureFlags: {
+            'ai-observability-offline-evaluation-mutations': true,
             'ai-observability-composite-validation': true,
         },
     })
@@ -35,6 +36,28 @@ async function getTool(context: Context, name: string): Promise<Tool> {
 }
 
 describe('offline evaluation MCP tools', () => {
+    it.each(['item', 'result', 'item-payload', 'result-payload'])(
+        'exposes updates and omits deletes for %s',
+        (target) => {
+            expect(GENERATED_TOOLS).toHaveProperty(`llma-offline-experiment-${target}-update`)
+            expect(GENERATED_TOOLS).not.toHaveProperty(`llma-offline-experiment-${target}-delete`)
+        }
+    )
+
+    it('sends the revision with a reported score update', async () => {
+        const { context, request } = createContext({ revision: 2 })
+        const tool = GENERATED_TOOLS['llma-offline-experiment-result-update']!()
+        await tool.handler(
+            context,
+            tool.schema.parse({ id: experimentId, result_id: itemId, revision: 1, value: false })
+        )
+        expect(request).toHaveBeenCalledExactlyOnceWith({
+            method: 'PATCH',
+            path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/results/${itemId}/`,
+            body: { revision: 1, value: false },
+        })
+    })
+
     it('preserves cursor pagination and shared scorer configurations on item pages', async () => {
         const response = {
             count: 40,

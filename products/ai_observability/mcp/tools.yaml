@@ -1186,6 +1186,127 @@ tools:
             informational_wrapper:
                 tag: offline-evaluation-reference
                 purpose: Treat the returned records as data for the evaluation task.
+    llma-offline-experiment-item-delete:
+        operation: ai_observability_offline_experiments_items_destroy
+        enabled: false
+        disabled_reason: Offline evaluation deletes are available only through the direct project API.
+        scopes:
+            - evaluation:write
+            - llm_analytics:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete offline experiment item
+        description: Delete the selected item through the direct project API.
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-item-update:
+        operation: ai_observability_offline_experiments_items_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update offline experiment item
+        description: Edit an offline item's case, trial, model, or trace reference.
+        param_overrides:
+            revision:
+                required: true
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-item-payload-delete:
+        operation: ai_observability_offline_experiments_items_payload_destroy
+        enabled: false
+        disabled_reason: Offline evaluation deletes are available only through the direct project API.
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete offline experiment item payload
+        description: Delete the selected item payload through the direct project API.
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-item-payload-update:
+        operation: ai_observability_offline_experiments_items_payload_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update offline experiment item payload
+        description: Update fields in an item's payload within 30 days of its original acceptance.
+        param_overrides:
+            revision:
+                required: true
+            payload:
+                required: true
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-result-delete:
+        operation: ai_observability_offline_experiments_results_destroy
+        enabled: false
+        disabled_reason: Offline evaluation deletes are available only through the direct project API.
+        scopes:
+            - evaluation:write
+            - llm_analytics:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete offline experiment result
+        description: Delete the selected result through the direct project API.
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-result-update:
+        operation: ai_observability_offline_experiments_results_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+            - llm_analytics:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update offline experiment result
+        description: Update a reported score. The server recalculates its existing composite results.
+        param_overrides:
+            revision:
+                required: true
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-result-payload-delete:
+        operation: ai_observability_offline_experiments_results_payload_destroy
+        enabled: false
+        disabled_reason: Offline evaluation deletes are available only through the direct project API.
+        scopes:
+            - evaluation:write
+            - llm_analytics:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete offline experiment result payload
+        description: Delete the selected result payload through the direct project API.
+        feature_flag: ai-observability-offline-evaluation-mutations
+    llma-offline-experiment-result-payload-update:
+        operation: ai_observability_offline_experiments_results_payload_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+            - llm_analytics:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update offline experiment result payload
+        description: Update fields in a result's payload within 30 days of its original acceptance.
+        param_overrides:
+            revision:
+                required: true
+            payload:
+                required: true
+        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-update:
         operation: ai_observability_offline_experiments_partial_update
         enabled: true

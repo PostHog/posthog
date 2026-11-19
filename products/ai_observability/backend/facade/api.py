@@ -61,6 +61,7 @@ from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
 from ..logic.message_normalizer.normalizer import RecipeNormalizer, check_stored_recipe_source, compile_candidate_recipe
+from ..logic.offline_evaluations.mutations import mutate_offline_evaluation as mutate_offline_evaluation
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.dataset_item import StepDatasetItem

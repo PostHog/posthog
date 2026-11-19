@@ -12,6 +12,8 @@ from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX
 
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_types import (
+    MAX_ITEM_PAYLOAD_BYTES,
+    MAX_RESULT_PAYLOAD_BYTES,
     ExperimentSubmission,
     ItemSubmission,
     JSONValue,
@@ -25,8 +27,6 @@ if TYPE_CHECKING:
 
 MAX_UPLOAD_ITEMS = 1000
 MAX_UPLOAD_RESULTS = 1000
-MAX_ITEM_PAYLOAD_BYTES = 1024 * 1024
-MAX_RESULT_PAYLOAD_BYTES = 256 * 1024
 MAX_JSON_DEPTH = 32
 
 

@@ -214,3 +214,21 @@ export const DetailedResult: Story = {
         }),
     ],
 }
+
+export const UpdatedItem: Story = {
+    parameters: DetailedResult.parameters,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/': {
+                    ...detailExperiment,
+                    updated_at: '2026-09-28T11:00:00Z',
+                },
+                '/api/projects/:team/ai_observability/offline_experiments/:id/items/:itemId/': {
+                    ...detailItems[0],
+                    content_updated_at: '2026-09-28T11:00:00Z',
+                },
+            },
+        }),
+    ],
+}

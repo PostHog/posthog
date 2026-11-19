@@ -2050,6 +2050,169 @@ const llmaOfflineExperimentScorerSummaryList = (): ToolBase<
     },
 })
 
+const LlmaOfflineExperimentItemUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsItemsPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsItemsPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsItemsPartialUpdateParams.omit({ project_id: true })
+        .extend(AiObservabilityOfflineExperimentsItemsPartialUpdateBody.shape)
+        .extend({ revision: AiObservabilityOfflineExperimentsItemsPartialUpdateBody.shape['revision'].nonoptional() })
+}
+
+const llmaOfflineExperimentItemUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentItemUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-item-update',
+    schema: LlmaOfflineExperimentItemUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaOfflineExperimentItemUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.case_key !== undefined) {
+            body['case_key'] = params.case_key
+        }
+        if (params.trial !== undefined) {
+            body['trial'] = params.trial
+        }
+        if (params.model_version !== undefined) {
+            body['model_version'] = params.model_version
+        }
+        if (params.application_trace_id !== undefined) {
+            body['application_trace_id'] = params.application_trace_id
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaOfflineExperimentItemPayloadUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams.omit({ project_id: true })
+        .extend(AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape)
+        .extend({
+            revision: AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape['revision'].nonoptional(),
+            payload: AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape['payload'].nonoptional(),
+        })
+}
+
+const llmaOfflineExperimentItemPayloadUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentItemPayloadUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-item-payload-update',
+    schema: LlmaOfflineExperimentItemPayloadUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof LlmaOfflineExperimentItemPayloadUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/payload/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaOfflineExperimentResultUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsResultsPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsResultsPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsResultsPartialUpdateParams.omit({ project_id: true })
+        .extend(AiObservabilityOfflineExperimentsResultsPartialUpdateBody.shape)
+        .extend({ revision: AiObservabilityOfflineExperimentsResultsPartialUpdateBody.shape['revision'].nonoptional() })
+}
+
+const llmaOfflineExperimentResultUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentResultUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-result-update',
+    schema: LlmaOfflineExperimentResultUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaOfflineExperimentResultUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.value !== undefined) {
+            body['value'] = params.value
+        }
+        if (params.error_code !== undefined) {
+            body['error_code'] = params.error_code
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/results/${encodeURIComponent(String(params.result_id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaOfflineExperimentResultPayloadUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams.omit({ project_id: true })
+        .extend(AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape)
+        .extend({
+            revision: AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape['revision'].nonoptional(),
+            payload: AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape['payload'].nonoptional(),
+        })
+}
+
+const llmaOfflineExperimentResultPayloadUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentResultPayloadUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-result-payload-update',
+    schema: LlmaOfflineExperimentResultPayloadUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof LlmaOfflineExperimentResultPayloadUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/results/${encodeURIComponent(String(params.result_id))}/payload/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaOfflineExperimentUpdateSchema = () => {
     const AiObservabilityOfflineExperimentsPartialUpdateBody =
         orvalSchemas.AiObservabilityOfflineExperimentsPartialUpdateBody()
@@ -3657,6 +3820,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-offline-experiment-result-cells': llmaOfflineExperimentResultCells,
     'llma-offline-experiment-result-payload-get': llmaOfflineExperimentResultPayloadGet,
     'llma-offline-experiment-scorer-summary-list': llmaOfflineExperimentScorerSummaryList,
+    'llma-offline-experiment-item-update': llmaOfflineExperimentItemUpdate,
+    'llma-offline-experiment-item-payload-update': llmaOfflineExperimentItemPayloadUpdate,
+    'llma-offline-experiment-result-update': llmaOfflineExperimentResultUpdate,
+    'llma-offline-experiment-result-payload-update': llmaOfflineExperimentResultPayloadUpdate,
     'llma-offline-experiment-update': llmaOfflineExperimentUpdate,
     'llma-offline-experiment-upload': llmaOfflineExperimentUpload,
     'llma-offline-scorer-history': llmaOfflineScorerHistory,

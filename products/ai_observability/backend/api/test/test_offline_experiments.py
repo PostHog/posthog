@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -15,6 +16,7 @@ from rest_framework import status
 from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.routers import SimpleRouter
 
+from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Project, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -29,6 +31,7 @@ from products.ai_observability.backend.api.offline_experiments import OfflineExp
 from products.ai_observability.backend.api.score_definitions import ScoreDefinitionViewSet
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
+    OfflineDeletedIdentity,
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
     OfflineEvaluationUsageLedger,
@@ -84,6 +87,188 @@ class TestOfflineExperimentsAPI(APIBaseTest):
 
     def _experiment_body(self) -> dict[str, object]:
         return {"id": str(uuid4()), "name": "Answer quality", "started_at": timezone.now().isoformat()}
+
+    def _mutable_run(self) -> tuple[str, str, str, dict]:
+        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
+        self._authenticate("session")
+        experiment = self._experiment_body()
+        self.assertEqual(self.client.post(self._endpoint(), experiment).status_code, 201)
+        exp_id, item_id = str(experiment["id"]), str(uuid4())
+        source = ScoreDefinition.objects.create(team=self.team, name="Accurate", kind="boolean")
+        version = source.create_new_version(config={}, created_by=None)
+        composite = ScoreDefinition.objects.create(
+            team=self.team, name="Total", kind="numeric", calculation="composite"
+        )
+        computed_version = composite.create_new_version(
+            config={"min": 0, "max": 1},
+            created_by=None,
+            composition={
+                "expression": "number(accurate)",
+                "inputs": [{"alias": "accurate", "scorer_version_id": str(version.id)}],
+            },
+        )
+        body = {
+            "items": [{"id": item_id, "payload": {"input": "A"}}],
+            "results": [
+                {"item_id": item_id, "scorer_version_id": str(version.id), "status": "error", "error_code": "timeout"},
+                {"item_id": item_id, "scorer_version_id": str(computed_version.id), "calculate": True},
+            ],
+        }
+        response = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(response.status_code, 200, response.data)
+        return exp_id, item_id, str(response.data["results"][0]["id"]), body
+
+    def test_mutation_flag_off_keeps_items_readable(self) -> None:
+        experiment_id, item_id, _, _ = self._mutable_run()
+        url = self._endpoint(experiment_id, f"items/{item_id}")
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            item = self.client.get(url)
+            self.assertEqual(item.status_code, 200)
+            revision = item.data["revision"]
+            self.assertEqual(self.client.patch(url, {"revision": revision, "trial": "changed"}).status_code, 403)
+            self.assertEqual(self.client.delete(f"{url}?revision={revision}").status_code, 403)
+
+    def test_update_closed_score_recomputes_composite_and_preserves_upload_receipt(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        close = self.client.post(self._endpoint(exp_id, "complete"), {})
+        self.assertEqual(close.status_code, 200)
+        url = self._endpoint(exp_id, f"results/{result_id}")
+        change = {"revision": 0, "status": "ok", "value": True}
+        self.assertEqual(self.client.patch(url, change).data, {"revision": 1})
+        self.assertEqual(self.client.patch(url, change).status_code, 409)
+        read = self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["results"]
+        self.assertEqual(
+            {row["scorer"]["name"]: (row["status"], row["value"]) for row in read},
+            {"Accurate": ("ok", True), "Total": ("ok", 1.0)},
+        )
+        composite = next(row for row in read if row["input_result_ids"])
+        self.assertEqual(
+            self.client.patch(
+                self._endpoint(exp_id, f"results/{composite['id']}"), {"revision": 1, "value": 0}
+            ).status_code,
+            400,
+        )
+        retry = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(
+            [(r["status"], r["created"]) for r in retry.data["results"]], [("error", False), ("error", False)]
+        )
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1]
+        )
+        self.assertEqual(self.client.delete(f"{url}?revision=1").status_code, 204)
+        self.assertEqual(self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["count"], 0)
+        self.assertEqual(
+            self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"],
+            close.data["accepted_result_count"],
+        )
+
+    @parameterized.expand(["item", "result"])
+    def test_only_direct_api_can_delete_and_upload_cannot_recreate(self, target: str) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        key = f"items/{item_id}" if target == "item" else f"results/{result_id}"
+        url = self._endpoint(exp_id, key) + "?revision=0"
+        self._authenticate("personal_key", ["evaluation:write", "llm_analytics:read"])
+        self.assertEqual(self.client.delete(url, HTTP_USER_AGENT=MCP_USER_AGENT_MARKER).status_code, 403)
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 403)
+        self._authenticate("project_key")
+        replay = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(replay.status_code, 409)
+        self.assertEqual(replay.data["code"], "identity_deleted")
+        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1]
+        )
+
+    def test_payload_update_uses_original_deadline_and_cannot_restore_deleted_data(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        url = self._endpoint(exp_id, f"items/{item_id}/payload")
+        original = self.client.get(url).data
+        self.assertEqual(self.client.patch(url, {"revision": 0, "payload": {"output": None}}).data, {"revision": 1})
+        updated = self.client.get(url).data
+        self.assertEqual(updated["data"], {"input": "A", "output": None})
+        self.assertEqual(updated["payload_expires_at"], original["payload_expires_at"])
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        self.assertIsNotNone(self.client.get(item_url).data["content_updated_at"])
+        self.assertEqual(self.client.patch(item_url, {"revision": 1, "trial": "second"}).data, {"revision": 2})
+        self.assertEqual(self.client.delete(f"{url}?revision=2").status_code, 204)
+        self.assertEqual(self.client.get(url).data["data"], None)
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 200)
+        self.assertEqual(self.client.patch(url, {"revision": 3, "payload": {"input": "B"}}).status_code, 409)
+        result = OfflineEvaluationResult.objects.for_team(self.team.id).get(pk=result_id)
+        payload_url = self._endpoint(exp_id, f"results/{result_id}/payload")
+        self.assertEqual(
+            self.client.patch(payload_url, {"revision": 0, "payload": {"reasoning": "Late addition"}}).data,
+            {"revision": 1},
+        )
+        with patch("products.ai_observability.backend.logic.offline_evaluations.mutations.timezone") as clock:
+            clock.now.return_value = result.accepted_at + timedelta(days=30)
+            self.assertEqual(
+                self.client.patch(payload_url, {"revision": 1, "payload": {"reasoning": "Overdue"}}).status_code, 409
+            )
+
+    def test_delete_composite_keeps_reported_input_and_blocks_only_the_deleted_identity(self) -> None:
+        exp_id, item_id, _, body = self._mutable_run()
+        composite = OfflineEvaluationResult.objects.for_team(self.team.id).get(input_result_ids__isnull=False)
+        url = self._endpoint(exp_id, f"results/{composite.pk}") + "?revision=0"
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertEqual(self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["count"], 1)
+        upload = self._endpoint(exp_id, "upload")
+        self.assertEqual(self.client.post(upload, {"results": body["results"][:1]}).status_code, 200)
+        self.assertEqual(self.client.post(upload, body).data["code"], "identity_deleted")
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"], 1)
+        self.assertFalse(OfflineDeletedIdentity.objects.for_team(self.team.id).filter(experiment_id=exp_id).exists())
+        self.assertEqual(self.client.post(upload, body).data["code"], "experiment_closed")
+
+    def test_mutating_a_source_requires_access_to_affected_composite(self) -> None:
+        exp_id, item_id, result_id, _ = self._mutable_run()
+        member = self._evaluation_member()
+        composite = ScoreDefinition.objects.get(team=self.team, calculation="composite")
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", access_level="viewer", organization_member=member
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(composite.pk),
+            access_level="none",
+            organization_member=member,
+        )
+        self._authenticate("personal_key", ["evaluation:write", "llm_analytics:read"], user=member.user)
+        self.assertEqual(
+            self.client.patch(
+                self._endpoint(exp_id, f"results/{result_id}"), {"revision": 0, "value": True, "status": "ok"}
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete(self._endpoint(exp_id, f"items/{item_id}") + "?revision=0").status_code, 404
+        )
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
+
+    def test_composite_from_updated_input_requires_read_access_on_upload_and_replay(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        result_url = self._endpoint(exp_id, f"results/{result_id}")
+        self.assertEqual(self.client.patch(result_url, {"revision": 0, "status": "ok", "value": True}).status_code, 200)
+        composite = ScoreDefinition.objects.get(team=self.team, calculation="composite")
+        assert composite.current_version is not None
+        version = composite.create_new_version(
+            config={"min": 0, "max": 1}, created_by=None, composition=composite.current_version.composition
+        )
+        batch = {
+            "results": [
+                body["results"][0],
+                {"calculate": True, "item_id": item_id, "scorer_version_id": str(version.pk)},
+            ]
+        }
+        url = self._endpoint(exp_id, "upload")
+        self._authenticate("personal_key")
+        self.assertEqual(self.client.post(url, batch).status_code, 403)
+        self._authenticate("session")
+        self.assertEqual(self.client.post(url, batch).status_code, 200)
+        self._authenticate("project_key")
+        self.assertEqual(self.client.post(url, batch).status_code, 403)
+        self.assertEqual(self.client.post(url, body).status_code, 200)
 
     def _evaluation_member(self, access_level: str = "editor") -> OrganizationMembership:
         member = User.objects.create_and_join(self.organization, "eval-member@example.com", "test-password")
