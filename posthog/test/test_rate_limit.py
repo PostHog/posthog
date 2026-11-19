@@ -1341,9 +1341,18 @@ class TestReserveUnits(BaseTest):
             redis_cache = caches["default"]
             assert isinstance(redis_cache, RedisCache)
             key = TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
+            primary_client = redis_cache.client.get_client(write=True)
+            read = DefaultClient.get
+
+            def primary_down(redis_client: DefaultClient, *args: Any, **kwargs: Any) -> Any:
+                if kwargs.get("client") is primary_client:
+                    raise ConnectionInterrupted(connection=None)
+                return read(redis_client, *args, **kwargs)
+
             try:
                 self.assertIsNone(self._send([TransactionalEmailBurstThrottle], 3))
-                with patch.object(DefaultClient, "get", side_effect=ConnectionInterrupted(connection=None)):
+                redis_cache.set(key, [time.time()] * 3, 60, client=redis_cache.client.get_client(write=False))
+                with patch.object(DefaultClient, "get", autospec=True, side_effect=primary_down):
                     outcome = self._send([TransactionalEmailBurstThrottle], recipients)
             finally:
                 for client in (redis_cache.client.get_client(write=True), redis_cache.client.get_client(write=False)):
