@@ -383,6 +383,10 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     organization_id = scanner.team.organization_id
     cap = org_credit_cap_for(scanner.team.organization, organization_id)
     if cap.awaiting_billing_sync:
+        # A lost-result retry reclaims its own PENDING row first, or the row holds its reserved credits until the reaper.
+        reclaimed_output = _reclaim_own_pending_insert(inputs)
+        if reclaimed_output is not None:
+            return reclaimed_output
         # Its zero credits are a placeholder, so retry until the sync lands rather than drop the session as over quota.
         raise ApplicationError("Billing has not synced this organization yet", type=BILLING_SYNC_PENDING_ERROR_TYPE)
     # A free-only scanner stops at the org's free credits, below any billing limit.

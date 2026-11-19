@@ -559,6 +559,29 @@ class TestCreateObservationActivity:
         assert not raised.value.non_retryable
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-unsynced").exists()
 
+    def test_retry_reclaims_its_own_pending_row_while_billing_has_not_synced_the_org(self) -> None:
+        scanner = _make_scanner()
+        existing = _make_observation(
+            scanner, session_id="sess-unsynced", workflow_id="wf-unsynced", status=ObservationStatus.PENDING
+        )
+        scanner.team.organization.usage = None
+        scanner.team.organization.save()
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-unsynced",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-unsynced",
+                )
+            )
+
+        assert result.observation_id == existing.id
+        assert result.was_created is True
+
     def test_skips_insert_when_ai_data_processing_not_approved(self) -> None:
         scanner = _make_scanner()
         org = scanner.team.organization
