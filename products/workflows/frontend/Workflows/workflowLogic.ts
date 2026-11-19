@@ -619,6 +619,23 @@ export interface workflowLogicActions {
         hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         payload?: any
     }
+    loadMissingHogFunctionTemplates: (templateIds: string[]) => {
+        templateIds: string[]
+    }
+    loadMissingHogFunctionTemplatesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMissingHogFunctionTemplatesSuccess: (
+        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+        payload?: string[]
+    ) => {
+        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+        payload?: string[]
+    }
     loadWorkflow: () => any
     loadWorkflowFailure: (
         error: string,
@@ -3698,6 +3715,24 @@ function unusableSenderError(action: HogFlowAction, integrations: IntegrationTyp
     return undefined
 }
 
+/** Templates the workflow's steps use that the loaded list lacks. Empty until the list has loaded. */
+function missingStepTemplateIds(
+    workflow: HogFlow | null | undefined,
+    templatesById: Record<string, HogFunctionTemplateType>
+): string[] {
+    if (!workflow || Object.keys(templatesById).length === 0) {
+        return []
+    }
+    const missing = new Set<string>()
+    for (const action of workflow.actions) {
+        const templateId = 'template_id' in action.config ? action.config.template_id : undefined
+        if (typeof templateId === 'string' && !templatesById[templateId]) {
+            missing.add(templateId)
+        }
+    }
+    return [...missing]
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
@@ -4034,7 +4069,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    lazyLoaders(() => ({
+    lazyLoaders(({ values }) => ({
         hogFunctionTemplatesById: [
             {} as Record<string, HogFunctionTemplateType>,
             {
@@ -4052,6 +4087,19 @@ export const workflowLogic = kea<workflowLogicType>([
                     )
 
                     return allTemplatesById
+                },
+                // The list stops at one page, so a step whose template sorts past it would read as "Template not found".
+                loadMissingHogFunctionTemplates: async (templateIds: string[]) => {
+                    const fetched = await Promise.all(
+                        templateIds.map((templateId) => api.hogFunctions.getTemplate(templateId).catch(() => null))
+                    )
+                    const added = { ...values.hogFunctionTemplatesById }
+                    for (const template of fetched) {
+                        if (template) {
+                            added[template.id] = template
+                        }
+                    }
+                    return added
                 },
             },
         ],
@@ -4959,7 +5007,17 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
+        loadHogFunctionTemplatesByIdSuccess: () => {
+            const missing = missingStepTemplateIds(values.originalWorkflow, values.hogFunctionTemplatesById)
+            if (missing.length) {
+                actions.loadMissingHogFunctionTemplates(missing)
+            }
+        },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
+            if (missingTemplates.length) {
+                actions.loadMissingHogFunctionTemplates(missingTemplates)
+            }
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
