@@ -42,6 +42,14 @@ class TestSequentialProportionTest(SimpleTestCase):
                 False,
                 0.012,
             ),
+            (
+                "the_fewest_treatment_trials_the_test_takes",
+                Proportion(trials=5, successes=2),
+                Proportion(trials=200, successes=10),
+                0.05,
+                False,
+                0.35,
+            ),
         ]
     )
     def test_compares_the_treatment_with_the_control(
@@ -51,11 +59,15 @@ class TestSequentialProportionTest(SimpleTestCase):
 
         assert result is not None
         assert (result.is_significant, round(result.difference, 3)) == (significant, difference)
+        lower, upper = result.confidence_interval
+        assert (result.p_value < alpha) == significant
+        assert lower <= result.difference <= upper
+        assert (lower > 0 or upper < 0) == significant
 
     @parameterized.expand(
         [
             ("no_control_trials", Proportion(trials=200, successes=10), Proportion(trials=0, successes=0)),
-            ("too_few_treatment_trials", Proportion(trials=3, successes=1), Proportion(trials=200, successes=10)),
+            ("too_few_treatment_trials", Proportion(trials=4, successes=1), Proportion(trials=200, successes=10)),
             (
                 "no_successes_in_either_group",
                 Proportion(trials=1000, successes=0),
