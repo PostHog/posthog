@@ -19,7 +19,7 @@ EntryKey = tuple[tuple[str, ...], str, tuple[float, ...]]
 HourValue = float | list[float]
 
 
-@dataclass
+@dataclass(frozen=False)
 class Entry:
     """One kept label set's hours. `metric_type` and `bounds` tell histogram layouts apart and are empty otherwise."""
 
