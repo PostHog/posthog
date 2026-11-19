@@ -27,7 +27,7 @@ def recompute_workflows_email_sending_tiers() -> None:
         notify_email_sending_tier_changes(decisions)
     finally:
         # The worker can exit before the global client's background thread sends the tier change events.
-        posthoganalytics.flush()
+        posthoganalytics.flush(timeout_seconds=None)
     logger.info(
         "workflows_email_sending_tier_sweep_finished",
         evaluated_teams=len(decisions),

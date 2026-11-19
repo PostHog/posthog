@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -48,6 +48,8 @@ TIER_SETTINGS = {
     "WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS": 30,
     "WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES": [],
 }
+
+BACKFILL_MODULE = "products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers"
 
 
 def history(
@@ -432,7 +434,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             "pinned": False,
             "pin_changed": False,
         }
-        assert flush.called == (not by_staff)
+        assert flush.call_args_list == ([] if by_staff else [call(timeout_seconds=None)])
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None
@@ -518,8 +520,13 @@ class TestBackfillEmailSendingTiers(BaseTest):
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned}
         )
         decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
-        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+        with (
+            patch("posthog.event_usage.posthoganalytics.capture") as capture,
+            patch(f"{BACKFILL_MODULE}.posthoganalytics.flush") as flush,
+            patch(f"{BACKFILL_MODULE}.TIER_EVENTS_PER_FLUSH", 1),
+        ):
             assert BackfillCommand()._apply([decision]) == (0 if pinned else 1)
+        assert flush.call_args_list == ([] if pinned else [call(timeout_seconds=None)])
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
         assert [
             call.kwargs["properties"]["changed_by"]

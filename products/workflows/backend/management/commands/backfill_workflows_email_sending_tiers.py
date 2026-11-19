@@ -36,6 +36,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
 logger = structlog.get_logger(__name__)
 
 DEFAULT_HISTORY_DAYS = 90
+TIER_EVENTS_PER_FLUSH = 500
 
 
 class Command(BaseCommand):
@@ -84,7 +85,7 @@ class Command(BaseCommand):
         try:
             written = self._apply(decisions) if apply_changes else 0
         finally:
-            posthoganalytics.flush()
+            posthoganalytics.flush(timeout_seconds=None)
 
         self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes, written=written)
 
@@ -185,6 +186,8 @@ class Command(BaseCommand):
                 pin_change=(False, False),
                 trigger=trigger,
             )
+            if written % TIER_EVENTS_PER_FLUSH == 0:
+                posthoganalytics.flush(timeout_seconds=None)
         return written
 
     def _current_tiers(self, team_ids: Iterable[int]) -> dict[int, int]:
