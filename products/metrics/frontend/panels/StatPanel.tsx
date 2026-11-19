@@ -76,8 +76,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 sparklineHeight={GROUPED_SPARKLINE_HEIGHT}
                 className={cn(
                     '@container w-full min-w-0 px-0',
-                    single && 'h-auto',
-                    !showsSparkline && single && 'justify-center'
+                    single && ['h-auto', !showsSparkline && 'justify-center']
                 )}
             >
                 {!single && <MetricTitle>{name}</MetricTitle>}
