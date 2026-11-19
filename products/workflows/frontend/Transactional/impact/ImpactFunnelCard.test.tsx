@@ -5,6 +5,8 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
@@ -36,9 +38,11 @@ const teamWithLinkTagging = (enabled: boolean): TeamType => ({
 
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
+    let linkTaggingSaved: boolean | null
 
     beforeEach(() => {
         localStorage.clear()
+        linkTaggingSaved = null
         useMocks({
             get: {
                 '/api/projects/:team_id/transactional_email_log/impact/': ({ request }) => {
@@ -46,6 +50,10 @@ describe('ImpactFunnelCard', () => {
                     const named = new URL(request.url).searchParams.get('event')
                     return [status, named ? body : { ...(body as object), after_click: null, without_click: null }]
                 },
+                '/api/projects/:id/': () => [
+                    200,
+                    linkTaggingSaved === null ? teamLogic.values.currentTeam : teamWithLinkTagging(linkTaggingSaved),
+                ],
             },
         })
         initKeaTests()
@@ -62,6 +70,12 @@ describe('ImpactFunnelCard', () => {
                 <ToastContainer />
             </Provider>
         )
+    }
+
+    const returnToTab = async (): Promise<void> => {
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
     }
 
     it.each([
@@ -86,25 +100,24 @@ describe('ImpactFunnelCard', () => {
         }
     )
 
-    it('opens the switch in a new tab, keeping the template editor, and shows the new setting on return', async () => {
+    it('opens the switch in a new tab and shows the new setting on return', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
-        useMocks({ get: { '/api/projects/:id/': teamWithLinkTagging(true) } })
+        linkTaggingSaved = false
         answer = [200, IMPACT]
         renderCard()
 
         const link = (await screen.findByText('Needs link tagging')).closest('a') as HTMLElement
         expect(link).toHaveAttribute('target', '_blank')
         fireEvent.click(link)
-        await act(async () => {
-            window.dispatchEvent(new Event('focus'))
-        })
+        linkTaggingSaved = true
+        await returnToTab()
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
     })
 
     it('shows the new setting on return after the reader changed the period while settings was open', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
-        useMocks({ get: { '/api/projects/:id/': teamWithLinkTagging(true) } })
+        linkTaggingSaved = false
         answer = [200, IMPACT]
         render(
             <Provider>
@@ -113,13 +126,51 @@ describe('ImpactFunnelCard', () => {
         )
 
         fireEvent.click(await screen.findByText('Needs link tagging'))
+        linkTaggingSaved = true
         fireEvent.click(screen.getByText('Last 30 days'))
         fireEvent.click(await screen.findByText('Last 7 days'))
-        await act(async () => {
-            window.dispatchEvent(new Event('focus'))
-        })
+        await returnToTab()
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
+
+    it('shows a setting saved while another editor tab was active once Impact opens again', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        linkTaggingSaved = false
+        answer = [200, IMPACT]
+        const { unmount } = render(
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} />
+            </Provider>
+        )
+        await screen.findByText('Needs link tagging')
+        unmount()
+        linkTaggingSaved = true
+
+        render(
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+    })
+
+    it('links the session step again when the reader turns tagging back off', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        linkTaggingSaved = false
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByText('Needs link tagging'))
+        linkTaggingSaved = true
+        await returnToTab()
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+
+        linkTaggingSaved = false
+        await returnToTab()
+
+        expect((await screen.findByText('Needs link tagging')).closest('a')).toBeInTheDocument()
     })
 
     it('keeps the untracked note under an empty period', async () => {

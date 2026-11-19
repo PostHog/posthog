@@ -57,6 +57,7 @@ describe('emailImpactLogic', () => {
                     onRequest()
                     return answer
                 },
+                '/api/projects/:id/': () => [200, teamLogic.values.currentTeam ?? MOCK_DEFAULT_TEAM],
             },
         })
     })

@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -42,6 +43,7 @@ describe('CodeEmailTabs', () => {
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
+            '/api/projects/:id/': () => [200, teamLogic.values.currentTeam],
             '/api/environments/:team_id/hog_flows/:id/': workflow,
             '/api/projects/:team_id/transactional_email_log/impact/': {
                 sent: 10,

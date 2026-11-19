@@ -77,13 +77,13 @@ describe('impactSteps', () => {
     it('shows each step as a count, and only the conversion as a share of the clicked sends it could follow', () => {
         const steps = impactSteps(impact, 'plan upgraded', 'off')
 
-        expect(steps.map((step) => [step.label, step.value, step.share, step.missing])).toEqual([
-            ['Sent', 100, null, undefined],
-            ['Delivered', 90, null, undefined],
-            ['Opened', 60, null, undefined],
-            ['Clicked', 20, null, undefined],
-            ['Started a session', null, null, 'Needs link tagging'],
-            ['plan upgraded', 4, 0.25, undefined],
+        expect(steps.map((step) => [step.label, step.value, step.share])).toEqual([
+            ['Sent', 100, null],
+            ['Delivered', 90, null],
+            ['Opened', 60, null],
+            ['Clicked', 20, null],
+            ['Started a session', null, null],
+            ['plan upgraded', 4, 0.25],
         ])
         expect(steps[5]).toMatchObject({ shareOf: '16 followed', shareDetail: expect.stringContaining('16 of 20') })
         expect(

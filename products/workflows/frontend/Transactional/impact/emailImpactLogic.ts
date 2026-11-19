@@ -264,18 +264,16 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, cache }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadImpact()
-        // The link tagging switch opens in another tab, and the reader can come back before or after saving it there,
-        // so reload the team on every return while the session step says tagging is off. The focus event is the
-        // return itself, so the listener stays registered while the page is hidden.
+        // The link tagging switch saves in another tab, which this tab can't observe, and this tab may have been
+        // closed or showing another editor tab when the reader saved it. So reload the team when Impact opens and
+        // on each return to the page. The focus event is the return itself, so the listener stays registered
+        // while the page is hidden.
+        actions.refreshCurrentTeam()
         cache.disposables.add(
             () => {
-                const onFocus = (): void => {
-                    if (values.linkTagging === 'off') {
-                        actions.refreshCurrentTeam()
-                    }
-                }
+                const onFocus = (): void => actions.refreshCurrentTeam()
                 window.addEventListener('focus', onFocus)
                 return () => window.removeEventListener('focus', onFocus)
             },

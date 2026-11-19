@@ -5,10 +5,12 @@ import { urls } from 'scenes/urls'
 export function RunLinkTagSettingsLink({
     className,
     dataAttr,
+    onOpen,
     children,
 }: {
     className?: string
     dataAttr: string
+    onOpen?: () => void
     children: React.ReactNode
 }): JSX.Element {
     return (
@@ -18,6 +20,9 @@ export function RunLinkTagSettingsLink({
             target="_blank"
             className={className}
             data-attr={dataAttr}
+            // Capture runs before Link's own click handler, which swallows a Cmd-click or Ctrl-click.
+            onClickCapture={onOpen}
+            onAuxClick={onOpen}
         >
             {children}
         </Link>

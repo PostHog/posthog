@@ -91,7 +91,7 @@ describe('<RunLinkTagHint />', () => {
         expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
     })
 
-    it('reloads the team once per return, and not after the hint is gone', async () => {
+    it('reloads the team once per return after the reader opened settings, and not after the hint is gone', async () => {
         const teamRequests: string[] = []
         useMocks({
             get: {
@@ -108,6 +108,10 @@ describe('<RunLinkTagHint />', () => {
             },
         })
         const { unmount } = render(<RunLinkTagHint />)
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+        expect(teamRequests).toHaveLength(0)
 
         fireEvent.click(screen.getByText('Turn it off in settings'))
         fireEvent.click(screen.getByText('Turn it off in settings'))

@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -48,6 +49,10 @@ const IMPACT = {
 
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
+
+    beforeEach(() => {
+        useMocks({ get: { '/api/projects/:id/': () => [200, teamLogic.values.currentTeam] } })
+    })
 
     afterEach(() => {
         cleanup()

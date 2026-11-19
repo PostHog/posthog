@@ -136,6 +136,35 @@ describe('teamLogic', () => {
             expect(logic.values.currentTeam?.project_id).toBe(MOCK_TEAM_ID)
             expect(logic.values.currentTeam?.test_account_filters).toEqual(refreshedFilters)
         })
+
+        it('refreshCurrentTeam keeps the newest answer when an older request finishes last', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            let releaseOlder: () => void = () => {}
+            const olderHeld = new Promise<void>((resolve) => {
+                releaseOlder = resolve
+            })
+            let requests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:id': async () => {
+                        requests += 1
+                        if (requests === 1) {
+                            await olderHeld
+                            return [200, { ...tabTeam, name: 'older' }]
+                        }
+                        return [200, { ...tabTeam, name: 'newer' }]
+                    },
+                },
+            })
+
+            logic.actions.refreshCurrentTeam()
+            logic.actions.refreshCurrentTeam()
+            await expectLogic(logic).toDispatchActions(['refreshCurrentTeamSuccess'])
+            releaseOlder()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentTeam?.name).toBe('newer')
+        })
     })
 
     describe('updateCurrentTeam with a name-only payload', () => {

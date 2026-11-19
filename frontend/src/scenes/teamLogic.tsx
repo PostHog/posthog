@@ -436,18 +436,22 @@ export const teamLogic = kea<teamLogicType>([
                 // No listeners, so the late fields do not rerun what a team load triggers.
                 addFullStageTeamFields: (fields: Partial<TeamType>): TeamType | TeamPublicType | null =>
                     values.currentTeam ? ({ ...values.currentTeam, ...fields } as TeamType | TeamPublicType) : null,
-                refreshCurrentTeam: async () => {
+                refreshCurrentTeam: async (_, breakpoint) => {
                     const projectId = values.currentTeam?.project_id
                     if (!projectId) {
                         return values.currentTeam
                     }
 
+                    let refreshed: TeamType
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.get(`api/projects/${projectId}`)
+                        refreshed = await api.get(`api/projects/${projectId}`)
                     } catch {
                         return values.currentTeam
                     }
+                    // A later refresh started while this one was in flight, so its answer is the newer one.
+                    breakpoint()
+                    return refreshed
                 },
                 updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
                     if (!values.currentTeam) {
