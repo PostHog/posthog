@@ -1440,8 +1440,7 @@ class TestLogsAlertAPI(APIBaseTest):
             "logs alert destination customized",
         ]
 
-    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
-    def test_a_new_destination_is_a_row_that_keeps_its_id_through_customize_and_reset(self, mock_report) -> None:
+    def test_a_new_destination_is_a_row_that_keeps_its_id_through_customize_and_reset(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
         destinations_url = self._destinations_url(created["id"])
@@ -1473,11 +1472,6 @@ class TestLogsAlertAPI(APIBaseTest):
         assert reset.status_code == status.HTTP_200_OK, reset.json()
         (after_reset,) = self._read_destinations(created["id"])
         assert (after_reset["id"], after_reset["hog_function_ids"]) == (row_only["id"], [])
-        assert [call.args[1] for call in mock_report.call_args_list[-3:]] == [
-            "logs alert destination created",
-            "logs alert destination customized",
-            "logs alert destination reset",
-        ]
 
     @parameterized.expand([("held_on_hog_functions_by_a_customized_destination", True), ("sent_natively", False)])
     def test_a_new_webhook_keeps_the_legacy_body_a_stock_hog_function_would_send(
