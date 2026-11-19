@@ -41,7 +41,8 @@ from products.cdp.backend.services.hog_function_content import comparable_conten
 
 logger = structlog.get_logger(__name__)
 
-# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9}.
+# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
+# "control_threshold": 0.7}.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
@@ -157,7 +158,10 @@ def thresholds_for(team: Team) -> Thresholds:
         if isinstance(payload, str):
             payload = json.loads(payload)
         if isinstance(payload, dict):
-            return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]))
+            control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
+            return Thresholds(
+                alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control
+            )
     except Exception:
         logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team.id, exc_info=True)
     return Thresholds()

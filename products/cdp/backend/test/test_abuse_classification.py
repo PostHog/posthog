@@ -17,6 +17,8 @@ from products.cdp.backend.test.abuse_support import (
     decision_payload,
 )
 
+LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
+
 
 class TestAbuseClassification(AbuseClassificationTestCase):
     def test_a_saved_destination_is_scored_on_its_public_config(self) -> None:
@@ -34,18 +36,47 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     @parameterized.expand(
         [
-            ("default_thresholds", None, RULE_FREE_HOG, [], True, False),
+            ("high_control_skips_a_moderate_model_alert", SCORES, None, RULE_FREE_HOG, [], False, False),
+            ("low_control_keeps_a_moderate_model_alert", LOW_CONTROL_SCORES, None, RULE_FREE_HOG, [], True, False),
+            (
+                "high_control_still_alerts_and_blocks_at_the_block_threshold",
+                {**SCORES, "resource_exhaustion": 0.9},
+                None,
+                RULE_FREE_HOG,
+                [],
+                True,
+                True,
+            ),
             (
                 "thresholds_from_payload",
+                SCORES,
                 {"alert_threshold": 0.3, "block_threshold": 0.75},
                 RULE_FREE_HOG,
                 [],
                 True,
                 True,
             ),
-            ("invalid_payload_uses_defaults", {"alert_threshold": "high"}, RULE_FREE_HOG, [], True, False),
+            (
+                "control_threshold_from_payload",
+                SCORES,
+                {"alert_threshold": 0.5, "block_threshold": 0.9, "control_threshold": 0.99},
+                RULE_FREE_HOG,
+                [],
+                True,
+                False,
+            ),
+            (
+                "invalid_payload_uses_defaults",
+                LOW_CONTROL_SCORES,
+                {"alert_threshold": "high"},
+                RULE_FREE_HOG,
+                [],
+                True,
+                False,
+            ),
             (
                 "blocking_rule_overrides_the_model",
+                SCORES,
                 None,
                 "fetch('http://169.254.169.254/latest')",
                 ["internal_host"],
@@ -54,7 +85,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ),
             (
                 "alerting_rule_does_not_block",
+                SCORES,
                 {"alert_threshold": 0.9, "block_threshold": 0.95},
+                "fetch('https://webhook.site/0000')",
+                ["request_catcher"],
+                True,
+                False,
+            ),
+            (
+                "rule_alerts_when_high_control_skips_the_model_alert",
+                SCORES,
+                None,
                 "fetch('https://webhook.site/0000')",
                 ["request_catcher"],
                 True,
@@ -63,8 +104,16 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         ]
     )
     def test_a_verdict_is_captured_as_an_internal_event(
-        self, _name: str, payload: dict | None, hog: str, rule_hits: list[str], would_alert: bool, would_block: bool
+        self,
+        _name: str,
+        scores: dict[str, float],
+        payload: dict | None,
+        hog: str,
+        rule_hits: list[str],
+        would_alert: bool,
+        would_block: bool,
     ) -> None:
+        self.gateway.response = httpx.Response(200, json=decision_payload(scores))
         self.flags.payload = payload
         hog_function = self.create_destination(template_id="template-webhook", hog=hog)
 
@@ -84,12 +133,8 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "code_modified_from_template": None,
             "enabled": True,
             "trigger": "save",
-            "score_internal_network": 0.12,
-            "score_resource_exhaustion": 0.8,
-            "score_malformed_payload": 0.05,
-            "score_runtime_escape": 0.3,
-            "score_normal_integration": 0.95,
-            "risk_score": 0.8,
+            **{f"score_{question}": score for question, score in scores.items()},
+            "risk_score": scores["resource_exhaustion"],
             "rule_hits": rule_hits,
             "would_alert": would_alert,
             "would_block": would_block,

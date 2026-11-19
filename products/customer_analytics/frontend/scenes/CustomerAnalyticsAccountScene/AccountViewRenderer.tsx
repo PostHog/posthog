@@ -40,7 +40,10 @@ export function AccountViewRenderer({ view, accountId, externalId, projectId }: 
     const components = parseAccountViewContent(view.content).filter((component) => availableKinds.has(component.kind))
 
     return (
-        <div className="@container/account-view grid grid-cols-12 gap-3 py-3" data-attr="account-view-content">
+        <div
+            className="@container/account-view grid grid-cols-12 items-start gap-3 py-3"
+            data-attr="account-view-content"
+        >
             {components.map((component) => {
                 const instanceId =
                     getAccountViewComponentByKind(component.kind)?.remountOnConfigReload === false

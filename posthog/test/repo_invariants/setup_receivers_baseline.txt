@@ -106,6 +106,7 @@ post_delete:products.access_control.backend.facade.api.connect_access_change_rec
 post_delete:products.access_control.backend.facade.api.connect_access_change_receivers.<locals>.rule_changed
 post_delete:products.access_control.backend.property_access_control._invalidate_restriction_cache_on_change
 post_delete:products.actions.backend.models.action.action_deleted
+post_delete:products.aeo.backend.signals.bump_on_change
 post_delete:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_cache
 post_delete:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_label_cache
 post_delete:products.ai_observability.backend.models.provider_keys.provider_key_deleted
@@ -209,6 +210,7 @@ post_save:products.access_control.backend.facade.api.connect_access_change_recei
 post_save:products.access_control.backend.facade.api.connect_access_change_receivers.<locals>.rule_changed
 post_save:products.access_control.backend.property_access_control._invalidate_restriction_cache_on_change
 post_save:products.actions.backend.models.action.action_saved
+post_save:products.aeo.backend.signals.bump_on_change
 post_save:products.ai_gateway.backend.receivers._revoke_after_save
 post_save:products.ai_observability.backend.models.evaluations.evaluation_saved
 post_save:products.ai_observability.backend.models.llm_prompt.invalidate_llm_prompt_cache

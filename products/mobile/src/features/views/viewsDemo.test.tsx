@@ -1,17 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react-native'
+import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 
+import { webOverviewQuery } from '@/api/webAnalytics'
+import { useInternalUsersPreference } from '@/features/settings/internalUsersPreference'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
-import { insightQueryKey } from './items'
+import { insightQueryKey, webQueryKey } from './items'
 import { useViewsList } from './pinHooks'
 import { rangeOverride } from './rangeOverride'
 import { customRange } from './rangePresets'
 import { insightRangeKey, useViewCompareStore, useViewRangeStore, viewRangesLoaded } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { useDashboardScreen, useInsightScreen } from './viewHooks'
-import { useWebAnalyticsScreen } from './webAnalytics/hooks'
+import { useWebAnalyticsScreen, useWebBreakdownList } from './webAnalytics/hooks'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -182,5 +184,41 @@ describe('views in demo mode', () => {
 
         expect(openDashboard().result.current.range.choice).toBeNull()
         expect(openWebAnalytics().result.current.range.choice).toEqual(custom)
+    })
+
+    test('switches every Web analytics card and the full breakdown list to the filtered queries', async () => {
+        const { result, unmount } = renderHook(
+            () => ({
+                screen: useWebAnalyticsScreen({ from: 'browse' }),
+                list: useWebBreakdownList('pages', null),
+            }),
+            { wrapper }
+        )
+        try {
+            await waitFor(() => expect(result.current.screen.overview.data).toBeDefined())
+
+            act(() => useInternalUsersPreference.getState().setExclude(true))
+            expect(result.current.screen.overview.data).toBeUndefined()
+            const { screen, list } = result.current
+            for (const item of [
+                screen.trend,
+                screen.retention,
+                screen.activeHours,
+                list.data,
+                ...screen.tiles.map((tile) => tile.data),
+            ]) {
+                expect(JSON.parse(String(item.queryKey.at(-1)))).toMatchObject({ filterTestAccounts: true })
+            }
+
+            await waitFor(() => expect(result.current.screen.overview.data).toBeDefined())
+            const filteredOverviewKey = webQueryKey(
+                null,
+                webOverviewQuery({ dateFrom: '-7d', dateTo: null, compare: true, filterTestAccounts: true })
+            )
+            expect(client.getQueryData(filteredOverviewKey)).toBe(result.current.screen.overview.data)
+        } finally {
+            unmount()
+            act(() => useInternalUsersPreference.getState().setExclude(false))
+        }
     })
 })

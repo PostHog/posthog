@@ -252,7 +252,7 @@ class DeliveryUnavailable(Exception):
 
 
 class SendWarningCode(LabeledStrEnum):
-    SANDBOX_SENDER = "sandbox_sender", "Sent from the sandbox sender"
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
 
 
 @frozen
