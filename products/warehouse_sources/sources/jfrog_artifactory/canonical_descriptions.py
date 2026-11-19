@@ -127,6 +127,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "impacted_artifacts": "Artifacts impacted by the violation.",
         },
     },
+    "artifact_properties": {
+        "description": "One key/value property set on an artifact, used for metadata such as promotion status or environment labels. Queried via AQL over the items and property domains; a key with several values gives one row per value.",
+        "docs_url": "https://docs.jfrog.com/artifactory/docs/aql-entities-fields-reference",
+        "columns": {
+            "repo": "Key of the repository the artifact lives in.",
+            "path": "Folder path of the artifact within the repository.",
+            "name": "File name of the artifact.",
+            "created": "Time at which the artifact was first deployed.",
+            "key": "The property key.",
+            "value": "The property value.",
+        },
+    },
+    "release_bundles": {
+        "description": "One version of a Release Bundle v1 in Artifactory, as source (created here) or target (distributed here).",
+        "docs_url": "https://docs.jfrog.com/artifactory/reference/getallbundles",
+        "columns": {
+            "bundle_type": "Whether the bundle is a source bundle (created on this Artifactory) or a target bundle (received through distribution).",
+            "name": "Name of the release bundle.",
+            "version": "Version of the release bundle.",
+            "created": "Time at which the release bundle version was created.",
+            "status": "Status of the release bundle version.",
+        },
+    },
+    "xray_licenses": {
+        "description": "A license known to JFrog Xray, with its category and priority. Resolves the license names shown on components and violations.",
+        "docs_url": "https://docs.jfrog.com/security/reference/get-licenses",
+        "columns": {
+            "name": "Short license name, usually the SPDX identifier.",
+            "full_name": "Full license name.",
+            "references": "Reference URLs for the license text.",
+            "category": "License category, such as Permissive or Copyleft.",
+            "priority": "Priority set for the license; -1 when it uses the default priority.",
+            "default_priority": "Default priority Xray assigns to the license.",
+            "isCustom": "Whether the license is a custom license created on this instance.",
+        },
+    },
     "storage_summary": {
         "description": "Point-in-time storage summary per repository — file counts and used space — from the storageinfo API (requires an admin token).",
         "docs_url": "https://jfrog.com/help/r/jfrog-rest-apis/get-storage-summary-info",

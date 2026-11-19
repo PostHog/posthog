@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -13,6 +13,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.jfrog_artifactory.settings import (
     AQL_PAGE_SIZE,
     JFROG_ARTIFACTORY_ENDPOINTS,
+    RELEASE_BUNDLE_TYPES,
     XRAY_PAGE_SIZE,
     JfrogArtifactoryEndpointConfig,
 )
@@ -172,6 +173,10 @@ def _xray_url(base_url: str, path: str) -> str:
     return f"{normalize_base_url(base_url)}{XRAY_API_PATH}{path}"
 
 
+def _service_url(base_url: str, config: JfrogArtifactoryEndpointConfig, path: str) -> str:
+    return _xray_url(base_url, path) if config.service == "xray" else _api_url(base_url, path)
+
+
 def _headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
@@ -276,10 +281,8 @@ def _request(
     return _loads_bounded(body, url)
 
 
-def _get_json(
-    session: requests.Session, base_url: str, access_token: str, path: str, logger: FilteringBoundLogger
-) -> Any:
-    return _request(session, "GET", _api_url(base_url, path), _headers(access_token), logger)
+def _get_json(session: requests.Session, url: str, access_token: str, logger: FilteringBoundLogger) -> Any:
+    return _request(session, "GET", url, _headers(access_token), logger)
 
 
 def _post_aql(
@@ -300,6 +303,19 @@ def _post_xray(
 ) -> dict[str, Any]:
     headers = {**_headers(access_token), "Content-Type": "application/json"}
     return _request(session, "POST", _xray_url(base_url, path), headers, logger, data=json.dumps(body))
+
+
+def flatten_release_bundles(data: Any, bundle_type: str) -> list[dict[str, Any]]:
+    """Turn ``{"bundles": {"<name>": [{"version", "created", "status"}, ...]}}`` into one row per version."""
+    bundles = data.get("bundles") if isinstance(data, dict) else None
+    if not isinstance(bundles, dict):
+        return []
+    return [
+        {**version, "name": name, "bundle_type": bundle_type}
+        for name, versions in bundles.items()
+        for version in versions or []
+        if isinstance(version, dict)
+    ]
 
 
 def _strip_domain_prefix(item: dict[str, Any], domain: str) -> dict[str, Any]:
@@ -545,10 +561,20 @@ def get_rows(
     session = _get_session(access_token)
 
     if config.kind == "rest":
-        data = _get_json(session, base_url, access_token, config.path, logger)
+        data = _get_json(session, _service_url(base_url, config, config.path), access_token, logger)
         rows = (data.get(config.response_key) or []) if config.response_key else data
         if rows:
             yield rows
+        return
+
+    if config.kind == "release_bundles":
+        for bundle_type in RELEASE_BUNDLE_TYPES:
+            url = f"{_api_url(base_url, config.path)}?{urlencode({'type': bundle_type})}"
+            rows = flatten_release_bundles(_get_json(session, url, access_token, logger), bundle_type)
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
         return
 
     if config.kind == "xray":
@@ -662,10 +688,12 @@ def probe_endpoint(base_url: str, access_token: str, endpoint: str | None = None
                 stream=True,
             )
         else:
-            path = config.path if config is not None else "/repositories"
-            response = session.get(
-                _api_url(base_url, path), headers=_headers(access_token), timeout=PROBE_TIMEOUT_SECONDS, stream=True
+            url = (
+                _service_url(base_url, config, config.path)
+                if config is not None
+                else _api_url(base_url, "/repositories")
             )
+            response = session.get(url, headers=_headers(access_token), timeout=PROBE_TIMEOUT_SECONDS, stream=True)
     except ValueError:
         raise
     except Exception:

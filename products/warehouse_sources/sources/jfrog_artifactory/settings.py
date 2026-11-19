@@ -10,6 +10,9 @@ AQL_PAGE_SIZE = 1000
 # Xray's v1 violations API defaults to 25 rows per page and doesn't document a maximum.
 XRAY_PAGE_SIZE = 100
 
+# Get All Bundles returns only one bundle type per call and defaults to "target", so request both.
+RELEASE_BUNDLE_TYPES = ("source", "target")
+
 
 def _datetime_incremental_fields(*names: str) -> list[IncrementalField]:
     return [
@@ -31,9 +34,12 @@ class JfrogArtifactoryEndpointConfig:
     # endpoints page the primary domain the same way, then fetch related-domain fields (stats,
     # modules, promotions) for each chunk of that page in a second, unpaginated query, because AQL
     # ignores .sort()/.offset()/.limit() once .include() names a related domain. "xray" is the
-    # Xray v1 violations search.
-    kind: Literal["rest", "aql", "aql_related", "xray"]
-    # REST only: path under /artifactory/api, e.g. "/repositories".
+    # Xray v1 violations search. "release_bundles" reads the Release Bundles v1 listing once per
+    # bundle type and emits one row per bundle version.
+    kind: Literal["rest", "aql", "aql_related", "xray", "release_bundles"]
+    # REST only: the API a path is relative to, /artifactory/api or /xray/api.
+    service: Literal["artifactory", "xray"] = "artifactory"
+    # REST only: path under the service API, e.g. "/repositories".
     path: str = ""
     # REST only: key of the row list in the response JSON; None when the response is a bare array.
     response_key: Optional[str] = None
@@ -224,6 +230,41 @@ JFROG_ARTIFACTORY_ENDPOINTS: dict[str, JfrogArtifactoryEndpointConfig] = {
         # (watch_id, issue_id, comp_id) and is the only per-violation identifier the API returns.
         primary_keys=["violation_details_url"],
         # Needs JFrog Xray, which not every instance has.
+        should_sync_default=False,
+    ),
+    "artifact_properties": JfrogArtifactoryEndpointConfig(
+        name="artifact_properties",
+        kind="aql_related",
+        aql_domain="items",
+        # No property criteria on the paged query: AQL applies .limit() to the item-property join, so
+        # a property filter can return a short page while more items remain.
+        aql_fields=("repo", "path", "name", "created"),
+        aql_key_fields=("repo", "path", "name"),
+        aql_related_fields=("property.key", "property.value"),
+        aql_related_path=(("properties", "property"),),
+        # Property edits don't change any item timestamp AQL can filter the items domain on.
+        default_incremental_field="created",
+        partition_key="created",
+        # A key can hold several values on one artifact.
+        primary_keys=["repo", "path", "name", "key", "value"],
+        # Reads every artifact once more to fetch its properties.
+        should_sync_default=False,
+    ),
+    "release_bundles": JfrogArtifactoryEndpointConfig(
+        name="release_bundles",
+        kind="release_bundles",
+        path="/release/bundles",
+        partition_key="created",
+        primary_keys=["bundle_type", "name", "version"],
+        # Release Bundles v1 need Artifactory Enterprise+.
+        should_sync_default=False,
+    ),
+    "xray_licenses": JfrogArtifactoryEndpointConfig(
+        name="xray_licenses",
+        kind="rest",
+        service="xray",
+        path="/v1/licensesNames",
+        primary_keys=["name"],
         should_sync_default=False,
     ),
     "storage_summary": JfrogArtifactoryEndpointConfig(

@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.jfrog_artifactory.jfrog_artifactory impo
     build_related_aql_query,
     build_xray_violations_request,
     flatten_related,
+    flatten_release_bundles,
     get_rows,
     jfrog_artifactory_source,
     normalize_base_url,
@@ -152,6 +153,23 @@ class TestFlattenRelated:
                 "sha1": "b2",
             },
         ]
+
+    @parameterized.expand(
+        [
+            ("bare_nested_keys", {"properties": [{"key": "env", "value": "prod"}, {"key": "env", "value": "qa"}]}),
+            (
+                "prefixed_nested_keys",
+                {"item.properties": [{"property.key": "env", "property.value": "prod"}, {"key": "env", "value": "qa"}]},
+            ),
+        ]
+    )
+    def test_artifact_properties_one_row_per_key_value(self, _name: str, related: dict) -> None:
+        item = {"repo": "libs", "path": "com/acme", "name": "app.jar", "created": "2026-01-01", **related}
+
+        rows = list(flatten_related(JFROG_ARTIFACTORY_ENDPOINTS["artifact_properties"], item))
+
+        parent = {"repo": "libs", "path": "com/acme", "name": "app.jar", "created": "2026-01-01"}
+        assert rows == [{**parent, "key": "env", "value": "prod"}, {**parent, "key": "env", "value": "qa"}]
 
     def test_parent_without_related_entries_emits_nothing(self) -> None:
         item = {"build.name": "app", "build.number": "7", "build.created": "2026-01-01"}
@@ -466,16 +484,123 @@ class TestGetRowsXray:
 
 
 class TestGetRowsRest:
-    def test_repositories_returns_bare_array(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(
-            jfrog_artifactory,
-            "_get_json",
-            lambda session, base_url, access_token, path, logger: [{"key": "libs-release", "type": "LOCAL"}],
-        )
+    @parameterized.expand(
+        [
+            (
+                "repositories_bare_array",
+                "repositories",
+                {"https://acme.jfrog.io/artifactory/api/repositories": [{"key": "libs-release", "type": "LOCAL"}]},
+                [{"key": "libs-release", "type": "LOCAL"}],
+            ),
+            (
+                "xray_licenses_from_xray_api",
+                "xray_licenses",
+                {
+                    "https://acme.jfrog.io/xray/api/v1/licensesNames": [
+                        {"name": "MIT", "full_name": "MIT License", "category": "Permissive", "isCustom": False}
+                    ]
+                },
+                [{"name": "MIT", "full_name": "MIT License", "category": "Permissive", "isCustom": False}],
+            ),
+            (
+                "release_bundles_both_types",
+                "release_bundles",
+                {
+                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=source": {
+                        "bundles": {
+                            "web-app": [
+                                {"version": "1.0.0", "created": "2026-02-01T10:00:00.000Z", "status": "SIGNED"},
+                                {"version": "1.1.0", "created": "2026-03-01T10:00:00.000Z", "status": "OPEN"},
+                            ]
+                        }
+                    },
+                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=target": {
+                        "bundles": {
+                            "web-app": [
+                                {"version": "1.0.0", "created": "2026-02-02T10:00:00.000Z", "status": "COMPLETE"}
+                            ]
+                        }
+                    },
+                },
+                [
+                    {
+                        "version": "1.0.0",
+                        "created": "2026-02-01T10:00:00.000Z",
+                        "status": "SIGNED",
+                        "name": "web-app",
+                        "bundle_type": "source",
+                    },
+                    {
+                        "version": "1.1.0",
+                        "created": "2026-03-01T10:00:00.000Z",
+                        "status": "OPEN",
+                        "name": "web-app",
+                        "bundle_type": "source",
+                    },
+                    {
+                        "version": "1.0.0",
+                        "created": "2026-02-02T10:00:00.000Z",
+                        "status": "COMPLETE",
+                        "name": "web-app",
+                        "bundle_type": "target",
+                    },
+                ],
+            ),
+            (
+                "release_bundles_empty_source_side",
+                "release_bundles",
+                {
+                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=source": {"bundles": {}},
+                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=target": {
+                        "bundles": {
+                            "cli": [{"version": "2", "created": "2026-04-01T00:00:00.000Z", "status": "COMPLETE"}]
+                        }
+                    },
+                },
+                [
+                    {
+                        "version": "2",
+                        "created": "2026-04-01T00:00:00.000Z",
+                        "status": "COMPLETE",
+                        "name": "cli",
+                        "bundle_type": "target",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_reads_rows_from_service_url(
+        self, _name: str, endpoint: str, responses: dict[str, Any], expected: list[dict]
+    ) -> None:
+        requested: list[str] = []
 
-        rows = _collect(_FakeResumableManager(), endpoint="repositories")
+        def fake_request(session: Any, method: str, url: str, headers: dict, logger: Any, data: Any = None) -> Any:
+            requested.append(url)
+            return responses[url]
 
-        assert rows == [{"key": "libs-release", "type": "LOCAL"}]
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(jfrog_artifactory, "_request", fake_request)
+        try:
+            rows = _collect(_FakeResumableManager(), endpoint=endpoint)
+        finally:
+            monkeypatch.undo()
+
+        assert rows == expected
+        assert requested == list(responses)
+
+
+class TestFlattenReleaseBundles:
+    @parameterized.expand(
+        [
+            ("missing_bundles_key", {}),
+            ("null_bundles", {"bundles": None}),
+            ("not_an_object", []),
+            ("null_versions", {"bundles": {"web-app": None}}),
+            ("non_object_versions", {"bundles": {"web-app": ["1.0.0"]}}),
+        ]
+    )
+    def test_malformed_payload_yields_no_rows(self, _name: str, data: Any) -> None:
+        assert flatten_release_bundles(data, "target") == []
 
 
 class TestSourceResponse:
@@ -555,6 +680,23 @@ class TestProbeEndpoint:
         method, url, data = session.requests[0]
         assert (method, url) == ("POST", "https://acme.jfrog.io/xray/api/v1/violations")
         assert data is not None and json.loads(data)["pagination"]["limit"] == 1
+
+    @parameterized.expand(
+        [
+            ("xray_licenses", "https://acme.jfrog.io/xray/api/v1/licensesNames"),
+            ("release_bundles", "https://acme.jfrog.io/artifactory/api/release/bundles"),
+        ]
+    )
+    def test_rest_probe_gets_endpoint_on_its_service(self, endpoint: str, expected_url: str) -> None:
+        session = _FakeSession(status_code=200)
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(jfrog_artifactory, "_get_session", lambda access_token: session)
+        try:
+            assert probe_endpoint("https://acme.jfrog.io", "token", endpoint=endpoint) == (True, 200)
+        finally:
+            monkeypatch.undo()
+
+        assert session.requests == [("GET", expected_url, None)]
 
     def test_transport_error_returns_none_status(self, monkeypatch: Any) -> None:
         session = MagicMock()
