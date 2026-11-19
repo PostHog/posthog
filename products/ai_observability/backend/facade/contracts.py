@@ -931,6 +931,7 @@ class EvalSuggestion:
     created_evaluation: UUID | None
     target_evaluation: UUID | None
     target_evaluation_name: str | None
+    fix_problem: str | None
     similar_evaluation: UUID | None
     similar_evaluation_name: str | None
     dismiss_reason: str | None

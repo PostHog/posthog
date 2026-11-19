@@ -132,9 +132,16 @@ It runs as root inside the isolated sidecar because the controller writes `/run/
 
 Local Docker builds target the host architecture and are for smoke tests. Use the Modal builder above for the sandbox image.
 
-Both builds use digest-pinned bases and copy only Go source and module files. Pass `--build-arg COMMIT_HASH=<revision>` when building a release; local builds default to `development`. No credentials or configuration are baked in.
+Both builds cross-compile Go for the target architecture, use digest-pinned bases and copy only Go source and module files. Pass `--build-arg COMMIT_HASH=<revision>` when building a release; local builds default to `development`. No credentials or configuration are baked in.
 CI starts both images with temporary TLS material, checks readiness and verifies that a request through the relay reaches the proxy and is rejected without a capability. Run the same check locally with `bash products/tasks/services/egress-proxy/scripts/smoke_images.sh` after building the images above.
-Registry publication, certificate delivery and regional deployment remain separate work.
+After tests and image smoke checks pass, the `Agent Egress` workflow publishes multi-architecture images from GitHub-hosted Ubuntu runners on master in the repository with `CD_DEPLOY_ENABLED=true`:
+
+- `posthog-agent-egress`: the regional service.
+- `posthog-agent-egress-relay`: the Modal sidecar.
+
+Each shared-services ECR image has an immutable full-commit tag and an ordered `r<position>-<short-sha>` alias for Kargo. The workflow verifies that the alias resolves to the published digest and prints the digest in its summary. Push and manual runs for the same commit serialize, and retries reuse an existing commit image. `ORDERED_IMAGE_ALIAS_PAUSED=true` pauses publication of both tags. Pull requests only build and test; manual publication also requires master.
+
+The ECR repositories and their publisher permissions must exist before enabling publication. Consume images by digest; a release does not update the development probe's `relay_image_id` or deploy the service. Certificate delivery and regional deployment remain separate work.
 
 ### Local binaries
 

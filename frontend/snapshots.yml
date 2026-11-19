@@ -2677,9 +2677,9 @@ snapshots:
     components-product-empty-state--session-replay-waiting-for-data--light:
         hash: v1.k794b7964.b4d9936e8f82c04da619ee3824ae1166511c035beb319f72ee42f42a215888fe.oTu26l3mTGGE0ZetaCcN1wltmhVrCuCV0bwAvXTgjaY
     components-product-empty-state--skills-needs-setup--dark:
-        hash: v1.k794b7964.1bda7cec871dc0768d1d1801eef8bd5c66e70e1e7d493439ed4dad5e35e40b33.14Yy7rk5Dg6cdRkP552n4lsaUugBN8umal6s2_bFo9E
+        hash: v1.k794b7964.57986321088e76f7124eb5ff924e5941c26f56e21399729c70488696fb7e01d9.ND2O5i_sg-X0H3CSfFqkzZIKnHiUaWrA9fFqR3-SrTg
     components-product-empty-state--skills-needs-setup--light:
-        hash: v1.k794b7964.7f224f1c034e8fa826d6600a6ad8b55e50fc51e7ec3dd0ec2ae1de9e5ee6a7a9.-5vFdQrvzz4GzFGP-13eNBC69nLS2o6YKjSQEuwmZ2I
+        hash: v1.k794b7964.8ab69477c7f679cc3f5ec2926bbd4d0f38160445563a309643e06886030a1a7b.3nwYN4KFuDlGe8HfK8ZS6q2kik33MFdpbfmiRE5XVYQ
     components-product-empty-state--subscriptions-needs-setup--dark:
         hash: v1.k794b7964.afd844a74bd9b4ba5b03236f654be4f243ca4fab774d0ef2abacfc8d44833c63.1ZG-zNdVUfTwKM8eBhwgWuvgDoc-3Hz-AuyEkRhWghk
     components-product-empty-state--subscriptions-needs-setup--light:
@@ -9651,13 +9651,13 @@ snapshots:
     scenes-app-ai-observability-instrumentation-checklist-card--warnings-with-a-dismissal--light:
         hash: v1.k794b7964.b0e06944ee7afe4af8cb39363280135111e71ba215aab56a3e410c79de62238b.WtW8suUOWanaTrvjxhV2Z_ANVDRmEW3bqHpTrTe5GoI
     scenes-app-ai-observability-new-evaluation--from-scratch--dark:
-        hash: v1.k794b7964.3fa5645a531e1812f145aa82d425706876207767d9859613d00ce9b02e9744c2.ohOJXdCXsvb1jiINEOQiAy05fzqDUCYfDd-3bs-C0Sg
+        hash: v1.k794b7964.de2b8531649ff440d5001df493af35d3246273ec949b34b54e48e7122037bf17.saF6JweHf1W4m9qXoCVq3qXISv9NTMNMrcHEUMEc0p4
     scenes-app-ai-observability-new-evaluation--from-scratch--light:
-        hash: v1.k794b7964.7bf00ae1de187511b3f44cbf875f64b3917afcc7beac86643af34d24fe0ecaa5.ZBlWZivtcnUyxmuFchvwtGB3_8Td2jvKb4F1LMD1mdo
+        hash: v1.k794b7964.f59cd7d3599d7df4768e71bc25539a391b03e7b783136b884462189cc33b6390.0q5vO-MTuYzd15ISWQCOgKE-21W6h8ABVnIZZozLRCc
     scenes-app-ai-observability-new-evaluation--from-template--dark:
-        hash: v1.k794b7964.54005ef5968badd3a1ed558d8b2665452b8be43718e9a7234ebd94fadfbf191c.legO6IG6Obby2kdFwaKoiTGOM-NQMwIikLgNx0W79Ew
+        hash: v1.k794b7964.c833da9671c319e5144711b3627d90c6edd8c2c54b07ef62736b1e935460de83._g_rtzEGXplrXXpLSiQP1eV2PQ4ZkdMMYsydxQHboIo
     scenes-app-ai-observability-new-evaluation--from-template--light:
-        hash: v1.k794b7964.affe414581b68dedefe92772e5bd64ae40ae68a78d65919749f56b0d50a4308f.jtAHFeb61Ipo72JM4XoUWwYY-oPLGwBVdkeThWQ-jGE
+        hash: v1.k794b7964.b9ca4a78b2bdf86f64bc55e57bd2085e85b2eca398576dd2108597bd60ebaef8.JR083la4Pekv4tQ2M3KeYioN4olC4UtzchTUL5jsYwc
     scenes-app-ai-observability-new-evaluation--nothing-matches--dark:
         hash: v1.k794b7964.1f4454140cbe6a2d48281f285c7835a77c193be7285f4d0ba1a92590d0a68d8e.N31wXhZ2cEo02JyOYxo-9G0TTjS5wt9Mcnx-nWM1PwA
     scenes-app-ai-observability-new-evaluation--nothing-matches--light:
@@ -10827,9 +10827,9 @@ snapshots:
     scenes-app-business-knowledge-playground--chat-citations--light:
         hash: v1.k794b7964.c0228cb7c4b803c2416f6502715cb216814450a56854f265193159c17f5cd609.ojftUVMGwKclbivbpyHoBGMHXUGxBYyLpdPbILKohoU
     scenes-app-business-knowledge-playground--narrow-scene--dark:
-        hash: v1.k794b7964.4182afd8f5b39d08f225e7002c7961a928d5d4ef147984874644364b2abda895.BfX2pMuzF544UKPnPMuo5U7zl1fXXan1a17716pd3MI
+        hash: v1.k794b7964.57be56f0496e7baa264da014ea0bd1c6e70392829cb0760555299551b1dc2f68.g_YgVO4c8hsPfeR5ts6f881iUbYzMGBx3sOHt-PHXs8
     scenes-app-business-knowledge-playground--narrow-scene--light:
-        hash: v1.k794b7964.a3b20723ce034452fa4db4328f9047dc6c25efd103a35a8f893cdd996699db43.4teikk7C6j9m0H6WKekAXQCYK3tu7Z266ofs4eCGRdw
+        hash: v1.k794b7964.758bbf7360882c8791ab3eac25c09d3c38f27cc1ed751f4eee582e94b3f546ba.nIdCMYIzbXDOcKPFWap4q8d6GLdoPQPfR7-MpGquNss
     scenes-app-business-knowledge-playground--new-chat--dark:
         hash: v1.k794b7964.1f7ba14e1b2c2a59a563b3591a034f38a70c94c12505190a640beb876a878ee7.6k-euXTp7SPHOXEZByK0EItpGgea-OHOvDzYBMSSUu0
     scenes-app-business-knowledge-playground--new-chat--light:
