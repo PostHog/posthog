@@ -102,8 +102,11 @@ describe('renderEmailPreview', () => {
 
     it('renders plain text without html escaping', () => {
         expect(
-            renderEmailPreviewText('Hi {{ person.properties.company }}', { id: 'p', properties: { company: 'A&B' } })
-        ).toBe('Hi A&B')
+            renderEmailPreviewText('Hi {{ person.properties.company }} &amp; co', {
+                id: 'p',
+                properties: { company: 'A&B' },
+            })
+        ).toBe('Hi A&B &amp; co')
     })
 
     it('falls back to the template rather than throwing on a broken tag', () => {
