@@ -128,6 +128,20 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         )
         assert converted.html.strip() == html
 
+    @parameterized.expand(
+        [
+            ("before_a_body_tag", "x{<%body%>y"),
+            ("before_an_escaped_body_tag", "x{&lt;%body%&gt;y"),
+            ("before_a_tag", "x{-name-y"),
+        ]
+    )
+    def test_a_legacy_template_with_a_brace_before_a_tag_stays_as_text(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html, "generate_plain_content": False}, generation="legacy")
+
+        assert "{{{" not in converted.html
+        assert "variables." not in converted.html
+        assert "this template's tags" in " ".join(converted.notes)
+
     def test_only_a_template_with_other_tag_marks_gets_the_note_about_them(self) -> None:
         version = {"subject": "<%subject%>", "generate_plain_content": False}
         assert "%name%" not in " ".join(

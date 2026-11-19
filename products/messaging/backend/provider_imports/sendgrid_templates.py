@@ -197,6 +197,7 @@ _BLOCK_TAG = re.compile(r"\{\{ *[#/]|\{\{ *else")
 # An attribute value in quotes, other than an event handler or a style, can hold a value.
 _PLAIN_ATTRIBUTE = re.compile(r"""\s(?!on|style\b)[\w:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""", re.IGNORECASE)
 _BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
+_BRACE_BEFORE_SUBSTITUTION = re.compile(r"\{-[A-Za-z_]\w*-")
 _ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"]*[<>][^"]*"|'[^']*[<>][^']*')""")
 _LINK_LABEL = re.compile(r"<a\b[^<>]{0,2000}>((?:(?!<a\b).){0,5000}?)</a\s*>", re.DOTALL | re.IGNORECASE)
 
@@ -324,6 +325,9 @@ def _convert_legacy(source: str | None, is_html: bool, tags: list[str]) -> tuple
     converter = _Converter(is_html, False)
     if not source:
         return "", converter
+    if _BRACE_BEFORE_ASM.search(source) or _BRACE_BEFORE_SUBSTITUTION.search(source):
+        # The `{` would join the converted tag into `{{{`, so nothing converts.
+        return _kept_as_text(source, is_html, False, "put a brace right before a tag")
 
     def convert(match: re.Match[str]) -> str:
         tags.append(match.group(0))
