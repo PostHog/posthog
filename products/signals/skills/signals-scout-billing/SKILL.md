@@ -1,5 +1,6 @@
 ---
 name: signals-scout-billing
+disable-model-invocation: true
 scout-display-name: Billing
 description: >
   Signals scout for the organization's own PostHog bill. Watches this project's billed usage per
