@@ -188,10 +188,16 @@ TRIGGERED_BY_MONITORING = "monitoring"
 # high-volume event would otherwise fire hundreds of times an hour. 30 minutes is the floor the
 # system already applies to `run_interval_minutes` for the same worker-pool reason, and it bounds
 # the workflow path at 48 runs/day/skill regardless of how the workflow is configured. A fire this
-# gate or the in-flight gate turns away is queued (`workflow_trigger_queue.py`). The coordinator
-# drains a lane's queue into one run per tick without checking this cooldown again, because ticks
-# are already one window apart, so a burst still costs at most one extra run per window.
+# gate or the in-flight gate turns away is queued (`workflow_trigger_queue.py`), and the coordinator
+# drains a lane's queue into at most one run per tick under `WORKFLOW_DRAIN_COOLDOWN_S`.
 WORKFLOW_RUN_COOLDOWN_S = 30 * 60
+
+# The part of `WORKFLOW_RUN_COOLDOWN_S` that the coordinator drain enforces. A lane the drain defers
+# waits one more tick, so the drain lets a queued fire run when its cooldown ends before that tick.
+# A drained run therefore starts at most one tick before the full cooldown ends. This is zero while
+# the tick and the cooldown are equal. It grows when the tick gets shorter, so a faster tick cannot
+# let a lane with queued fires run at tick cadence.
+WORKFLOW_DRAIN_COOLDOWN_S = max(0, WORKFLOW_RUN_COOLDOWN_S - COORDINATOR_INTERVAL_MINUTES * 60)
 
 # Cap on the fires one scout keeps queued while it is busy. Each one renders a line in the run that
 # drains them, so the cap also bounds that prompt section. The oldest fire drops first when full.

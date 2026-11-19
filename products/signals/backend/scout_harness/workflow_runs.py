@@ -30,6 +30,7 @@ from posthog.models import Team
 from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.limits import WORKFLOW_DRAIN_COOLDOWN_S
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
     ScoutRunRejectionKind,
@@ -275,13 +276,13 @@ def drain_pending_workflow_triggers(excluded_lanes: set[tuple[int, str]]) -> Dra
     `excluded_lanes` are the lanes the coordinator dispatches on schedule this tick. Their fires
     ride on that run, or wait for the next tick when it could not take them.
 
-    Each lane passes the checks a live fire does, except the cooldown: the scout must still exist
-    and accept workflow triggers, the fleet and spend gates must allow a run, and no run may be live.
-    The cooldown is skipped because a queued fire has already waited for this tick, and the drain
-    starts at most one run per lane per tick, which keeps the lane inside the same one-run-per-window
-    bound. Checking it again would make a fire that just missed the cooldown also wait for the next
-    tick. A lane that fails a check keeps its fires, except a scout that no longer
-    exists, whose fires can never run and are dropped.
+    Each lane passes the checks a live fire does, with a shorter cooldown: the scout must still
+    exist and accept workflow triggers, the fleet and spend gates must allow a run, the
+    `WORKFLOW_DRAIN_COOLDOWN_S` cooldown must have passed, and no run may be live. The full cooldown
+    would make a fire that just missed it also wait for the next tick. So a drained run can start up
+    to one tick before the full cooldown ends, and the drain starts at most one run per lane per
+    tick. A lane that fails a check keeps its fires, except a scout that no longer exists, whose
+    fires can never run and are dropped.
     """
     from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 — see start_workflow_scout_run
         start_workflow_signals_scout_run,
@@ -355,6 +356,7 @@ def _drain_blocker(lane: PendingTriggerLane) -> str | None:
     for rejection in (
         check_fleet_gates(lane.team_id),
         check_spend_gates(team, capture_analytics=False),
+        check_workflow_cooldown(lane.team_id, lane.skill_name, cooldown_s=WORKFLOW_DRAIN_COOLDOWN_S),
         check_run_in_flight(lane.team_id, lane.skill_name),
     ):
         if rejection is not None:

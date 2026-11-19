@@ -50,6 +50,7 @@ _DISPATCH = "products.signals.backend.temporal.agentic.scout_scheduler.start_wor
 _CONNECT = "products.signals.backend.scout_harness.workflow_runs.sync_connect"
 _FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _DAILY_LIMIT = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
+_DRAIN_COOLDOWN = "products.signals.backend.scout_harness.workflow_runs.WORKFLOW_DRAIN_COOLDOWN_S"
 _COLLISION = WorkflowAlreadyStartedError("wf", "RunSignalsScout")
 
 
@@ -327,11 +328,19 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         assert self.last_dispatch.call_args.kwargs["pending_trigger_ids"] == self._pending_ids()
         assert len(self._pending()) == 2
 
-    @parameterized.expand(["in_flight", "paused", "daily_report_limit", "collision", "dispatch_error"])
+    @parameterized.expand(
+        ["drain_cooldown", "in_flight", "paused", "daily_report_limit", "collision", "dispatch_error"]
+    )
     def test_a_lane_that_cannot_run_keeps_its_fires_for_a_later_tick(self, blocker: str) -> None:
         self._queue("Issue #1")
         dispatch_error: BaseException | None = None
-        if blocker == "in_flight":
+        if blocker == "drain_cooldown":
+            # A tick shorter than the workflow cooldown leaves the drain a cooldown of its own.
+            drain_cooldown = patch(_DRAIN_COOLDOWN, 20 * 60)
+            drain_cooldown.start()
+            self.addCleanup(drain_cooldown.stop)
+            self._seed_run(triggered_by=TRIGGERED_BY_WORKFLOW, age=timedelta(minutes=5))
+        elif blocker == "in_flight":
             self._seed_run(triggered_by=None, status=TaskRun.Status.IN_PROGRESS)
         elif blocker == "paused":
             self.config.status = SignalScoutConfig.Status.PAUSED_BY_USER

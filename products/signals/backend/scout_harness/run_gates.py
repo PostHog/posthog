@@ -184,8 +184,10 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     )
 
 
-def check_workflow_cooldown(team_id: int, skill_name: str) -> ScoutRunRejection | None:
-    """Reject a workflow-triggered fire inside `WORKFLOW_RUN_COOLDOWN_S` of the previous one.
+def check_workflow_cooldown(
+    team_id: int, skill_name: str, cooldown_s: int = WORKFLOW_RUN_COOLDOWN_S
+) -> ScoutRunRejection | None:
+    """Reject a workflow-triggered fire inside `cooldown_s` of the previous one.
 
     Counts only prior *workflow* fires: letting a scheduled patrol or a human's "Run now" extend
     the cooldown would make this path's behaviour depend on unrelated activity. Measured from run
@@ -198,7 +200,9 @@ def check_workflow_cooldown(team_id: int, skill_name: str) -> ScoutRunRejection 
     gate. Within this path Temporal's id-conflict policy closes that gap; across paths it stays
     open, the same pre-existing race the scheduled and manual paths already have with each other.
     """
-    cutoff = timezone.now() - timedelta(seconds=WORKFLOW_RUN_COOLDOWN_S)
+    if cooldown_s <= 0:
+        return None
+    cutoff = timezone.now() - timedelta(seconds=cooldown_s)
     recent = (
         SignalScoutRun.objects.for_team(team_id)
         .filter(
@@ -213,5 +217,5 @@ def check_workflow_cooldown(team_id: int, skill_name: str) -> ScoutRunRejection 
     return ScoutRunRejection(
         kind=ScoutRunRejectionKind.THROTTLED,
         reason="workflow_cooldown",
-        detail=(f"This scout was already run from a workflow in the last {WORKFLOW_RUN_COOLDOWN_S // 60} minutes."),
+        detail=(f"This scout was already run from a workflow in the last {cooldown_s // 60} minutes."),
     )
