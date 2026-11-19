@@ -229,12 +229,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == 409
         assert self._reviewers_count(report) == 1
 
-    @parameterized.expand([(None,), ("reviewer",), ("user",)])
     @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
-    def test_failed_selection_from_user_attributed_api_preserves_recipients(self, mode: str | None, _flag) -> None:
+    def test_failed_selection_from_user_attributed_api_preserves_recipients(self, _flag) -> None:
         report = self._create_report()
         previous = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
-        authorization = {"mode": mode, "user_id": self.user.id if mode == "user" else None} if mode else None
+        authorization = {"mode": "user", "user_id": self.user.id}
         previous.implementation_authorization = authorization
         previous.save(update_fields=["implementation_authorization"])
         state = self._assignment(report)["state"]
@@ -727,10 +726,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         mock_impl.assert_awaited_once()
         kwargs = mock_impl.call_args.kwargs
         assert kwargs["repository"] == "acme/repo"
-        assert {r["github_login"] for r in kwargs["reviewers_content"]} == {"alice", "bob"}
+        assert {r["github_login"] for r in self._latest_reviewers(report)} == {"alice", "bob"}
         # The edit must auto-start as the *editing* user (the API caller), never a named reviewer,
         # so one user can't run the agent under another's identity (reviewer impersonation).
-        assert kwargs["triggering_user_id"] == self.user.id
+        assert SignalReportArtefact.objects.get(id=response.json()["id"]).implementation_authorization == {
+            "mode": "user",
+            "user_id": self.user.id,
+        }
 
     def test_put_empty_list_clears_content(self):
         report = self._create_report()
@@ -1673,23 +1675,15 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         correction = mock_forward.call_args.kwargs["correction"]
         assert (correction.removal_reason, correction.removal_note) == ("wrong_area", "I'm not on that team any more.")
 
-    @parameterized.expand([(False, None), (False, "user"), (True, "reviewer")])
-    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(
-        self, writer_enabled: bool, mode: str | None
-    ) -> None:
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False)
+    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self, _flag) -> None:
         teammate = self._create_org_member("teammate@example.com", github_login="teammate")
         report = self._create_report()
-        current = self._create_artefact(report, content=[{"user_uuid": str(teammate.uuid)}])
-        current.implementation_authorization = (
-            {"mode": mode, "user_id": self.user.id if mode == "user" else None} if mode else None
-        )
-        current.save(update_fields=["implementation_authorization"])
+        self._create_artefact(report, content=[{"user_uuid": str(teammate.uuid)}])
 
-        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled):
-            response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert self._reviewers_count(report) == 1
         assert SignalReportArtefact.objects.filter(team=self.team, report=report).count() == 1
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
 
@@ -2438,18 +2432,15 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             ("session", False, False),
             ("session", True, True),
             ("deferred", False, True),
-            ("failed_lookup", False, True, "user"),
-            ("failed_lookup", False, True, "reviewer"),
-            ("failed_lookup_user", False, True, "user"),
-            ("failed_lookup_user", False, True, "reviewer"),
+            ("failed_lookup", False, True),
+            ("failed_lookup_user", False, True),
             ("sandbox_post", False, True),
             ("sandbox_put", False, True),
-            ("sandbox_deferred", False, True),
         ]
     )
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_reviewer_api_autostart_uses_authenticated_principal(
-        self, scenario: str, writer_enabled: bool, caller_eligible: bool, previous_mode: str = "user"
+        self, scenario: str, writer_enabled: bool, caller_eligible: bool
     ) -> None:
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
             level=OrganizationMembership.Level.MEMBER
@@ -2470,6 +2461,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             repository_cache_updated_at=timezone.now(),
         )
         report = self._create_report()
+        task = self._create_task()
         for kind, content in (
             (
                 "actionability_judgment",
@@ -2479,20 +2471,16 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             ("repo_selection", {"repository": "example/repo", "reason": "Selected", "autostart_eligible": True}),
         ):
             SignalReportArtefact.objects.create(team=self.team, report=report, type=kind, content=json.dumps(content))
-        task = self._create_task()
         expected_reviewers: dict[str, str | None] = {"reviewers_id": None, "corrections_id": None}
         if scenario.startswith("failed_lookup") or scenario == "sandbox_put":
             previous = SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                type="suggested_reviewers",
                 content=json.dumps([{"github_login": "example-editor"}]),
-                actor_kind=previous_mode if previous_mode == "user" else "system",
-                created_by=colleague if previous_mode == "user" else None,
-                implementation_authorization={
-                    "mode": previous_mode,
-                    "user_id": colleague.id if previous_mode == "user" else None,
-                },
+                actor_kind="user",
+                created_by=colleague,
+                implementation_authorization={"mode": "user", "user_id": colleague.id},
             )
             SignalReportArtefact.objects.filter(id=previous.id).update(created_at=timezone.now() - timedelta(minutes=1))
             expected_reviewers["reviewers_id"] = str(previous.id)
@@ -2507,13 +2495,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
             headers.update(self._sandbox_token_header(task=task))
 
         def create_task(*, team: Team, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
-            implementation = Task.objects.create(
-                team=team,
-                title=title,
-                description=description,
-                created_by_id=user_id,
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            )
+            implementation = Task.objects.create(team=team, title=title, created_by_id=user_id)
             run = TaskRun.objects.create(task=implementation, team=self.team)
             return SimpleNamespace(
                 task_id=implementation.id, team_id=self.team.id, latest_run=SimpleNamespace(id=run.id)

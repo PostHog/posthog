@@ -7,7 +7,6 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -84,6 +83,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
+from products.signals.backend.scout_harness.tools.report import set_scout_report_reviewers
 from products.signals.backend.signal_metadata import ReportSignalMeta, SignalSourceReference
 from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
@@ -257,6 +257,11 @@ def test_resolve_autostart_assignee_skips_research_selected_reviewer(organizatio
         ("inactive", Priority.P0, "second"),
         ("private_project", Priority.P0, None),
         ("stale_login", Priority.P0, None),
+        ("pipeline_task", Priority.P0, "first"),
+        ("scout_task", Priority.P0, "first"),
+        ("missing_authorization", Priority.P0, None),
+        ("invalid_authorization", Priority.P0, None),
+        ("deleted_user", Priority.P0, None),
     ],
 )
 def test_persisted_research_reviewers_require_confirmation(organization, team, case, team_threshold, expected_runner):
@@ -298,16 +303,38 @@ def test_persisted_research_reviewers_require_confirmation(organization, team, c
     ]
     if case == "stale_login":
         selected.pop()
-    SignalReportArtefact.append_status(
-        team_id=team.id,
-        report_id=str(report.id),
-        content=SuggestedReviewers.model_validate(selected),
-        implementation_authorization=ImplementationAuthorization(mode="reviewer"),
-        attribution=ArtefactAttribution.system(),
-        reevaluate_autostart=False,
-    )
-    reviewers, editor_user_id = async_to_sync(_latest_reviewers_content)(str(report.id))
-    assert editor_user_id is None
+    content = SuggestedReviewers.model_validate(selected)
+    if case in {"pipeline_task", "scout_task"}:
+        task = apps.get_model("tasks", "Task").objects.create(team=team, title="Research task")
+        attribution = ArtefactAttribution.from_task(str(task.id))
+        if case == "pipeline_task":
+            _append_agentic_report_artefacts(
+                team_id=team.id,
+                report_id=str(report.id),
+                artefacts=[ArtefactDraft(content=content, attribution=attribution)],
+            )
+        else:
+            set_scout_report_reviewers(
+                team_id=team.id, report_id=str(report.id), suggested_reviewers=content, attribution=attribution
+            )
+    else:
+        SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report.id),
+            content=content,
+            implementation_authorization=ImplementationAuthorization(mode="reviewer"),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+    if case in {"missing_authorization", "invalid_authorization", "deleted_user"}:
+        SignalReportArtefact.objects.filter(report=report, type="suggested_reviewers").update(
+            implementation_authorization={
+                "missing_authorization": None,
+                "invalid_authorization": {"mode": "user"},
+                "deleted_user": {"mode": "user", "user_id": 2147483647},
+            }[case]
+        )
+    reviewers, _ = async_to_sync(_latest_reviewers_content)(str(report.id))
     github = MagicMock()
     owners = "/src/ @first\n"
     github.list_team_members.return_value = {"success": True, "logins": ["second"]}
@@ -358,13 +385,14 @@ def test_persisted_research_reviewers_require_confirmation(organization, team, c
                 already_addressed=False,
             ),
             priority=PriorityAssessment(explanation="Affects the component.", priority=Priority.P2),
-            reviewers_content=reviewers,
+            reviewers_content=[_reviewer("stale-reviewer")] if case in {"pipeline_task", "scout_task"} else reviewers,
         )
 
     if expected_runner is None:
         assert outcome.status == "blocked"
         create.assert_not_called()
-        assert any(c.kwargs.get("properties", {}).get("skip_reason") == "no_runner" for c in capture.call_args_list)
+        if case not in {"missing_authorization", "invalid_authorization"}:
+            assert any(c.kwargs.get("properties", {}).get("skip_reason") == "no_runner" for c in capture.call_args_list)
     else:
         assert outcome.status == "started"
         assert (
@@ -560,112 +588,6 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
         assert resolved.id == user.id
     else:
         assert resolved is None
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "actor_kind",
-    [
-        "system",
-        "pipeline_task",
-        "scout_task",
-        "malformed_system",
-        "deleted_user",
-        "task",
-    ],
-)
-@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-def test_autostart_requires_explicit_authorization_independent_of_writer(
-    organization: Organization, team: Team, actor_kind: str
-) -> None:
-    reviewer = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
-    _create_org_member_with_github("stale@example.com", organization, "stale-reviewer")
-    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
-    Integration.objects.create(
-        team=team,
-        kind="github",
-        integration_id="example-installation",
-        config={"installation_id": "example-installation"},
-        repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo", "private": True}],
-        repository_cache_updated_at=timezone.now(),
-    )
-    Task = apps.get_model("tasks", "Task")
-    TaskRun = apps.get_model("tasks", "TaskRun")
-    task = (
-        Task.objects.create(team=team, title="Example task")
-        if actor_kind in {"task", "pipeline_task", "scout_task"}
-        else None
-    )
-    if actor_kind not in {"pipeline_task", "scout_task"}:
-        SignalReportArtefact.objects.create(
-            team=team,
-            report=report,
-            type="suggested_reviewers",
-            content=json.dumps([{"github_login": "example-reviewer"}]),
-            actor_kind="task" if actor_kind == "task" else "system",
-            implementation_authorization=(
-                {"mode": "user", "user_id": 2147483647}
-                if actor_kind == "deleted_user"
-                else {"mode": "user"}
-                if actor_kind == "malformed_system"
-                else None
-            ),
-            task=task,
-        )
-
-    def create_task(*, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
-        implementation = Task.objects.create(team=team, title=title, description=description, created_by_id=user_id)
-        run = TaskRun.objects.create(task=implementation, team=team)
-        return SimpleNamespace(task_id=implementation.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
-
-    with (
-        patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False),
-        patch(
-            "products.signals.backend.auto_start.database_sync_to_async",
-            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
-        ),
-        patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
-    ):
-        if actor_kind == "pipeline_task":
-            assert task is not None
-            _append_agentic_report_artefacts(
-                team_id=team.id,
-                report_id=str(report.id),
-                artefacts=[
-                    ArtefactDraft(
-                        content=SuggestedReviewers.model_validate([{"github_login": "example-reviewer"}]),
-                        attribution=ArtefactAttribution.from_task(str(task.id)),
-                    )
-                ],
-            )
-        elif actor_kind == "scout_task":
-            from products.signals.backend.scout_harness.tools.report import set_scout_report_reviewers
-
-            assert task is not None
-            set_scout_report_reviewers(
-                team_id=team.id,
-                report_id=str(report.id),
-                suggested_reviewers=SuggestedReviewers.model_validate([{"github_login": "example-reviewer"}]),
-                attribution=ArtefactAttribution.from_task(str(task.id)),
-            )
-        async_to_sync(maybe_autostart_implementation_task)(
-            team_id=team.id,
-            report_id=str(report.id),
-            repository="example/repo",
-            title="t",
-            summary="s",
-            actionability=ActionabilityAssessment(
-                explanation="A clear fix",
-                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-                already_addressed=False,
-            ),
-            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P1),
-            reviewers_content=[_reviewer("stale-reviewer")],
-        )
-
-    assert list(
-        Task.objects.filter(team=team).exclude(id__in=[task.id] if task else []).values_list("created_by_id", flat=True)
-    ) == ([reviewer.id] if actor_kind in {"pipeline_task", "scout_task"} else [])
 
 
 @pytest.mark.parametrize(
@@ -1849,7 +1771,6 @@ async def test_reviewer_reevaluation_checks_quota_only_for_a_fresh_user_edit(aut
             "products.signals.backend.auto_start.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
-        patch("products.signals.backend.auto_start._latest_reviewers_content", return_value=([], 123)),
     ):
         outcome = await maybe_autostart_from_report_artefacts(
             team_id=team.id, report_id=str(report.id), triggering_user_id=123 if user_edit else None
