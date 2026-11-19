@@ -141,17 +141,19 @@ target/debug/personhog-test-harness gate --publish --pg-target-table posthog_per
 
 ### Changelog followers
 
-`--followers N` spawns N follower replicas and checks followed reads two ways: live, a read one second after each acked probe write must show it or be refused, and at the end every acked write must be visible through a follower.
+`--followers N` spawns N follower replicas and checks followed reads two ways: live, a read two seconds after each acked probe write must show it, and at the end every acked write must be visible through a followed read. A follower that cannot answer leaves the read to Postgres, so the stack runs on `posthog_person`, the table a replica reads, and `--followers` refuses any other `--pg-target-table`.
+With `--migrate-pause-writer` only the end-of-run check applies: every follower rebuilds during a migration, and Postgres answers for them from as far back as the pause.
 
 ```bash
 # Followed reads while Postgres does not hold the writes yet
-cargo run -p personhog-test-harness -- gate --followers 2 \
+cargo run -p personhog-test-harness -- gate --followers 2 --pg-target-table posthog_person \
   --writer-pause-after 1s --verify-followers-before-writer-resume
 
 # A follower crash and restart, and a partition-count migration
-cargo run -p personhog-test-harness -- gate --followers 2 --follower-crash-after 6s
-cargo run -p personhog-test-harness -- gate --followers 2 --partitions 4 \
-  --migrate-after 8s --migrate-to-partitions 8
+cargo run -p personhog-test-harness -- gate --followers 2 --pg-target-table posthog_person \
+  --follower-crash-after 6s
+cargo run -p personhog-test-harness -- gate --followers 2 --pg-target-table posthog_person \
+  --partitions 4 --migrate-after 8s --migrate-to-partitions 8
 ```
 
 ### Chaos disruptions

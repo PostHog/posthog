@@ -328,19 +328,20 @@ pub async fn verify_strong(
     Ok(all_violations)
 }
 
-/// How long a followed read may be refused before it counts as a failure: a follower
-/// that just took a partition is still catching up.
+/// How long a followed read may be behind before it counts as a failure: a follower that
+/// just took a partition is still catching up, and Postgres answers for it meanwhile.
 const FOLLOWED_READ_DEADLINE: Duration = Duration::from_secs(20);
 
-/// Every acked write must be visible through a follower once traffic has stopped. The
-/// writer may not have applied the newest writes, so this is the changelog's view.
+/// Every acked write must be visible through a followed read once traffic has stopped.
+/// While the writer has not applied the newest writes, only a follower can show them.
 pub async fn verify_followed(
     client: &HarnessClient,
     state: &PersonState,
     team_id: i64,
 ) -> Result<Vec<ConsistencyViolation>> {
     // One deadline for the whole pass: a follower may answer from up to its staleness
-    // threshold ago, or refuse while it recovers, and neither is a violation until it lasts.
+    // threshold ago, and Postgres answers while it recovers. Neither is a violation until
+    // it lasts.
     let deadline = Instant::now() + FOLLOWED_READ_DEADLINE;
     let mut all_violations = Vec::new();
     for person_id in state.person_ids().await {
@@ -380,7 +381,7 @@ async fn followed_violations(
         }
         Ok(None) => vec![ConsistencyViolation {
             person_id,
-            key: "__missing_from_follower".to_string(),
+            key: "__missing_from_followed_read".to_string(),
             expected: json!("person with acked writes exists"),
             actual: Value::Null,
         }],

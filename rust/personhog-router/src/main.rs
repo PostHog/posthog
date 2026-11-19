@@ -74,39 +74,103 @@ fn coordinator_config(config: &Config) -> CoordinatorConfig {
 /// router is a coordinator candidate.
 type FollowerHandles = (lifecycle::Handle, Option<lifecycle::Handle>);
 
-/// Join each follower instance as a router and, where enabled, as a coordinator
-/// candidate. Each instance keeps its own registrations and assignments under its own
-/// prefix and takes the changelog config from the leaders' prefix. `None` is a shutdown
-/// that arrived before the config could be read.
-async fn start_followers(
+/// How long a router that could not join its follower instances waits before it tries again.
+const FOLLOWER_JOIN_RETRY: Duration = Duration::from_secs(5);
+
+/// Join each follower instance in the background. Until that is done, a replica answers
+/// every read.
+fn start_followers(
     config: &Config,
     instances: Vec<(FollowerInstanceSpec, FollowerHandles)>,
     changelog_handle: lifecycle::Handle,
-) -> Option<Arc<FollowerBackend>> {
+) -> Arc<FollowerBackend> {
+    let backend = Arc::new(FollowerBackend::new(
+        Duration::from_millis(config.follower_connect_timeout_ms),
+        Duration::from_millis(config.follower_request_timeout_ms),
+    ));
+    tokio::spawn(join_followers(
+        config.clone(),
+        instances,
+        changelog_handle,
+        Arc::clone(&backend),
+    ));
+    backend
+}
+
+/// One follower instance's store, once etcd can be reached. `None` is a shutdown.
+async fn follower_store(
+    config: &Config,
+    spec: &FollowerInstanceSpec,
+    shutdown: &CancellationToken,
+) -> Option<Arc<PersonhogStore>> {
+    loop {
+        let connect = EtcdStore::connect_with_member_failover(StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: spec.etcd_prefix.clone(),
+        });
+        let connected = tokio::select! {
+            () = shutdown.cancelled() => return None,
+            connected = connect => connected,
+        };
+        match connected {
+            Ok(store) => {
+                let store = PersonhogStore::new(store).with_config_prefix(&config.etcd_prefix);
+                return Some(Arc::new(store));
+            }
+            Err(e) => {
+                tracing::warn!(instance = %spec.name, error = %e, "could not connect to etcd for a follower instance");
+            }
+        }
+        tokio::select! {
+            () = shutdown.cancelled() => return None,
+            () = tokio::time::sleep(FOLLOWER_JOIN_RETRY) => {}
+        }
+    }
+}
+
+/// The changelog config, once it can be read. `None` is a shutdown.
+async fn follower_changelog(
+    store: &Arc<PersonhogStore>,
+    shutdown: &CancellationToken,
+) -> Option<LiveChangelog> {
+    loop {
+        match load_changelog_config(store, CHANGELOG_BOOT_POLL_INTERVAL, shutdown).await {
+            Ok(loaded) => return loaded.map(LiveChangelog::new),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not load the changelog config from etcd");
+            }
+        }
+        tokio::select! {
+            () = shutdown.cancelled() => return None,
+            () = tokio::time::sleep(FOLLOWER_JOIN_RETRY) => {}
+        }
+    }
+}
+
+/// Join each follower instance as a router and, where enabled, as a coordinator
+/// candidate. Each instance keeps its own registrations and assignments under its own
+/// prefix and takes the changelog config from the leaders' prefix.
+async fn join_followers(
+    config: Config,
+    instances: Vec<(FollowerInstanceSpec, FollowerHandles)>,
+    changelog_handle: lifecycle::Handle,
+    backend: Arc<FollowerBackend>,
+) {
+    let shutdown = changelog_handle.shutdown_token();
     let mut backends = Vec::with_capacity(instances.len());
     let mut changelog: Option<LiveChangelog> = None;
     let mut changelog_handle = Some(changelog_handle);
     for (spec, (table_handle, coordinator_handle)) in instances {
         tracing::info!(instance = %spec.name, prefix = %spec.etcd_prefix, "joining a follower instance");
-        let etcd_store = EtcdStore::connect_with_member_failover(StoreConfig {
-            endpoints: config.etcd_endpoint_list(),
-            prefix: spec.etcd_prefix.clone(),
-        })
-        .await
-        .expect("Failed to connect to etcd for a follower instance");
-        let store =
-            Arc::new(PersonhogStore::new(etcd_store).with_config_prefix(&config.etcd_prefix));
+        let Some(store) = follower_store(&config, &spec, &shutdown).await else {
+            return;
+        };
 
         // Every instance reads the same config, so the first one's store keeps it live.
         if let Some(handle) = changelog_handle.take() {
-            let loaded = load_changelog_config(
-                &store,
-                CHANGELOG_BOOT_POLL_INTERVAL,
-                &handle.shutdown_token(),
-            )
-            .await
-            .expect("Failed to load the changelog config from etcd")?;
-            let live = LiveChangelog::new(loaded);
+            let Some(live) = follower_changelog(&store, &shutdown).await else {
+                return;
+            };
             changelog = Some(live.clone());
             let store = Arc::clone(&store);
             tokio::spawn(async move {
@@ -124,7 +188,7 @@ async fn start_followers(
             });
         }
 
-        let routing_table = RoutingTable::new(Arc::clone(&store), routing_table_config(config));
+        let routing_table = RoutingTable::new(Arc::clone(&store), routing_table_config(&config));
         let addresses = routing_table.addresses_handle();
         backends.push(FollowerInstance {
             name: Arc::from(spec.name.as_str()),
@@ -150,7 +214,7 @@ async fn start_followers(
         if let Some(handle) = coordinator_handle {
             let coordinator = Coordinator::new(
                 store,
-                coordinator_config(config),
+                coordinator_config(&config),
                 Arc::new(StickyBalancedStrategy),
                 None,
             );
@@ -160,11 +224,9 @@ async fn start_followers(
             });
         }
     }
-    Some(Arc::new(FollowerBackend::new(
-        backends,
-        changelog?,
-        Duration::from_millis(config.follower_attempt_timeout_ms),
-    )))
+    if let Some(changelog) = changelog {
+        backend.join(backends, changelog);
+    }
 }
 
 #[tokio::main]
@@ -561,13 +623,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let follower_backend = match follower_changelog_handle {
-        Some(handle) => match start_followers(&config, follower_instances, handle).await {
-            Some(backend) => Some(backend),
-            None => return Ok(()),
-        },
-        None => None,
-    };
+    let follower_backend = follower_changelog_handle
+        .map(|handle| start_followers(&config, follower_instances, handle));
 
     // gRPC server
     let grpc_addr = config.grpc_address;

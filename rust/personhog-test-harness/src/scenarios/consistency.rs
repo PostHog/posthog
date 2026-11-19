@@ -176,9 +176,9 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
 /// legitimately fail while a killed owner's partitions are in limbo, and
 /// end-of-run verification owns readability.
 /// A follower may trail the changelog by its staleness threshold, so the acked write is
-/// read back only after `within`. From then on a follower either shows it or refuses:
-/// answering without it is a stale read. A refusal is not a violation, the same as a
-/// failed strong read.
+/// read back only after `within`. From then on the read must show it, whether a follower
+/// answers or Postgres does for a follower that cannot. A failed read is not a violation,
+/// the same as a failed strong read.
 async fn followed_read_shows(
     client: HarnessClient,
     state: PersonState,

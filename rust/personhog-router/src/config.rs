@@ -224,10 +224,16 @@ pub struct Config {
     #[envconfig(default = "")]
     pub follower_instances: String,
 
-    /// How long one follower may take before the read moves on to the next instance. Short,
-    /// because a follower that died is still the listed owner until its lease expires.
+    /// How long connecting to one follower may take before the read moves on to the next
+    /// instance. Short, because a follower that died is still the listed owner until its
+    /// lease expires.
     #[envconfig(default = "250")]
-    pub follower_attempt_timeout_ms: u64,
+    pub follower_connect_timeout_ms: u64,
+
+    /// How long a connected follower may take to answer before the read goes to any
+    /// replica.
+    #[envconfig(default = "1000")]
+    pub follower_request_timeout_ms: u64,
 
     /// The follower instance to try first, normally the one in this router's zone.
     #[envconfig(default = "")]
@@ -853,18 +859,18 @@ impl Config {
         Duration::from_secs(self.heartbeat_interval_secs)
     }
 
-    /// Refuse a heartbeat the lease cannot survive: a zero interval
-    /// times out every renewal instantly and a slow one sleeps through
-    /// the margin, so either exhausts the lease against healthy etcd
-    /// and the participant keeps leaving mid-handoff. The coordinator
-    /// election lease runs the same keepalive with its own knobs, so it
-    /// gets the same refusal.
     /// Whether this router registers with a coordination instance: the leaders', in
     /// leader mode, or a follower instance's.
     fn holds_routing_tables(&self) -> bool {
         self.router_mode == RouterMode::Leader || !self.follower_instances.trim().is_empty()
     }
 
+    /// Refuse a heartbeat the lease cannot survive: a zero interval
+    /// times out every renewal instantly and a slow one sleeps through
+    /// the margin, so either exhausts the lease against healthy etcd
+    /// and the participant keeps leaving mid-handoff. The coordinator
+    /// election lease runs the same keepalive with its own knobs, so it
+    /// gets the same refusal.
     pub fn validate_lease_timescales(&self) -> Result<(), String> {
         // Everything here is the routing table's. A router has one in
         // leader mode and one for each follower instance it joins; a

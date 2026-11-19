@@ -182,6 +182,12 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && (needs_stack_chaos || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
+    if args.followers > 0 && args.pg_target_table != "posthog_person" {
+        bail!(
+            "--followers needs --pg-target-table posthog_person: a replica reads people from \
+             that table only, so it would not see what the writer wrote to another"
+        );
+    }
     if args.external_router_url.is_some() && !args.leader_env.is_empty() {
         bail!("--leader-env requires a spawned stack; it cannot target --external-router-url");
     }
@@ -541,8 +547,12 @@ async fn run_gate(
         let collector = collector.clone();
         let state = state.clone();
         let (team_id, duration, prober_count) = (args.team_id, args.duration, args.probers);
-        // Above a follower's staleness threshold plus its end-check interval.
-        let followed_within = (args.followers > 0).then_some(Duration::from_secs(1));
+        // Above the staleness threshold the stack gives a follower, and above the writer's
+        // flush interval, which is how far behind Postgres answers for a follower. A
+        // migration rebuilds every follower, so with the writer held through it Postgres
+        // answers from as far back as the pause, and only the end-of-run check applies.
+        let followed_within =
+            (args.followers > 0 && !args.migrate_pause_writer).then_some(Duration::from_secs(2));
         tokio::spawn(async move {
             consistency::run_probers(
                 &client,

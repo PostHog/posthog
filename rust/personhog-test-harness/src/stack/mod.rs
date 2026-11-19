@@ -148,6 +148,8 @@ pub struct Stack {
     retired: Vec<ServiceProcess>,
     next_leader_index: u32,
     store: PersonhogStore,
+    /// The follower instance's coordination state, when the stack has followers.
+    follower_store: Option<PersonhogStore>,
     topic: String,
     /// Topics a migration moved off; deleted with the live one at teardown.
     retired_topics: Vec<String>,
@@ -252,13 +254,16 @@ impl Stack {
 
         let store = etcd::connect(&config.etcd_endpoints, ETCD_PREFIX).await?;
         etcd::reset(&store, &topic, config.partitions, WRITER_CONSUMER_GROUP).await?;
-        if config.followers > 0 {
-            etcd::connect(&config.etcd_endpoints, FOLLOWER_ETCD_PREFIX)
-                .await?
+        let follower_store = if config.followers > 0 {
+            let followers = etcd::connect(&config.etcd_endpoints, FOLLOWER_ETCD_PREFIX).await?;
+            followers
                 .delete_all()
                 .await
                 .context("clearing the follower etcd prefix")?;
-        }
+            Some(followers)
+        } else {
+            None
+        };
         let publish_topics = config.publish.as_ref().map(|_| PublishTopics {
             distinct_ids: format!("{topic}_distinct_ids"),
             merge_events: format!("{topic}_merge_events"),
@@ -302,8 +307,9 @@ impl Stack {
                     ("FOLLOWER_ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
                     ("FOLLOWER_ETCD_PREFIX", FOLLOWER_ETCD_PREFIX.to_string()),
                     ("FOLLOWER_CHANGELOG_ETCD_PREFIX", ETCD_PREFIX.to_string()),
-                    // The table the spawned writer maintains, as the leaders' fallback is.
-                    ("FOLLOWER_PERSON_TABLE", config.pg_target_table.clone()),
+                    // Tight enough that the probers' bound on a followed read holds.
+                    ("FOLLOWER_STALENESS_THRESHOLD_MS", "500".to_string()),
+                    ("FOLLOWER_END_CHECK_INTERVAL_MS", "100".to_string()),
                     ("KAFKA_HOSTS", config.kafka_hosts.clone()),
                     ("POD_NAME", name),
                 ],
@@ -535,6 +541,7 @@ impl Stack {
             retired: Vec::new(),
             next_leader_index: 0,
             store,
+            follower_store,
             topic,
             retired_topics: Vec::new(),
             secondary_topics: HashSet::new(),
@@ -1029,7 +1036,15 @@ impl Stack {
             // service fails the bring-up immediately instead of timing out.
             self.check_alive()?;
 
-            match etcd::check_ready(&self.store, partitions, leaders).await? {
+            let mut waiting = etcd::check_ready(&self.store, partitions, leaders).await?;
+            // Traffic must not start before the followers serve: until then Postgres
+            // answers for them, and a followed read shows what the writer has flushed.
+            if let (None, Some(followers)) = (&waiting, &self.follower_store) {
+                waiting = etcd::check_ready(followers, partitions, self.config.followers)
+                    .await?
+                    .map(|report| format!("followers: {report}"));
+            }
+            match waiting {
                 None => break,
                 Some(report) => {
                     if report != last_report {

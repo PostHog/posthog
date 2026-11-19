@@ -317,16 +317,14 @@ impl RawProxyInner {
                     let (resp, call_ms) = self.raw_proxy_to_leader(req, "GetPerson").await;
                     (resp, "leader", call_ms)
                 } else if self.follows(&req) {
-                    let (resp, call_ms) = self.raw_proxy_to_follower(req, "GetPerson").await;
-                    (resp, "follower", call_ms)
+                    self.raw_proxy_to_follower(req, "GetPerson").await
                 } else {
                     let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                     (resp, "replica", call_ms)
                 }
             }
             (Target::Service, "GetPersonByUuid") if self.follows(&req) => {
-                let (resp, call_ms) = self.raw_proxy_to_follower(req, "GetPersonByUuid").await;
-                (resp, "follower", call_ms)
+                self.raw_proxy_to_follower(req, "GetPersonByUuid").await
             }
             (Target::Service, _) => {
                 let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
@@ -597,6 +595,47 @@ impl RawProxyInner {
         unreachable!()
     }
 
+    /// A read of one person that names them in the routing headers is sent to a follower
+    /// of their partition. Without the headers any replica answers it from Postgres.
+    fn follows(&self, req: &http::Request<BoxBody>) -> bool {
+        self.follower.is_some()
+            && req.headers().contains_key(TEAM_ID_HEADER)
+            && req.headers().contains_key(PERSON_ID_HEADER)
+    }
+
+    /// The answer and the backend it came from: a follower, or any replica when no
+    /// follower could be asked in time.
+    async fn raw_proxy_to_follower(
+        &self,
+        req: http::Request<BoxBody>,
+        method: &'static str,
+    ) -> (http::Response<BoxBody>, &'static str, Option<f64>) {
+        // Routing headers that cannot be read route nowhere, and any replica answers.
+        let key = person_key_from_headers(req.headers()).ok();
+        let (parts, body) = req.into_parts();
+        let method_name: Arc<str> = Arc::from(method);
+        let body_bytes = match self.collect_body_timed(body, &method_name).await {
+            Ok(b) => b,
+            Err(resp) => return (resp, "follower", None),
+        };
+        if let (Some(follower), Some(key)) = (&self.follower, key) {
+            let _in_flight = ClientInFlightGuard::new("follower");
+            let answered = follower
+                .forward(method, key, &parts.headers, &body_bytes)
+                .await;
+            if let Some((resp, call_ms)) = answered {
+                return (resp, "follower", Some(call_ms));
+            }
+        }
+        counter!("personhog_router_follower_fallbacks_total", "method" => method).increment(1);
+        let new_path = format!("{REPLICA_PREFIX}{method}");
+        let _in_flight = ClientInFlightGuard::new("replica");
+        let (resp, call_ms) = self
+            .forward_with_retry(&self.replica, &parts, &body_bytes, &new_path, method_name)
+            .await;
+        (resp, "replica", call_ms)
+    }
+
     /// Raw-forward a leader request — a strong `GetPerson` or an
     /// `UpdatePersonProperties` — to the owning leader pod. The routing key
     /// arrives in the `x-team-id`/`x-person-id` headers stamped by the
@@ -615,40 +654,6 @@ impl RawProxyInner {
     /// already accepted writes. Outside a handoff the stash is empty and
     /// requests forward directly, surfacing the channel round-trip time
     /// for the network-overhead metric.
-    /// A read of one person that names them in the routing headers comes from a follower
-    /// of their partition. Without the headers any replica answers it from Postgres.
-    fn follows(&self, req: &http::Request<BoxBody>) -> bool {
-        self.follower.is_some()
-            && req.headers().contains_key(TEAM_ID_HEADER)
-            && req.headers().contains_key(PERSON_ID_HEADER)
-    }
-
-    async fn raw_proxy_to_follower(
-        &self,
-        req: http::Request<BoxBody>,
-        method: &'static str,
-    ) -> (http::Response<BoxBody>, Option<f64>) {
-        let Some(follower) = &self.follower else {
-            return (
-                grpc_error_response(Code::Unimplemented, "no followers configured"),
-                None,
-            );
-        };
-        let key = match person_key_from_headers(req.headers()) {
-            Ok(key) => key,
-            Err(resp) => return (resp, None),
-        };
-        let (parts, body) = req.into_parts();
-        let body_bytes = match self.collect_body_timed(body, &Arc::from(method)).await {
-            Ok(b) => b,
-            Err(resp) => return (resp, None),
-        };
-        let _in_flight = ClientInFlightGuard::new("follower");
-        follower
-            .forward(method, key, &parts.headers, &body_bytes)
-            .await
-    }
-
     async fn raw_proxy_to_leader(
         &self,
         req: http::Request<BoxBody>,
