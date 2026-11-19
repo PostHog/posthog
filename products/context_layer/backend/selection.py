@@ -25,7 +25,6 @@ from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
-from posthog.ph_client import get_feature_flag_or_none
 
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
@@ -41,6 +40,8 @@ MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
 CONFIG_VERSION = "context-selection-v15"
+SELECTION_FLAG = "phai-context-selection"
+DEFAULT_DECISION_MODEL = "openai/gpt-6-luna"
 # The Slack app renders the thread in a tagged block before the request. Thread participants' text sits inside
 # the block, so a tag they forge comes before the real closing tag, and the request is the text after the last one.
 _SLACK_THREAD_CLOSINGS = ("</slack_thread_context>", "</slack_thread_context_update>")
@@ -167,23 +168,48 @@ def bounded_request[T](team_id: int, operation: Callable[[float], T]) -> T:
         raise SelectionUnavailable() from error
 
 
-def selection_mode(run: TaskRun, actor: User) -> str:
+@frozen
+class FlagDecision:
+    mode: str = "disabled"
+    model: str = DEFAULT_DECISION_MODEL
+
+
+def selection_flag(run: TaskRun, actor: User) -> FlagDecision:
     if (
         run.task.runtime != Task.Runtime.ACP
         or (run.state or {}).get("runtime_adapter", "claude") not in ("claude", "codex")
         or run.environment != TaskRun.Environment.CLOUD
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
     ):
-        return "disabled"
-    value = get_feature_flag_or_none(
-        "phai-context-selection",
-        str(run.task_id),
-        person_properties={"email": actor.email, "is_staff": actor.is_staff},
-        groups={"organization": str(run.team.organization_id), "project": str(run.team_id)},
-        group_properties={"organization": {"id": str(run.team.organization_id)}, "project": {"id": str(run.team_id)}},
-        send_feature_flag_events=False,
-    )
-    return str(value) if value in ("shadow", "control", "treatment") else "disabled"
+        return FlagDecision()
+    try:
+        result = posthoganalytics.get_feature_flag_result(
+            SELECTION_FLAG,
+            str(run.task_id),
+            person_properties={"email": actor.email, "is_staff": actor.is_staff},
+            groups={"organization": str(run.team.organization_id), "project": str(run.team_id)},
+            group_properties={
+                "organization": {"id": str(run.team.organization_id)},
+                "project": {"id": str(run.team_id)},
+            },
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("context_selection_flag_unavailable", exc_info=True)
+        return FlagDecision()
+    if result is None or result.variant not in ("shadow", "control", "treatment"):
+        return FlagDecision()
+    return FlagDecision(mode=result.variant, model=payload_model(result.payload))
+
+
+def payload_model(payload: object) -> str:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return DEFAULT_DECISION_MODEL
+    model = payload.get("model") if isinstance(payload, dict) else None
+    return model if isinstance(model, str) and 0 < len(model) <= 128 else DEFAULT_DECISION_MODEL
 
 
 class ContextSelector:
@@ -209,6 +235,7 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
+        self.model = DEFAULT_DECISION_MODEL
         self.explicit: frozenset[str] = frozenset()
         self.request = selection.prompt
         self.thread = ""
@@ -341,7 +368,7 @@ class ContextSelector:
     def decision_client(self, deadline: float, step: Literal["gate", "rerank"]) -> "SystemOneClient":
         remaining = time_remaining(deadline)
         return build_system_one_client(
-            model=settings.HOGQL_PROMPT_JEV_MODEL,
+            model=self.model,
             ai_product="posthog_ai",
             distinct_id=str(self.actor.distinct_id),
             trace_id=self.selection_id,
@@ -450,6 +477,7 @@ class ContextSelector:
                 **self.properties,
                 "selection_id": self.selection_id,
                 "mode": self.mode,
+                "model": self.model,
                 "config_version": CONFIG_VERSION,
                 "runtime_version": self.selection.runtime_version,
                 "reason": reason,
@@ -528,7 +556,8 @@ class ContextSelector:
         self.deadline = deadline
         try:
             time_remaining(deadline)
-            self.mode = selection_mode(self.run, self.actor)
+            decision = selection_flag(self.run, self.actor)
+            self.mode, self.model = decision.mode, decision.model
             if self.mode == "disabled":
                 return PreparedContext()
             if not self.selection.prompt.strip():

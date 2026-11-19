@@ -13,6 +13,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -1317,7 +1318,10 @@ class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             patch.object(throttle, "rate", rate),
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
-            patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment"),
+            patch(
+                "products.context_layer.backend.selection.posthoganalytics.get_feature_flag_result",
+                return_value=FeatureFlagResult.from_value_and_payload("phai-context-selection", "treatment", None),
+            ),
             patch("products.context_layer.backend.selection.httpx.Client") as source,
             patch("products.context_layer.backend.selection.build_system_one_client") as model,
         ):
