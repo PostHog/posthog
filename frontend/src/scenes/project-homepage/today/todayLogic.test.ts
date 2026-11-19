@@ -284,15 +284,17 @@ describe('todayLogic', () => {
                 ],
             ])
         )
-        expect(capture).toHaveBeenCalledWith(
-            'today report opened',
-            expect.objectContaining({
-                report_id: 'a',
-                ranker_id: 'personal',
-                personal_tier: 'top',
-                personal_reason_shown: true,
-            })
-        )
+        expect(capture.mock.calls.filter(([event]) => event === 'today report opened')).toEqual([
+            [
+                'today report opened',
+                expect.objectContaining({
+                    report_id: 'a',
+                    ranker_id: 'personal',
+                    personal_tier: 'top',
+                    personal_reason_shown: true,
+                }),
+            ],
+        ])
     })
 
     it('ranks the report list events by the position the list shows them in', async () => {

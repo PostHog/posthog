@@ -2,11 +2,6 @@ import { useLayoutEffect, useState } from 'react'
 
 import type { TodayRowTone } from './TodayRow'
 
-/**
- * The line under a row title. A reason goes last and keeps the line to one line, so a long reason is cut with an
- * ellipsis. The row title shows a cut reason in full, because the title's link covers the whole row and takes every
- * hover.
- */
 export function TodayRowMeta({
     tone,
     label,

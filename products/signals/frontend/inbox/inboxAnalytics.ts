@@ -753,12 +753,8 @@ export function captureInboxReportDecisionChanged(params: {
     })
 }
 
-/**
- * How the personal ranking placed a report in the Today list it shows in, as on the Inbox's impression and
- * open events. A deep-link or a step from the report page has no list, so it carries none.
- */
+/** A deep-link or a step from the report page has no list row, so it carries no ranking. */
 export interface TodayReportRanking {
-    /** The ranker of the list response the report came from. */
     rankerId: string | null
     personalTier: string | null
     personalReasonShown: boolean

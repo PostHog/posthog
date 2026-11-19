@@ -29,10 +29,6 @@ function rowFacts(parts: (string | null | undefined)[]): string[] {
     return shown
 }
 
-/**
- * The facts line of a report row. A verdict replaces the whole line, and a personal ranking reason takes the place of
- * the update time.
- */
 export function reportRowFacts(
     report: SignalReport,
     state: TodayReportState | undefined

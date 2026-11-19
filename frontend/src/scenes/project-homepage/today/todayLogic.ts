@@ -108,7 +108,6 @@ export interface TodayReports {
     count: number
     /** The personal ranking that ordered the list, so the reports past it keep the same order. */
     rankingId?: string | null
-    /** The ranker that ordered the list, null when the response names none. */
     rankerId?: string | null
 }
 
