@@ -1,8 +1,13 @@
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.transforms.trino.expressions import constant_integer, expression_key, positional_index
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.transforms.trino.expressions import (
+    constant_integer,
+    expression_key,
+    hide_inline_aliases,
+    positional_index,
+)
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 
 class _WindowFunctionFinder(TraversingVisitor):
@@ -225,10 +230,10 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
             name="row_number",
             exprs=[],
             over_expr=ast.WindowExpr(
-                partition_by=[self._input_expression(expr, node.select) for expr in limit_by.exprs],
+                partition_by=[self._copied_input_expression(expr, node.select) for expr in limit_by.exprs],
                 order_by=(
                     [
-                        ast.OrderExpr(expr=self._input_expression(order.expr, node.select), order=order.order)
+                        ast.OrderExpr(expr=self._copied_input_expression(order.expr, node.select), order=order.order)
                         for order in node.order_by
                     ]
                     if node.order_by
@@ -438,6 +443,11 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         while isinstance(expr, ast.Alias):
             expr = expr.expr
         return expr
+
+    def _copied_input_expression(self, expr: ast.Expr, select: list[ast.Expr]) -> ast.Expr:
+        copied = clone_expr(self._input_expression(expr, select), clear_types=False)
+        hide_inline_aliases(copied)
+        return copied
 
     def _helper_name(self, node: ast.SelectQuery, prefix: str) -> str:
         names = set(self._output_names(node))

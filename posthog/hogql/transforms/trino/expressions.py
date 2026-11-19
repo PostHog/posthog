@@ -1,6 +1,7 @@
 from dataclasses import fields
 
 from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
 
 
 def expression_key(value: object) -> tuple[object, ...]:
@@ -30,6 +31,31 @@ def expression_key(value: object) -> tuple[object, ...]:
         return (dict, {key: expression_key(item) for key, item in value.items()})
     # Python considers 1, True, and 1.0 equal, but SQL casts distinguish their literal types.
     return (type(value), value)
+
+
+class _InlineAliasHider(TraversingVisitor):
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        node.hidden = True
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
+def hide_inline_aliases(node: ast.Expr) -> None:
+    """Hide the names an expression gives its parts, so a copy of it can sit in the scope that holds the original."""
+    _InlineAliasHider().visit(node)
 
 
 def positional_index(node: ast.Expr) -> int | None:

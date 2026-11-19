@@ -2129,6 +2129,21 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "SELECT (id AS y) + 1 AS x, x * 2 AS z, sum(y) OVER () AS total FROM rows WHERE x > 2",
             [(3, 6, 2)],
         ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT id, length(name AS label) AS size FROM rows ORDER BY size, id LIMIT 1 BY size",
+            [(1, 1), (2, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT DISTINCT length(name AS label) AS size FROM rows ORDER BY id DESC",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, name FROM rows ORDER BY length(name AS label) DESC, id LIMIT 1 BY label",
+            [(2, "bb"), (1, "a")],
+        ),
     ],
 )
 def test_relational_rewrites_preserve_results(query: str, expected: list[tuple[object, ...]]) -> None:
