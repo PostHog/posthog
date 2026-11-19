@@ -69,7 +69,11 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @returns The maximum access level required, or null if no maximum is set
  */
 export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
-    if (resource === AccessControlResourceType.ActivityLog || resource === AccessControlResourceType.Toolbar) {
+    if (
+        resource === AccessControlResourceType.Activity ||
+        resource === AccessControlResourceType.ActivityLog ||
+        resource === AccessControlResourceType.Toolbar
+    ) {
         return AccessControlLevel.Viewer
     }
     return null
@@ -97,6 +101,7 @@ const RESOURCE_PLURALS: Partial<Record<APIScopeObject, string>> = {
     [AccessControlResourceType.RevenueAnalytics]: 'revenue analytics',
     [AccessControlResourceType.WebAnalytics]: 'web analytics',
     [AccessControlResourceType.MarketingAnalytics]: 'marketing analytics',
+    [AccessControlResourceType.Activity]: 'activity',
     [AccessControlResourceType.ActivityLog]: 'activity logs',
     [AccessControlResourceType.ExternalDataSource]: 'data warehouse sources',
     [AccessControlResourceType.ErrorTracking]: 'error tracking',
@@ -142,7 +147,11 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
     if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return [AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin]
     }
-    if (resourceType === AccessControlResourceType.ActivityLog || resourceType === AccessControlResourceType.Toolbar) {
+    if (
+        resourceType === AccessControlResourceType.Activity ||
+        resourceType === AccessControlResourceType.ActivityLog ||
+        resourceType === AccessControlResourceType.Toolbar
+    ) {
         return [AccessControlLevel.None, AccessControlLevel.Viewer]
     }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]

@@ -95,6 +95,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "ticket",
     "web_analytics",
     "marketing_analytics",
+    "activity",
     "activity_log",
     "business_knowledge",
     "error_tracking",
@@ -220,6 +221,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "LLM playground"
     if resource == "business_knowledge":
         return "business knowledge"
+    if resource == "activity":
+        return "activity"
     if resource == "canvas":
         # Ends in "s" but is singular, so the rule below would leave it as "canvas"
         return "canvases"
@@ -247,7 +250,7 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
         return "admin"
     if resource in ["organization"]:
         return "member"
-    if resource in ["activity_log", "toolbar"]:
+    if resource in ["activity", "activity_log", "toolbar"]:
         return "viewer"
     return "editor"
 
@@ -264,7 +267,7 @@ def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the highest allowed access level for a resource."""
-    if resource in ["activity_log", "toolbar"]:
+    if resource in ["activity", "activity_log", "toolbar"]:
         return "viewer"
     return ordered_access_levels(resource)[-1]
 

@@ -1711,6 +1711,7 @@ export namespace Schemas {
      * * `access_control` - access_control
      * * `account` - account
      * * `account_note` - account_note
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1839,6 +1840,7 @@ export namespace Schemas {
       AccessControl: 'access_control',
       Account: 'account',
       AccountNote: 'account_note',
+      Activity: 'activity',
       ActivityLog: 'activity_log',
       Alert: 'alert',
       Annotation: 'annotation',
@@ -1967,6 +1969,7 @@ export namespace Schemas {
        * * `access_control` - access_control
        * * `account` - account
        * * `account_note` - account_note
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -2218,6 +2221,7 @@ export namespace Schemas {
        * * `access_control` - access_control
        * * `account` - account
        * * `account_note` - account_note
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -2424,6 +2428,7 @@ export namespace Schemas {
      * * `account` - account
      * * `account_note` - account_note
      * * `action` - action
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
@@ -2486,6 +2491,7 @@ export namespace Schemas {
       Account: 'account',
       AccountNote: 'account_note',
       Action: 'action',
+      Activity: 'activity',
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
       BusinessKnowledge: 'business_knowledge',
@@ -2551,6 +2557,7 @@ export namespace Schemas {
        * * `account` - account
        * * `account_note` - account_note
        * * `action` - action
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
@@ -2641,6 +2648,7 @@ export namespace Schemas {
        * * `access_control` - access_control
        * * `account` - account
        * * `account_note` - account_note
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -2826,6 +2834,7 @@ export namespace Schemas {
        * * `account` - account
        * * `account_note` - account_note
        * * `action` - action
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
@@ -2916,6 +2925,7 @@ export namespace Schemas {
        * * `account` - account
        * * `account_note` - account_note
        * * `action` - action
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
        * * `business_knowledge` - business_knowledge
@@ -73878,6 +73888,7 @@ export namespace Schemas {
        * * `access_control` - access_control
        * * `account` - account
        * * `account_note` - account_note
+       * * `activity` - activity
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation

@@ -184,6 +184,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             ): APIScopeObject[] => {
                 const allResources = [
                     AccessControlResourceType.Action,
+                    AccessControlResourceType.Activity,
                     AccessControlResourceType.ActivityLog,
                     AccessControlResourceType.BusinessKnowledge,
                     AccessControlResourceType.Canvas,

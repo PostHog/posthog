@@ -403,6 +403,12 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.Insight]: AccessControlResourceType.Insight,
     [Scene.SavedInsights]: AccessControlResourceType.Insight,
 
+    // Activity
+    [Scene.Activity]: AccessControlResourceType.Activity,
+    [Scene.ExploreEvents]: AccessControlResourceType.Activity,
+    [Scene.ExploreSessions]: AccessControlResourceType.Activity,
+    [Scene.LiveEvents]: AccessControlResourceType.Activity,
+
     // Heatmaps
     [Scene.Heatmaps]: AccessControlResourceType.Heatmap,
     [Scene.Heatmap]: AccessControlResourceType.Heatmap,

@@ -66,6 +66,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[catalog.APIScopeObject] = frozenset(
         "batch_import_support",
         # Its only route accepts project secret API keys alone, so only that key picker offers it.
         "messaging_preference",
+        # Access control resource for the Activity pages (explore events, explore sessions, live
+        # events). No endpoint checks it, so a token scope would grant or withhold nothing.
+        "activity",
     }
 )
 

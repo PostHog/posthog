@@ -263,13 +263,14 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
             assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
             assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]
 
-    def test_toolbar_access_level_cannot_be_above_viewer(self):
+    @parameterized.expand([("toolbar",), ("activity",)])
+    def test_viewer_capped_resource_access_level_cannot_be_above_viewer(self, resource: str):
         self._org_membership(OrganizationMembership.Level.ADMIN)
 
         for level in ["editor", "manager"]:
             res = self.client.put(
                 "/api/projects/@current/resource_access_controls",
-                {"resource": "toolbar", "access_level": level},
+                {"resource": resource, "access_level": level},
             )
             assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
             assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]

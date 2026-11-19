@@ -28,6 +28,7 @@ APIScopeObject = Literal[
     # Notes on Customer Analytics accounts, split off `account` so a note can be written without the rest of
     # the account surface (rename, delete, properties, relationships).
     "account_note",
+    "activity",
     "activity_log",
     "alert",
     "annotation",
