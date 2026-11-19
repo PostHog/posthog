@@ -13,6 +13,16 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Keep backend validation and drain retry decisions aligned with the agent's
+# RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in adapters/error-classification.ts.
+UPSTREAM_RETRYABLE_ERROR_CATEGORIES = (
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+    "upstream_rate_limited",
+)
+
 TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
@@ -220,6 +230,7 @@ TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
+BAKED_REPO_CLONE_FEATURE_FLAG = "tasks-baked-repo-clone"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.

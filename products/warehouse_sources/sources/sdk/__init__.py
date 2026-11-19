@@ -321,6 +321,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.row_shaping import (
+    camel_to_snake,
+    flatten_jsonapi,
+    flatten_nested,
+    lift_nested,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     UNKNOWN_RESOURCE_PREFIX,
@@ -569,6 +575,7 @@ __all__ = [
     "build_endpoint_schemas",
     "build_incremental_fields",
     "cache_for",
+    "camel_to_snake",
     "capture_exception",
     "coerce_datetime_to_utc",
     "config",
@@ -583,6 +590,8 @@ __all__ = [
     "file_option_fields",
     "filter_integration_accounts",
     "find_values",
+    "flatten_jsonapi",
+    "flatten_nested",
     "from_private_key",
     "frozen",
     "get_dlt_mapping_for_external_table",
@@ -598,6 +607,7 @@ __all__ = [
     "iter_file_rows",
     "iter_parent_pages_from_warehouse",
     "iter_worksheet_rows",
+    "lift_nested",
     "list_worksheets",
     "log_connection_open",
     "lookup_s3_bucket_region",

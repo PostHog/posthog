@@ -49,7 +49,7 @@ describe('commentsLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/comments': { results: [] },
-                '/api/organizations/@current/members/': { results: [] },
+                '/api/organizations/:organization_id/members/': { results: [] },
             },
             post: {
                 '/api/projects/:team_id/comments': async ({ request }) => {

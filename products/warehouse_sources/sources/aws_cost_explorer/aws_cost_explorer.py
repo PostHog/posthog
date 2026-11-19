@@ -1,4 +1,3 @@
-import re
 import json
 import hashlib
 import datetime as dt
@@ -27,7 +26,9 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     capture_exception,
+    flatten_nested,
     make_tracked_session,
 )
 
@@ -54,8 +55,6 @@ THROTTLING_ERROR_CODES = frozenset(
     }
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-
 
 class AwsCostExplorerError(Exception):
     def __init__(self, message: str, code: str | None = None) -> None:
@@ -81,11 +80,6 @@ class AwsCostExplorerResumeConfig:
 class TimeWindow:
     start: dt.date
     end: dt.date
-
-
-def _snake(name: str) -> str:
-    """`UtilizationPercentage` -> `utilization_percentage`, `LINKED_ACCOUNT` -> `linked_account`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
 def _to_number(value: Any) -> Any:
@@ -191,26 +185,8 @@ def build_payload(
     return payload
 
 
-def _flatten(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict):
-            flattened.update(_flatten(column, value))
-        else:
-            flattened[column] = _to_number(value)
-    return flattened
-
-
-def _flatten_raw(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict):
-            flattened.update(_flatten_raw(column, value))
-        else:
-            flattened[column] = value
-    return flattened
+def _flatten_numbers(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
+    return {column: _to_number(value) for column, value in flatten_nested(obj, prefix=prefix).items()}
 
 
 def _metric_columns(endpoint_config: CostExplorerEndpointConfig, metrics: dict[str, Any]) -> dict[str, Any]:
@@ -219,15 +195,15 @@ def _metric_columns(endpoint_config: CostExplorerEndpointConfig, metrics: dict[s
     columns: dict[str, Any] = {}
     for metric in endpoint_config.metrics:
         value = metrics.get(metric) or {}
-        columns[f"{_snake(metric)}_amount"] = _to_number(value.get("Amount"))
-        columns[f"{_snake(metric)}_unit"] = value.get("Unit")
+        columns[f"{camel_to_snake(metric)}_amount"] = _to_number(value.get("Amount"))
+        columns[f"{camel_to_snake(metric)}_unit"] = value.get("Unit")
     return columns
 
 
 def _cost_rows(
     endpoint_config: CostExplorerEndpointConfig, base: dict[str, Any], result: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    group_columns = [_snake(key) for key in endpoint_config.group_by]
+    group_columns = [camel_to_snake(key) for key in endpoint_config.group_by]
     groups = result.get("Groups") or []
 
     if not groups:
@@ -253,13 +229,13 @@ def _dimension_rows(dimension: str, body: dict[str, Any]) -> list[dict[str, Any]
         # LINKED_ACCOUNT values carry the account name as a `description` attribute. Attributes are
         # labels, so they skip the numeric coercion a name like `0010` would not survive.
         row: dict[str, Any] = {"dimension": dimension, "value": item.get("Value")}
-        row.update({_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
+        row.update({camel_to_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
         rows.append(row)
     return rows
 
 
 def _slice_column(endpoint_config: CostExplorerEndpointConfig, slice_key: Optional[str]) -> dict[str, Any]:
-    return {_snake(endpoint_config.slice_member): slice_key} if endpoint_config.slice_member else {}
+    return {camel_to_snake(endpoint_config.slice_member): slice_key} if endpoint_config.slice_member else {}
 
 
 def _item_rows(
@@ -282,11 +258,11 @@ def _item_rows(
             if key == "TimePeriod" or key in nested:
                 continue
             if key in labels:
-                row.update(_flatten_raw(labels[key], value or {}))
+                row.update(flatten_nested(value or {}, prefix=labels[key]))
             elif not isinstance(value, dict):
-                row[_snake(key)] = _to_number(value)
+                row[camel_to_snake(key)] = _to_number(value)
         for member, prefix in endpoint_config.nested_keys:
-            row.update(_flatten(prefix, item.get(member) or {}))
+            row.update(_flatten_numbers(prefix, item.get(member) or {}))
         rows.append(row)
     return rows
 
@@ -307,17 +283,16 @@ def _record_rows(
     endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any], slice_key: Optional[str]
 ) -> list[dict[str, Any]]:
     base = _slice_column(endpoint_config, slice_key)
-    base.update(_flatten_raw("metadata", body.get("Metadata") or {}))
+    base.update(flatten_nested(body.get("Metadata") or {}, prefix="metadata"))
     rows: list[dict[str, Any]] = []
     for record in body.get(endpoint_config.result_key) or []:
         if endpoint_config.detail_member is None:
-            rows.append({**base, **_flatten_raw("", record)})
+            rows.append({**base, **flatten_nested(record)})
             continue
 
         parent = {
             **base,
-            **_flatten_raw(
-                "",
+            **flatten_nested(
                 {
                     key: value
                     for key, value in record.items()
@@ -327,7 +302,7 @@ def _record_rows(
             ),
         }
         for detail in record.get(endpoint_config.detail_member) or []:
-            rows.append({**parent, **_flatten_raw("", detail)})
+            rows.append({**parent, **flatten_nested(detail)})
 
     if endpoint_config.synthetic_key:
         for row in rows:
@@ -366,7 +341,7 @@ def normalize_results(
         if endpoint_config.services:
             row["service"] = slice_key
         for member, prefix in endpoint_config.nested_keys:
-            row.update(_flatten(prefix, result.get(member) or {}))
+            row.update(_flatten_numbers(prefix, result.get(member) or {}))
         rows.append(row)
 
     return rows
