@@ -343,7 +343,6 @@ class ProviderContactsResult:
 class ContactChunkOutcome:
     """What sending one stored part of a provider list did."""
 
-    # People in the part.
     people: int
     # Of them, the people PostHog had once ingestion caught up.
     found: int

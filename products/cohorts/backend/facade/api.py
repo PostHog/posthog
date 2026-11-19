@@ -128,7 +128,6 @@ def replace_static_cohort_members(*, team_id: int, cohort_id: int, distinct_ids:
     resolution = ImportResolution()
     # Finishes the cohort's calculation and recounts it on success.
     cohort.insert_users_by_list(list(distinct_ids), team_id=team_id, raise_on_error=True, import_resolution=resolution)
-    # The cohort shows how many of the list it couldn't match.
     Cohort.objects.filter(team_id=team_id, id=cohort_id).update(
         last_import_total_count=resolution.total, last_import_unmatched_count=resolution.unmatched
     )

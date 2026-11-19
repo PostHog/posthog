@@ -1678,7 +1678,6 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
     )
 
 
-# GetPersonsRequest takes up to 250 IDs.
 _GET_PERSONS_MAX_IDS = 250
 _REMOVE_MEMBERS_CHUNK_SIZE = 10_000
 
