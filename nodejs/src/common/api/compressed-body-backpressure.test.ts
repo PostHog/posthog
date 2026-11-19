@@ -14,11 +14,13 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
     let app: Application
     let server: ReturnType<Application['listen']>
     const routedBodies: unknown[] = []
+    const routedAddresses: (string | undefined)[] = []
 
     beforeAll(() => {
         app = setupExpressApp({ jsonBodyLimitBytes: 1024 })
         app.post('/echo', (req: Request, res: Response) => {
             routedBodies.push(req.body)
+            routedAddresses.push(req.ip)
             res.status(200).json({ body: req.body })
         })
         server = app.listen(0, () => {})
@@ -26,6 +28,7 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
 
     beforeEach(() => {
         routedBodies.length = 0
+        routedAddresses.length = 0
     })
 
     afterAll(() => {
@@ -55,9 +58,9 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         }
     }
 
-    const openUpload = (encoding = 'gzip') =>
+    const openUpload = (encoding = 'gzip', host = '127.0.0.1') =>
         http.request({
-            host: '127.0.0.1',
+            host,
             port: (app as Application & { port: number }).port,
             path: '/echo',
             method: 'POST',
@@ -157,11 +160,16 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         }
     })
 
-    it('passes a complete compressed body to the route when its client disconnects while it is decoding', async () => {
+    it('passes a complete compressed body and its client address to the route when the client disconnects while it is decoding', async () => {
+        for (let request = 0; request < 100; request++) {
+            await roundTrip()
+        }
+        routedBodies.length = 0
+        routedAddresses.length = 0
         const releaseOtherThreads = holdThreadpool(threadpoolSize - 1)
         const releaseLastThread = holdThreadpool(1)
         try {
-            const req = openUpload()
+            const req = openUpload('gzip', '::1')
             req.on('error', () => {})
             req.end(gzipSync(JSON.stringify({ data: 'x' })))
             await roundTrip()
@@ -178,5 +186,6 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         }
 
         expect(routedBodies).toEqual([{ data: 'round trip' }, { data: 'round trip' }, { data: 'x' }, { data: 'later' }])
+        expect(routedAddresses[2]).toEqual('0000:0000:0000:0000:0000:0000:0000:0001')
     })
 })

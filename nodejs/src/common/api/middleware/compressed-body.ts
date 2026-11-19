@@ -69,6 +69,10 @@ type Decoded = { ok: true; bytes: Buffer } | { ok: false; status: 400 | 413 }
 type UwsBackedRequest = Request & { _res: { pause(): void; resume(): void } }
 type AbortableResponse = Response & { aborted?: boolean }
 
+function keepClientAddressAfterDisconnect(req: Request): void {
+    void req.ip
+}
+
 function readDecoded(
     req: Request,
     res: Response,
@@ -76,6 +80,7 @@ function readDecoded(
     limitBytes: number
 ): Promise<Decoded> {
     ;(req as BodyState).bodyRead = true
+    keepClientAddressAfterDisconnect(req)
     return new Promise((resolve) => {
         const decompressor = createDecompressor()
         const transport = (req as UwsBackedRequest)._res
@@ -86,17 +91,22 @@ function readDecoded(
         let requestEnded = false
         let paused = false
         let settled = false
+        const transportOpen = (): boolean => !(res as AbortableResponse).aborted
         const pause = (): void => {
             if (!paused) {
                 paused = true
                 req.pause()
-                transport.pause()
+                if (transportOpen()) {
+                    transport.pause()
+                }
             }
         }
         const resume = (): void => {
-            if (paused && !(res as AbortableResponse).aborted) {
+            if (paused) {
                 paused = false
-                transport.resume()
+                if (transportOpen()) {
+                    transport.resume()
+                }
                 req.resume()
             }
         }
@@ -143,12 +153,6 @@ function readDecoded(
             succeedOnceBothEnd()
         })
         req.on('error', () => settle({ ok: false, status: 400 }))
-        res.socket?.once('close', () => {
-            if (!settled && !requestEnded) {
-                settled = true
-                decompressor.destroy()
-            }
-        })
     })
 }
 
