@@ -316,8 +316,6 @@ class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewset
         payload = {
             "edges": [{**asdict(edge), "kind": edge.kind.value} for edge in result.edges],
             "truncated": result.truncated,
-            "sampled": result.sampled,
-            "sample_rate": result.sample_rate,
             "environment": window.environment,
             "service": service,
             "date_from": window.date_from,

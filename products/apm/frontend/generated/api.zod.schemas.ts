@@ -78,14 +78,6 @@ export const DependenciesResponseApi = zod.object({
         )
         .describe('One edge per caller and callee, most requests first.'),
     truncated: zod.boolean().describe('True when more edges matched than the response holds.'),
-    sampled: zod
-        .boolean()
-        .describe(
-            'True when the window held too many spans to read whole, so the counts are estimated from evenly spaced slices of it.'
-        ),
-    sample_rate: zod
-        .number()
-        .describe('The share of the window read, from 0 to 1. Request and error counts are scaled up by its inverse.'),
     environment: zod
         .string()
         .nullable()
