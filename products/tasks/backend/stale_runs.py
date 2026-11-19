@@ -108,27 +108,31 @@ def quiet_since_q(cutoff: datetime) -> Q:
 
 
 def sweep_mode(profile_key: str | None, team: Team) -> SweepMode:
+    return flag_mode(SWEEP_FLAG, profile_key, team)
+
+
+def flag_mode(flag: str, profile_key: str | None, team: Team) -> SweepMode:
     profile_key = profile_key or NO_PROFILE
-    key = f"tasks:stale_sweep_mode:{team.id}:{profile_key}"
+    key = f"tasks:{flag}:{team.id}:{profile_key}"
     try:
         cached = cache.get(key)
     except Exception:
         cached = None
     if cached is not None:
         return SweepMode.OFF if cached == _UNRESOLVED_SWEEP_MODE else SweepMode(cached)
-    mode = _resolve_sweep_mode(profile_key, team)
+    mode = _resolve_mode(flag, profile_key, team)
     try:
         cache.set(key, _UNRESOLVED_SWEEP_MODE if mode is None else mode.value, SWEEP_MODE_CACHE_SECONDS)
     except Exception:
-        logger.warning("task_stale_sweep_mode_cache_failed", profile=profile_key, team_id=team.id, exc_info=True)
+        logger.warning("task_flag_mode_cache_failed", flag=flag, profile=profile_key, team_id=team.id, exc_info=True)
     return mode or SweepMode.OFF
 
 
-def _resolve_sweep_mode(profile_key: str, team: Team) -> SweepMode | None:
+def _resolve_mode(flag: str, profile_key: str, team: Team) -> SweepMode | None:
     try:
         organization_id = str(team.organization_id)
         payload = posthoganalytics.get_feature_flag_payload(
-            SWEEP_FLAG,
+            flag,
             distinct_id=str(team.uuid),
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
@@ -138,7 +142,7 @@ def _resolve_sweep_mode(profile_key: str, team: Team) -> SweepMode | None:
         if isinstance(payload, str):
             payload = json.loads(payload)
     except Exception:
-        logger.warning("task_stale_sweep_mode_unresolved", profile=profile_key, team_id=team.id, exc_info=True)
+        logger.warning("task_flag_mode_unresolved", flag=flag, profile=profile_key, team_id=team.id, exc_info=True)
         return None
     if not isinstance(payload, dict):
         return None
@@ -245,27 +249,27 @@ def collect_stale_live_runs() -> list[StaleRunCount]:
     ]
 
 
-def _enforced_pairs(stale: list[_LiveRun]) -> set[tuple[int, str | None]]:
-    teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({run.team_id for run in stale})
-    pairs = list({(run.team_id, run.profile) for run in stale})
-    random.shuffle(pairs)
+def modes_for(flag: str, pairs: set[tuple[int, str | None]]) -> dict[tuple[int, str | None], SweepMode]:
+    teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({team_id for team_id, _ in pairs})
+    ordered = list(pairs)
+    random.shuffle(ordered)
     deadline = time.monotonic() + SWEEP_MODE_LOOKUP_BUDGET_SECONDS
-    enforced: set[tuple[int, str | None]] = set()
-    for position, (team_id, profile) in enumerate(pairs):
+    modes: dict[tuple[int, str | None], SweepMode] = {}
+    for position, (team_id, profile) in enumerate(ordered):
         if time.monotonic() > deadline:
-            logger.warning("task_stale_sweep_mode_budget_spent", left_for_next_pass=len(pairs) - position)
+            logger.warning("task_flag_mode_budget_spent", flag=flag, left_for_next_pass=len(ordered) - position)
             break
         team = teams.get(team_id)
-        if team is not None and sweep_mode(profile, team) == SweepMode.ENFORCE:
-            enforced.add((team_id, profile))
-    return enforced
+        if team is not None:
+            modes[(team_id, profile)] = flag_mode(flag, profile, team)
+    return modes
 
 
 def runs_to_sweep() -> list[RunToSweep]:
     stale = [run for run in _live_runs(sweepable_only=True) if run.rules and not run.awaits_first_message]
     if not stale:
         return []
-    enforced = _enforced_pairs(stale)
+    modes = modes_for(SWEEP_FLAG, {(run.team_id, run.profile) for run in stale})
     to_sweep = [
         RunToSweep(
             run_id=run.run_id,
@@ -276,7 +280,7 @@ def runs_to_sweep() -> list[RunToSweep]:
             not_written_since=run.not_written_since,
         )
         for run in stale
-        if (run.team_id, run.profile) in enforced
+        if modes.get((run.team_id, run.profile)) == SweepMode.ENFORCE
     ]
     if len(to_sweep) > MAX_SWEEPS_PER_PASS:
         logger.warning("task_stale_sweep_pass_capped", left_for_next_pass=len(to_sweep) - MAX_SWEEPS_PER_PASS)
