@@ -18,7 +18,6 @@ const TELEMETRY_TILE_REFRESH_CONCURRENCY = 2
 // The rest load when they scroll near the viewport.
 const EAGER_TILE_LOADS = 12
 
-/** With dashboard-v2, metrics tiles get their own queue, so analytics tiles never wait behind them. */
 export function telemetryTileLoadQueue(cache: Record<string, any>): TaskQueue {
     return (cache.telemetryTileLoadQueue ??= new TaskQueue(TELEMETRY_TILE_REFRESH_CONCURRENCY))
 }
@@ -77,10 +76,6 @@ function splitOffscreenTiles<T extends DashboardTile>(
     return { tilesToRefresh: tiles, deferredTileIds: [] }
 }
 
-/**
- * Keeps the tiles off screen for when they scroll into view, and returns the tiles a refresh queries now.
- * The deferred tiles remember the refresh's settings, so a tile that loads later matches the tiles around it.
- */
 export function deferOffscreenTiles<T extends DashboardTile>(
     logic: BuiltLogic<dashboardV2LogicType>,
     tiles: T[],
@@ -153,10 +148,6 @@ export type dashboardV2LogicType = MakeLogicType<
     dashboardV2LogicMeta
 >
 
-/**
- * The dashboard-v2 experiment: loading only the tiles on screen and a separate queue for metrics tiles.
- * dashboardLogic connects to it, so viewers without dashboard-v2 run none of this.
- */
 export const dashboardV2Logic = kea<dashboardV2LogicType>([
     path(['scenes', 'dashboard', 'dashboardV2Logic']),
     connect(() => ({
@@ -165,7 +156,6 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
 
     props({ id: NaN } as DashboardLogicProps),
 
-    // Keyed like dashboardLogic, so each dashboard has its own.
     key((props) => {
         if (!Number.isFinite(props.id)) {
             return 'invalid'
@@ -182,7 +172,6 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         ) => ({ tileIds, forceRefresh, settings }),
         setTileInView: (tileId: number, inView: boolean) => ({ tileId, inView }),
         loadDeferredTiles: (tileIds: number[]) => ({ tileIds }),
-        /** Deferred tiles that came into view. dashboardLogic loads them with the settings of the refresh that skipped them. */
         refreshDeferredTiles: (tileIds: number[], forceRefresh: boolean, settings: DashboardSettings | null) => ({
             tileIds,
             forceRefresh,

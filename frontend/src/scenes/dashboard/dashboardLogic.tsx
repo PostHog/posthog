@@ -6553,7 +6553,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.removedTileGroupKeys = new Set([...(cache.removedTileGroupKeys ?? []), groupKey])
             actions.setTileGroups(groups)
         },
-        // dashboard-v2: tiles a refresh deferred came into view.
         refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }) => {
             const settings = deferredSettings ?? values.settingsForRefresh
             const tiles = (values.insightTiles || []).filter(
