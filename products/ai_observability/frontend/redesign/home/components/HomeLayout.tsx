@@ -6,16 +6,25 @@ export interface HomeLayoutProps {
     filters: ReactNode
     dashboardLink: ReactNode
     tiles: ReactNode
+    showComparison: boolean
     instrumentation: ReactNode
 }
 
-export function HomeLayout({ filters, dashboardLink, tiles, instrumentation }: HomeLayoutProps): JSX.Element {
+export function HomeLayout({
+    filters,
+    dashboardLink,
+    tiles,
+    showComparison,
+    instrumentation,
+}: HomeLayoutProps): JSX.Element {
     return (
         <div className="@container flex min-w-0 flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 {filters}
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-secondary">Compared with the previous period</span>
+                    {showComparison && (
+                        <span className="text-xs text-secondary">Compared with the previous period</span>
+                    )}
                     {dashboardLink}
                 </div>
             </div>

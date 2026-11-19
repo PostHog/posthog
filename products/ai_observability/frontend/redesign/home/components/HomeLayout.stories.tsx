@@ -16,6 +16,7 @@ const meta: Meta<typeof HomeLayout> = {
         filters: <span>Last 7 days</span>,
         dashboardLink: <OpenDashboardLink dashboardId={42} />,
         tiles: <KpiTileRow metrics={METRICS} loading={false} links={TILE_LINKS} />,
+        showComparison: true,
         instrumentation: <LemonBanner type="info">Instrumentation slot</LemonBanner>,
     },
 }
@@ -40,7 +41,9 @@ export const AllNotSetUp: Story = {
 }
 
 export const Loading: Story = {
-    args: { tiles: <KpiTileRow metrics={null} loading links={TILE_LINKS} /> },
+    args: { tiles: <KpiTileRow metrics={null} loading links={TILE_LINKS} />, showComparison: false },
 }
 
-export const RangeTooLong: Story = { args: { tiles: <HomeRangeTooLong detail={RANGE_TOO_LONG_DETAIL} /> } }
+export const RangeTooLong: Story = {
+    args: { tiles: <HomeRangeTooLong detail={RANGE_TOO_LONG_DETAIL} />, showComparison: false },
+}
