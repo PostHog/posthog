@@ -198,8 +198,9 @@ def update_configuration(
             if mirror is not None and legacy_configuration_id is not None
             else None
         )
-        # A mirror that finds no row means the source deleted it, and the copy alone is the alert.
-        has_source_row = legacy_configuration_id is not None and (mirror is None or write_source is not None)
+        # A kind with no mirror keeps no setting on its source row, and a mirror that finds no row means the
+        # source deleted it. Either way the copy alone is the alert.
+        has_source_row = write_source is not None
         if snooze_changed and has_source_row:
             # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
             raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
