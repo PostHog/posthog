@@ -26,8 +26,6 @@ import {
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import { isHeaderFieldShown } from './emailHeaderFields'
 import {
@@ -294,15 +292,14 @@ function SenderField(): JSX.Element {
     const custom = from.name && from.email ? `${from.name} <${from.email}>` : from.name || from.email || ''
 
     if (!integrationsLoading && senders.length === 0) {
+        // The broadcast step shows a banner that sets up a sender, so this only says why the field is empty.
         return (
-            <HeaderField label="From" description="Connect a sending domain to send emails.">
-                <Button
-                    variant="outline"
-                    render={<LinkPrimitive to={urls.workflows('channels')} target="_blank" />}
-                    data-attr="workflow-email-sender-connect"
-                >
-                    Connect an email sender
-                </Button>
+            <HeaderField label="From">
+                <Select disabled items={[]} value={null}>
+                    <SelectTrigger className="w-full min-w-0" data-attr="workflow-email-sender-select">
+                        <SelectValue placeholder="No sender set up yet" />
+                    </SelectTrigger>
+                </Select>
             </HeaderField>
         )
     }
