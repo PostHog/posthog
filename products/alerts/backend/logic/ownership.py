@@ -168,7 +168,8 @@ def _save_owner_and_enable(
             raise AlertConfiguration.DoesNotExist
     elif locked.platform_owned:
         enable_now = not locked.enabled
-        locked.enabled = True
+        if enable_now:
+            apply_enable(locked)
         if "config" in attrs:
             locked.config = attrs["config"]
         locked.created_by = owner

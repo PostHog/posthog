@@ -148,18 +148,17 @@ from products.alerts.backend.facade.platform import (
     hand_over_new_alert,
     moved_alert_check_page,
     moved_alert_fired_checks,
+    moved_alert_settings,
     moved_alert_statuses,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
-    on_updated,
     platform_subscriber_ids,
     platform_takes_new_alert_with,
     set_native_subscribers,
-    show_copy_settings,
-    show_locked_copy,
     subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
+    write_moved_alert_edit,
     write_native_alert_edit,
 )
 from products.alerts.backend.insight_alert_state_machine import (
@@ -180,6 +179,7 @@ from products.alerts.backend.models.alert import (
 from products.alerts_platform.backend.facade.api import (
     delete_source_destination_rows,
     list_source_destinations,
+    lock_source_configuration,
     record_source_destination,
     redact_destination_data as redact_platform_destination_data,
     validate_destination_data as validate_platform_destination_data,
@@ -1209,21 +1209,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         """`update` for an alert the platform owns that keeps an insight row, which the caller locked.
         The alert's settings live on its copy, so the edit starts from the copy and writes only the copy.
         The row keeps the subscriptions and the insight, which the API checks access against."""
-        if not show_locked_copy(instance):
+        lock_source_configuration(team_id=instance.team_id, public_id=instance.id)
+        if instance.id not in _show_copy_settings([instance]):
             raise Http404
-        row_insight_id = instance.insight_id
-        self.instance = instance
-        validated_data = self.validate(validated_data)
-        resulting_enabled = validated_data.get("enabled", instance.enabled) is True
-        previous = self._admitted(instance, validated_data, resulting_enabled=resulting_enabled)
-        enable_now = resulting_enabled and not instance.enabled
+        subscribed_users = validated_data.pop("subscribed_users", None)
+        edit = self._start_platform_edit(instance, validated_data)
 
-        snoozed_until_param, snoozed_until = _popped_snooze(validated_data)
-        snooze_changed = snoozed_until_param is not serializers.empty
-        if snooze_changed:
-            instance.snoozed_until = snoozed_until
-
-        threshold_data = validated_data.pop("threshold", None)
+        threshold_data = edit.validated_data.pop("threshold", None)
         threshold_before = instance.threshold.configuration if instance.threshold else None
         if threshold_data == {}:
             instance.threshold = None
@@ -1233,35 +1225,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 threshold = Threshold(id=instance.id, team_id=instance.team_id, created_at=instance.created_at)
             threshold.configuration = threshold_data.get("configuration")
             instance.threshold = threshold
-        subscribed_users = validated_data.pop("subscribed_users", None)
-
-        evaluation_changed = (
-            instance.threshold.configuration if instance.threshold else None
-        ) != threshold_before or any(
-            field in validated_data and validated_data[field] != getattr(instance, field)
-            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
+        rescheduled = _apply_platform_edit(
+            instance, edit.validated_data, threshold_before=threshold_before, enable_now=edit.enable_now
         )
-        schedule_changed = any(
-            field in validated_data and validated_data[field] != getattr(instance, field)
-            for field in ("schedule_restriction", "schedule_start_time")
-        )
-        interval_changed = (
-            "calculation_interval" in validated_data
-            and validated_data["calculation_interval"] != instance.calculation_interval
-        )
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        rescheduled = enable_now or evaluation_changed or interval_changed or schedule_changed
-        if rescheduled:
-            instance.next_check_at = (
-                next_check_at_after_schedule_restriction_change(instance) if schedule_changed else timezone.now()
-            )
         with _platform_write_errors():
-            on_updated(instance, snooze_changed=snooze_changed, rescheduled=rescheduled)
-        if instance.insight_id != row_insight_id:
-            # The one setting the row still keeps, because reads check access against the row's insight.
-            AlertConfiguration.objects.filter(team_id=instance.team_id, id=instance.id).update(
-                insight_id=instance.insight_id
+            write_moved_alert_edit(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                changes=_platform_changes(instance, edit.validated_data, threshold_changed=threshold_data is not None),
+                snooze_changed=edit.snooze_changed,
+                rescheduled=rescheduled,
             )
 
         if subscribed_users is not None:
@@ -1275,7 +1248,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         sync_alert_subscriber_destinations(team_id=instance.team_id, alert_id=instance.id)
         # Again under the lock, because `validate` counted without it and another update can race. After
         # the copy's write, because the platform locks a copy before this lock.
-        self._recheck_real_time_limit(instance, previous)
+        self._recheck_real_time_limit(instance, edit.previous)
 
         _show_platform_status([instance], now=timezone.now())
         _show_platform_subscribers([instance])
@@ -1306,16 +1279,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             target_insight.refresh_from_db()
             _reject_deleted_insight(target_insight)
         subscribed_users = validated_data.pop("subscribed_users", None)
-        self.instance = instance
-        validated_data = self.validate(validated_data)
-        resulting_enabled = validated_data.get("enabled", instance.enabled) is True
-        previous = self._admitted(instance, validated_data, resulting_enabled=resulting_enabled)
-        enable_now = resulting_enabled and not instance.enabled
-
-        snoozed_until_param, snoozed_until = _popped_snooze(validated_data)
-        snooze_changed = snoozed_until_param is not serializers.empty
-        if snooze_changed:
-            instance.snoozed_until = snoozed_until
+        edit = self._start_platform_edit(instance, validated_data)
+        validated_data = edit.validated_data
+        snooze_changed = edit.snooze_changed
 
         threshold_data = validated_data.pop("threshold", None)
         threshold_before = instance.threshold.configuration if instance.threshold else None
@@ -1325,47 +1291,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             instance.threshold = Threshold(
                 team_id=instance.team_id, insight=instance.insight, configuration=threshold_data.get("configuration")
             )
-        evaluation_changed = (
-            instance.threshold.configuration if instance.threshold else None
-        ) != threshold_before or any(
-            field in validated_data and validated_data[field] != getattr(instance, field)
-            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
+        rescheduled = _apply_platform_edit(
+            instance, validated_data, threshold_before=threshold_before, enable_now=edit.enable_now
         )
-        schedule_changed = any(
-            field in validated_data and validated_data[field] != getattr(instance, field)
-            for field in ("schedule_restriction", "schedule_start_time")
-        )
-        interval_changed = (
-            "calculation_interval" in validated_data
-            and validated_data["calculation_interval"] != instance.calculation_interval
-        )
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        rescheduled = enable_now or evaluation_changed or interval_changed or schedule_changed
-        if rescheduled:
-            instance.next_check_at = (
-                next_check_at_after_schedule_restriction_change(instance) if schedule_changed else timezone.now()
-            )
-        changes: dict[str, Any] = {
-            **{field: value for field, value in validated_data.items() if field != "insight"},
-            "snoozed_until": instance.snoozed_until,
-            "next_check_at": instance.next_check_at,
-        }
-        if threshold_data is not None:
-            changes["threshold"] = instance.threshold.configuration if instance.threshold else None
-        if target_insight:
-            changes["insight_id"] = target_insight.id
-
         with _platform_write_errors():
             view = write_native_alert_edit(
                 team_id=instance.team_id,
                 alert_id=instance.id,
-                changes=changes,
+                changes=_platform_changes(instance, validated_data, threshold_changed=threshold_data is not None),
                 snooze_changed=snooze_changed,
                 rescheduled=rescheduled,
             )
         # After the platform locked its copy, as in `update`.
-        self._recheck_real_time_limit(instance, previous)
+        self._recheck_real_time_limit(instance, edit.previous)
         updated = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
         if updated is None:
             raise Http404
@@ -1387,6 +1325,23 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return updated
+
+    def _start_platform_edit(self, instance: AlertConfiguration, validated_data: dict) -> "_PlatformEdit":
+        """Validates and admits an edit the platform writes, and puts its snooze on `instance`."""
+        self.instance = instance
+        validated_data = self.validate(validated_data)
+        resulting_enabled = validated_data.get("enabled", instance.enabled) is True
+        previous = self._admitted(instance, validated_data, resulting_enabled=resulting_enabled)
+        snoozed_until_param, snoozed_until = _popped_snooze(validated_data)
+        snooze_changed = snoozed_until_param is not serializers.empty
+        if snooze_changed:
+            instance.snoozed_until = snoozed_until
+        return _PlatformEdit(
+            validated_data=validated_data,
+            previous=previous,
+            enable_now=resulting_enabled and not instance.enabled,
+            snooze_changed=snooze_changed,
+        )
 
     def _admitted(
         self, instance: AlertConfiguration, validated_data: dict, *, resulting_enabled: bool
@@ -1482,6 +1437,58 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             return {**attrs, **validated}
         except AlertWriteRefused as error:
             raise ValidationError(error.detail, code=error.code) from error
+
+
+@frozen
+class _PlatformEdit:
+    """An edit the platform writes, validated and admitted."""
+
+    validated_data: dict[str, Any]
+    # The alert before the edit, which decides whether the edit adds an active real-time alert.
+    previous: AlertConfiguration
+    enable_now: bool
+    snooze_changed: bool
+
+
+def _apply_platform_edit(
+    instance: AlertConfiguration, validated_data: dict, *, threshold_before: dict | None, enable_now: bool
+) -> bool:
+    """Applies an edit's fields to `instance`, whose threshold the caller already set, and returns whether
+    the edit moves the alert's due time, which it then sets on `instance`."""
+    evaluation_changed = (instance.threshold.configuration if instance.threshold else None) != threshold_before or any(
+        field in validated_data and validated_data[field] != getattr(instance, field)
+        for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
+    )
+    schedule_changed = any(
+        field in validated_data and validated_data[field] != getattr(instance, field)
+        for field in ("schedule_restriction", "schedule_start_time")
+    )
+    interval_changed = (
+        "calculation_interval" in validated_data
+        and validated_data["calculation_interval"] != instance.calculation_interval
+    )
+    for field, value in validated_data.items():
+        setattr(instance, field, value)
+    rescheduled = enable_now or evaluation_changed or interval_changed or schedule_changed
+    if rescheduled:
+        instance.next_check_at = (
+            next_check_at_after_schedule_restriction_change(instance) if schedule_changed else timezone.now()
+        )
+    return rescheduled
+
+
+def _platform_changes(instance: AlertConfiguration, validated_data: dict, *, threshold_changed: bool) -> dict[str, Any]:
+    """The fields an edit applied to `instance` sets, by name, as the platform's edit writers take them."""
+    changes: dict[str, Any] = {
+        **{field: value for field, value in validated_data.items() if field != "insight"},
+        "snoozed_until": instance.snoozed_until,
+        "next_check_at": instance.next_check_at,
+    }
+    if threshold_changed:
+        changes["threshold"] = instance.threshold.configuration if instance.threshold else None
+    if "insight" in validated_data:
+        changes["insight_id"] = validated_data["insight"].id
+    return changes
 
 
 def _popped_snooze(validated_data: dict) -> tuple[Any, datetime | None]:
@@ -2006,6 +2013,25 @@ def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
             alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
 
 
+def _show_copy_settings(alerts: list[AlertConfiguration]) -> set[uuid.UUID]:
+    """Shows each moved alert with the settings its copy holds, in place, and returns the ids of the
+    alerts that have a copy."""
+    rows = {alert.id: alert for alert in alerts if alert.platform_owned and not alert.has_no_insight_row}
+    if not rows:
+        return set()
+    settings_by_id = moved_alert_settings(team_id=next(iter(rows.values())).team_id, alert_ids=list(rows))
+    for alert_id, settings in settings_by_id.items():
+        rows[alert_id].show_copy_settings(settings)
+    # A copy whose creator differs from its row's drops the creator `select_related` loaded, so load them in one query.
+    creator_field = AlertConfiguration._meta.get_field("created_by")
+    unloaded = [alert for alert in rows.values() if alert.created_by_id and not creator_field.is_cached(alert)]
+    creators = User.objects.in_bulk({alert.created_by_id for alert in unloaded})
+    for alert in unloaded:
+        if (creator := creators.get(alert.created_by_id)) is not None:
+            alert.created_by = creator
+    return set(settings_by_id)
+
+
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
     """Shows each alert the platform owns as the platform has it, in place: its settings, snooze, state
     and last check. Its own row stops moving once the insight stack stops checking it."""
@@ -2013,7 +2039,7 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
     if not moved:
         return
     # Before the state, which reads the snooze.
-    show_copy_settings(list(moved.values()))
+    _show_copy_settings(list(moved.values()))
     statuses = moved_alert_statuses(
         team_id=next(iter(moved.values())).team_id,
         snoozed_until={alert_id: alert.snoozed_until for alert_id, alert in moved.items()},
@@ -2333,12 +2359,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         try:
-            return super().update(request, *args, **kwargs)
+            alert = self.get_object()
         except Http404:
-            alert = self._native_alert()
-            if alert is None:
+            native = self._native_alert()
+            if native is None:
                 raise
-        self.check_object_permissions(request, alert)
+            self.check_object_permissions(request, native)
+            alert = native
+        else:
+            # The serializer validates the edit against this alert, and a moved alert's settings live on its copy.
+            _show_copy_settings([alert])
         serializer = self.get_serializer(alert, data=request.data, partial=kwargs.get("partial", False))
         serializer.is_valid(raise_exception=True)
         serializer.save()

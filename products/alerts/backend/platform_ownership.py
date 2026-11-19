@@ -212,6 +212,33 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: 
     )
 
 
+def write_moved_alert_edit(
+    *, team_id: int, alert_id: UUID, changes: Mapping[str, Any], snooze_changed: bool, rescheduled: bool
+) -> None:
+    """Writes an edit the insight API checked onto the copy of a moved alert, whose row and copy the
+    caller locked. `changes` holds the fields the edit sets, as for `write_native_alert_edit`. The row
+    takes only a new `insight_id`, because reads check access against the row's insight.
+
+    Raises like `on_updated`.
+    """
+    alert = _locked(team_id, alert_id)
+    if alert is None or not show_locked_copy(alert):
+        return
+    row_insight_id = alert.insight_id
+    for field, value in changes.items():
+        if field == "threshold":
+            alert.threshold = (
+                Threshold(team_id=team_id, insight_id=alert.insight_id, configuration=value)
+                if value is not None
+                else None
+            )
+        else:
+            setattr(alert, field, value)
+    on_updated(alert, snooze_changed=snooze_changed, rescheduled=rescheduled)
+    if alert.insight_id != row_insight_id:
+        AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).update(insight_id=alert.insight_id)
+
+
 def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
     """Hands an alert created in the caller's transaction to the platform unless its team keeps its
     alerts on insight. False when the alert stays with insight."""

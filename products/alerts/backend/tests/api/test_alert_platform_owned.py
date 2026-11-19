@@ -59,6 +59,7 @@ from products.alerts.backend.models.alert import (
     Threshold,
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
+from products.alerts.backend.platform_hooks import insight_alert_creator
 from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
@@ -1114,6 +1115,43 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         response = self.client.patch(f"{self.url}/{self.copy_id}/", {"name": "Renamed"}, format="json")
 
         assert (response.status_code, response.json()["state"]) == (status.HTTP_200_OK, "Firing"), response.json()
+
+    def test_an_edit_is_validated_against_the_copy_not_the_stale_row(self) -> None:
+        insight = self.alert.insight
+        insight.query = {**(insight.query or {}), "trendsFilter": {"display": "ActionsLineGraph"}}
+        insight.save(update_fields=["query"])
+        # A percentage threshold needs a relative condition, which the copy has and the row does not.
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    **stored_config,
+                    "condition": {**stored_config["condition"], "comparison": {"type": "relative_increase"}},
+                },
+            )
+        percentage = {"type": "percentage", "bounds": {"upper": 0.5}}
+
+        response = self.client.patch(
+            f"{self.url}/{self.alert.id}/", {"threshold": {"configuration": percentage}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._copy().source_config["condition"]["threshold"] == percentage
+
+    @parameterized.expand([("another_member", True), ("nobody", False)])
+    def test_a_moved_alerts_creator_is_the_one_its_copy_names(self, _name: str, has_creator: bool) -> None:
+        other = User.objects.create_and_join(self.organization, "new-owner@example.com", None)
+        AlertConfiguration.objects.filter(id=self.alert.id).update(created_by=self.user)
+        with team_scope(self.team.id):
+            platform_testing.set_created_by(self.copy_id, other.id if has_creator else None)
+
+        creator = insight_alert_creator(team_id=self.team.id, alert_id=self.alert.id)
+        edit = self.client.patch(f"{self.url}/{self.alert.id}/", {"name": "Renamed"}, format="json")
+
+        assert edit.status_code == status.HTTP_200_OK, edit.json()
+        expected = other.id if has_creator else None
+        assert (creator, self._copy().created_by_id) == (expected, expected)
 
     def test_renaming_a_detector_alert_insight_keeps_no_row_for_keeps_it_without_a_threshold(self) -> None:
         insight = self.alert.insight

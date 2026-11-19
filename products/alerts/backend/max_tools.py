@@ -40,6 +40,9 @@ from products.product_analytics.backend.facade.models import Insight, resolve_in
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
 
+# The platform modules this tool calls are imported inside each function, because they reach this
+# module back through the alert workflows and the chat agent.
+
 UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE = """
 The user is currently viewing an insight that supports alerts. Here are the insight's details for use with the `upsert_alert` tool:
 
@@ -195,7 +198,6 @@ class UpsertAlertToolArgs(BaseModel):
 
 def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
     """The team's insight alert with no insight row under `alert_id`, as the insight API presents it, or None."""
-    # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
     from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
 
     try:
@@ -212,7 +214,6 @@ def _persist_native_alert(
     *, team_id: int, insight: Insight, creator: User, fields: dict[str, Any]
 ) -> AlertConfiguration:
     """Creates an alert with no insight row, its creator subscribed, as the row path subscribes them."""
-    # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
     from products.alerts.backend.platform_ownership import create_native_alert  # noqa: PLC0415
     from products.alerts.backend.platform_subscribers import set_native_subscribers  # noqa: PLC0415
 
@@ -342,7 +343,6 @@ class UpsertAlertTool(MaxTool):
             except ValidationError as e:
                 return str(e), {"error": "validation_failed"}
 
-            # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
             from products.alerts.backend.platform_ownership import creates_native_alert  # noqa: PLC0415
 
             alert = await self._persist_alert(
@@ -417,7 +417,6 @@ class UpsertAlertTool(MaxTool):
                 return _SaveRefusal(
                     message="The alert's insight changed. Retry the update.", error_code="validation_failed"
                 )
-            # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
             from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
 
             moved = alert.platform_owned
@@ -566,7 +565,6 @@ class UpsertAlertTool(MaxTool):
     def _save_native_alert(self, alert: AlertConfiguration, action: UpdateAlertAction) -> _SaveRefusal | None:
         """`_save_alert` for an alert with no insight row: the same checks under the insight API's lock
         order, then the edit written to the platform, which keeps the alert."""
-        # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
         from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
         from products.alerts.backend.platform_ownership import write_native_alert_edit  # noqa: PLC0415
 
@@ -705,7 +703,6 @@ class UpsertAlertTool(MaxTool):
             )
         except Exception:
             return await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=alert_id)
-        # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
         from products.alerts.backend.platform_insight_alert import show_copy_settings  # noqa: PLC0415
 
         await sync_to_async(show_copy_settings)([alert])
@@ -869,7 +866,6 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
-        # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
         from products.alerts.backend.platform_ownership import on_created  # noqa: PLC0415
 
         on_created(alert, timezone.now())

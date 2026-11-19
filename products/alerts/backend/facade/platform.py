@@ -12,11 +12,11 @@ from products.alerts.backend.platform_alert_reads import (
 from products.alerts.backend.platform_insight_alert import (
     delete_native_insight_alert,
     enable_native_insight_alert,
+    moved_alert_settings,
     native_insight_alert_ids_by_insight,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
-    show_copy_settings,
     subscribers_with_insight_access,
 )
 from products.alerts.backend.platform_ownership import (
@@ -25,9 +25,8 @@ from products.alerts.backend.platform_ownership import (
     creates_native_alert,
     delete_alert_destinations_and_copy,
     hand_over_new_alert,
-    on_updated,
     platform_takes_new_alert_with,
-    show_locked_copy,
+    write_moved_alert_edit,
     write_native_alert_edit,
 )
 from products.alerts.backend.platform_subscribers import (
@@ -46,18 +45,17 @@ __all__ = [
     "hand_over_new_alert",
     "moved_alert_check_page",
     "moved_alert_fired_checks",
+    "moved_alert_settings",
     "moved_alert_statuses",
     "native_insight_alert_matches",
     "native_insight_alert_ids_by_insight",
     "native_insight_alert_view",
     "native_insight_alert_views",
-    "on_updated",
     "platform_takes_new_alert_with",
     "platform_subscriber_ids",
     "set_native_subscribers",
-    "show_copy_settings",
-    "show_locked_copy",
     "subscribers_with_insight_access",
     "sync_alert_subscriber_destinations",
+    "write_moved_alert_edit",
     "write_native_alert_edit",
 ]

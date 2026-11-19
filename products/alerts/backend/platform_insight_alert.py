@@ -1,7 +1,6 @@
 """The insight alert a platform alert stands for: its insight row for a copy, or one built from the
 platform alert's settings when insight keeps no row for it."""
 
-import copy
 from collections.abc import Collection, Mapping
 from dataclasses import replace
 from typing import Any, Final
@@ -428,27 +427,7 @@ def show_copy_settings(alerts: Collection[AlertConfiguration]) -> set[UUID]:
     team_id = next(iter(rows.values())).team_id
     settings_by_id = moved_alert_settings(team_id=team_id, alert_ids=list(rows))
     for alert_id, settings in settings_by_id.items():
-        alert = rows[alert_id]
-        for field, value in settings.fields.items():
-            setattr(alert, field, value)
-        alert.schedule_start_time = settings.schedule_start_time
-        if settings.created_by_id is not None:
-            alert.created_by_id = settings.created_by_id
-        if settings.threshold is None:
-            alert.threshold = None
-        elif alert.threshold is None:
-            # Stable across reads, as for an alert with no insight row.
-            alert.threshold = Threshold(
-                id=alert.id,
-                team_id=alert.team_id,
-                insight_id=alert.insight_id,
-                configuration=settings.threshold,
-                created_at=alert.created_at,
-            )
-        else:
-            # A copy, because a threshold that embeds this alert can share the object it holds.
-            alert.threshold = copy.copy(alert.threshold)
-            alert.threshold.configuration = settings.threshold
+        rows[alert_id].show_copy_settings(settings)
     return set(settings_by_id)
 
 

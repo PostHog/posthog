@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from posthog.models.organization import Organization
     from posthog.models.user import User
 
-    from products.alerts.backend.facade.contracts import AlertValidationState
+    from products.alerts.backend.facade.contracts import AlertValidationState, MovedAlertSettings
     from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView
 
 import pydantic
@@ -295,6 +296,30 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def has_no_insight_row(self) -> bool:
         """Whether `from_platform_view` built this alert, because only the platform keeps it."""
         return self._state.adding and self.platform_owned
+
+    def show_copy_settings(self, settings: MovedAlertSettings) -> None:
+        """Puts the settings a moved alert's platform copy holds on this row, in place. The row stops
+        changing once the platform owns the alert, so its own values may be stale. Saving it afterwards
+        would write the copy's settings to the row."""
+        for field, value in settings.fields.items():
+            setattr(self, field, value)
+        self.schedule_start_time = settings.schedule_start_time
+        self.created_by_id = settings.created_by_id
+        if settings.threshold is None:
+            self.threshold = None
+        elif self.threshold is None:
+            # Stable across reads, as for an alert with no insight row.
+            self.threshold = Threshold(
+                id=self.id,
+                team_id=self.team_id,
+                insight_id=self.insight_id,
+                configuration=settings.threshold,
+                created_at=self.created_at,
+            )
+        else:
+            # A copy, because a threshold that embeds this alert can share the object it holds.
+            self.threshold = copy.copy(self.threshold)
+            self.threshold.configuration = settings.threshold
 
     @property
     def platform_owned_since(self) -> datetime | None:
