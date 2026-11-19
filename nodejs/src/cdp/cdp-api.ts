@@ -54,7 +54,7 @@ import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.s
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
-import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
+import { hasPushActions, matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import {
     SCHEDULED_RUNS_PER_BATCH,
     ScheduledRuns,
@@ -1560,7 +1560,8 @@ export class CdpApi {
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
-                if (hogFlow.trigger?.type !== 'api') {
+                // A push step reads the person's device tokens, which an email send key must not reach.
+                if (hogFlow.trigger?.type !== 'api' || hasPushActions(hogFlow.actions)) {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined

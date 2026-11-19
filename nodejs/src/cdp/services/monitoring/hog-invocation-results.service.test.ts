@@ -178,6 +178,12 @@ describe('HogInvocationResultsService', () => {
                 { event: { event: '$transactional_email' } },
                 noMessageData,
             ],
+            [
+                'a recovery stub of an unstamped transactional push',
+                undefined,
+                { event: { event: '$transactional_push' } },
+                noMessageData,
+            ],
             ['a recovery stub of an ordinary run', undefined, {}, messageData],
             ['an email its send marks sensitive', false, { send: { ...send, sensitive: true } }, noMessageData],
         ])(

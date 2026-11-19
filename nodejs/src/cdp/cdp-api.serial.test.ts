@@ -5148,11 +5148,29 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        const withPushStep = (hogFlow: HogFlow): HogFlow => ({
+            ...hogFlow,
+            actions: [
+                ...hogFlow.actions,
+                {
+                    id: 'push',
+                    name: 'push',
+                    description: '',
+                    type: 'function_push',
+                    config: { template_id: 'template-native-push', inputs: {} },
+                    created_at: 0,
+                    updated_at: 0,
+                } as any,
+            ],
+        })
+
         it.each([
-            ['a workflow with another trigger', 'schedule', 'active'],
-            ['a transactional email that is not active', 'api', 'draft'],
-        ] as const)('refuses to run %s', async (_desc, trigger, status) => {
-            const other = await insertHogFlow(transactionalFlow(trigger, status))
+            ['a workflow with another trigger', 'schedule', 'active', false],
+            ['a transactional email that is not active', 'api', 'draft', false],
+            ['a workflow that also sends a push', 'api', 'active', true],
+        ] as const)('refuses to run %s', async (_desc, trigger, status, push) => {
+            const flow = transactionalFlow(trigger, status)
+            const other = await insertHogFlow(push ? withPushStep(flow) : flow)
 
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 

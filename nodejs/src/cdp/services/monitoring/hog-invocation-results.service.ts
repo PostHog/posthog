@@ -20,6 +20,7 @@ import {
     CyclotronJobInvocationResult,
 } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT, hasSensitiveMessageStep } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_PUSH_EVENT } from '../hogflows/transactional-push'
 
 const counterHogInvocationResultRowsProduced = new Counter({
     name: 'cdp_hog_invocation_result_rows_produced',
@@ -251,13 +252,14 @@ const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
 // everything from the event against the latest config. `inputs` must be
 // dropped anyway for security (resolved secrets — see `stripKeys`).
 // Recovery paths pass a workflow stub with only an id. A run that started before its template became
-// sensitive carries no stamp, so a transactional email run without the actions is treated as sensitive.
+// sensitive carries no stamp, so a transactional send without the actions is treated as sensitive.
 const sendsSensitiveMessage = (invocation: CyclotronJobInvocationHogFlow): boolean => {
     if (invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true) {
         return true
     }
     if (!Array.isArray(invocation.hogFlow?.actions)) {
-        return invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+        const event = invocation.state?.event?.event
+        return event === TRANSACTIONAL_EMAIL_EVENT || event === TRANSACTIONAL_PUSH_EVENT
     }
     return hasSensitiveMessageStep(invocation.hogFlow)
 }
