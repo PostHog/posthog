@@ -58,6 +58,7 @@ import {
     EmailNestingTooDeepError,
     MAX_ATTRIBUTE_BUDGET,
     MAX_ELEMENT_BUDGET,
+    MAX_TEXT_RUN_BUDGET,
     MIN_NESTING_LIMIT,
     NESTING_BUDGET,
 } from './helpers/href-anchors'
@@ -635,6 +636,24 @@ describe('EmailTrackingService', () => {
                 // The href is one of them.
                 expect(sesTrack(tag(MAX_ATTRIBUTE_BUDGET - 1))).toContain('phl:0')
                 expect(() => sesTrack(tag(MAX_ATTRIBUTE_BUDGET))).toThrow(EmailFormattingTooCostlyError)
+            })
+
+            it('refuses an email with more runs of text than any email may hold', () => {
+                // Inside a table the parser holds every run of text until the table ends, and each word and each
+                // space between words is a run of its own.
+                const words = (count: number): string =>
+                    `<body><table>${'x '.repeat(count)}</table><a href="https://example.com/">a</a></body>`
+                expect(sesTrack(words(MAX_TEXT_RUN_BUDGET / 2 - 2))).toContain('phl:0')
+                expect(() => sesTrack(words(MAX_TEXT_RUN_BUDGET / 2))).toThrow(EmailFormattingTooCostlyError)
+            })
+
+            it('refuses an email whose open formatting tags share a long attribute value', () => {
+                // The parser compares each new formatting tag with the open ones of its name, value by value, so a
+                // long shared value costs its length on every compare.
+                const nested = (count: number, valueLength: number): string =>
+                    `<body>${Array.from({ length: count }, (_, i) => `<b style="${'x'.repeat(valueLength)}" a${i}>`).join('')}<a href="https://example.com/">a</a></body>`
+                expect(sesTrack(nested(20, 2_000))).toContain('phl:0')
+                expect(() => sesTrack(nested(100, 20_000))).toThrow(EmailFormattingTooCostlyError)
             })
 
             it('refuses an email whose MathML annotation the parser rereads for each child', () => {
