@@ -15,6 +15,7 @@ export function confirmEnableOnSandboxSender(
     let confirmed = false
     LemonDialog.open({
         title: 'Enable on the PostHog test sender?',
+        maxWidth: '36rem',
         description:
             'This workflow has email steps on the PostHog test sender. Those steps reach only verified members of your organization, and everyone else is skipped. To reach your users, set up your sending domain and switch those steps to it.',
         primaryButton: {
