@@ -42,7 +42,6 @@ from products.workflows.backend.facade.api import (
 from products.workflows.backend.facade.contracts import WorkflowSummary
 
 from ..facade import api, contracts
-from ..feature_flags import RELEASE_OBJECTS_FLAG, RELEASES_AREA_FLAG
 from .serializers import (
     BroadcastOptionSerializer,
     BroadcastSearchQuerySerializer,
@@ -92,7 +91,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             organization_id=self.team.organization_id,
             distinct_id=str(user.distinct_id),
             email=email,
-            flag_key=RELEASES_AREA_FLAG if self.action == "catalog_flags" else RELEASE_OBJECTS_FLAG,
+            for_area=self.action == "catalog_flags",
         )
         if not enabled:
             raise PermissionDenied("Releases are not enabled for this project.")

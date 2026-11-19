@@ -13,8 +13,8 @@ from posthog.utils import generate_short_id
 
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 from products.release.backend.facade import api
+from products.release.backend.facade.api import releases_enabled
 from products.release.backend.facade.contracts import ImportFlag
-from products.release.backend.feature_flags import is_releases_enabled
 from products.release.backend.models import Release, ReleaseImportState
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -146,7 +146,7 @@ class TestReleaseAPI(APIBaseTest):
     def test_area_and_object_catalogs_have_independent_flags(self, area: bool, objects: bool) -> None:
         enabled = {"releases-area": area, "release-objects": objects}
         with (
-            patch(FLAG_PATCH, side_effect=is_releases_enabled),
+            patch(FLAG_PATCH, side_effect=releases_enabled),
             patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: enabled[key]),
         ):
             flags = self.client.get(self._url("catalog_flags/"))
