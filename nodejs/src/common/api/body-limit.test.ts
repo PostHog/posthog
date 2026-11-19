@@ -19,9 +19,12 @@ describe('setupExpressApp request body handling', () => {
 
     beforeAll(() => {
         app = setupExpressApp({ bodyLimitBytes: 1024, readOnlyPathPrefixes: ['/read-only/'] })
-        app.post('/echo', (req: Request, res: Response) => {
+        app.set('body methods', ['DELETE'])
+        const echo = (req: Request, res: Response) => {
             res.status(200).json({ body: req.body, rawBody: (req as ModifiedRequest).rawBody })
-        })
+        }
+        app.post('/echo', echo)
+        app.delete('/echo', echo)
         app.post('/echo-text', express.text(), (req: Request, res: Response) => {
             res.status(200).json({ body: req.body })
         })
@@ -120,6 +123,22 @@ describe('setupExpressApp request body handling', () => {
         ['gzip', 'application/json ; charset=utf-8'] as const,
     ])('decodes a %s body sent as %s and keeps its raw text', async (encoding, contentType) => {
         const res = await postEncoded('/echo', encoding, compressors[encoding]('{"data":"x"}'), contentType)
+
+        expect(res.status).toEqual(200)
+        expect(res.body).toEqual({ body: { data: 'x' }, rawBody: '{"data":"x"}' })
+    })
+
+    it('decodes a compressed body on a method the app adds to its body methods', async () => {
+        const body = gzipSync('{"data":"x"}')
+        const req = supertest(app)
+            .delete('/echo')
+            .set({
+                'Content-Type': 'application/json',
+                'Content-Encoding': 'gzip',
+                'Content-Length': String(body.length),
+            })
+        req.write(body)
+        const res = await req
 
         expect(res.status).toEqual(200)
         expect(res.body).toEqual({ body: { data: 'x' }, rawBody: '{"data":"x"}' })
