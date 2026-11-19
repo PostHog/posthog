@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
 import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import type { PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
@@ -60,15 +61,14 @@ describe('Generated confirmed tools', () => {
         {
             tool: 'workflows-send-email',
             input: confirmedEmail,
-            message: expect.stringContaining(
-                'may send it from the PostHog test sender instead, only to members of your organization, and ignore from and reply_to'
-            ),
+            message:
+                /may send it from the PostHog test sender instead, only to members of your organization, and ignore from and reply_to/,
             request: { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmedEmail },
         },
         {
             tool: 'workflows-send-email-template',
             input: confirmedTemplateEmail,
-            message: expect.any(String),
+            message: /\S/,
             request: {
                 method: 'POST',
                 url: '/api/projects/42/messaging/send/email/',
@@ -78,7 +78,7 @@ describe('Generated confirmed tools', () => {
         {
             tool: 'access-control-default-rule-set',
             input: { resource: 'dashboard', access_level: 'viewer' },
-            message: expect.any(String),
+            message: /\S/,
             request: {
                 method: 'PUT',
                 url: '/api/organizations/org-1/projects/42/access_control_default_rules/',
@@ -111,7 +111,16 @@ describe('Generated confirmed tools', () => {
                 context,
                 prepareTool.schema.parse(input)
             )) as PrepareConfirmedActionResult
-            expect(prepared.message).toEqual(message)
+            const shown = buildToolResultPayload({
+                handlerResult: prepared,
+                toolMeta: prepareTool._meta,
+                toolName: prepareTool.name,
+                params: input,
+            })
+                .content.map((part) => part.text)
+                .join('')
+            expect(prepared.message).toMatch(message)
+            expect(shown).toMatch(message)
             const result = await GENERATED_TOOL_MAP[`${tool}-execute`]!().handler(context, {
                 confirmation_hash: prepared.confirmation_hash,
                 confirmation: 'confirm',
