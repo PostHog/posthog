@@ -204,7 +204,7 @@ export const getWarehouseSuggestionsSurfaceMoreCreateUrl = (projectId: string) =
 
 export const warehouseSuggestionsSurfaceMoreCreate = async (
     projectId: string,
-    surfaceMoreWarehouseSuggestionsApi: SurfaceMoreWarehouseSuggestionsApi,
+    surfaceMoreWarehouseSuggestionsApi?: SurfaceMoreWarehouseSuggestionsApi,
     options?: RequestInit
 ): Promise<WarehouseSuggestionSurfaceMoreResultApi> => {
     return apiMutator<WarehouseSuggestionSurfaceMoreResultApi>(getWarehouseSuggestionsSurfaceMoreCreateUrl(projectId), {

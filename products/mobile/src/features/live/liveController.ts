@@ -85,7 +85,7 @@ export class LiveController<T> {
         }
         this.visible = visible
         if (visible) {
-            this.start()
+            this.start({ waitWhileFresh: true })
         } else {
             this.stop()
         }
@@ -148,6 +148,10 @@ export class LiveController<T> {
         return this.readNow()
     }
 
+    checkRecovery(): Promise<void> {
+        return this.running ? this.readNow() : Promise.resolve()
+    }
+
     dispose(): void {
         this.stop()
         if (this.graceTimer !== null) {
@@ -157,9 +161,20 @@ export class LiveController<T> {
         this.disposed = true
     }
 
-    private start(): void {
-        if (this.running) {
-            this.activeSince = Date.now()
+    /**
+     * Starts polling. With `waitWhileFresh`, data newer than the read interval waits for the rest of that interval, so
+     * moving between Live and a screen it pushes does not send a full read on every return.
+     */
+    private start({ waitWhileFresh = false }: { waitWhileFresh?: boolean } = {}): void {
+        if (!this.running) {
+            return
+        }
+        this.activeSince = Date.now()
+        const { updatedAt, failures } = this.state
+        const age = updatedAt === null ? Number.POSITIVE_INFINITY : Date.now() - updatedAt
+        if (waitWhileFresh && failures === 0 && age < this.options.intervalMs) {
+            this.schedule(this.options.intervalMs - age)
+        } else {
             void this.readNow()
         }
     }
@@ -233,6 +248,11 @@ export class LiveController<T> {
             this.emptyReads === 0
                 ? interval
                 : Math.min(interval * 2 ** (this.emptyReads - 1), this.options.maxBackoffMs)
+        this.schedule(delay)
+    }
+
+    private schedule(delay: number): void {
+        this.clearTimer()
         this.timer = setTimeout(() => {
             this.timer = null
             void this.readNow()

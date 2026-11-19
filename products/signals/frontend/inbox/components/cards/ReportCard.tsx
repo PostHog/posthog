@@ -36,6 +36,7 @@ import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
 import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
 import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
+import { ReportCardPersonalReason } from './ReportCardPersonalReason'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useMinuteClock } from './useMinuteClock'
@@ -313,14 +314,7 @@ function ReportCardRaw({
                         </span>
                     )}
                 </div>
-                {personalReason && (
-                    <p
-                        className="m-0 min-w-0 line-clamp-2 break-words text-xs leading-snug text-tertiary"
-                        data-attr="inbox-personal-reason"
-                    >
-                        {personalReason}
-                    </p>
-                )}
+                {personalReason && <ReportCardPersonalReason reason={personalReason} />}
             </div>
 
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and

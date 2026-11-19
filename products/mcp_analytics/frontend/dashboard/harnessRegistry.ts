@@ -37,6 +37,7 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     'Anthropic API': { mark: 'Anthropic', brand: 'Anthropic', shade: -12 },
     Cowork: { mark: 'Claude', brand: 'Anthropic', shade: 12 },
     'Claude Design': { mark: 'Claude', brand: 'Anthropic', shade: 16 },
+    'Claude Artifacts': { mark: 'Claude', brand: 'Anthropic', shade: 20 },
     ChatGPT: { mark: 'OpenAI', brand: 'OpenAI', shade: 0 },
     'OpenAI Agent Builder': { mark: 'OpenAI', brand: 'OpenAI', shade: 4 },
     'OpenAI Responses API': { mark: 'OpenAI', brand: 'OpenAI', shade: -4 },

@@ -3,7 +3,8 @@ import gzip
 import json
 import base64
 import zipfile
-from datetime import UTC, datetime
+from collections.abc import Iterator
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -21,14 +22,19 @@ from products.warehouse_sources.sources.amplitude.amplitude import (
     _iter_export_window,
     _normalize_event,
     _parse_amplitude_ts,
+    _parse_chart_date,
     validate_credentials,
 )
 from products.warehouse_sources.sources.amplitude.settings import (
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
+    COMPOSITION_ENDPOINT,
+    COMPOSITION_PROPERTIES,
     EVENT_PROPERTIES_ENDPOINT,
     EVENTS_ENDPOINT,
     GROUP_PROPERTIES_ENDPOINT,
+    RETENTION_ENDPOINT,
+    REVENUE_LTV_ENDPOINT,
 )
 from products.warehouse_sources.sources.amplitude.source import AmplitudeSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -378,6 +384,129 @@ class TestFanoutRows:
         result = _driver().run(EVENT_PROPERTIES_ENDPOINT, [parents, forbidden])
 
         assert isinstance(result.raised, requests.HTTPError)
+
+
+class TestParseChartDate:
+    @parameterized.expand(
+        [
+            ("iso", "2025-12-30", date(2026, 1, 5), date(2025, 12, 30)),
+            ("label_same_year", "Jan 04", date(2026, 1, 5), date(2026, 1, 4)),
+            ("label_previous_year", "Dec 31", date(2026, 1, 5), date(2025, 12, 31)),
+            ("label_on_end_date", "Jan 5", date(2026, 1, 5), date(2026, 1, 5)),
+            ("leap_day_previous_year", "Feb 29", date(2029, 1, 10), date(2028, 2, 29)),
+        ]
+    )
+    def test_parses_labels(self, _name: str, label: str, end: date, expected: date) -> None:
+        assert _parse_chart_date(label, end) == expected
+
+    @parameterized.expand([("garbage", "not a date"), ("none", None), ("number", 20260105)])
+    def test_unknown_label_raises(self, _name: str, label: Any) -> None:
+        with pytest.raises(ValueError):
+            _parse_chart_date(label, date(2026, 1, 5))
+
+
+class TestDashboardCharts:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel("2026-01-05 12:00:00", tick=False):
+            yield
+
+    def test_retention_sends_default_chart_and_emits_one_row_per_cohort_day(self) -> None:
+        body = {
+            "data": {
+                "series": [
+                    {
+                        "dates": ["Jan 05", "Dec 31"],
+                        "values": {
+                            "Dec 31": [
+                                {"count": 100, "outof": 100, "incomplete": False},
+                                {"count": 40, "outof": 100, "incomplete": False},
+                                {"count": 25, "outof": 100, "incomplete": True},
+                            ],
+                            "Jan 05": [{"count": 80, "outof": 80, "incomplete": False}],
+                        },
+                    }
+                ],
+                "seriesMeta": [{"segmentIndex": 0, "eventIndex": 0}],
+            }
+        }
+
+        result = _driver().run(RETENTION_ENDPOINT, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == ["/api/2/retention"]
+        request = result.requests[0]
+        assert json.loads(request.param("se") or "null") == {"event_type": "_new"}
+        assert json.loads(request.param("re") or "null") == {"event_type": "_all"}
+        assert (request.param("rm"), request.param("i")) == ("nday", "1")
+        assert (request.param("start"), request.param("end")) == ("20251008", "20260105")
+        # Index 0 is the cohort size, so day 0 is the second bucket.
+        assert [(row["date"], row["day"], row["count"], row["incomplete"]) for row in result.rows] == [
+            (date(2025, 12, 31), 0, 40, False),
+            (date(2025, 12, 31), 1, 25, True),
+        ]
+
+    def test_composition_queries_each_built_in_property(self) -> None:
+        charts = {
+            "version": {"series": [[50, 20]], "seriesLabels": ["version"], "xValues": ["1.0", "(none)"]},
+            "country": {"series": [[7]], "xValues": ["US"]},
+            "city": {"series": [[]], "xValues": []},
+            "paying": {"series": [[3, 9]], "xValues": [True, False]},
+        }
+
+        result = _driver().run(
+            COMPOSITION_ENDPOINT,
+            [ScriptedResponse(json={"data": charts.get(prop, {})}) for prop in COMPOSITION_PROPERTIES],
+        )
+
+        assert result.raised is None
+        assert result.params("p") == list(COMPOSITION_PROPERTIES)
+        assert set(result.params("start")) == {"20251008"}
+        assert set(result.params("end")) == {"20260105"}
+        assert result.rows == [
+            {"property": "version", "value": "1.0", "users": 50},
+            {"property": "version", "value": "(none)", "users": 20},
+            {"property": "country", "value": "US", "users": 7},
+            {"property": "paying", "value": "True", "users": 3},
+            {"property": "paying", "value": "False", "users": 9},
+        ]
+
+    def test_revenue_ltv_queries_each_metric_and_stamps_it_onto_rows(self) -> None:
+        def ltv_body(r1d: float) -> dict[str, Any]:
+            return {
+                "data": {
+                    "seriesLabels": [""],
+                    "series": [
+                        {
+                            "dates": ["2026-01-05"],
+                            "values": {"2026-01-05": {"r1d": r1d, "r90d": r1d * 2, "count": 10, "paid": 2}},
+                        }
+                    ],
+                }
+            }
+
+        result = _driver().run(
+            REVENUE_LTV_ENDPOINT,
+            [ScriptedResponse(json=ltv_body(value)) for value in (1.5, 7.5, 15.0, 2.0)],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/2/revenue/ltv"] * 4
+        assert result.params("m") == ["0", "1", "2", "3"]
+        assert set(result.params("i")) == {"1"}
+        assert [(row["date"], row["metric"], row["r1d"], row["count"]) for row in result.rows] == [
+            (date(2026, 1, 5), "arpu", 1.5, 10),
+            (date(2026, 1, 5), "arppu", 7.5, 10),
+            (date(2026, 1, 5), "total_revenue", 15.0, 10),
+            (date(2026, 1, 5), "paying_users", 2.0, 10),
+        ]
+
+    @parameterized.expand([(RETENTION_ENDPOINT,), (COMPOSITION_ENDPOINT,), (REVENUE_LTV_ENDPOINT,)])
+    def test_http_errors_propagate(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=400, json={"error": "invalid"})])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == []
 
 
 class TestAmplitudeSourceResponse:

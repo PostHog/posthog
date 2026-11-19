@@ -3,6 +3,9 @@ import threading
 import pytest
 from unittest.mock import Mock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     LockNotOwnedError,
@@ -12,8 +15,17 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.redis import get_client
 
+from products.aeo.backend import keyword_suggestions
+from products.aeo.backend.facade.api import get_prompt_set_overview
+from products.aeo.backend.facade.contracts import DEFAULT_STATS_DAYS
+from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.tasks import tasks
-from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, run_aeo_citation_checks_for_team_task
+from products.aeo.backend.tasks.tasks import (
+    recompute_aeo_own_citations_task,
+    run_aeo_citation_checks_for_team_task,
+    suggest_aeo_keywords_task,
+)
+from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
 
 @pytest.fixture
@@ -90,6 +102,25 @@ def test_a_recompute_retries_while_another_one_holds_the_team(team: Team) -> Non
     held.release()
 
 
+def test_refresh_fills_checks_from_before_the_stored_values_and_then_stores_the_views(team: Team) -> None:
+    create_own_brand(team, "example.com")
+    check_id = create_citation_check(team, "example")
+
+    with (
+        patch.object(tasks.recompute_aeo_own_citations_task, "delay", tasks.recompute_aeo_own_citations_task),
+        patch.object(
+            tasks.refresh_aeo_stored_results_for_team_task, "delay", tasks.refresh_aeo_stored_results_for_team_task
+        ),
+    ):
+        tasks.refresh_aeo_stored_results_for_team_task(team.id)
+
+    assert AEOCitationCheck.objects.for_team(team.id).get(id=check_id).prompt_branded is True
+    with CaptureQueriesContext(connection) as queries:
+        overview = get_prompt_set_overview(team.id, timezone_name=team.timezone, days=DEFAULT_STATS_DAYS)
+    assert overview.current.checks == 1
+    assert [q["sql"] for q in queries.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
+
+
 def test_lease_renewal_survives_a_redis_blip_and_stops_the_run_once_the_lease_is_lost(monkeypatch) -> None:
     monkeypatch.setattr(tasks, "RUN_LEASE_RENEW_SECONDS", 0.001)
     lease = Mock()
@@ -100,3 +131,51 @@ def test_lease_renewal_survives_a_redis_blip_and_stops_the_run_once_the_lease_is
 
     assert lease.reacquire.call_count == 3
     assert lost.is_set()
+
+
+def test_keyword_suggestion_task_fails_the_job_when_it_crashes(team: Team) -> None:
+    job = keyword_suggestions.create_job(team.id)
+
+    with (
+        patch.object(keyword_suggestions, "resolve_ai_gateway_config", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError),
+    ):
+        suggest_aeo_keywords_task(
+            team.id, job.id, {"domain": "example.com", "brand": "", "description": "", "count": 5}
+        )
+
+    failed = keyword_suggestions.load_job(team.id, job.id)
+    assert (failed.status, failed.error) == ("failed", keyword_suggestions.FAILED_ERROR)
+
+
+@pytest.mark.parametrize("job_state", ["failed", "missing"])
+def test_keyword_suggestion_task_skips_a_job_that_is_no_longer_pending(team: Team, job_state: str) -> None:
+    job_id = (
+        keyword_suggestions.create_job(team.id).id if job_state == "failed" else "00000000-0000-4000-8000-000000000000"
+    )
+    if job_state == "failed":
+        keyword_suggestions.fail_job(team.id, job_id, keyword_suggestions.STALE_JOB_ERROR)
+
+    with patch.object(keyword_suggestions, "resolve_ai_gateway_config") as gateway:
+        suggest_aeo_keywords_task(
+            team.id, job_id, {"domain": "example.com", "brand": "", "description": "", "count": 5}
+        )
+
+    gateway.assert_not_called()
+    if job_state == "failed":
+        assert keyword_suggestions.load_job(team.id, job_id).error == keyword_suggestions.STALE_JOB_ERROR
+
+
+@pytest.mark.parametrize("flag_on, expected_starts", [(True, 1), (False, 0)], ids=["enabled", "flag_off"])
+def test_sentiment_backlog_pass_scores_each_enabled_team(
+    team: Team, settings, flag_on: bool, expected_starts: int
+) -> None:
+    settings.AEO_CITATION_TEAM_IDS = [str(team.id), "not-a-team"]
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=flag_on),
+        patch.object(tasks, "start_backlog_sentiment_scoring", side_effect=RuntimeError("temporal down")) as start,
+    ):
+        tasks.score_aeo_sentiment_backlog_task()
+
+    assert [call.args for call in start.call_args_list] == [(team.id,)] * expected_starts

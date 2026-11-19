@@ -228,6 +228,8 @@ export interface ChartDimensions {
     plotWidth: number
     /** Height of the drawable plot area. */
     plotHeight: number
+    /** Backing pixels per CSS pixel to rasterise the canvas at. Absent means `devicePixelRatio`. */
+    pixelRatio?: number
 }
 
 /** Spacing between the container edges and the plot area. */
@@ -290,6 +292,10 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Turn it on only for charts whose
+     *  labels are x values, such as dates. Defaults to false; the time-series charts default it to
+     *  true. */
+    syncHover?: boolean
     /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
     axisOrientation?: 'vertical' | 'horizontal'
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced

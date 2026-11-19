@@ -46,7 +46,7 @@ class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Zenloop API token to pull your Zenloop data into the PostHog Data warehouse.
 
-You can generate an API token under **Settings → API** in the [Zenloop app](https://app.zenloop.com/settings/api). The token inherits the generating user's account permissions and grants read access to surveys, survey groups, and properties.
+You can generate an API token under **Settings → API** in the [Zenloop app](https://app.zenloop.com/settings/api). The token inherits the generating user's account permissions and grants read access to surveys, survey groups, properties, and survey answers.
 """,
             iconPath="/static/services/zenloop.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zenloop",
@@ -88,8 +88,8 @@ You can generate an API token under **Settings → API** in the [Zenloop app](ht
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — the survey and property catalogs expose no reliable
-        # server-side timestamp cursor to advance (INCREMENTAL_FIELDS is empty).
+        # Every endpoint is full refresh only — see the note on ZENLOOP_ENDPOINTS (INCREMENTAL_FIELDS
+        # is empty).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

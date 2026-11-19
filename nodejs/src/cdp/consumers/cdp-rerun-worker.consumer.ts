@@ -116,6 +116,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             pollDelayMs: 1000,
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
             boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+            releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
         })
 
         await this.worker.connect((jobs) => this.handleBatch(jobs))

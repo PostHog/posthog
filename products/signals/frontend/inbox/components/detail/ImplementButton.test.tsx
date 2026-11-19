@@ -120,6 +120,73 @@ describe('ImplementButton', () => {
         })
     })
 
+    it.each([
+        ['detail_pane', false],
+        ['triage_mode', false],
+        ['detail_pane', true],
+    ] as const)(
+        'offers a repository after automatic resolution fails from %s (retry loading: %s)',
+        async (surface, retryLoading) => {
+            let repositoriesFailed = retryLoading
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': {
+                        results: [{ id: 1, kind: 'github', display_name: 'Example' }],
+                        next: null,
+                    },
+                    '/api/projects/:team_id/integrations/1/github_repos/': () =>
+                        repositoriesFailed
+                            ? [503, { detail: 'Try again.' }]
+                            : {
+                                  repositories: [{ id: 1, name: 'app', full_name: 'example/app' }],
+                                  has_more: false,
+                              },
+                },
+            })
+            const user = userEvent.setup()
+            const report = { ...makeReport(), repo_slug: null }
+            render(<ImplementButton report={report} surface={surface} />)
+
+            await user.click(
+                screen.getByTestId(surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr')
+            )
+            expect(createPrFromReport).toHaveBeenCalledWith(report, undefined)
+            expect(screen.queryByTestId('select-github-repository')).not.toBeInTheDocument()
+            createPrFromReport.mockClear()
+
+            const access = reportGithubAccessLogic({ report, surface })
+            await expectLogic(access, () => access.actions.requireRepositorySelection()).toFinishAllListeners()
+            await screen.findByText('Select a repository to implement this report')
+            expect(createPrFromReport).not.toHaveBeenCalled()
+            expect(screen.getByTestId('inbox-report-create-pr-submit')).toHaveAttribute('aria-disabled', 'true')
+            await user.type(
+                screen.getByPlaceholderText('Add instructions for the PostHog agent (optional)'),
+                'Keep the API{Enter}'
+            )
+            expect(createPrFromReport).not.toHaveBeenCalled()
+
+            if (retryLoading) {
+                await screen.findByText('Could not load repositories. Try again.')
+                repositoriesFailed = false
+                await user.click(screen.getAllByText('Retry')[0])
+                await waitFor(() =>
+                    expect(screen.queryByText('Could not load repositories. Try again.')).not.toBeInTheDocument()
+                )
+            }
+            await user.click(screen.getByTestId('select-github-repository'))
+            await user.click(await screen.findByText('example/app'))
+            await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+
+            expect(createPrFromReport).toHaveBeenCalledWith(report, 'Keep the API', 'example/app')
+            expect(captureInboxReportAction).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    actionType: 'github_access_recovery',
+                    extra: { stage: 'repository_selected', outcome: undefined },
+                })
+            )
+        }
+    )
+
     it('opens the implementation choices when a link asks for them', async () => {
         const user = userEvent.setup()
         const onChoicesOpenedFromLink = jest.fn()

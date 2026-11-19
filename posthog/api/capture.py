@@ -13,9 +13,10 @@ Session replay events ($snapshot, $performance_event, $snapshot_items) are NOT S
 They are rejected client-side with CaptureInternalError.  Real replay ingestion flows
 through SDKs directly to the capture-rs /s/ endpoint.
 
-Targets ``/i/v1/analytics/events`` (capture-rs v1).  Typed ``event.options`` replaces
-the legacy property-stuffing pattern, and legacy ``$``-keys are defensively stripped so
-capture-rs's blind property splicing never produces duplicate keys.
+Targets ``/i/v1/analytics/events`` (capture-rs v1), and ``capture_ai_internal`` targets
+``/i/v1/ai/events``.  Settings travel in typed ``event.options``, because capture-rs reads
+them only from there.  A legacy ``$`` option property found in ``properties`` is removed
+and fills its option only when that option is unset.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from posthog.settings.ingestion import (
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
+    CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
 )
 
 logger = structlog.get_logger(__name__)
@@ -560,7 +562,7 @@ def _submit_batch_chunk(
             url,
             HTTPAdapter(
                 max_retries=Retry(
-                    total=3,
+                    total=CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
                     backoff_factor=0.1,
                     status_forcelist=[500, 502, 503, 504],
                     allowed_methods={"POST"},

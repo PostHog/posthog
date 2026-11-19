@@ -2,11 +2,8 @@ from typing import Any
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.contrib.auth.forms import (
-    ReadOnlyPasswordHashWidget as DjangoReadOnlyPasswordHashWidget,
-    UserChangeForm as DjangoUserChangeForm,
-)
-from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX, identify_hasher
+from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
+from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
@@ -29,27 +26,13 @@ from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
 
 
-class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
-    # Django's widget shows the first characters of the salt and hash. Show only the algorithm.
-    template_name = "admin/posthog/user/read_only_password_hash.html"
-
-    def get_context(self, name: str, value: str | None, attrs: dict[str, Any] | None) -> dict[str, Any]:
-        context = super().get_context(name, value, attrs)
-        context["has_password"] = False
-        context["algorithm"] = None
-        if value and not value.startswith(UNUSABLE_PASSWORD_PREFIX):
-            context["has_password"] = True
-            try:
-                context["algorithm"] = identify_hasher(value).algorithm
-            except ValueError:
-                pass
-        return context
-
-
 class UserChangeForm(DjangoUserChangeForm):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["password"].widget = ReadOnlyPasswordHashWidget()
+    # Django's password field renders the first characters of the salt and hash. UserAdmin shows
+    # password_display instead, which shows no part of the hash.
+    password = None  # type: ignore[assignment]
+
+    class Meta(DjangoUserChangeForm.Meta):
+        exclude = ("password",)
 
     def clean_is_staff(self):
         is_staff = bool(self.cleaned_data.get("is_staff", False))
@@ -90,7 +73,7 @@ class UserAdmin(DjangoUserAdmin):
                     "id",
                     "distinct_id",
                     "email",
-                    "password",
+                    "password_display",
                     "current_organization",
                     "is_email_verified",
                     "email_verification_status",
@@ -127,6 +110,7 @@ class UserAdmin(DjangoUserAdmin):
         "id",
         "distinct_id",
         "email",
+        "password_display",
         "pending_email",
         "current_team",
         "current_organization",
@@ -183,6 +167,13 @@ class UserAdmin(DjangoUserAdmin):
             reverse("admin:posthog_organization_change", args=[user.organization.pk]),
             user.organization.name,
         )
+
+    @admin.display(description="Password")
+    def password_display(self, user: User):
+        reset_link = MovedToConsole.action("user", user, "sign-in", "Resetting the password")
+        if not user.password or user.password.startswith(UNUSABLE_PASSWORD_PREFIX):
+            return format_html("<p><strong>No password set.</strong></p><p>{}</p>", reset_link)
+        return reset_link
 
     @admin.display(description="Web sessions")
     def revoke_sessions_link(self, user: User):

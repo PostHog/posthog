@@ -25,7 +25,7 @@ export function CanvasSidePanelToggle(): JSX.Element | null {
                         size="icon-sm"
                         variant="default"
                         aria-label="Show side panel"
-                        onClick={() => openTab(canvasPanelTab(selectedTab) ?? 'chat', canvas.id)}
+                        onClick={() => openTab(canvasPanelTab(selectedTab) ?? 'timeline', canvas.id)}
                         data-attr="canvas-panel-toggle"
                     />
                 }

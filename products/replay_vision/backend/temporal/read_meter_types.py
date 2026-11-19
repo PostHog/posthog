@@ -78,6 +78,11 @@ def sweep_throttle_factor(spend_bytes: int, override: int | None) -> int:
     return _throttle_factor(spend_bytes, SWEEP_READ_BUDGET_BYTES_24H, SWEEP_THROTTLE_MAX_FACTOR)
 
 
+def scheduled_sweep_throttle_factor(stored: int, override: int | None) -> int:
+    """The factor the sweep schedule runs at: the override, else what the read meter last stored."""
+    return sweep_throttle_factor(0, override) if override is not None else stored
+
+
 def buckets_or_pre_split(
     buckets: dict[str, int] | None, pre_split_by_hour: dict[str, int] | None
 ) -> dict[str, int] | None:

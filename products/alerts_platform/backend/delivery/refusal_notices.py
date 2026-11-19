@@ -164,6 +164,7 @@ def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal
             "alert_name": message.alert_name,
             "alert_url": message.alert_url,
             "refusal": str(refusal),
+            "remedy": refusal.remedy,
         },
     )
     email.add_user_recipient(creator)

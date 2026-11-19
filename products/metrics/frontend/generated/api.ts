@@ -738,6 +738,26 @@ export const metricsSuggestedDashboardsDashboardCreate = async (
     })
 }
 
+export const getMetricsSuggestedDashboardsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/suggested_dashboards/${id}/dismiss/`
+}
+
+/**
+ * Remove the suggestion from this project's suggested dashboards, for every user of the project.
+ * The suggestion does not come back. A dashboard that was created from it stays.
+ * A second call does nothing.
+ */
+export const metricsSuggestedDashboardsDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsSuggestedDashboardsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsValuesRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 

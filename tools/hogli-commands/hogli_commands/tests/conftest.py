@@ -12,13 +12,22 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.devbox import herdr as devbox_herdr
+from hogli_commands.devbox import (
+    box_checks,
+    herdr as devbox_herdr,
+)
 
 
 @pytest.fixture(autouse=True)
 def _no_real_herdr_machine_removal(monkeypatch: pytest.MonkeyPatch) -> None:
     # Deleting a devbox calls `hc`, which is on the PATH of any developer who uses Herdr.
     monkeypatch.setattr(devbox_herdr, "forget_machine", lambda workspace_name: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_box_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `devbox:start` checks the box over SSH, and a developer's own SSH config can reach a real box.
+    monkeypatch.setattr(box_checks, "coder_ssh_alias_configured", lambda name: False)
 
 
 @pytest.fixture

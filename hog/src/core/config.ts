@@ -57,10 +57,19 @@ const ErrorTracking = z
     })
     .describe('Settings for `hog error-tracking`.')
 
+export const TYPESCRIPT_SDKS = ['posthog-js', 'none'] as const
+export type TypeScriptSdk = (typeof TYPESCRIPT_SDKS)[number]
+
 // Snake case, because posthog-cli writes and reads the same entries in `exp schema pull`.
 const SchemaLanguage = z
     .strictObject({
         output_path: z.string().min(1).describe('Where the generated module goes, relative to posthog.json.'),
+        sdk: z
+            .enum(TYPESCRIPT_SDKS)
+            .optional()
+            .describe(
+                'TypeScript only: the SDK the module wraps. `none` generates only the event types. Without it, `posthog-js`.'
+            ),
         schema_hash: z.string().optional().describe('The hash of the event definitions the module was generated from.'),
         updated_at: z.string().optional().describe('When the module was last generated.'),
         event_count: z.number().int().optional().describe('How many events the module types.'),
@@ -95,6 +104,12 @@ export const PostHogConfig = z
                     .optional()
                     .describe(
                         'false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.'
+                    ),
+                updateCheck: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'false stops every update check for everyone working in this folder, except the one `hog setup` runs. HOG_NO_UPDATE_CHECK does the same.'
                     ),
                 rateLimit: z
                     .number()

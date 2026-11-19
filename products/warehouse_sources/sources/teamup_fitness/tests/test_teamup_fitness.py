@@ -38,6 +38,10 @@ def driver(config: TeamupFitnessSourceConfig) -> SourceDriver:
         ("offering_types", "offering_types", None),
         ("lead_sources", "crm/lead_sources", None),
         ("payment_subscriptions", "payment_subscriptions", None),
+        ("membership_payment_plans", "membership_payment_plans", None),
+        ("customer_membership_holds", "customer_membership_holds", None),
+        ("discount_codes", "discount_codes", None),
+        ("crm_status_changes", "crm/status_changes", None),
     ],
 )
 def test_full_refresh_requests_and_pagination(driver: SourceDriver, endpoint: str, path: str, sort: str | None) -> None:

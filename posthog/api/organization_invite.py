@@ -357,8 +357,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
-            send_invite(invite_id=invite.id)
-            # A full-row save would overwrite `email_suppressed` if the suppression check that `send_invite` queues finished first.
+            # The send waits on the email provider, so it runs in a worker rather than in this request.
+            send_invite.delay(invite_id=str(invite.id))
+            # A full-row save would overwrite the `email_suppressed` that `send_invite` sets when the provider refuses the address.
             invite.save(update_fields=["emailing_attempt_made", "updated_at"])
 
         report_team_member_invited(

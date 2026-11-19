@@ -235,6 +235,23 @@ class TestChangeEventBatcher:
         table = batcher.flush()["users"]
         assert TOAST_OMITTED_COLUMN not in table.column_names
 
+    def test_should_flush_toast_omitted_event_threshold(self):
+        batcher = ChangeEventBatcher(max_toast_omitted_events=2)
+        batcher.add(_make_event(op="U", columns={"id": 1}, omitted_columns=frozenset({"big"})))
+        batcher.add(_make_event(op="U", columns={"id": 2}))
+        assert batcher.should_flush is False
+
+        batcher.add(_make_event(op="U", table="orders", columns={"id": 3}, omitted_columns=frozenset({"big"})))
+        assert batcher.should_flush is True
+
+        batcher.discard("orders")  # type: ignore[unreachable]
+        assert batcher.should_flush is False
+
+        batcher.add(_make_event(op="U", columns={"id": 4}, omitted_columns=frozenset({"big"})))
+        assert batcher.should_flush is True
+        batcher.flush()
+        assert batcher.should_flush is False
+
     def test_should_flush_byte_threshold(self):
         batcher = ChangeEventBatcher(max_bytes=500)
         batcher.add(_make_event(columns={"id": 1, "data": "x"}))
@@ -301,6 +318,31 @@ class TestEventsToTableEdgeCases:
 
         table = batcher.flush()["users"]
         assert table.column("seats").type == pa.string()
+
+    def test_source_columns_differing_only_by_case_are_deduped(self):
+        # Postgres quoted identifiers let two columns differ only by case (e.g. "clickid" and
+        # "CLICKID"), which pyarrow keeps distinct but Delta's case-insensitive field-name check
+        # rejects as a duplicate. The table must carry no two column names that fold to the same
+        # value. Resolution is by sorted order ("CLICKID" < "clickid"), not event order.
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(columns={"id": 1, "clickid": "a", "CLICKID": "b"}))
+        table = batcher.flush()["users"]
+
+        folded = [name.lower() for name in table.column_names]
+        assert len(folded) == len(set(folded))
+        assert table.column("CLICKID")[0].as_py() == "b"
+        assert table.column("clickid_dup1")[0].as_py() == "a"
+
+    def test_non_colliding_mixed_case_column_keeps_its_source_name(self):
+        # Only a genuine case collision may rename a column. A column with no colliding
+        # sibling, however it is cased, must reach the table under its exact source name —
+        # TOAST markers and primary-key enrichment elsewhere in the CDC pipeline match columns
+        # by that exact name, and renaming it too would silently break syncs that work today.
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(columns={"id": 1, "createdAt": "2025-06-15"}))
+        table = batcher.flush()["users"]
+
+        assert table.column("createdAt")[0].as_py() == "2025-06-15"
 
 
 class TestBuildScd2Table:

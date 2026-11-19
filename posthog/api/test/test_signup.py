@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
@@ -13,12 +14,15 @@ from unittest.mock import ANY, patch
 from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
+from social_core.exceptions import AuthFailed
 
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -28,6 +32,7 @@ from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     PendingOAuthFlow,
 )
+from posthog.inbox_providers import InboxProvider
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -92,6 +97,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -161,6 +167,7 @@ class TestSignupAPI(APIBaseTest):
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
+    @patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL})
     def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
@@ -193,6 +200,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": "gmail",
             },
         )
 
@@ -244,6 +252,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
         mock_is_email_available.assert_called()
@@ -585,6 +594,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -793,6 +803,29 @@ class TestSignupAPI(APIBaseTest):
                 "attr": "password",
             }, [password, res.json()]
 
+    @override_settings(PWNED_PASSWORDS_CHECK_ENABLED=True)
+    def test_cant_sign_up_with_breached_password(self):
+        password = "vX9#qLm2$rTp-unique"
+        breached = requests.Response()
+        breached.status_code = 200
+        breached._content = f"{hashlib.sha1(password.encode()).hexdigest().upper()[5:]}:3".encode()
+        count = User.objects.count()
+
+        with patch("requests.request", return_value=breached):
+            res = self.client.post(
+                "/api/signup/",
+                {"first_name": "Jane", "email": "failed@posthog.com", "password": password},
+            )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json() == {
+            "type": "validation_error",
+            "code": "password_compromised",
+            "detail": "This password appeared in a known data breach. Choose a different password.",
+            "attr": "password",
+        }
+        assert User.objects.count() == count
+
     def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
@@ -824,6 +857,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -916,6 +950,12 @@ class TestSignupAPI(APIBaseTest):
                 {"next": "/connect/vercel/link?session=abc"},
                 "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com&next=%2Fconnect%2Fvercel%2Flink%3Fsession%3Dabc",
                 "unsafe-none",
+            ),
+            (
+                "with_next_to_another_project",
+                {"next": "/project/12345/dashboard/1"},
+                "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
+                "same-origin",
             ),
         ]
     )
@@ -1662,22 +1702,33 @@ class TestSignupAPI(APIBaseTest):
         self.assertFalse(existing_user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
 
+    @parameterized.expand(
+        [
+            ("plain_path", "/next_path", "?next=%2Fnext_path"),
+            ("another_project_by_id", "/project/{team_id}/dashboard/1", ""),
+            ("another_project_by_token", "/project/{team_token}/surveys", ""),
+        ]
+    )
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
-    def test_api_sign_up_preserves_next_param(self, mock_email_verifier, mock_is_email_available):
+    def test_api_sign_up_next_param(
+        self, _name, next_url, expected_query, mock_email_verifier, mock_is_email_available
+    ):
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Someone else's org"))
 
-        response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "John",
-                "email": "hedgehog@posthog.com",
-                "password": VALID_TEST_PASSWORD,
-                "organization_name": "Hedgehogs United, LLC",
-                "role_at_organization": "product",
-                "next_url": "/next_path",
-            },
-        )
+        with self.is_cloud(True):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "John",
+                    "email": "hedgehog@posthog.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": "Hedgehogs United, LLC",
+                    "role_at_organization": "product",
+                    "next_url": next_url.format(team_id=other_team.pk, team_token=other_team.api_token),
+                },
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -1685,7 +1736,7 @@ class TestSignupAPI(APIBaseTest):
 
         self.assertEqual(
             response_data["redirect_url"],
-            f"/verify_email/{user.uuid}?next=%2Fnext_path",
+            f"/verify_email/{user.uuid}{expected_query}",
         )
         mock_email_verifier.assert_called_once_with(user)
 
@@ -2517,6 +2568,18 @@ class TestInviteSignupAPI(APIBaseTest):
                     "attr": None,
                 },
             )
+
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_invite_signup_attempts_are_limited_by_ip_but_page_loads_are_not(self, _mock_get_ip):
+        cache.clear()
+        invite_url = f"/api/signup/{uuid.uuid4()}/"
+        attempt = {"first_name": "Bob", "password": VALID_TEST_PASSWORD}
+
+        for _ in range(10):
+            assert self.client.post(invite_url, attempt).status_code == status.HTTP_400_BAD_REQUEST
+
+        assert self.client.post(invite_url, attempt).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert self.client.get(invite_url).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", VALID_TEST_PASSWORD)
@@ -3388,6 +3451,19 @@ class TestInviteSignupAPI(APIBaseTest):
             mock.MagicMock(), nonexistent_id, "test@example.com", "Test User", backend=mock.MagicMock()
         )
         self.assertIsNone(result)
+
+    def test_process_social_invite_signup_raises_auth_failed_when_account_creation_fails(self):
+        # SocialAuthExceptionMiddleware redirects only AuthException and DRF errors to the login page, anything else is a 500
+        invite = OrganizationInvite.objects.create(target_email="collision@example.com", organization=self.organization)
+        strategy = mock.MagicMock()
+        strategy.create_user.side_effect = IntegrityError("duplicate key value violates unique constraint")
+
+        with self.assertRaises(AuthFailed) as ctx:
+            process_social_invite_signup(
+                strategy, str(invite.id), "collision@example.com", "Collision", backend=mock.MagicMock()
+            )
+
+        self.assertIn("Account unable to be created", str(ctx.exception))
 
     @pytest.mark.skip_on_multitenancy
     def test_password_invite_signup_with_passkey_in_session(self):

@@ -77,6 +77,7 @@ export type ExperimentHealthFindingActionKind =
     | 'add_secondary_metric'
     | 'end_experiment'
     | 'freeze_exposure'
+    | 'move_start_date'
 
 const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentHealthFindingCode> = {
     running_but_flag_disabled: 'flag_off_while_running',

@@ -45,6 +45,7 @@ import { buildMetricSceneActions, MAX_UNAVAILABLE_REASON } from './metricSceneAc
 import { QuillDataCatalogMetricScene } from './QuillDataCatalogMetricScene'
 import { MetricTestsTab } from './tabs/MetricTestsTab'
 import { MetricTestsTabLabel } from './tabs/MetricTestsTabLabel'
+import { MetricUsageTab } from './tabs/MetricUsageTab'
 
 export const scene: SceneExport<DataCatalogMetricSceneLogicProps> = {
     component: DataCatalogMetricScene,
@@ -105,6 +106,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const usageEnabled = !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE]
     const { isMaxAvailable } = useValues(maxGlobalLogic)
 
     if (metricLoading && !metric) {
@@ -186,7 +188,6 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
         metric,
         mutating,
         running: runResultLoading,
-        biModeEnabled: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         isMaxAvailable,
         handlers: {
             approve: approveMetric,
@@ -295,6 +296,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
                             key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
+                        usageEnabled ? { key: 'usage', label: 'Usage' } : null,
                     ]}
                 />
 
@@ -336,6 +338,12 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
                 {mountedTabs.includes('data-quality') && (
                     <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
+                    </div>
+                )}
+
+                {usageEnabled && mountedTabs.includes('usage') && (
+                    <div className={tabPanelClassName('usage', activeTab)}>
+                        <MetricUsageTab name={metric.name} />
                     </div>
                 )}
             </SceneContent>

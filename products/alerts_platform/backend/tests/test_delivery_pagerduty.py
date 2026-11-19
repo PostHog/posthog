@@ -68,6 +68,18 @@ class TestPagerDutyBody(SimpleTestCase):
             },
         }
 
+    def test_a_rule_entry_shows_in_the_details_but_cannot_replace_a_platform_one(self) -> None:
+        message = replace(
+            _message(IncidentAction.TRIGGER),
+            rule_details=(MessageDetail(label="team", value="payments"), MessageDetail(label="Value", value="0")),
+        )
+
+        details = pagerduty_body(message, routing_key=ROUTING_KEY, severity=PagerDutySeverity.ERROR)["payload"][
+            "custom_details"
+        ]
+
+        assert (details["team"], details["Value"]) == ("payments", "312")
+
     def test_a_resolve_addresses_the_incident_its_trigger_opened(self) -> None:
         def key(action: IncidentAction, **transition: Any) -> str:
             body = pagerduty_body(

@@ -2,8 +2,10 @@ import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconGraph } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { SetupListeningIndicator } from 'lib/components/ProductEmptyState/SetupListeningIndicator'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -34,6 +36,14 @@ export const metricsEmptyState: SceneProductEmptyState = {
         wizard: { slug: 'metrics', pinProjectId: true },
         PrimaryAction: MetricsScrapeAgentSetup,
         docsUrl: 'https://posthog.com/docs/metrics',
+        statusIndicator: (
+            <SetupListeningIndicator
+                productKey={ProductKey.METRICS}
+                statusLogic={metricsSetupLogic}
+                dataName="metric"
+                destination={{ label: 'Go to Metrics', url: urls.metrics() }}
+            />
+        ),
         previewLabel: 'Your metrics, once connected',
         Preview: MetricsPreview,
     },

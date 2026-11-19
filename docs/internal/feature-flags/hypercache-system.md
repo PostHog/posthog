@@ -620,6 +620,8 @@ Django signals automatically invalidate the cache when models change.
 | -------------------------- | ----------- | ---------------------------------- |
 | `FeatureFlag`              | post_save   | Refresh team's flags cache         |
 | `FeatureFlag`              | post_delete | Refresh team's flags cache         |
+| `Cohort`                   | post_save   | Refresh team's flags cache         |
+| `Cohort`                   | post_delete | Refresh team's flags cache         |
 | `Team`                     | post_save   | Warm cache for new team            |
 | `Team`                     | post_delete | Clear team's flags cache           |
 | `FeatureFlagEvaluationTag` | post_save   | Refresh team's flags cache         |
@@ -634,12 +636,18 @@ All signal handlers use `transaction.on_commit()` to avoid race conditions:
 # products/feature_flags/backend/flags_cache.py
 @receiver([post_save, post_delete], sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance, **kwargs):
-    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
+    team_id = instance.team_id
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 ```
 
-This ensures the cache update task runs after the database transaction commits, not before.
+This ensures the cache update runs after the database transaction commits, not before.
+`_enqueue_invalidation` routes each team by the `flags-cache-kafka-dual-write` flag: a `flags_cache_invalidation` Kafka message for the Rust `flags-cache-builder`, or the `update_team_service_flags_cache` Celery task.
 
 ### Cohort invalidation
+
+Cohort saves, coalesced cohort rebuilds, and the cohort backfill finalizer raise the same invalidation with `source="cohort"`, so the builder counts them separately on `flags_cache_builder_builds_total{source}`.
+The finalizer dispatches the `invalidate_team_flags_cache_for_cohorts` task by name, because `products.cohorts` cannot import `products.feature_flags`.
+The verifier does not compare cohorts, so a lost cohort invalidation stays stale until the expiry refresh rebuilds the team.
 
 The local evaluation cache (for SDKs) also invalidates when cohorts change. See `posthog/models/feature_flag/local_evaluation.py` for the full signal handler list.
 

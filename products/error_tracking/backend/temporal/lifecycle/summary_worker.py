@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 MIN_ISSUE_SUMMARY_WORKER_SLOTS = 3
-# Alert dispatch, embedding and severity inference share this worker's activity slots.
+# Alert dispatch, embedding, severity inference and tagging share this worker's activity slots.
 MIN_NON_SUMMARY_WORKER_SLOTS = 2
 
 

@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { getSeriesColor } from 'lib/colors'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -8,10 +9,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoxPlotDatum } from '~/queries/schema/schema-general'
 
 import { boxPlotChartLogic } from './boxPlotChartLogic'
+import { QuillBoxPlotResultsTable } from './QuillBoxPlotResultsTable'
 
 export function BoxPlotResultsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { boxplotData, trendsFilter, seriesGroups } = useValues(boxPlotChartLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     if (!boxplotData || boxplotData.length === 0) {
         return null
@@ -20,6 +23,10 @@ export function BoxPlotResultsTable(): JSX.Element | null {
     const formatValue = (value: number): string => formatAggregationAxisValue(trendsFilter, value)
 
     const hasMultipleSeries = seriesGroups.length > 1
+
+    if (quillSurface) {
+        return <QuillBoxPlotResultsTable data={boxplotData} showSeries={hasMultipleSeries} formatValue={formatValue} />
+    }
 
     return (
         <LemonTable

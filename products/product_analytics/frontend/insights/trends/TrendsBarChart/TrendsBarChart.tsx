@@ -31,6 +31,8 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { RequestedAnomalyScoreOverlay } from 'products/product_analytics/frontend/insights/anomalies/RequestedAnomalyScoreOverlay'
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -49,6 +51,7 @@ import {
 import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
+import { TrendsAxisSettings } from '../shared/TrendsAxisSettings'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
@@ -121,6 +124,7 @@ export function TrendsBarChart({
         querySource,
         getTrendsColor,
         getTrendsHidden,
+        getTrendsYAxisPosition,
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
@@ -204,6 +208,10 @@ export function TrendsBarChart({
         [getTrendsColor, indexedResults, isSeriesHighlighted]
     )
 
+    const yAxisPositions = useMemo(
+        () => (isGrouped && !isPercentStackView ? indexedResults?.map(getTrendsYAxisPosition) : undefined),
+        [isGrouped, isPercentStackView, indexedResults, getTrendsYAxisPosition]
+    )
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -222,6 +230,7 @@ export function TrendsBarChart({
             getLabel,
             buildMeta,
             showMultipleYAxes: applyMultipleYAxes,
+            yAxisPositions,
         })
         // Bands are keyed by these strings, so they must be unique per point. Display labels
         // are not (week and hour labels omit the year), which folds a multi-year range's bars
@@ -246,6 +255,7 @@ export function TrendsBarChart({
         getLabel,
         buildMeta,
         applyMultipleYAxes,
+        yAxisPositions,
     ])
 
     const valueLabelFormatter = useCallback(
@@ -275,6 +285,7 @@ export function TrendsBarChart({
                 hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisPositions,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: INSIGHT_TOOLTIP_CONFIG,
@@ -289,6 +300,7 @@ export function TrendsBarChart({
             isPercentStackView,
             isGrouped,
             yAxisScaleType,
+            yAxisPositions,
             interval,
             timezone,
             currentPeriodResult?.days,
@@ -529,12 +541,33 @@ export function TrendsBarChart({
             dataAttr="trend-bar-graph"
             onError={handleChartError}
         >
+            {!embedded &&
+                !inSharedMode &&
+                !context?.hideAxes &&
+                querySource?.kind === 'TrendsQuery' &&
+                !isPercentStackView &&
+                isGrouped && <TrendsAxisSettings insightProps={insightProps} />}
+            <RetentionDeletionOverlay
+                isStickiness={isStickiness}
+                querySource={querySource}
+                compareFilter={compareFilter}
+            />
             {insight.id && (
                 <TrendsAlertOverlays
                     insightId={insight.id}
                     insightProps={insightProps}
                     indexedResults={indexedResults}
                     getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            )}
+            {insight.id && (
+                <RequestedAnomalyScoreOverlay
+                    insightId={insight.id}
+                    dateFrom={insightData?.resolved_date_range?.date_from}
+                    dateTo={insightData?.resolved_date_range?.date_to}
+                    indexedResults={indexedResults}
                     getYAxisId={getYAxisId}
                     isHidden={getTrendsHidden}
                 />

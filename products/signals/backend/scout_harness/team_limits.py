@@ -37,7 +37,6 @@ from products.signals.backend.scout_harness.limits import (
     MAX_DISPATCH_SMEAR_SECONDS,
     MAX_ENABLED_SCOUTS_PER_TEAM,
 )
-from products.signals.backend.trial.scouts import trial_enabled_scout_cap
 
 logger = structlog.get_logger(__name__)
 
@@ -660,9 +659,7 @@ def resolve_max_enabled_scouts(config_layers: Sequence[dict] | None) -> int:
 
 
 def _resolve_enabled_scout_limit(canonical_team_id: int, config_layers: Sequence[dict]) -> int:
-    configured = resolve_max_enabled_scouts(config_layers)
-    trial_limit = trial_enabled_scout_cap(canonical_team_id)
-    return min(configured, trial_limit) if trial_limit is not None else configured
+    return resolve_max_enabled_scouts(config_layers)
 
 
 def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
