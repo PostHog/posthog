@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { GENERATED_TOOLS } from '@/tools/generated/workflows'
 import type { Context } from '@/tools/types'
-import { workflowsEnable } from '@/tools/workflows/lifecycle'
 
 function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
     return {
@@ -64,7 +63,9 @@ describe('workflow write response shape', () => {
     it('drops step inputs from an enable response', async () => {
         const request = vi.fn().mockResolvedValue(workflow())
 
-        const result: any = await workflowsEnable().handler(createMockContext(request), { id: 'wf-1' } as any)
+        const result: any = await GENERATED_TOOLS['workflows-enable']!().handler(createMockContext(request), {
+            id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        } as any)
 
         expect(result.status).toBe('active')
         expectStepWithoutInputs(result.actions[0])
@@ -83,6 +84,23 @@ describe('workflow write response shape', () => {
         expect(result.published).toBe(true)
         expectStepWithoutInputs(result.workflow.actions[0])
         expectStepWithoutInputs(result.workflow.draft.actions[0])
+    })
+
+    it.each([
+        ['a draft workflow', undefined, '/project/42/workflows/wf-1/workflow'],
+        ['a broadcast', 'broadcasts', '/project/42/broadcasts/wf-1'],
+    ])('tells the agent to relay a test sender warning when it enables %s', async (_name, origin, path) => {
+        const warnings = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
+        const request = vi.fn().mockResolvedValue({ ...workflow(), origin_product: origin, warnings })
+
+        const result: any = await GENERATED_TOOLS['workflows-enable']!().handler(createMockContext(request), {
+            id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        } as any)
+
+        expect(request.mock.calls[0]?.[0].body).toEqual({ status: 'active' })
+        expect(result._agentNote).toContain('test_sender_live')
+        expect(result.warnings).toEqual(warnings)
+        expect(result._posthogUrl).toBe(`https://us.posthog.com${path}`)
     })
 
     it('tells the agent to relay a test sender warning from a publish', async () => {
