@@ -152,7 +152,18 @@ describe('ImpactFunnelCard', () => {
     it('reads the setting on its own on open, keeps it through a failed read, and reads it again on focus', async () => {
         initKeaTests(true, teamWithLinkTagging(true))
         let stored: [number, unknown] = [200, teamWithLinkTagging(false)]
-        useMocks({ get: { [PROJECT_URL]: () => stored } })
+        let failedReadAnswered = (): void => {}
+        const failedRead = new Promise<void>((resolve) => (failedReadAnswered = resolve))
+        useMocks({
+            get: {
+                [PROJECT_URL]: () => {
+                    if (stored[0] === 500) {
+                        failedReadAnswered()
+                    }
+                    return stored
+                },
+            },
+        })
         answer = [200, IMPACT]
         renderCard()
         expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
@@ -161,9 +172,8 @@ describe('ImpactFunnelCard', () => {
         stored = [500, { detail: 'Server error' }]
         setPageHidden(true)
         setPageHidden(false)
-        const logic = emailImpactLogic({ workflowId: 'workflow-1' })
-        expect(logic.values.storedLinkTaggingLoading).toBe(true)
-        await waitFor(() => expect(logic.values.storedLinkTaggingLoading).toBe(false))
+        await failedRead
+        await expectLogic(emailImpactLogic({ workflowId: 'workflow-1' })).toFinishAllListeners()
         expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
 
         stored = [200, teamWithLinkTagging(true)]
