@@ -644,10 +644,21 @@ class TestEmail(BaseTest):
         record = MessagingRecord.objects.get(campaign_key="smtp_routing")
         self.assertIsNotNone(record.sent_at)
 
+    @parameterized.expand(
+        [
+            ("smtp_accepts_the_rest", None, 1),
+            ("smtp_permanently_rejects_the_rest", smtplib.SMTPDataError(554, b"rejected"), 0),
+        ]
+    )
     @patch("posthog.email.requests.post")
-    def test_a_workflows_failure_does_not_hold_back_the_rest_of_the_batch(self, mock_post: MagicMock) -> None:
+    def test_a_workflows_failure_does_not_hold_back_the_rest_of_the_batch(
+        self, _name: str, smtp_error: Exception | None, expected_smtp_sends: int, mock_post: MagicMock
+    ) -> None:
         mock_post.return_value = MagicMock(status_code=503, text="unavailable", json=MagicMock(return_value={}))
         with (
+            patch("django.core.mail.backends.locmem.EmailBackend.send_messages", side_effect=smtp_error, return_value=1)
+            if smtp_error
+            else contextlib.nullcontext(),
             patch(
                 "posthog.email.posthoganalytics.feature_enabled",
                 side_effect=lambda _key, distinct_id, **_kwargs: distinct_id == "routed@posthog.com",
@@ -663,7 +674,23 @@ class TestEmail(BaseTest):
             with self.assertRaises(WorkflowsEmailError):
                 message.send(send_async=False, retry=False)
 
-        self.assertEqual([m.to for m in mail.outbox], [["smtp@posthog.com"]])
+        self.assertEqual(len(mail.outbox), expected_smtp_sends)
+
+    @patch("posthog.email.requests.post", side_effect=requests.exceptions.InvalidHeader("Bearer phs_secret_value"))
+    def test_a_network_error_from_workflows_never_carries_the_api_key(self, _post: MagicMock) -> None:
+        with (
+            patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_secret_value", POSTHOG_HOST="https://us.posthog.com"
+            ),
+        ):
+            message = EmailMessage(campaign_key="header_leak", subject="Subject", template_name="async_migration_error")
+            message.add_recipient("leak@posthog.com")
+            with self.assertRaises(WorkflowsEmailError) as raised:
+                message.send(send_async=False, retry=False)
+
+        self.assertNotIn("phs_secret_value", str(raised.exception))
 
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")

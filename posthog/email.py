@@ -329,8 +329,9 @@ def _queue_workflows_email(
     except requests.Timeout as err:
         raise WorkflowsEmailError(str(err), code="timeout") from err
     except requests.RequestException as err:
-        # Such as a body cut off after the headers arrived, so Workflows may have queued the email.
-        raise WorkflowsEmailError(str(err), code="network_error") from err
+        # Such as a body cut off after the headers arrived, so Workflows may have queued the email. The message is
+        # left out because some of these errors, such as InvalidHeader, quote the Authorization header.
+        raise WorkflowsEmailError(type(err).__name__, code="network_error") from err
 
     if response.status_code != 202:
         try:
@@ -688,8 +689,12 @@ def _send_via_smtp(
                     )
                     continue
                 if workflows_response is not None:
-                    record.sent_at = timezone.now()
-                    record.save()
+                    try:
+                        record.sent_at = timezone.now()
+                        record.save()
+                    except (OperationalError, InterfaceError) as err:
+                        # The pin keeps the retry on Workflows, which replays the email it already queued.
+                        raise WorkflowsEmailError(type(err).__name__, code="mark_sent_failed") from err
                     _capture_email_event(
                         capture,
                         dest,
@@ -757,8 +762,6 @@ def _send_via_smtp(
                         },
                     )
                     EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
-        if workflows_error is not None:
-            raise workflows_error
     except WorkflowsEmailError as err:
         if not will_retry:
             capture_exception(err)
@@ -797,6 +800,11 @@ def _send_via_smtp(
                 connection.close()
             except Exception as err:
                 logger.warning("email_connection_close_failed", error=str(err))
+    # Raised after the SMTP handlers, so a permanent SMTP rejection later in the batch cannot swallow it.
+    if workflows_error is not None:
+        if not will_retry:
+            capture_exception(workflows_error)
+        raise workflows_error
 
 
 class EmailDeliveryError(Exception):
