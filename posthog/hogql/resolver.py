@@ -1233,6 +1233,7 @@ class Resolver(CloningVisitor):
         node_type = ast.SelectQueryType()
         self._pending_scalar_ctes[-1]["scope"] = node_type
         self._pending_scalar_ctes[-1]["has_from"] = node.select_from is not None
+        self.scopes.append(node_type)
 
         parent_ctes = self.ctes
 
@@ -1248,7 +1249,7 @@ class Resolver(CloningVisitor):
                 if cte.cte_type == "column":
                     if not self._required_tables_available(
                         cte,
-                        self.scopes[-1] if self.scopes and node.select_from is None else EMPTY_SCOPE,
+                        node_type,
                         self._pending_scalar_ctes[-1]["pending"],
                     ):
                         self._pending_scalar_ctes[-1]["pending"][cte.name] = cte
@@ -1263,9 +1264,6 @@ class Resolver(CloningVisitor):
             node_type.ctes = current_level_ctes
         else:
             self.ctes = dict(parent_ctes)
-
-        # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
-        self.scopes.append(node_type)
 
         # Clone the select query, piece by piece
         new_node = ast.SelectQuery(

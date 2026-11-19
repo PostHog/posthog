@@ -541,10 +541,39 @@ class TestWrappedEventJoins(SimpleTestCase):
             )
 
     def test_nested_table_capture_cannot_be_inherited_by_a_different_from(self) -> None:
-        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+        with self.assertRaisesRegex(QueryError, "Unable to resolve field: t"):
             self._compile(
                 "SELECT (WITH (WITH t.properties AS local_value SELECT local_value) AS y "
                 "SELECT (SELECT y FROM raw_persons AS t LIMIT 1)) FROM events AS t LIMIT 1",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+            )
+
+    def test_nested_scalar_with_cannot_capture_tables_before_its_from(self) -> None:
+        with self.assertRaisesRegex(QueryError, "Unable to resolve field: t"):
+            self._compile(
+                "SELECT (WITH (WITH t.properties AS q SELECT q) AS x "
+                "SELECT x FROM raw_persons AS t LIMIT 1) FROM events AS t LIMIT 1",
+                restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+            )
+
+    def test_nested_scalar_expression_alias_stays_in_its_select_scope(self) -> None:
+        printed, context = self._compile(
+            "SELECT (WITH tuple(1 AS properties) AS a SELECT a) AS m, properties FROM raw_persons AS t LIMIT 1",
+            restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
+        )
+        self.assertIn("JSONDropKeysPool(", printed)
+        self.assertIn(["private_key"], context.values.values())
+
+    @parameterized.expand(
+        [
+            ("column", "properties AS (SELECT 1 AS a), properties AS x"),
+            ("table", "t AS (SELECT 1 AS a), t.properties AS x"),
+        ]
+    )
+    def test_scalar_cte_name_collision_cannot_bind_an_outer_table(self, _name: str, aliases: str) -> None:
+        with self.assertRaises(QueryError):
+            self._compile(
+                f"SELECT (WITH {aliases} SELECT x FROM raw_persons AS t LIMIT 1) FROM (SELECT '' AS properties) AS t",
                 restricted={RestrictedProperty(name="private_key", property_type=PropertyDefinition.Type.PERSON)},
             )
 
