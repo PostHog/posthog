@@ -1328,6 +1328,17 @@ class TestTransactionalEmail(APIBaseTest):
                 {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.001Z"},
                 "<1h",
             ),
+            *(
+                (
+                    f"{name}_on_the_key_scoped_path_in_ninety_minutes",
+                    route,
+                    "2026-11-20T09:30:00Z",
+                    "2026-11-20T09:30:00.000Z",
+                    {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
+                    "<1d",
+                )
+                for name, route in (("template_id", "send_email_key_scoped"), ("template_key", "code_key_scoped"))
+            ),
         ]
     )
     @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
