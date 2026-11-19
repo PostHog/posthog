@@ -106,13 +106,16 @@ _LIQUID_STRING_PATTERN = r"""'(?:[^'\\]++|\\.)*+'|"(?:[^"\\]++|\\.)*+\""""
 _LIQUID_STRING = re.compile(_LIQUID_STRING_PATTERN, re.DOTALL)
 # LiquidJS reads the inside of these blocks as text, so no expression in them runs.
 _LIQUID_TEXT_BLOCKS = frozenset({"comment", "raw"})
+# The characters LiquidJS skips as blanks, which are not the characters `\s` matches.
+_LIQUID_BLANKS = "\t\n\v\f\r \xa0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+_LIQUID_BLANK = rf"[{_LIQUID_BLANKS}]"
 # A LiquidJS tag name is `#` for an inline comment, or a run of word characters, which include `?`, `-` and any
-# character past ASCII that is not a space.
-_LIQUID_WORD_CHAR = r"(?:[\w?-]|[^\x00-\x7f\s])"
-_LIQUID_TAG_NAME = re.compile(rf"\s*+(#|{_LIQUID_WORD_CHAR}*+)")
+# character past ASCII that is not a blank or a curly double quote.
+_LIQUID_WORD_CHAR = rf"(?:[-0-9?A-Z_a-z]|[^\x00-\x7f{_LIQUID_BLANKS}\u201c\u201d])"
+_LIQUID_TAG_NAME = re.compile(rf"{_LIQUID_BLANK}*+(#|{_LIQUID_WORD_CHAR}*+)")
 # The tokenizer ends a raw block at the first `{%` followed by the identifier `endraw`. It reads `{%- endraw` and
 # `endraw-` as other identifiers, so neither of them ends the block.
-_LIQUID_RAW_END = re.compile(rf"\{{%\s*endraw(?!{_LIQUID_WORD_CHAR})")
+_LIQUID_RAW_END = re.compile(rf"\{{%{_LIQUID_BLANK}*endraw(?!{_LIQUID_WORD_CHAR})")
 _LIQUID_BOUND = rf"""([+-]?\d++(?:\.(?!\.)\d*+)?|{_LIQUID_STRING_PATTERN})"""
 _LIQUID_RANGE = re.compile(rf"""\(\s*+{_LIQUID_BOUND}\s*+\.\.\s*+{_LIQUID_BOUND}\s*+\)""", re.DOTALL)
 _LIQUID_STRING_OR_PAREN = re.compile(r"['\"(]")

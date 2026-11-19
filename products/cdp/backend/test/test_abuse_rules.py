@@ -366,6 +366,15 @@ class TestAbuseRules(SimpleTestCase):
                         "{% raw %}{%- endraw %}{{ 'x }}{% endraw %}{{ (1..20000) | size }}",
                     ),
                     (
+                        "a_comment_block_closed_by_an_end_before_a_curly_quote",
+                        "{% comment %}x{% endcomment\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_raw_block_closed_by_an_end_before_a_curly_quote",
+                        "{% raw %}x{% endraw\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    ("a_raw_block_closed_after_a_liquid_blank", "{% raw %}x{%\u180eendraw %}{{ (1..20000) | size }}"),
+                    (
                         "a_line_comment_in_a_liquid_block",
                         "{% liquid\n  # the customer's note\n  assign xs = (1..20000)\n%}",
                     ),
@@ -403,6 +412,10 @@ class TestAbuseRules(SimpleTestCase):
                     (
                         "in_a_raw_block_after_a_trimmed_end_tag",
                         "{% raw %}{% endraw-%}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_a_python_only_blank",
+                        "{% raw %}{%\x1cendraw %}{{ (1..20000) | size }}{% endraw %}",
                     ),
                     (
                         "in_a_comment_block_after_an_end_tag_in_a_quoted_string",
