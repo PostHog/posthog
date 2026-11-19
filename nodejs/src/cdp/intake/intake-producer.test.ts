@@ -12,9 +12,9 @@ import {
     INTAKE_ACK_DEADLINE_MS,
     IntakeOutput,
     IntakeProducer,
+    IntakeRun,
     PublishSettlement,
     intakeModeOf,
-    newPublishSettlement,
     publishesSettled,
 } from './intake-producer'
 
@@ -116,7 +116,7 @@ describe('IntakeProducer', () => {
         jest.useFakeTimers()
         const held: { ack: () => void; refuse: (error: Error) => void }[] = []
         produce = () => new Promise<void>((ack, refuse) => held.push({ ack, refuse }))
-        const settlement = newPublishSettlement()
+        const settlement = new PublishSettlement()
         let drained: 'pending' | 'fulfilled' | 'rejected' = 'pending'
         const producer = new IntakeProducer(outputs())
 
@@ -142,7 +142,7 @@ describe('IntakeProducer', () => {
         expect(drained).toBe('fulfilled')
     })
 
-    const everyTrapThrows: ProxyHandler<object> = {
+    const everyTrapThrows: ProxyHandler<PublishSettlement> = {
         get: () => {
             throw new Error('trap')
         },
@@ -157,11 +157,8 @@ describe('IntakeProducer', () => {
         },
     }
     const settlementKinds: [string, () => PublishSettlement][] = [
-        ['a settlement', newPublishSettlement],
-        [
-            'a proxy whose every trap throws',
-            () => new Proxy<PublishSettlement>(newPublishSettlement(), everyTrapThrows),
-        ],
+        ['a settlement', () => new PublishSettlement()],
+        ['a proxy whose every trap throws', () => new Proxy(new PublishSettlement(), everyTrapThrows)],
     ]
 
     it.each(settlementKinds)('answers acked from the broker when the produce carries %s', async (_, makeSettlement) => {
@@ -177,32 +174,40 @@ describe('IntakeProducer', () => {
         await expect(publishesSettled(settlement)).resolves.toBeUndefined()
     })
 
-    it.each(settlementKinds)(
-        'holds %s open past the ack deadline until the broker answers',
-        async (_, makeSettlement) => {
-            jest.useFakeTimers()
-            let ack!: () => void
-            produce = () => new Promise<void>((resolve) => (ack = resolve))
-            const settlement = makeSettlement()
-            let drained = false
+    it('holds a proxy whose every trap throws open past the ack deadline until the broker answers', async () => {
+        jest.useFakeTimers()
+        let ack!: () => void
+        produce = () => new Promise<void>((resolve) => (ack = resolve))
+        const settlement = new Proxy(new PublishSettlement(), everyTrapThrows)
+        let drained = false
 
-            const outcome = new IntakeProducer(outputs()).produce(
-                { kind: 'transactional-email', invocation: invocation() },
-                'async',
-                settlement
-            )
-            await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
-            await expect(outcome).resolves.toBe('unacked')
-            void publishesSettled(settlement).then(() => (drained = true))
-            await jest.advanceTimersByTimeAsync(0)
-            expect(drained).toBe(false)
+        const outcome = new IntakeProducer(outputs()).produce(
+            { kind: 'transactional-email', invocation: invocation() },
+            'async',
+            settlement
+        )
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+        await expect(outcome).resolves.toBe('unacked')
+        void publishesSettled(settlement).then(() => (drained = true))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(drained).toBe(false)
 
-            ack()
-            await jest.advanceTimersByTimeAsync(0)
+        ack()
+        await jest.advanceTimersByTimeAsync(0)
 
-            expect(drained).toBe(true)
-        }
-    )
+        expect(drained).toBe(true)
+    })
+
+    it('answers from the broker for a settlement that type-checks only under a suppressed error', async () => {
+        const producer = new IntakeProducer(outputs())
+        const run: IntakeRun = { kind: 'transactional-email', invocation: invocation() }
+
+        // tsc fails on these directives once an empty object or a spread copy, which tracks nothing, type-checks.
+        // @ts-expect-error an empty object is not a settlement
+        await expect(producer.produce(run, 'async', {})).resolves.toBe('acked')
+        // @ts-expect-error a spread copy is not the settlement its publishes are tracked on
+        await expect(producer.produce(run, 'async', { ...new PublishSettlement() })).resolves.toBe('acked')
+    })
 
     it('records the wait for the ack in milliseconds', async () => {
         jest.useFakeTimers()
@@ -240,7 +245,3 @@ describe('IntakeProducer', () => {
         expect(modeOf(7)).toBe(mode)
     })
 })
-
-// tsc fails on this directive once a plain object type-checks as the settlement `produce` takes.
-// @ts-expect-error a plain object is not a settlement the producer can track
-const _plainObjectAsSettlement: Parameters<IntakeProducer['produce']>[2] = { settled: () => Promise.resolve() }

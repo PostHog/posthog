@@ -47,19 +47,17 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
-declare const publishSettlementBrand: unique symbol
-
-// A produce outlives its ack deadline. A caller that bounds its work in flight makes a settlement with
-// `newPublishSettlement()`, passes it to its produces, and waits on `publishesSettled()` before it frees that work's
-// share. The handle is opaque and its publishes stay in this module, so no caller code runs when the producer tracks a
-// publish or when the caller waits on them.
-export type PublishSettlement = { readonly [publishSettlementBrand]: true }
+// A produce outlives its ack deadline. A caller that bounds its work in flight passes a settlement to its produces and
+// waits on `publishesSettled()` before it frees that work's share. The publishes stay in this module and the class has
+// no methods, so no caller code runs when the producer tracks a publish or the caller waits on them. Its unread private
+// field makes the type nominal, so neither a plain object nor a spread copy, which would track nothing, type-checks.
+export class PublishSettlement {
+    readonly #brand = true
+}
 
 const trackedPublishes = new WeakMap<PublishSettlement, Promise<unknown>[]>()
 
-export const newPublishSettlement = (): PublishSettlement => Object.freeze({}) as PublishSettlement
-
-export const trackPublish = (settlement: PublishSettlement, publish: Promise<unknown>): void => {
+const trackPublish = (settlement: PublishSettlement, publish: Promise<unknown>): void => {
     const publishes = trackedPublishes.get(settlement)
     if (publishes) {
         publishes.push(publish)

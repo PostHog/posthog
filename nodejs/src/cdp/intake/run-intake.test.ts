@@ -17,7 +17,7 @@ import {
     IntakeMode,
     IntakeOutput,
     IntakeProducer,
-    newPublishSettlement,
+    PublishSettlement,
     publishesSettled,
 } from './intake-producer'
 import { Run, RunIntake, keyedRunId } from './run-intake'
@@ -61,7 +61,7 @@ describe('RunIntake', () => {
                 invocation: createExampleHogFlowInvocation(hogFlow),
                 claim: { fingerprint: 'request' },
             }
-            const settlement = newPublishSettlement()
+            const settlement = new PublishSettlement()
             let publishSettled = false
 
             const answered =
