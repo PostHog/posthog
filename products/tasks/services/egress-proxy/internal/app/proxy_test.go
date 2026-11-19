@@ -329,6 +329,32 @@ func TestProxyRelayAdmission(t *testing.T) {
 	}
 }
 
+func TestProxyClusterRegistryRequiresOptIn(t *testing.T) {
+	f := newProxyFixture(t)
+	for _, allow := range []bool{false, true} {
+		t.Run(fmt.Sprint(allow), func(t *testing.T) {
+			config := f.config
+			config.RegistryURL = "http://registry.tasks.svc.cluster.local:8000"
+			config.RegistryAllowClusterHTTP = allow
+			data, err := json.Marshal(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := app.LoadProxyConfig(writeTestFile(t, "cluster.json", data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy, err := app.NewProxy(loaded, f.audit, f.metrics)
+			if (err == nil) != allow {
+				t.Fatalf("NewProxy() = %v; allow=%v", err, allow)
+			}
+			if proxy != nil {
+				proxy.Close()
+			}
+		})
+	}
+}
+
 func TestInvalidRelayEndpointDoesNotExposeConfiguration(t *testing.T) {
 	cert := issueTestCertificate(t, nil, false)
 	_, err := app.NewRelay(app.RelayConfig{

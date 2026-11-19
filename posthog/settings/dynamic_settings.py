@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "STATIC_COHORT_RECONCILIATION_ENABLED": (
+        True,
+        "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
+        bool,
+    ),
     "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
         False,
         "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
@@ -466,6 +471,7 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "STATIC_COHORT_RECONCILIATION_ENABLED",
     "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",

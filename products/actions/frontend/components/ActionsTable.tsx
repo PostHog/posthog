@@ -234,6 +234,7 @@ export function ActionsTable(): JSX.Element {
                 data-attr="actions-table"
                 dataSource={actionsList}
                 sorting={sorting}
+                useURLForSorting={false}
                 onSort={(newSorting) =>
                     setFilters({
                         ordering: newSorting
