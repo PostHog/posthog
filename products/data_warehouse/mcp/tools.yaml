@@ -307,7 +307,10 @@ tools:
             Set direction to upstream to also run all dependencies. Set direction to downstream to also run all
             dependents. Both options include the selected view and run the views in dependency order. Do not set
             full_refresh when you set direction. A run fails with a rate limit error when every view it would build ran
-            recently, and the error says how long to wait. Use 'view-run-history' to check each view's status.
+            recently, and the error says how long to wait. With a direction, a view whose query doesn't compile is left
+            out of the run together with the views that depend on it, and the response lists them under 'skipped' with
+            the reason; fix their queries and run them again. A run of a view whose own query doesn't compile fails
+            with a 400 that gives the compile error. Use 'view-run-history' to check each view's status.
     view-run-history:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: true
