@@ -214,7 +214,12 @@ describe('nodeDetailSceneLogic', () => {
             if (typeFilter) {
                 logic.actions.setLineageTypeFilter(typeFilter)
             }
-            logic.actions.setLineageSearchTerm(searchTerm)
+            const visibleBeforeDebounce = logic.values.lineageVisibleNodeIds
+
+            await expectLogic(logic, () => {
+                logic.actions.setLineageSearchTerm(searchTerm)
+                expect(logic.values.lineageVisibleNodeIds).toBe(visibleBeforeDebounce)
+            }).toDispatchActions(['setLineageDebouncedSearchTerm'])
 
             expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(visible))
             expect(logic.values.lineageIsFiltered).toBe(true)

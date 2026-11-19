@@ -109,7 +109,10 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
                 <QuillNodeDetailLineageTypeFilter id={id} />
                 {lineageIsFiltered && (
                     <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                        Showing {pluralize(lineageVisibleNodeIds.size, 'model')} of {lineageGraph?.nodes.length}
+                        <span>Showing&nbsp;</span>
+                        <span translate="no">{pluralize(lineageVisibleNodeIds.size, 'model')}</span>
+                        <span>&nbsp;of&nbsp;</span>
+                        <span translate="no">{lineageGraph?.nodes.length}</span>
                     </Text>
                 )}
             </div>

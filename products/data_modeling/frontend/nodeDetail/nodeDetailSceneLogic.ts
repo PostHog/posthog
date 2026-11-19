@@ -59,6 +59,7 @@ export interface NodeDetailQueryEditorState {
 export const nodeDetailQueryEditorTabId = (savedQueryId: string): string => `node-detail-query-${savedQueryId}`
 
 const LINEAGE_TYPE_FILTER_STORAGE_KEY = 'scenes.models.nodeDetailSceneLogic.lineageTypeFilter'
+const LINEAGE_SEARCH_DEBOUNCE_MS = 250
 
 function nameMatchesSearch(name: string, searchTerm: string): boolean {
     return name.toLowerCase().includes(searchTerm.trim().toLowerCase())
@@ -121,6 +122,7 @@ export interface nodeDetailSceneLogicValues {
     effectiveLastRunStatus: string | null
     effectiveTab: NodeDetailSceneTab | null
     isMaterialized: boolean
+    lineageDebouncedSearchTerm: string
     lineageGraph: LineageGraphData | null
     lineageGraphError: boolean
     lineageGraphLoading: boolean
@@ -295,6 +297,9 @@ export interface nodeDetailSceneLogicActions {
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
+    setLineageDebouncedSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     setLineageSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -360,7 +365,7 @@ export interface nodeDetailSceneLogicMeta {
         lineageVisibleNodeIds: (
             lineageGraph: LineageGraphData | null,
             lineageTypeFilter: NodeTypeEnumApi[],
-            lineageSearchTerm: string
+            lineageDebouncedSearchTerm: string
         ) => Set<string>
         lineageIsFiltered: (lineageGraph: LineageGraphData | null, lineageVisibleNodeIds: Set<string>) => boolean
         lineageHiddenNodeBridging: (
@@ -416,6 +421,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         resetLineageNodePositions: true,
         setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => ({ typeFilter }),
         setLineageSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setLineageDebouncedSearchTerm: (searchTerm: string) => ({ searchTerm }),
         markSavedQueryDeleted: true,
     }),
     reducers({
@@ -528,6 +534,12 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             '',
             {
                 setLineageSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        lineageDebouncedSearchTerm: [
+            '',
+            {
+                setLineageDebouncedSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -789,11 +801,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 ),
         ],
         lineageVisibleNodeIds: [
-            (s) => [s.lineageGraph, s.lineageTypeFilter, s.lineageSearchTerm],
+            (s) => [s.lineageGraph, s.lineageTypeFilter, s.lineageDebouncedSearchTerm],
             (
                 lineageGraph: LineageGraphData | null,
                 lineageTypeFilter: DataModelingNodeType[],
-                lineageSearchTerm: string
+                lineageDebouncedSearchTerm: string
             ): Set<string> =>
                 new Set(
                     (lineageGraph?.nodes ?? [])
@@ -801,7 +813,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                             (node) =>
                                 node.id === lineageGraph?.currentNodeId ||
                                 (lineageTypeFilter.includes(node.type) &&
-                                    nameMatchesSearch(node.name, lineageSearchTerm))
+                                    nameMatchesSearch(node.name, lineageDebouncedSearchTerm))
                         )
                         .map((node) => node.id)
                 ),
@@ -905,6 +917,10 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     node_type: node.type,
                     cleared: !payload?.description.trim(),
                 })
+            },
+            setLineageSearchTerm: async ({ searchTerm }, breakpoint) => {
+                await breakpoint(LINEAGE_SEARCH_DEBOUNCE_MS)
+                actions.setLineageDebouncedSearchTerm(searchTerm)
             },
             setLineageTypeFilter: ({ typeFilter }) => {
                 posthog.capture(LINEAGE_TYPE_FILTER_CHANGED_EVENT, {
