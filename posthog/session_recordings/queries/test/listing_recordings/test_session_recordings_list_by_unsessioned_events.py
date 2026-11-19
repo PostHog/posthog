@@ -31,6 +31,7 @@ RECORDING_END = RECORDING_START + timedelta(minutes=30)
 INSIDE_WINDOW = RECORDING_START + timedelta(minutes=10)
 ORDER_PAID = {"id": "order paid", "type": "events", "order": 0, "name": "order paid"}
 PAGEVIEW = {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"}
+ALL_EVENTS = {"id": None, "type": "events", "order": 0, "name": "All events"}
 ORDER_PAID_EXCLUDING_TEST_PLANS = {
     **ORDER_PAID,
     "properties": [{"key": "plan", "value": ["test"], "operator": "is_not", "type": "event"}],
@@ -204,6 +205,7 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             ("backend_event_has_the_property", "pro", [ORDER_PAID], True),
             ("no_event_has_the_property", "free", [ORDER_PAID], False),
             ("property_filter_without_an_event_filter", "pro", [], False),
+            ("all_events_filter_names_no_event", "pro", [ALL_EVENTS], False),
         ]
     )
     def test_top_level_event_property_matches_event_without_session_id(
