@@ -164,6 +164,7 @@
         "@posthog/products-ui-customization": "workspace:*",
         "@posthog/products-uptime-monitoring": "workspace:*",
         "@posthog/products-visual-review": "workspace:*",
+        "@posthog/products-warehouse-destinations": "workspace:*",
         "@posthog/products-warehouse-sources": "workspace:*",
         "@posthog/products-warehouse-suggestions": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
