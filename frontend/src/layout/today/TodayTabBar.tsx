@@ -6,19 +6,30 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES } from './todayRailItems'
-import { todayShellLogic } from './todayShellLogic'
+import { TodayRailPane, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 
 export function TodayTabBar(): JSX.Element {
-    const { activePane, railPanes } = useValues(todayShellLogic)
+    const { activePane, railPanes, sidebarVisible } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
-    const { toggleCommand } = useActions(commandLogic)
+    const { isCommandOpen } = useValues(commandLogic)
+    const { toggleCommand, closeCommand } = useActions(commandLogic)
+
+    const selectPane = (pane: TodayRailPane): void => {
+        if (isCommandOpen) {
+            closeCommand()
+            if (activePane === pane && sidebarVisible) {
+                return
+            }
+        }
+        clickRailPane(pane)
+    }
 
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
                 {railPanes.map((pane) => {
-                    const active = activePane === pane
+                    const active = !isCommandOpen && activePane === pane
                     return (
                         <TodayTabBarTab
                             key={pane}
@@ -27,14 +38,15 @@ export function TodayTabBar(): JSX.Element {
                             active={active}
                             aria-current={active ? 'page' : undefined}
                             dataAttr={`today-rail-${pane}`}
-                            onClick={() => clickRailPane(pane)}
+                            onClick={() => selectPane(pane)}
                         />
                     )
                 })}
                 <TodayTabBarTab
                     label="Search"
                     icon={<IconSearch />}
-                    active={false}
+                    active={isCommandOpen}
+                    aria-current={isCommandOpen ? 'page' : undefined}
                     dataAttr="today-rail-search"
                     onClick={() => toggleCommand('nav-search-button')}
                 />

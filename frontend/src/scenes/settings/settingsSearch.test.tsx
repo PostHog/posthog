@@ -152,7 +152,6 @@ describe('settingsSearch', () => {
         const flags = {
             [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-            [FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]: true,
         }
         const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, flags)
         const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))

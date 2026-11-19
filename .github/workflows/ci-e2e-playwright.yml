@@ -622,8 +622,12 @@ jobs:
         if: |
             !cancelled()
             && needs.changes.outputs.shouldRun == 'true'
-        # The merge queue's full suite gates every merge, so it gets the larger runner. Other runs
-        # mostly run selected specs, where setup dominates. Talk to #team-devex before changing.
+        # The merge queue's full suite gates every merge, so it gets the larger runner: 252s for the test
+        # step at 12 workers on 16 vCPU against 426s at 6 workers on 8 vCPU, measured over ten full runs
+        # a side. Pull requests stay on 8 vCPU because their runs mostly select specs, where setup
+        # dominates and the larger runner only buys vCPU minutes. See "Sizing the Playwright job" in
+        # .agents/skills/authoring-ci-workflows/SKILL.md. Talk to #team-devex before changing the size or
+        # the worker counts below; they are tuned against each other.
         runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04-16' || 'depot-ubuntu-24.04-8' }}
         timeout-minutes: 45
         permissions:
@@ -1355,7 +1359,9 @@ jobs:
                         "selection_reason_category": ${{ toJSON(needs.select-specs.outputs.selection_reason_category || '') }},
                         "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
                         "playwright_result": ${{ toJSON(needs.playwright.result) }},
-                        "runner_billing_multiplier": 4,
+                        # Depot bills an 8 vCPU runner at 4x a 2 vCPU one and a 16 vCPU runner at 8x,
+                        # and the job picks its runner size above, so the multiplier follows the run.
+                        "runner_billing_multiplier": ${{ startsWith(github.head_ref, 'trunk-merge/') && 8 || 4 }},
                         "event_type": ${{ toJSON(github.event_name) }},
                         "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
                         "sha": ${{ toJSON(github.sha) }},

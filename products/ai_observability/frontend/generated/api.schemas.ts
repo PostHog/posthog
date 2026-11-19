@@ -2729,6 +2729,17 @@ export interface EvalSuggestionEvidenceApi {
 }
 
 /**
+ * * `no_runs` - No runs
+ * * `one_outcome` - One outcome
+ */
+export type EvalFixProblemEnumApi = (typeof EvalFixProblemEnumApi)[keyof typeof EvalFixProblemEnumApi]
+
+export const EvalFixProblemEnumApi = {
+    NoRuns: 'no_runs',
+    OneOutcome: 'one_outcome',
+} as const
+
+/**
  * * `not_relevant` - Not relevant
  * * `already_covered` - Already covered
  * * `too_noisy` - Too noisy
@@ -2825,6 +2836,11 @@ export interface EvalSuggestionApi {
      * @nullable
      */
     readonly target_evaluation_name: string | null
+    /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+     *
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome */
+    readonly fix_problem: EvalFixProblemEnumApi | null
     /**
      * Existing evaluation that may already cover this suggestion.
      * @nullable

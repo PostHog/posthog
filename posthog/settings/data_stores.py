@@ -872,6 +872,13 @@ CACHES["admin_console_results"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The Distinct ID usage report caches ClickHouse rows that staff reload during incidents. JSON, so a read never
+# unpickles a value someone with Redis write access placed under the key.
+CACHES["distinct_id_usage_report"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
+}
+
 # A data deletion stats fetch holds a lease with an owner token. The worker must read the lease the console just
 # wrote, and a lagging replica would make it skip a valid fetch as superseded.
 CACHES["data_deletion_stats"] = {
@@ -891,6 +898,14 @@ CACHES["aeo_prompt_suggestions"] = {
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},
+}
+
+# A pending WorkOS Radar login attempt is read when the session signs in, seconds after the password step wrote it.
+# Read from the writer, and give up fast, so the optional report never holds a login.
+CACHES["radar_login_attempt"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -967,8 +982,10 @@ if TEST:
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["radar_login_attempt"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
