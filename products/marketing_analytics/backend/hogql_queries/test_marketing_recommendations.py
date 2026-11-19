@@ -15,6 +15,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     Keyword,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -126,6 +127,27 @@ class TestMarketingRecommendations(SimpleTestCase):
             steps = rules[0].steps or []
             assert [step.copyValue for step in steps if step.copyValue][-1] == "300"
             assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+
+    @parameterized.expand(
+        [
+            ("under_one_percent_of_account_spend", 500.0, True),
+            ("one_percent_or_more", 1000.0, False),
+        ]
+    )
+    def test_minor_marks_impact_under_one_percent_of_monthly_account_spend(
+        self, _name: str, wasted: float, expected: bool
+    ) -> None:
+        campaign = _campaign(cost=100000, conversions=1000, status_reasons=("HAS_ADS_DISAPPROVED",))
+        terms = (_term("product analytics", "c1", 99000, 1000), _term("waste", "c1", wasted, 0))
+        inputs = replace(_inputs((campaign,), terms), days=15)
+
+        recs = {rec.rule.value: rec for rec in recommend(inputs)}
+
+        assert (recs["spend_without_conversions"].impact, recs["spend_without_conversions"].minor) == (
+            wasted * 2,
+            expected,
+        )
+        assert recs["policy_limited"].minor is False
 
     @parameterized.expand(
         [
@@ -532,8 +554,9 @@ class TestMarketingRecommendations(SimpleTestCase):
         )
         if statuses[1] is not None:
             terms += (replace(_term("example login", "b", cost=500, conversions=1), status=statuses[1]),)
+        excluded = frozenset((term.term, term.campaign_id) for term in terms if "EXCLUDED" in term.status)
 
-        recs = recommend(_inputs(campaigns, terms))
+        recs = recommend(replace(_inputs(campaigns, terms), excluded_searches=excluded))
 
         leaks = [rec for rec in recs if rec.rule == "brand_leak"]
         assert [rec.detectedChange for rec in leaks] == expected
@@ -550,11 +573,12 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
             _term("example login", "c2", cost=600, conversions=0),
             _term("cheap keeper", "c2", cost=50, conversions=1),
-            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("cheap but excluded", "c2", cost=40, conversions=1),
             _term("costly converter", "c2", cost=300, conversions=1),
         )
+        inputs = replace(_inputs((good, costly), terms), excluded_searches=frozenset({("cheap but excluded", "c2")}))
 
-        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+        review = next(rec for rec in recommend(inputs) if rec.rule == "review_campaign")
 
         steps = review.steps or []
         assert review.subject == "Costly"
@@ -813,6 +837,39 @@ class TestMarketingRecommendations(SimpleTestCase):
         gap = next(rec for rec in recs if rec.rule == "keyword_gap")
         assert gap.detectedChange == expected
 
+    @parameterized.expand(
+        [
+            (
+                "disapproved_and_limited",
+                (PolicyAds(campaign_id="c1", disapproved=2, limited=1),),
+                "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+            ),
+            (
+                "only_limited",
+                (PolicyAds(campaign_id="c1", disapproved=0, limited=1),),
+                "1 ad is limited by Google policy, which cuts the campaign's reach.",
+            ),
+            (
+                "only_another_campaigns_ads",
+                (PolicyAds(campaign_id="other", disapproved=3, limited=0),),
+                "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
+            ),
+        ]
+    )
+    def test_policy_limited_counts_affected_ads_and_links_to_the_fix(
+        self, _name: str, policy_ads: tuple[PolicyAds, ...], expected_reason: str
+    ) -> None:
+        campaign = _campaign(status_reasons=("HAS_ADS_DISAPPROVED",))
+
+        inputs = replace(_inputs((campaign,)), policy_ads=policy_ads)
+        rec = next(rec for rec in recommend(inputs) if rec.rule == "policy_limited")
+
+        assert rec.reason == expected_reason
+        steps = rec.steps or []
+        assert [step.copyValue for step in steps if step.copyValue] == ["Search"]
+        assert [step.linkText for step in steps if step.url] == ["Campaigns", "Ads", "Policy manager"]
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(
             id="pmax",
@@ -831,13 +888,19 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert {(rec.rule.value, rec.action) for rec in recs} == {
             ("brand_leak", 'Add a brand exclusion for "example"'),
             ("scale_campaign", "Raise the target CPA or improve its asset groups"),
-            ("policy_limited", "Check the affected ads in Policy manager"),
+            ("policy_limited", "Fix or appeal the policy issues in this campaign"),
         }
         assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
         scale = next(rec for rec in recs if rec.rule == "scale_campaign")
         assert "target CPA" in (scale.steps or [])[1].text
+        policy = next(rec for rec in recs if rec.rule == "policy_limited")
+        assert [step.linkText for step in policy.steps or [] if step.linkText] == [
+            "Campaigns",
+            "Asset groups",
+            "Policy manager",
+        ]
 
     @parameterized.expand(
         [
@@ -1017,7 +1080,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("already_a_keyword", "ELIGIBLE", ("ADDED",), [], 0),
             ("now_a_negative", "ELIGIBLE", ("EXCLUDED",), ["negative_keyword"], 0),
             ("keyword_and_negative", "ELIGIBLE", ("ADDED_EXCLUDED",), ["negative_keyword"], 0),
-            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [], 0),
+            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [None], 1),
+            ("keyword_and_negative_in_one_of_two_campaigns", "ELIGIBLE", ("ADDED_EXCLUDED", "NONE"), [None], 1),
         ]
     )
     def test_spend_without_conversions_needs_a_serving_campaign_and_detects_negatives(
@@ -1037,10 +1101,22 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("product analytics", "c2", cost=500, conversions=10),
         )
 
-        rows = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "spend_without_conversions"]
+        excluded = frozenset(
+            ("free analytics template", campaign_id)
+            for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            if "EXCLUDED" in status
+        )
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
+
+        rows = [rec for rec in recommend(inputs) if rec.rule == "spend_without_conversions"]
 
         assert [rec.detectedChange for rec in rows] == expected_changes
         assert len(apply_resolutions(rows, {}, include_resolved=False)) == expected_unresolved
+        # Spend in a campaign that already blocks the search can't be saved, and that campaign needs no new negative.
+        serving = [name for name, status in zip(("Search", "Other"), term_statuses) if "EXCLUDED" not in status]
+        assert [(rec.campaign, rec.reason.split(" (")[0]) for rec in rows] == [
+            (serving[0] if serving else "Search", f"Spent ${500 * max(len(serving), 1):,}")
+        ] * len(rows)
         assert apply_resolutions(rows, {}, include_resolved=True) == rows
 
     def test_category_words_are_not_treated_as_competitors(self) -> None:

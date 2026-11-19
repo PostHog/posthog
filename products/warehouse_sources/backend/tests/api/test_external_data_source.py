@@ -173,6 +173,15 @@ _PH_HISTORY_NAMING_FLAG = (
 )
 
 
+def _test_team_not_allowlisted_for_internal_hosts():
+    # The test team's id depends on which tests ran before it in the same database. The allowlist exempts
+    # team 2 in the US region and team 1 in the EU region from the internal-host check.
+    return patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
+        return_value=False,
+    )
+
+
 def _mock_source_without_oauth_fields(mock_get_source) -> None:
     """Each read and write of the inputs asks the source class where its OAuth pointer is. A bare MagicMock answers
     with a MagicMock, which is not an integration id, so give the mock source no OAuth field."""
@@ -7064,7 +7073,7 @@ class TestExternalDataSource(APIBaseTest):
             },
             "schemas": [],
         }
-        with override_settings(CLOUD_DEPLOYMENT="US"):
+        with override_settings(CLOUD_DEPLOYMENT="US"), _test_team_not_allowlisted_for_internal_hosts():
             for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
                 response = self.client.post(url, data=data)
                 self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
@@ -8693,15 +8702,16 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={
-                "job_inputs": {
-                    "host": "localhost",
-                    "password": "new_password",
+        with _test_team_not_allowlisted_for_internal_hosts():
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "host": "localhost",
+                        "password": "new_password",
+                    },
                 },
-            },
-        )
+            )
 
         assert response.status_code == 400
         assert response.json()["detail"] == (

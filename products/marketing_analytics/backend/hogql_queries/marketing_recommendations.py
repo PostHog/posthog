@@ -50,6 +50,8 @@ POLICY_REASONS = frozenset(
         "HAS_ASSET_GROUPS_DISAPPROVED",
     }
 )
+LIMITED_APPROVALS = frozenset({"APPROVED_LIMITED", "AREA_OF_INTEREST_ONLY"})
+DISAPPROVED = "DISAPPROVED"
 # Modifiers that match almost any search, so they say nothing about whether a query fits the account.
 GENERIC_WORDS = frozenset(
     {
@@ -119,6 +121,9 @@ MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 ADS_ACCOUNT_SETTINGS_URL = "https://ads.google.com/aw/settings/account"
 ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
+ADS_ADS_URL = "https://ads.google.com/aw/ads"
+ADS_ASSET_GROUPS_URL = "https://ads.google.com/aw/assetgroup"
+ADS_POLICY_ISSUES_URL = "https://ads.google.com/aw/policy/ads/issues"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
 SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/performance/search-analytics"
@@ -132,6 +137,7 @@ REVIEW_MIN_SPEND_SHARE = 0.05
 # A brand search is worth a pause test once it takes this share of the account's search term spend. A share, unlike
 # a CPA, also works for an account that only bids on its brand.
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
+MINOR_IMPACT_SHARE = 0.01
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
 # Below this many Google Ads sessions, a missing utm_term can be a few visits from links shared without it.
@@ -226,6 +232,13 @@ class Ad:
 
 
 @frozen
+class PolicyAds:
+    campaign_id: str
+    disapproved: int
+    limited: int
+
+
+@frozen
 class RecommendationInputs:
     campaigns: tuple[CampaignStats, ...]
     search_terms: tuple[SearchTermStats, ...]
@@ -239,6 +252,8 @@ class RecommendationInputs:
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
     keywords: tuple[Keyword, ...] = ()
+    excluded_searches: frozenset[tuple[str, str]] = frozenset()
+    policy_ads: tuple[PolicyAds, ...] = ()
 
 
 @frozen
@@ -326,9 +341,9 @@ def _word_stems(text: str) -> frozenset[str]:
     )
 
 
-def _is_excluded(status: str) -> bool:
+def _is_keyword(status: str) -> bool:
     # Google reports ADDED_EXCLUDED for a search that is both a keyword and a negative.
-    return "EXCLUDED" in status
+    return "ADDED" in status
 
 
 def _page_key(url: str) -> str:
@@ -456,6 +471,7 @@ class _Recommender:
         self.search_cost = sum(
             campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH"
         )
+        self.monthly_spend = sum(campaign.cost for campaign in self.campaigns.values()) * self.per_month
         self.organic = _merge_organic(inputs.organic_queries)
         self.term_cost_by_campaign: dict[str, float] = defaultdict(float)
         for row in inputs.search_terms:
@@ -472,6 +488,7 @@ class _Recommender:
         self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
         self.keyword_insertion_groups: set[str] = set()
+        self.policy_ads = {row.campaign_id: row for row in inputs.policy_ads}
         for ad in inputs.ads:
             for text in ad.texts:
                 self.copy_stems[ad.ad_group_id] |= _word_stems(text)
@@ -586,17 +603,7 @@ class _Recommender:
                 if campaign.budget_id:
                     constrained_budgets.add(campaign.budget_id)
             if POLICY_REASONS.intersection(campaign.status_reasons):
-                recommendations.append(
-                    self._campaign_recommendation(
-                        MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
-                        campaign,
-                        "Check the affected ads in Policy manager",
-                        "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
-                        None,
-                        "gain",
-                        "measured",
-                    )
-                )
+                recommendations.append(self._policy_limited(campaign))
 
         has_brand_campaign = any(self._is_brand_campaign(c, brand_spend) for c in self.campaigns.values())
         for campaign in self.campaigns.values():
@@ -781,12 +788,12 @@ class _Recommender:
     def _brand_negated(self, brand: str, campaign_ids: set[str]) -> bool:
         # Misspellings are a follow-up step, so the brand's own spelling decides whether the action is done.
         compact_brand = brand.replace(" ", "")
-        statuses = [
-            row.status
+        searches = {
+            (row.term, row.campaign_id)
             for row in self.inputs.search_terms
             if row.campaign_id in campaign_ids and compact_brand in row.term.replace(" ", "")
-        ]
-        return bool(statuses) and all(_is_excluded(status) for status in statuses)
+        }
+        return bool(searches) and searches <= self.inputs.excluded_searches
 
     def _paste_brand_negatives(self, brand: str, campaign_ids: set[str]) -> Step:
         negatives = [brand, *self._brand_misspellings(campaign_ids, brand)]
@@ -878,7 +885,7 @@ class _Recommender:
 
     def _review_steps(self, campaign: CampaignStats, cpa: float | None, benchmark: _Benchmark) -> tuple[Step, ...]:
         spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
-        # ADDED means the search is already a keyword and EXCLUDED means it is already a negative.
+        # A keyword or a negative already handles the search, so it is not worth listing again.
         targeted_or_excluded: set[str] = set()
         excluded: set[str] = set()
         for row in self.inputs.search_terms:
@@ -886,9 +893,10 @@ class _Recommender:
                 continue
             spend[row.term][0] += row.cost
             spend[row.term][1] += row.conversions
-            if row.status not in ("NONE", ""):
+            is_excluded = (row.term, row.campaign_id) in self.inputs.excluded_searches
+            if _is_keyword(row.status) or is_excluded:
                 targeted_or_excluded.add(row.term)
-            if _is_excluded(row.status):
+            if is_excluded:
                 excluded.add(row.term)
         competitors = self._competitor_names()
         draining = sorted(
@@ -1014,7 +1022,7 @@ class _Recommender:
             and term.term not in self.brand_terms
             and term.conversions == 0
             and term.cost >= 2 * benchmark.cpa
-            and (term.status in ("NONE", "") or term.excluded_everywhere)
+            and (term.excluded_everywhere or not _is_keyword(term.status))
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
         ]
@@ -1344,18 +1352,24 @@ class _Recommender:
     def _aggregate_terms(self) -> dict[str, _Term]:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
-        excluded_everywhere: dict[str, bool] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+        serving_campaigns: dict[str, set[str]] = defaultdict(set)
         for row in self.inputs.search_terms:
+            if (row.term, row.campaign_id) not in self.inputs.excluded_searches:
+                serving_campaigns[row.term].add(row.campaign_id)
+        for row in self.inputs.search_terms:
+            # Spend in a campaign that already blocks the search is not recoverable, so it only counts once every
+            # campaign blocks it and the recommendation is applied.
+            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
+                continue
             total = totals[row.term]
             total[0] += row.clicks
             total[1] += row.cost
             total[2] += row.conversions
             total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
-            excluded_everywhere[row.term] = excluded_everywhere.get(row.term, True) and _is_excluded(row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
             ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
@@ -1369,7 +1383,7 @@ class _Recommender:
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
-                excluded_everywhere=excluded_everywhere[term],
+                excluded_everywhere=term not in serving_campaigns,
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
@@ -1396,7 +1410,7 @@ class _Recommender:
             if (
                 row.campaign_id not in campaign_ids
                 or row.status == "ADDED"
-                or _is_excluded(row.status)
+                or (row.term, row.campaign_id) in self.inputs.excluded_searches
                 or row.term not in self.brand_terms
             ):
                 continue
@@ -1620,6 +1634,59 @@ class _Recommender:
             detected_change=detected_change,
         )
 
+    def _policy_limited(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation:
+        policy_ads = self.policy_ads.get(campaign.id)
+        disapproved, limited = (policy_ads.disapproved, policy_ads.limited) if policy_ads else (0, 0)
+        counts = [
+            f"{count} {'ad is' if count == 1 else 'ads are'} {label}"
+            for count, label in ((disapproved, "disapproved"), (limited, "limited"))
+            if count
+        ]
+        reason = (
+            f"{' and '.join(counts)} by Google policy, which cuts the campaign's reach."
+            if counts
+            else "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach."
+        )
+        if campaign.channel_type == "PERFORMANCE_MAX":
+            find = Step(
+                text="Open Asset groups and look for assets whose status shows a policy issue. "
+                "Hover the status to see which policy the asset breaks.",
+                url=ADS_ASSET_GROUPS_URL,
+                linkText="Asset groups",
+            )
+            fix = Step(text="Replace each affected asset with one that follows the policy.")
+        else:
+            find = Step(
+                text="Open Ads and filter by the status Disapproved or Eligible (limited). "
+                "Hover the status of each ad to see which policy it breaks.",
+                url=ADS_ADS_URL,
+                linkText="Ads",
+            )
+            fix = Step(
+                text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+            )
+        steps = (
+            self._open_campaign(campaign.name),
+            find,
+            fix,
+            Step(
+                text="If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.",
+                url=ADS_POLICY_ISSUES_URL,
+                linkText="Policy manager",
+            ),
+            Step(text="Come back here after Google reviews the changes, usually within a business day."),
+        )
+        return self._campaign_recommendation(
+            MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
+            campaign,
+            "Fix or appeal the policy issues in this campaign",
+            reason,
+            None,
+            "gain",
+            "measured",
+            steps=steps,
+        )
+
     def _campaign_recommendation(
         self,
         rule: MarketingAnalyticsRecommendationRule,
@@ -1677,6 +1744,7 @@ class _Recommender:
             impact=round(impact) if impact is not None else None,
             impactDirection=direction,
             impactType=impact_type,
+            minor=impact is not None and impact < MINOR_IMPACT_SHARE * self.monthly_spend,
             currency=self.inputs.currency,
             steps=list(steps),
             cpa=cpa,

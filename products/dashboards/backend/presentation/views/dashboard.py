@@ -5,9 +5,9 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from enum import StrEnum
 from functools import partial
@@ -92,6 +92,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.hogql_queries.access_controlled_resources import shared_warehouse_lookups
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface, refresh_param_present
@@ -108,6 +109,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.query_cache.read_history import batched_reads
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -528,6 +530,25 @@ def tile_insights_context(tiles: Iterable[DashboardTile]) -> dict[str, Any]:
         "insights_in_response": [tile.insight for tile in tiles if tile.insight is not None],
         "_shown_insight_alerts": {},
     }
+
+
+@contextmanager
+def shared_tile_work(team: Team, user: Any) -> Iterator[None]:
+    """With `dashboard-v2` on, the tiles serialized inside the block share the work that is the same for
+    every tile: warehouse name lookups for their cache keys, and the write that records their cache reads.
+    Each tile's response is unchanged."""
+    enabled = posthog_feature_flag_enabled(
+        "dashboard-v2",
+        str(getattr(user, "distinct_id", None) or team.uuid),
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    )
+    if not enabled:
+        yield
+        return
+    with shared_warehouse_lookups(), batched_reads():
+        yield
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -3117,7 +3138,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Use the specified layout size to get the correct order for the current viewport
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
-        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+        with (
+            task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
+            shared_tile_work(team, getattr(self.context.get("request"), "user", None)),
+        ):
             # Handle case where there are no tiles
             if not sorted_tiles:
                 return []

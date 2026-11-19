@@ -71,7 +71,15 @@ class ServicesHealthResponseSerializer(serializers.Serializer):
 
 class EndpointHealthSerializer(serializers.Serializer):
     service_name = serializers.CharField(help_text="The service.name resource attribute.")
-    endpoint = serializers.CharField(help_text="The entry span name, for example the HTTP route or the job name.")
+    endpoint = serializers.CharField(
+        help_text='The endpoint label: the entry span name, or "<METHOD> <route>" when the span name is only an HTTP method and the span carries a route.'
+    )
+    span_name = serializers.CharField(help_text="The raw entry span name the row counts, for tracing filters.")
+    route_attribute = serializers.CharField(
+        allow_null=True,
+        help_text="The span attribute the route came from (http.route or url.template), or null when the label is the span name.",
+    )
+    route = serializers.CharField(allow_null=True, help_text="The route appended to the span name, or null.")
     environment = serializers.CharField(
         allow_null=True,
         allow_blank=True,
@@ -198,7 +206,7 @@ class EndpointTimeSpentRequestSerializer(ServicesHealthRequestSerializer):
         allow_blank=False, max_length=400, help_text="The service that handles the endpoint."
     )
     endpoint = serializers.CharField(
-        allow_blank=False, max_length=2000, help_text="The endpoint's entry span name, as listed by apm/endpoints."
+        allow_blank=False, max_length=2000, help_text="The endpoint label, as listed by apm/endpoints."
     )
 
 

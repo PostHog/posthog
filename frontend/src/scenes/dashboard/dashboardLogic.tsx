@@ -4442,9 +4442,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
         ],
+        // dashboard-v2 (by project) turns the behaviour on; dashboard-v2-users (by person) picks who sees it.
         dashboardV2Enabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] && !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS],
         ],
         tileGroupDisplay: [
             (s) => [s.dashboard, s.placement],
@@ -7803,12 +7805,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const parsedTileId = parseDashboardTileId(tileId)
                 actions.setTextTileId(parsedTileId)
                 actions.setButtonTileId(parsedTileId)
-            },
-            // The product analytics page shows a full dashboard at its own URL.
-            [urls.analyticsProductHome()]: (_params, searchParams, _hashParams, { method }) => {
-                if (method === 'POP' && values.dashboard && values.placement === DashboardPlacement.Dashboard) {
-                    restoreSettingsFromHistory(searchParams)
-                }
             },
         }
     }),

@@ -2,11 +2,17 @@ import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { ErrorRateBar } from './ErrorRateBar'
 import type { HealthRowApi, HealthStatusEnumApi } from './generated/api.schemas'
-import { compareNullable, formatMs, formatRate } from './healthDisplay'
+import { compareNullable, formatMs, formatRateIn, tableRateUnit } from './healthDisplay'
 import { HealthStatusTag } from './HealthStatusTag'
 
-/** Status, requests, errors, and p95: the columns every health table shows for a row. */
-export function healthColumns<T extends { status: HealthStatusEnumApi; health: HealthRowApi }>(): LemonTableColumns<T> {
+/**
+ * Status, requests, errors, and p95: the columns every health table shows for a row.
+ * Takes the rows so the request rates share one unit, picked from the busiest row.
+ */
+export function healthColumns<T extends { status: HealthStatusEnumApi; health: HealthRowApi }>(
+    rows: T[]
+): LemonTableColumns<T> {
+    const rateUnit = tableRateUnit(rows.map((row) => row.health.request_rate))
     return [
         {
             title: 'Status',
@@ -14,11 +20,11 @@ export function healthColumns<T extends { status: HealthStatusEnumApi; health: H
             render: (_, row) => <HealthStatusTag status={row.status} />,
         },
         {
-            title: 'Requests',
+            title: `Requests (${rateUnit})`,
             key: 'request_rate',
             align: 'right',
             sorter: (a, b) => compareNullable(a.health.request_rate, b.health.request_rate),
-            render: (_, row) => <span className="font-mono">{formatRate(row.health.request_rate)}</span>,
+            render: (_, row) => <span className="font-mono">{formatRateIn(row.health.request_rate, rateUnit)}</span>,
         },
         {
             title: 'Error rate',

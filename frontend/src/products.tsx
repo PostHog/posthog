@@ -2093,12 +2093,17 @@ export const productUrls = {
         dateRange?: {
             date_from?: string | null
             date_to?: string | null
-        }
+        },
+        route?: {
+            attribute: string
+            value: string
+        } | null
     ): string =>
         combineUrl('/tracing/operation', {
             service: serviceName,
             name: spanName,
             ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
+            ...(route ? { route_attribute: route.attribute, route: route.value } : {}),
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,

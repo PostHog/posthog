@@ -29,12 +29,15 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    DISAPPROVED,
+    LIMITED_APPROVALS,
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
     Keyword,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -191,6 +194,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
                         keywords=tuple(self._keywords(source, organic_queries)),
+                        excluded_searches=self._excluded_searches(source),
+                        policy_ads=tuple(self._policy_ads(source)),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -611,6 +616,29 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
         return [Keyword(text=row[0], campaign_id=row[1]) for row in rows]
 
+    def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[tuple[str, str]]:
+        table = source.searchTermTable
+        if not table or not self._readable(table) or not self._has_field(table, "search_term_view_status"):
+            return frozenset()
+        # Read up to today, so a negative added after the selected dates still counts. An excluded search stops getting
+        # rows, so the latest day decides, and on that day an ad group that still serves the search outranks one that
+        # excludes it.
+        rows = self._select(
+            f"""
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id) AS campaign
+            FROM {{table}}
+            WHERE toDate(segments_date) >= toDate({{date_from}}) AND notEmpty(term)
+            GROUP BY term, campaign
+            HAVING argMax(
+                toString(search_term_view_status),
+                tuple(segments_date, toString(search_term_view_status) NOT LIKE '%EXCLUDED%')
+            ) LIKE '%EXCLUDED%'
+            LIMIT {ROW_LIMIT}
+            """,
+            table,
+        )
+        return frozenset((row[0], row[1]) for row in rows)
+
     def _ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[Ad]:
         if not source.adTable or not self._readable(source.adTable):
             return []
@@ -637,6 +665,25 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             for row in rows
             if row[0]
         ]
+
+    def _policy_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[PolicyAds]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        # Counted in the query, so the row limit on the ad list never cuts a campaign's totals.
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), countIf({status} = {disapproved}), countIf(has({limited}, {status}))
+            FROM {table}
+            WHERE ad_group_ad_status = 'ENABLED'
+            GROUP BY campaign_id
+            HAVING countIf({status} = {disapproved}) + countIf(has({limited}, {status})) > 0
+            """,
+            source.adTable,
+            status=self._field(source.adTable, "ad_group_ad_policy_summary_approval_status"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [PolicyAds(campaign_id=row[0], disapproved=int(row[1]), limited=int(row[2])) for row in rows]
 
     def _organic_queries(self, source: MarketingAnalyticsRecommendationsSource) -> list[OrganicQueryStats]:
         if not source.queryTable or not self._readable(source.queryTable):

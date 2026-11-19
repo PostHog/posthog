@@ -45,8 +45,8 @@ BLOCKING_RULES = frozenset({Rule.INTERNAL_HOST})
 # Jev reads at most this much state, so an input longer than that can never be shown to it whole.
 OVERSIZED_INPUT_CHARS = MAX_STATE_CHARS
 
-# Every async function registered in `nodejs/src/cdp/async-functions/` except `fetch`, so keep the two in sync. Each one
-# backs a hidden workflow or warehouse-webhook template, so code a customer wrote rarely has a reason to call one.
+# Async functions that back a hidden workflow, customer analytics or warehouse-webhook template, so code a customer
+# wrote rarely has a reason to call one. Functions meant for customer code, such as the ticket functions, stay out.
 INTERNAL_FUNCTIONS = frozenset(
     {
         "postHogAddToStaticCohort",
@@ -55,14 +55,11 @@ INTERNAL_FUNCTIONS = frozenset(
         "postHogCreateCustomerTask",
         "postHogCreateTask",
         "postHogGetAccount",
-        "postHogGetTicket",
         "postHogOptOutOfMessages",
         "postHogReplayVisionScan",
         "postHogRunScout",
-        "postHogSendTicketMessage",
         "postHogSetAccountProperties",
         "postHogUpdateAccount",
-        "postHogUpdateTicket",
         "produceToWarehouseWebhooks",
         "sendEmail",
         "sendPushNotification",
