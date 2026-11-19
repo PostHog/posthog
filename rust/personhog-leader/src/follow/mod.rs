@@ -3,6 +3,7 @@
 
 pub mod freshness;
 pub mod handler;
+pub mod layouts;
 
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -24,6 +25,7 @@ use crate::warming::{
     end_offset, follow_source, warm_from_sources, WarmClientPools, WarmingConfig,
 };
 use freshness::Freshness;
+use layouts::Layouts;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FollowConfig {
@@ -65,6 +67,7 @@ pub struct Follower {
     dirty_index: Arc<DirtyIndex>,
     recovery: Arc<ChangelogRecovery>,
     followed: DashMap<u32, Followed>,
+    layouts: Layouts,
 }
 
 impl Follower {
@@ -84,16 +87,29 @@ impl Follower {
             dirty_index,
             recovery,
             followed: DashMap::new(),
+            layouts: Layouts::default(),
         }
     }
 
     /// Build the partition with the leader's warm, then keep applying the live changelog
     /// from where the warm stopped. Returns once the partition is current.
+    ///
+    /// Callers poll every build from one task and run one build of a partition at a time,
+    /// as the pod's convergence does: the steps before the first await are then one step
+    /// with respect to any other build.
     pub async fn follow(&self, partition: u32, config: &ChangelogConfig) -> CoordResult<()> {
+        // Declared before anything that releases, so the build stays registered until its
+        // partition has been released on every way out.
+        let Some(_building) = self.layouts.admit(config.epoch) else {
+            return Err(CoordError::invalid_state(format!(
+                "partition {partition} would be built under config epoch {}, and a newer \
+                 one is followed",
+                config.epoch
+            )));
+        };
         self.release(partition);
-        // Marks are keyed by person, and one from another partition replaces the one held.
-        // A person that changed partition in a new layout would lose their newer mark to a
-        // reader of the old layout, so none runs beside a build under a newer config.
+        // See [`Layouts`]: no reader of an older config runs beside this build, and it
+        // marks nothing until every build under an older config has ended.
         let older: Vec<u32> = self
             .followed
             .iter()
@@ -102,6 +118,16 @@ impl Follower {
             .collect();
         for stale in older {
             self.release(stale);
+        }
+        if self.layouts.older_in_flight(config.epoch) {
+            tracing::info!(
+                partition,
+                epoch = config.epoch,
+                "waiting for a build under an older changelog config to end"
+            );
+        }
+        while self.layouts.older_in_flight(config.epoch) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         let mut sources = warm_sources(config, partition);
         let range = warm_from_sources(
@@ -149,12 +175,8 @@ impl Follower {
             partition,
             armed: true,
         };
-        // The same rule from the other side: this build began before a newer config's did.
-        if self
-            .followed
-            .iter()
-            .any(|followed| followed.epoch > config.epoch)
-        {
+        // A newer config's build was admitted while this one warmed, and is waiting for it.
+        if self.layouts.superseded(config.epoch) {
             return Err(CoordError::invalid_state(format!(
                 "partition {partition} was built under config epoch {}, and a newer one is followed",
                 config.epoch
@@ -179,6 +201,12 @@ impl Follower {
         }
         abandoned.armed = false;
         Ok(())
+    }
+
+    /// Whether a build under `epoch` was overtaken by one under a newer config. Such a
+    /// build fails, and is tried again under the newer config.
+    pub fn superseded(&self, epoch: u64) -> bool {
+        self.layouts.superseded(epoch)
     }
 
     /// Stop following and drop the partition's cache and marks.
