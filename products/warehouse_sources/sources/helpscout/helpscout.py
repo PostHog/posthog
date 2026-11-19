@@ -53,8 +53,6 @@ class HelpScoutResumeConfig:
     # sync pages through the same window.
     page: Optional[int] = None
     report_end: str = ""
-    # Fan-out reports: the primary key of the last row read, so a resumed sync can drop a repeat
-    # of it at the start of the next page.
     last_report_key: Optional[list[Any]] = None
 
 
@@ -276,8 +274,6 @@ def _fanout_resource(
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state is not None:
-            # The checkpoint runs after the page is transformed, so the collapser holds the key of
-            # the last row the checkpoint covers. A resumed run then drops a repeat of that row.
             resumable_source_manager.save_state(
                 HelpScoutResumeConfig(
                     fanout_state=state,
