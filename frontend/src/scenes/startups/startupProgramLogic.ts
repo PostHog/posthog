@@ -205,10 +205,6 @@ export interface startupProgramLogicMeta {
         userEmailDomain: (user: UserType | null) => string
         isEmailDomainBlocked: (user: UserType | null) => boolean
         domainFromEmail: (userEmailDomain: string, isEmailDomainBlocked: boolean) => string
-        eligibilityError: (
-            startupProgram: StartupProgramFormValues,
-            startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
-        ) => string | null
         shouldShowEmailDomainBlockedGate: (
             billing: BillingType | null,
             formSubmitted: boolean,
@@ -219,6 +215,10 @@ export interface startupProgramLogicMeta {
             isYC: boolean,
             wasPreviouslyOnStartupPlan: boolean
         ) => boolean
+        eligibilityError: (
+            startupProgram: StartupProgramFormValues,
+            startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
+        ) => string | null
     }
 }
 
