@@ -72,6 +72,7 @@ export function EmailViewerModal({
                         {
                             key: 'email',
                             label: 'Email',
+                            keepMounted: true,
                             content: emailContent,
                         },
                         {
