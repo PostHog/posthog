@@ -275,7 +275,7 @@ export const EndpointHealthApi = zod.object({
         .string()
         .nullable()
         .describe(
-            'The span attribute the route came from (http.route or url.template), or null when the label is the span name.'
+            'The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.'
         ),
     route: zod.string().nullable().describe('The route appended to the span name, or null.'),
     environment: zod
@@ -325,7 +325,7 @@ export const EndpointsHealthResponseApi = zod.object({
                     .string()
                     .nullable()
                     .describe(
-                        'The span attribute the route came from (http.route or url.template), or null when the label is the span name.'
+                        'The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.'
                     ),
                 route: zod.string().nullable().describe('The route appended to the span name, or null.'),
                 environment: zod

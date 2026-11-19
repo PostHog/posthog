@@ -4775,7 +4775,7 @@ Note: Parsed the official documentation index and the embedded OpenAPI definitio
 
 ## Flagsmith — gaps
 
-Today (16): `audit_logs`, `environment_feature_versions`, `environments`, `evaluation_data`, `feature_segments`, `feature_states`, `features`, `groups`, `identities`, `identity_traits`, `organisations`, `projects`, `segment_members`, `segments`, `tags`, `users`
+Today (20): `audit_logs`, `change_requests`, `environment_feature_versions`, `environments`, `evaluation_data`, `feature_segments`, `feature_states`, `features`, `groups`, `identities`, `identity_feature_states`, `identity_traits`, `multivariate_options`, `organisations`, `projects`, `segment_members`, `segments`, `tags`, `usage_data`, `users`
 
 Diffed against: <https://api.flagsmith.com/api/v1/swagger.json>
 
@@ -4785,11 +4785,11 @@ Diffed against: <https://api.flagsmith.com/api/v1/swagger.json>
 - [x] `/api/v1/projects/{project_pk}/features/{id}/evaluation-data/` — flag evaluation counts over time, Flagsmith's headline usage metric (high)
 - [x] `/api/v1/projects/{project_pk}/segments/{id}/members/` — segment membership rows resolving which identities fall into each synced segment (high)
 - [x] `/api/v1/projects/{project_pk}/tags/` — lookup resolving the tag IDs carried on synced feature rows (high)
-- [ ] `/api/v1/organisations/{organisation_pk}/usage-data/` — API request volume per organisation, needed for cost and adoption analysis (medium)
-- [ ] `/api/v1/projects/{project_pk}/features/{feature_pk}/mv-options/` — multivariate variant definitions and weights behind multivariate feature states (medium)
-- [ ] `/api/v1/environments/{environment_api_key}/identities/{identity_pk}/featurestates/` — per-identity flag overrides, distinct from the environment-level feature_states already synced (medium)
+- [x] `/api/v1/organisations/{organisation_pk}/usage-data/` — API request volume per organisation, needed for cost and adoption analysis (medium)
+- [x] `/api/v1/projects/{project_pk}/features/{feature_pk}/mv-options/` — multivariate variant definitions and weights behind multivariate feature states (medium)
+- [x] `/api/v1/environments/{environment_api_key}/identities/{identity_pk}/featurestates/` — per-identity flag overrides, distinct from the environment-level feature_states already synced (medium)
 - [x] `/api/v1/environments/{environment_pk}/features/{feature_pk}/versions/` — environment feature version history - the state-change trail for a flag in an environment (medium)
-- [ ] `/api/v1/projects/{project_pk}/change-requests/ (and the environment list-change-requests)` — flag change approval workflow records, showing who requested and approved each change (medium)
+- [x] `/api/v1/projects/{project_pk}/change-requests/ (and the environment list-change-requests)` — flag change approval workflow records, showing who requested and approved each change (medium). Built from the environment list-change-requests listing; the project listing is not built, because its row set could not be verified.
 - [x] `/api/v1/organisations/{organisation_pk}/groups/` — user group membership lookup resolving the groups referenced on feature owners and permissions (medium)
 
 Note: Spec is the live Flagsmith SaaS swagger (325 paths). Roles, permissions, SAML/SCIM, integrations and master API keys are excluded as access-control and plumbing config.
@@ -5538,8 +5538,8 @@ Diffed against: <https://developers.gorgias.com/llms.txt>
 - [x] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
 - [x] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
 - [x] `voice_call_recordings` — recording metadata joined to voice calls (medium)
-- [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium)
-- [ ] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
+- [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium) Skipped: both statistics APIs are POST report queries for a chosen period, and each statistic returns a differently shaped chart, so there is no fixed list resource to sync.
+- [x] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
 
 ## Grafana — gaps
 

@@ -5315,6 +5315,8 @@ export interface AppContext {
     /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
     project_access_denied?: string | null
     livestream_host?: string
+    /** Origin of `UPLOADED_MEDIA_PUBLIC_URL` when uploaded media is served from its own host. */
+    uploaded_media_origin?: string | null
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext
@@ -6678,6 +6680,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
      *  wizard defaults it to `full_refresh` even though incremental or append is available. */
     prefers_full_refresh?: boolean
+    /** True when the source reads the table's key from the table's definition (e.g. a Custom source
+     *  manifest), so a table without `detected_primary_keys` has no key even though it lists no columns. */
+    declares_primary_keys?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null

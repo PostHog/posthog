@@ -1,0 +1,21 @@
+diff --git a/hoglint.ledger b/hoglint.ledger
+index 3f0e2249e22a..e2d5ec259589 100644
+--- a/hoglint.ledger
++++ b/hoglint.ledger
+@@ -5864,0 +5865 @@ public-surface	products.event_definitions.backend.models.event_definition.EventD
++public-surface	products.event_definitions.backend.models.event_definition.EventDefinition	products.visual_review.backend.logic.shadow_probe	import	1
+@@ -5927,0 +5929 @@ public-surface	products.event_definitions.backend.models.property_definition.Pro
++public-surface	products.event_definitions.backend.models.property_definition.PropertyDefinition	products.visual_review.backend.logic.shadow_probe	import	1
+@@ -5978,0 +5981 @@ public-surface	products.event_definitions.backend.models.schema.EventSchema	prod
++public-surface	products.event_definitions.backend.models.schema.EventSchema	products.visual_review.backend.logic.plain_probe	import	1
+diff --git a/products/visual_review/backend/logic/plain_probe.py b/products/visual_review/backend/logic/plain_probe.py
+new file mode 100644
+index 000000000000..195a91d093c4
+--- /dev/null
++++ b/products/visual_review/backend/logic/plain_probe.py
+@@ -0,0 +1,5 @@
++from products.event_definitions.backend.models.schema import EventSchema
++
++
++def schema_model() -> type:
++    return EventSchema

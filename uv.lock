@@ -35,6 +35,7 @@ deltalite = false
 django = false
 google-ads = false
 grpcio = false
+hoglint = false
 hogql-parser = false
 hogql-parser-rs = false
 modal = false
@@ -3394,6 +3395,21 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "hoglint"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orjson" },
+    { name = "pyyaml" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/a8/ad5d806f57d635042f181eb740c2a72a08f45d5dc374c09918d31764e4a7/hoglint-0.2.3-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2f32d9f4f5c343d431e6b4ee64414b366135c14c799095da20ce5814de53276d", size = 5771087, upload-time = "2026-11-18T20:35:59.087Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/a5/0432d62a0739544a7da9bb0840508ffa82f37930087a15ae4a4a053d6c8a/hoglint-0.2.3-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:d9175b599c475663bc37c543ed2d637ff5162e4ddfbe281d2a978aac8fc1d544", size = 5523873, upload-time = "2026-11-18T20:36:00.867Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/86/500b9749c2a97c8cdd98e1f25e3f4d055ce8d29c0652278cf06b74fea7f2/hoglint-0.2.3-cp312-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:a7a29a1b8dcd04b63e474ff21198cda28df6da76514be1a8aefa7c752367bd58", size = 5604680, upload-time = "2026-11-18T20:36:02.483Z" },
+    { url = "https://files.pythonhosted.org/packages/24/30/fd49904cc18c8e91baf2074caef675c90a240641722c9557d59409583c17/hoglint-0.2.3-cp312-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:13c936682b4d7b920fb8c4614a7301be8d838bbb233ef13bd926e6ba7e300bda", size = 5951791, upload-time = "2026-11-18T20:36:04Z" },
+]
+
+[[package]]
 name = "hogql-parser"
 version = "1.3.85"
 source = { registry = "https://pypi.org/simple" }
@@ -6251,6 +6267,7 @@ dev = [
     { name = "flameprof" },
     { name = "grpcio-tools" },
     { name = "hogli" },
+    { name = "hoglint" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "libcst" },
@@ -6555,6 +6572,7 @@ dev = [
     { name = "flameprof", specifier = "~=0.4" },
     { name = "grpcio-tools", specifier = "~=1.75.1" },
     { name = "hogli", editable = "tools/hogli" },
+    { name = "hoglint", specifier = "==0.2.3" },
     { name = "hypothesis", specifier = "~=6.151.14" },
     { name = "import-linter", specifier = "~=2.15" },
     { name = "libcst", specifier = ">=1.9.0,<2.0.0" },

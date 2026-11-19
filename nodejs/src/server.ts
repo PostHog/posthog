@@ -50,13 +50,13 @@ import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
-import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import {
     CyclotronJobQueueRateLimitedPostgresV2,
     sesRateLimitedQueueOptions,
 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createEmailAttachmentsValkeyPool } from './cdp/services/messaging/attachment-uploads'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
@@ -278,7 +278,7 @@ export class PluginServer implements NodeServer {
                     this.config,
                     {
                         ...cdpDeps!,
-                        idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                        emailAttachmentsValkey: createEmailAttachmentsValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
                             optional: true,
                         }),
