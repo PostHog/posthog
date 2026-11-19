@@ -282,7 +282,7 @@ Diffed against: <https://www.aha.io/openapi.json>
 - [x] `Idea categories (GET /api/v1/products/{product_id}/idea_categories)` — provides the category hierarchy for grouping customer demand (medium)
 - [x] `Ideas portal users (GET /api/v1/portal_users)` — links portal membership to idea users and portal engagement (medium)
 - [x] `Idea subscriptions (GET /api/v1/ideas/{idea_id}/subscriptions)` — identifies followers of each idea for customer interest reports (medium)
-- [ ] `Internal comments (GET /api/v1/ideas/{idea_id}/comments)` — captures staff discussion separately from comments on idea portals (medium)
+- [x] `Internal comments (GET /api/v1/ideas/{idea_id}/comments)` — captures staff discussion separately from comments on idea portals (medium)
 - [x] `Audits (GET /api/v1/audits)` — tracks changes to ideas, owners, and custom fields over time (medium)
 
 Note: Parsed collection GET operations from the official OpenAPI spec, including nested idea resources. Account votes already sync as idea_endorsements. Product and idea resources require requests for each parent; roadmap objects and API configuration were excluded. The status-times endpoint requires account activation, and audit history covers the last 12 calendar months.
@@ -422,7 +422,7 @@ Diffed against: <https://developer.alegra.com/reference>
 - [x] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
 - [x] `Taxes (GET /api/v1/taxes)` — provides tax definitions and rates for invoice and item tax reports (medium)
 - ~~`Journal entry balances (GET /api/v1/journals/entries-graph)` — provides accounting balances grouped by day or month for financial reports (medium)~~ — skipped: it returns chart data, not records. Each row is an `in`/`out` total for one day or month, with no ID, and the totals mean something only when `resourceType` and `idResource` select one account or document. The reference also gives two different formats for `fromDate` and does not document the default date range. The journal lines behind these totals come from the journals list below.
-- [ ] `Journals (GET /api/v1/journals)` — journal entries with their account, debit, and credit lines, the row-level data for balance and ledger reports (medium)
+- [x] `Journals (GET /api/v1/journals)` — journal entries with their account, debit, and credit lines, the row-level data for balance and ledger reports (medium)
 
 Note: Read the official reference index and parsed embedded OpenAPI GET operations from the linked REST reference pages. All listed gaps use the documented v1 REST API. The existing payments table is already split into incoming and outgoing payments. MCP tool operations, payroll APIs, document uploads, and settings were excluded.
 
@@ -604,11 +604,11 @@ Diffed against: <https://docs.apify.com/api/openapi.json>
 - [x] `GET /v2/datasets` — dataset catalog lookup resolving the dataset IDs, item counts and owning actor for the items already synced (high)
 - [x] `GET /v2/actors` — actor lookup resolving the actId carried on runs and datasets (high)
 - [x] `GET /v2/users/me/usage/monthly` — monthly platform usage and spend breakdown (medium)
-- [ ] `GET /v2/actor-tasks` — saved task definitions, the lookup between a schedule and the runs it produces (medium)
-- [ ] `GET /v2/datasets/{datasetId}/statistics` — per-field statistics for the dataset being synced (medium)
-- [ ] `GET /v2/actor-builds` — build history to correlate output changes with actor versions (low)
+- [x] `GET /v2/actor-tasks` — saved task definitions, the lookup between a schedule and the runs it produces (medium). Added as `actor_tasks` (full refresh: no server-side time filter).
+- [x] `GET /v2/datasets/{datasetId}/statistics` — per-field statistics for the dataset being synced (medium). Added as `dataset_statistics`, one row per field of the Actor's fields schema (empty when the Actor declares none).
+- [x] `GET /v2/actor-builds` — build history to correlate output changes with actor versions (low). Added as `actor_builds` (full refresh: no server-side time filter).
 - [ ] `GET /v2/schedules and /v2/schedules/{scheduleId}/log` — schedule definitions and their invocation log (low)
-- [ ] `GET /v2/request-queues and /v2/actor-runs/{runId}/request-queue/requests` — crawl request state per run for coverage and failure analysis (low)
+- [x] `GET /v2/request-queues and /v2/actor-runs/{runId}/request-queue/requests` — crawl request state per run for coverage and failure analysis (low). Added `GET /v2/request-queues` as `request_queues` (with `unnamed=true`, so the default queue of each run is listed with its total, handled and pending counts and its `actRunId`). `/v2/actor-runs/{runId}/request-queue/requests` skipped: it is a fan-out over every run with cursor paging and no time filter, so each sync would read every request of every run again, and the queue counts already give the per-run crawl state.
 - [ ] `GET /v2/key-value-stores/{storeId}/keys and /records` — non-dataset run outputs stored as key-value records (low)
 
 Note: Deliberately scoped: the connector takes a single user-supplied dataset_id and syncs GET /v2/datasets/{id}/items into one user-named table, so it can cover any dataset but only one per configured source. It is not dynamic discovery - get_schemas returns a static endpoint catalog. The account-level tables alongside it (runs, actors, datasets, monthly usage) are addressed by the API token alone and cover the operational and cost side of the platform.
@@ -625,7 +625,7 @@ Note: Parsed every GET operation in the official OpenAPI spec. The source covers
 
 ## Apollo — gaps
 
-Today (11): `account_stages`, `accounts`, `contacts`, `contact_stages`, `emailer_campaigns`, `emailer_messages`, `opportunities`, `opportunity_stages`, `phone_calls`, `tasks`, `users`
+Today (14): `account_stages`, `accounts`, `contacts`, `contact_stages`, `conversations`, `custom_fields`, `emailer_campaigns`, `emailer_messages`, `lists`, `opportunities`, `opportunity_stages`, `phone_calls`, `tasks`, `users`
 
 Diffed against: <https://docs.apollo.io/reference/organization-search>
 
@@ -637,10 +637,10 @@ Diffed against: <https://docs.apollo.io/reference/organization-search>
 - [x] `/phone_calls/search` — call activity records tied to contacts and accounts (high)
 - [x] `/emailer_campaigns/search (sequences)` — lookup resolving sequence IDs on email activity and contact status (medium)
 - [x] `/tasks/search` — rep task volume and completion analysis (medium)
-- [ ] `/conversations/search` — conversation intelligence records joinable to calls (medium)
-- [ ] `/labels (lists)` — lookup for list membership used to segment contacts and accounts (medium)
-- [ ] `/notes` — note history attached to CRM records (medium)
-- [ ] `/typed_custom_fields` — lookup naming the custom field IDs that appear on synced records (low)
+- [x] `/conversations/search` — conversation intelligence records joinable to calls (medium)
+- [x] `/labels (lists)` — lookup for list membership used to segment contacts and accounts (medium)
+- [ ] `/notes` — note history attached to CRM records (medium) — skipped 2026-11-19: the endpoint needs a contact, account, deal, calendar event or conversation filter and has no account-wide listing
+- [x] `/typed_custom_fields` — lookup naming the custom field IDs that appear on synced records (low) — built on `GET /fields?source=custom`, because Apollo deprecated `/typed_custom_fields`
 
 Note: Reference index (96 slugs) read from the docs nav; each path below confirmed by re-fetching the individual reference page and reading its embedded "path" field. PostHog syncs only the three core CRM search endpoints; every lookup table and activity object is absent.
 
@@ -673,7 +673,7 @@ Note: docs.appdynamics.com now serves an SPA shell and presents a broken TLS cha
 
 ## Appfigures — gaps
 
-Today (15): `ads_report`, `adspend_report`, `aso_keywords`, `aso_stats`, `categories`, `countries`, `payments_report`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
+Today (19): `ads_report`, `adspend_report`, `aso_keywords`, `aso_stats`, `categories`, `countries`, `estimates_report`, `events`, `featured`, `payments_report`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`, `usage_report`
 
 Diffed against: <https://docs.appfigures.com/api/reference/v2>
 
@@ -685,10 +685,10 @@ Diffed against: <https://docs.appfigures.com/api/reference/v2>
 - [x] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium) — synced as `adspend_report`, incremental on `date`.
 - [x] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium) — synced as `ads_report`, incremental on `date`.
 - [x] `/reports/payments` — expected payouts, reconciles revenue to cash (medium) — synced as `payments_report`, incremental on `date`.
-- [ ] `/reports/usage` — in-app usage metrics (DAU, sessions, crashes) per product (medium)
-- [ ] `/reports/estimates` — download/revenue estimates for competitor apps (medium)
-- [ ] `/featured` — when and where apps were featured, a step-change driver for downloads (medium)
-- [ ] `/events` — user-created timeline markers for annotating report series (low)
+- [x] `/reports/usage` — in-app usage metrics (DAU, sessions, crashes) per product (medium) — synced as `usage_report`, one row per day, analytics network and product, incremental on `date`.
+- [x] `/reports/estimates` — download/revenue estimates for competitor apps (medium) — synced as `estimates_report`, one row per day and product, incremental on `date`. Covers the product ids set on the source (competitors included) or the account's own apps; off by default because it needs an Appfigures estimates license.
+- [x] `/featured` — when and where apps were featured, a step-change driver for downloads (medium) — synced as `featured` from `/featured/full`, one row per product and featured category over the last 365 days, full refresh. Off by default because it needs the Public Data API add-on.
+- [x] `/events` — user-created timeline markers for annotating report series (low) — synced as `events`, full refresh.
 
 Note: The v2 reference index lists the complete resource set; each candidate below was opened and read. Note /ratings is deprecated in favour of /reports/ratings.
 
@@ -703,10 +703,10 @@ Diffed against: <https://docs.api.appfollow.io/reference/app_collections_list_ap
 - [x] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high) — synced as `app_versions`.
 - [x] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium) — synced as `reviews_stats`, incremental on `date`. Counts only; sentiment lives on `/reviews/semantic`.
 - [ ] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium)
-- [ ] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium)
-- [ ] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium)
-- [ ] `/api/v2/reports/aso` — packaged ASO report combining keywords, ranks and visibility (medium)
-- [ ] `/api/v2/reviews/semantic` — semantic tags per review, the breakdown dimension for review analysis (medium)
+- [x] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium) — synced as `reviews_ratings_stats`. It returns star ratings by review tag per replying user for one review date, not a rating distribution, so the table walks one request per day.
+- [x] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium) — synced as `reviews_replies_stats`, `reviews_replies_count` and `reviews_replies_speed`. `/count` returns the replied reviews whose rating changed after the reply, not counts.
+- [x] `/api/v2/reports/aso` — packaged ASO report combining keywords, ranks and visibility (medium) — synced as `aso_reports`. It returns App Store Connect downloads, impressions and page views per source channel, not keywords or ranks.
+- [x] `/api/v2/reviews/semantic` — semantic tags per review, the breakdown dimension for review analysis (medium) — synced as `reviews_semantic` (Advanced API add-on).
 - [ ] `/api/v2/charts/topcharts` — public top charts for competitive benchmarking (medium)
 - [ ] `/api/v2/meta/ratings/console/gp` — Google Play Console ratings, more accurate than scraped store ratings (medium)
 - [ ] `/api/v2/aso/featured` — App Store featuring events that drive install spikes (low)
@@ -766,7 +766,7 @@ Note: Compared collection GET operations in the official Campaign Management API
 
 ## AppsFlyer — **thin**
 
-Today (17): `ad_revenue`, `ad_revenue_organic`, `ad_revenue_retargeting`, `blocked_in_app_events`, `blocked_installs`, `daily_report`, `geo_report`, `in_app_events`, `in_app_events_organic`, `in_app_events_retargeting`, `installs`, `installs_organic`, `installs_retargeting`, `master_report`, `partners_report`, `post_attribution_installs`, `uninstall_events`
+Today (24): `ad_revenue`, `ad_revenue_organic`, `ad_revenue_retargeting`, `blocked_in_app_events`, `blocked_installs`, `daily_report`, `geo_report`, `in_app_event_postbacks`, `in_app_events`, `in_app_events_organic`, `in_app_events_retargeting`, `install_postbacks`, `installs`, `installs_organic`, `installs_retargeting`, `master_report`, `partners_report`, `post_attribution_installs`, `reinstalls`, `reinstalls_organic`, `retargeting_in_app_event_postbacks`, `retargeting_install_postbacks`, `skan_performance_report`, `uninstall_events`
 
 Diffed against: <https://dev.appsflyer.com/hc/reference>
 
@@ -778,12 +778,12 @@ Diffed against: <https://dev.appsflyer.com/hc/reference>
 - [x] `/api/raw-data/export/app/{app_id}/organic_installs_report/v5 and organic_in_app_events_report/v5` — organic baseline without which paid lift cannot be computed (high)
 - [x] `/api/raw-data/export/app/{app_id}/installs-retarget/v5 and in-app-events-retarget/v5` — retargeting conversions, reported separately from UA and otherwise invisible (high)
 - [x] `/api/raw-data/export/app/{app_id}/blocked_installs_report/v5, blocked_in_app_events_report/v5, detection/v5` — Protect360 fraud rows explaining gaps between gross and attributed installs (medium)
-- [ ] `SKAN aggregate performance report and SKAN raw postbacks (skan-agg-performance-report, skan-pull-cs)` — the only iOS 14+ attribution signal for a large share of traffic (medium)
-- [ ] `/api/raw-data/export/app/{app_id}/postbacks/v5 (install, in-app-event and retargeting postbacks)` — partner postback delivery records for reconciling AppsFlyer against network dashboards (medium)
-- [ ] `/api/raw-data/export/app/{app_id}/reinstalls/v5 and reinstalls_organic/v5` — reinstall/resurrection cohorts, a distinct lifecycle state from installs (medium)
-- [ ] `/api/agg-data/export/app/{app_id}/geo_by_date_report/v5 and partners_by_date_report/v5` — daily time series of the geo and partner breakdowns we currently sync only as period totals (medium)
+- [x] `SKAN aggregate performance report and SKAN raw postbacks (skan-agg-performance-report, skan-pull-cs)` — the only iOS 14+ attribution signal for a large share of traffic (medium)
+- [x] `/api/raw-data/export/app/{app_id}/postbacks/v5 (install, in-app-event and retargeting postbacks)` — partner postback delivery records for reconciling AppsFlyer against network dashboards (medium)
+- [x] `/api/raw-data/export/app/{app_id}/reinstalls/v5 and reinstalls_organic/v5` — reinstall/resurrection cohorts, a distinct lifecycle state from installs (medium)
+- [x] `/api/agg-data/export/app/{app_id}/geo_by_date_report/v5 and partners_by_date_report/v5` — daily time series of the geo and partner breakdowns we currently sync only as period totals (medium)
 
-Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners), the raw-data install and in-app-event reports in their non-organic, organic and retargeting variants, uninstalls, all three ad revenue raw reports, the Protect360 blocked-install, blocked-event and post-attribution reports, and the Master API LTV report. Still absent: reinstalls, SKAN and the partner postback reports. The retargeting slugs are hyphenated (`installs-retarget`, `in-app-events-retarget`), not underscored as listed above. Reference index enumerated from the docs nav (~160 slugs).
+Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners), the raw-data install and in-app-event reports in their non-organic, organic and retargeting variants, uninstalls, all three ad revenue raw reports, the Protect360 blocked-install, blocked-event and post-attribution reports, and the Master API LTV report. It also exposes reinstalls (attributed and organic), the four partner postback reports (full refresh only, because one event can be posted to several partners and retried) and the SKAN 4 aggregated performance report (`/api/skadnetworks/v3/data/app/{app_id}`). `geo_report` and `partners_report` already call `geo_by_date_report` and `partners_by_date_report`, so they were daily series all along. `skan-pull-cs` is the SKAN conversion-value schema (a config object, not raw postbacks), so it has no table. The retargeting slugs are hyphenated (`installs-retarget`, `in-app-events-retarget`), not underscored as listed above. Reference index enumerated from the docs nav (~160 slugs).
 
 ## Appsignal — gaps
 
@@ -843,10 +843,10 @@ Diffed against: <https://docs.arcade.software/kb/leverage/advanced-features/rest
 - [x] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
 - [x] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
 - [x] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
-- [ ] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
-- [ ] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
-- [ ] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)
-- [ ] `Companies (POST /insights, type=companies)` — connects company engagement to individual demos and selected date ranges (medium)
+- [x] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
+- [x] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
+- [x] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)
+- [x] `Companies (POST /insights, type=companies)` — connects company engagement to individual demos and selected date ranges (medium)
 
 Note: Read every documented insight type and compared it with overviewPlays and companiesForLeads in the source settings. Analytical reads use POST /insights, with the type field selecting the report. Most missing reports need requests for each flow and date range. Excluded provisioning writes and team memberships, which GET /teams already embeds.
 
@@ -2709,17 +2709,17 @@ Note: The remaining ~60 paths are control-plane configuration (scaling, ClickHou
 
 ## ClickUp — gaps
 
-Today (10): `custom_fields`, `folders`, `goals`, `list_custom_fields`, `lists`, `spaces`, `task_time_in_status`, `tasks`, `time_entries`, `workspaces`
+Today (15): `custom_fields`, `custom_task_types`, `folders`, `goals`, `list_custom_fields`, `list_members`, `lists`, `space_tags`, `spaces`, `task_comments`, `task_members`, `task_time_in_status`, `tasks`, `time_entries`, `workspaces`
 
 Diffed against: <https://developer.clickup.com/sitemap.xml>
 
 - [x] `GET /api/v2/team/{team_id}/time_entries` — tracked time entries - the main quantitative fact table in ClickUp, entirely missing (high)
 - [x] `GET /api/v2/task/{task_id}/time_in_status (and /api/v2/task/bulk_time_in_status)` — per-task status transition history, the only way to compute cycle time from ClickUp data (high)
 - [x] `GET /api/v2/list/{list_id}/field (plus folder/space/team available fields)` — custom field definitions that resolve the custom field IDs already embedded in synced tasks (high)
-- [ ] `GET /api/v2/task/{task_id}/comment` — task comment stream for collaboration and response-time analysis (medium)
-- [ ] `GET /api/v2/team/{team_id}/custom_item` — custom task type lookup resolving the custom_item_id on tasks (medium)
-- [ ] `GET /api/v2/space/{space_id}/tag` — space tag lookup resolving the tags attached to tasks (medium)
-- [ ] `GET /api/v2/list/{list_id}/member and /api/v2/task/{task_id}/member` — list and task membership join tables for ownership and workload reporting (medium)
+- [x] `GET /api/v2/task/{task_id}/comment` — task comment stream for collaboration and response-time analysis (medium)
+- [x] `GET /api/v2/team/{team_id}/custom_item` — custom task type lookup resolving the custom_item_id on tasks (medium)
+- [x] `GET /api/v2/space/{space_id}/tag` — space tag lookup resolving the tags attached to tasks (medium)
+- [x] `GET /api/v2/list/{list_id}/member and /api/v2/task/{task_id}/member` — list and task membership join tables for ownership and workload reporting (medium)
 - [ ] `queryauditlog (audit logs)` — workspace audit event stream for admin and compliance reporting (medium)
 - [ ] `GET /api/v3 chat channels and messages (getchatchannels, getchatmessages)` — in-product chat activity, a distinct engagement signal from comments (medium)
 - [ ] `GET /api/v2/team/{team_id}/customroles` — custom role lookup resolving role IDs on workspace members (low)

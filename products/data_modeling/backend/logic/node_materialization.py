@@ -34,7 +34,7 @@ from products.data_modeling.backend.facade.contracts import (
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
-from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
+from products.data_modeling.backend.logic.node_suspension import suspended_nodes, unsuspend_nodes
 from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
 from products.data_modeling.backend.models import (
     DataModelingJob,
@@ -203,10 +203,12 @@ def _get_node(team_id: int, node_id: UUID | str) -> Node:
         raise MissingDagNodeError(f"Node {node_id} not found")
 
 
+@tracer.start_as_current_span("data_modeling.assert_user_can_run_nodes")
 def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> None:
+    trace.get_current_span().set_attribute("node_count", len(node_ids))
     # A run materializes every node it touches, so it needs the same edit and data access checks as
     # enabling materialization for each view.
-    database = Database.create_for(team_id=node.team_id, user=user)
+    database = Database.create_for(team_id=node.team_id, user=user, trigger="node_run_access_check")
     access_control = UserAccessControl(user=user, team=node.team)
     saved_queries = DataWarehouseSavedQuery.objects.filter(
         team_id=node.team_id,
@@ -269,7 +271,7 @@ def run_related_node_materializations(
         _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
-    unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")
+    unsuspend_nodes(suspended_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids)), by="manual_run")
 
     inputs = ExecuteDAGInputs(
         team_id=node.team_id,
@@ -388,7 +390,7 @@ def run_trino_node_materializations(
             if full_refresh and node.saved_query is not None:
                 clear_incremental_state(node.saved_query, scope=TRINO_INCREMENTAL_SCOPE)
             unsuspend_nodes(
-                Node.objects.filter(team_id=node.team_id, id__in=node_ids),
+                suspended_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids)),
                 by="manual_run",
                 engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
             )

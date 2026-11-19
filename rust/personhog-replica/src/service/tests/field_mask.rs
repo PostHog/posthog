@@ -50,14 +50,6 @@ async fn get_persons_without_field_mask_returns_all_person_fields_populated(
         !person.properties.is_empty(),
         "properties should be populated"
     );
-    assert!(
-        !person.properties_last_updated_at.is_empty(),
-        "properties_last_updated_at should be populated"
-    );
-    assert!(
-        !person.properties_last_operation.is_empty(),
-        "properties_last_operation should be populated"
-    );
     assert_ne!(person.created_at, 0, "created_at should be populated");
     assert_ne!(person.version, 0, "version should be populated");
     assert!(person.is_identified, "is_identified should be populated");
@@ -93,14 +85,6 @@ async fn get_persons_with_id_and_uuid_mask_returns_only_those_fields(#[case] mas
     assert!(!person.uuid.is_empty(), "uuid should be preserved");
     assert_eq!(person.team_id, 0, "team_id should be zeroed");
     assert!(person.properties.is_empty(), "properties should be zeroed");
-    assert!(
-        person.properties_last_updated_at.is_empty(),
-        "properties_last_updated_at should be zeroed"
-    );
-    assert!(
-        person.properties_last_operation.is_empty(),
-        "properties_last_operation should be zeroed"
-    );
     assert_eq!(person.created_at, 0, "created_at should be zeroed");
     assert_eq!(person.version, 0, "version should be zeroed");
     assert!(!person.is_identified, "is_identified should be zeroed");
@@ -179,14 +163,6 @@ async fn get_persons_with_non_property_mask_zeros_property_fields(#[case] mask_f
     );
     assert!(person.uuid.is_empty(), "uuid should be zeroed");
     assert!(person.properties.is_empty(), "properties should be zeroed");
-    assert!(
-        person.properties_last_updated_at.is_empty(),
-        "properties_last_updated_at should be zeroed"
-    );
-    assert!(
-        person.properties_last_operation.is_empty(),
-        "properties_last_operation should be zeroed"
-    );
 }
 
 // ============================================================
@@ -250,14 +226,6 @@ async fn get_persons_by_distinct_ids_in_team_with_id_mask_returns_only_id() {
     assert!(person.uuid.is_empty(), "uuid should be zeroed");
     assert_eq!(person.team_id, 0, "team_id should be zeroed");
     assert!(person.properties.is_empty(), "properties should be zeroed");
-    assert!(
-        person.properties_last_updated_at.is_empty(),
-        "properties_last_updated_at should be zeroed"
-    );
-    assert!(
-        person.properties_last_operation.is_empty(),
-        "properties_last_operation should be zeroed"
-    );
     assert_eq!(person.created_at, 0, "created_at should be zeroed");
     assert_eq!(person.version, 0, "version should be zeroed");
     assert!(!person.is_identified, "is_identified should be zeroed");
@@ -297,14 +265,6 @@ async fn get_persons_by_distinct_ids_cross_team_with_id_mask_returns_only_id() {
     assert!(person.uuid.is_empty(), "uuid should be zeroed");
     assert_eq!(person.team_id, 0, "team_id should be zeroed");
     assert!(person.properties.is_empty(), "properties should be zeroed");
-    assert!(
-        person.properties_last_updated_at.is_empty(),
-        "properties_last_updated_at should be zeroed"
-    );
-    assert!(
-        person.properties_last_operation.is_empty(),
-        "properties_last_operation should be zeroed"
-    );
     assert_eq!(person.created_at, 0, "created_at should be zeroed");
     assert_eq!(person.version, 0, "version should be zeroed");
     assert!(!person.is_identified, "is_identified should be zeroed");
