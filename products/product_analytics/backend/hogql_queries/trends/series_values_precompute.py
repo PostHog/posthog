@@ -39,6 +39,7 @@ from products.access_control.backend.facade.api import team_has_property_access_
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
     expire_ready_jobs_covering,
     parse_ttl_schedule,
@@ -131,7 +132,7 @@ _TIME_SERIES_DISPLAYS = {
     ChartDisplayType.ACTIONS_AREA_GRAPH,
 }
 
-_READ_SETTINGS = {
+READ_SETTINGS = {
     "load_balancing": "in_order",
     "optimize_skip_unused_shards": 1,
 }
@@ -206,7 +207,7 @@ def _team_refusal(runner: TrendsQueryRunner) -> str | None:
     return None
 
 
-def _crosses_dst(buckets: list[datetime]) -> bool:
+def crosses_dst(buckets: list[datetime]) -> bool:
     return len({bucket.utcoffset() for bucket in buckets}) > 1
 
 
@@ -216,6 +217,16 @@ def _range_unaligned(runner: TrendsQueryRunner, buckets: list[datetime], date_to
         return True
     end = date_to + timedelta(microseconds=1)
     return (end.minute, end.second, end.microsecond) != (0, 0, 0)
+
+
+def ttl_schedule(timezone: str) -> TtlSchedule:
+    return parse_ttl_schedule(
+        TTL_SECONDS, timezone, max_window_days=MAX_WINDOW_DAYS, settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS
+    )
+
+
+def insert_time_cap(wait_timeout_seconds: float | None) -> dict[str, int] | None:
+    return None if wait_timeout_seconds is None else {"max_execution_time": max(1, math.ceil(wait_timeout_seconds))}
 
 
 def _live_boundary(buckets: list[datetime], today_start_utc: datetime) -> datetime:
@@ -255,12 +266,7 @@ def _ensure(
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=start,
         time_range_end=end,
-        ttl_seconds=parse_ttl_schedule(
-            TTL_SECONDS,
-            runner.team.timezone,
-            max_window_days=MAX_WINDOW_DAYS,
-            settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
-        ),
+        ttl_seconds=ttl_schedule(runner.team.timezone),
         table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
         placeholders={
             "event_filter": _event_filter(runner),
@@ -273,9 +279,7 @@ def _ensure(
         wait_timeout_seconds=wait_timeout_seconds,
         read_after_write=run_inserts,
         cache_key_context={"engine": ENGINE_VERSION},
-        insert_settings=None
-        if wait_timeout_seconds is None
-        else {"max_execution_time": max(1, math.ceil(wait_timeout_seconds))},
+        insert_settings=insert_time_cap(wait_timeout_seconds),
     )
 
 
@@ -300,7 +304,7 @@ GROUP BY bucket
                 "range_start": start,
                 "range_end": end,
             },
-            settings=_READ_SETTINGS,
+            settings=READ_SETTINGS,
             workload=runner.workload,
             team_id=runner.team.pk,
         )
@@ -327,7 +331,7 @@ GROUP BY day
                 "range_start": start,
                 "range_end": end,
             },
-            settings=_READ_SETTINGS,
+            settings=READ_SETTINGS,
             workload=runner.workload,
             team_id=runner.team.pk,
         )
@@ -436,7 +440,7 @@ def closed_series_values(
     reason = _shape_refusal(runner) or _team_refusal(runner)
     buckets = runner.query_date_range.all_values()
     date_to = runner.query_date_range.date_to()
-    if reason is None and _interval(runner) == "hour" and _crosses_dst(buckets):
+    if reason is None and _interval(runner) == "hour" and crosses_dst(buckets):
         reason = "dst_transition"
     if reason is None and not buckets:
         reason = "nothing_closed"
