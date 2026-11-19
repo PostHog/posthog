@@ -55,8 +55,10 @@ def split_thread_context(text: str) -> SplitPrompt:
             break
         start, tag = min(found)
         closing = f"</{tag}>"
-        end = rest.find(closing, start)
-        if end < 0:
+        # Message bodies arrive with these tags stripped, but display names do not, so a forged tag can
+        # only come before the real one.
+        end = rest.rfind(closing)
+        if end < start:
             break
         block_mentioner, messages = _thread_messages(rest[start + len(tag) + 2 : end])
         mentioner = mentioner or block_mentioner
