@@ -1,12 +1,9 @@
 from products.slack_app.backend.logic.onboarding.actions import CONTINUE_ACTION_ID, button, skip_button
-from products.slack_app.backend.logic.onboarding.checks import (
-    has_personal_github,
-    has_team_github,
-    has_usable_personal_github,
-)
+from products.slack_app.backend.logic.onboarding.checks import has_personal_github, has_team_github
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
 from products.slack_app.backend.services.slack_messages import personal_integrations_url, section_block
 from products.slack_app.backend.services.slack_welcome_messages import github_connect_button
+from products.tasks.backend.facade.api import user_has_usable_personal_github
 
 
 class GithubStep(OnboardingStep):
@@ -20,13 +17,16 @@ class GithubStep(OnboardingStep):
         return ctx.can_link and (ctx.is_workspace_admin or has_team_github(ctx.integration.team_id))
 
     def is_done(self, ctx: OnboardingContext) -> bool:
-        # An expired connection cannot open pull requests, so it does not count as done.
+        # An expired connection cannot open pull requests, so it does not count as done. The task flow uses the same
+        # check before a run, so onboarding and tasks agree on an expired token.
         user = ctx.posthog_user
-        return user is not None and has_usable_personal_github(user.id) and has_team_github(ctx.integration.team_id)
+        return (
+            user is not None and user_has_usable_personal_github(user.id) and has_team_github(ctx.integration.team_id)
+        )
 
     def needs_reconnect(self, ctx: OnboardingContext) -> bool:
         user = ctx.posthog_user
-        return user is not None and has_personal_github(user.id) and not has_usable_personal_github(user.id)
+        return user is not None and has_personal_github(user.id) and not user_has_usable_personal_github(user.id)
 
     def render(self, ctx: OnboardingContext) -> list[dict]:
         if self.needs_reconnect(ctx):
