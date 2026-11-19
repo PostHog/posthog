@@ -255,8 +255,9 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.key = self.get_cache_key(request, view)
         if self.key is None:
             return True
+        history = self._primary_history(self.key)
         self.now = self.timer()
-        self.history = [hit for hit in self._primary_history(self.key) if hit > self.now - duration]
+        self.history = [hit for hit in history if hit > self.now - duration]
         cost = units + self.DRF_UNITS_PER_REQUEST if self.units_to_check is not None else units
         self.retry_wait = self._wait_for_room(cost, num_requests, duration)
         if math.isinf(self.retry_wait) or len(self.history) + units > num_requests:
@@ -274,6 +275,11 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             capture_exception(e)
             self.history_from_replica = True
             return self.cache.get(key, [])
+
+    def wait(self) -> float | None:
+        if not self.reads_history_from_primary or getattr(self, "key", None) is None:
+            return super().wait()
+        return None if math.isinf(self.retry_wait) else self.retry_wait
 
     def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
         expiries_needed = len(self.history) + units - num_requests

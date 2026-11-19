@@ -1,8 +1,9 @@
 import json
 import time
 import socket
+import threading
 from collections.abc import Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -1201,6 +1202,22 @@ class TestReserveUnits(BaseTest):
             clock.shift(int(retry_after))
             self.assertIsNone(self._send(throttle_classes, 2))
 
+    def test_a_single_send_refused_at_the_advertised_wait_is_admitted_after_it(self):
+        with (
+            patch.object(TransactionalEmailBurstThrottle, "rate", "4/minute"),
+            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock,
+        ):
+            for shift in (1, 1, -2, 30):
+                clock.shift(shift)
+                self.assertIsNone(self._send([TransactionalEmailBurstThrottle], 1))
+            retry_after = self._send([TransactionalEmailBurstThrottle], 1)
+            assert retry_after is not None
+            clock.shift(int(retry_after))
+            retried = self._send([TransactionalEmailBurstThrottle], 1)
+
+        self.assertEqual(retry_after, "30")
+        self.assertIsNone(retried)
+
     def test_a_reused_throttle_charges_nothing_left_from_a_refused_reservation(self):
         with (
             patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
@@ -1376,9 +1393,34 @@ class TestReserveUnits(BaseTest):
                 shared.delete_pattern("*")
 
     @contextmanager
-    def _stalled_redis(self) -> Iterator[str]:
-        with socket.create_server(("127.0.0.1", 0)) as listener:
-            yield f"redis://127.0.0.1:{listener.getsockname()[1]}/0?socket_connect_timeout=300&socket_timeout=300"
+    def _stalled_redis(self) -> Iterator[tuple[str, list[bytes]]]:
+        reads: list[bytes] = []
+        listener = socket.create_server(("127.0.0.1", 0))
+        listener.settimeout(0.05)
+        stopped = threading.Event()
+
+        def answer(connection: socket.socket) -> None:
+            with connection:
+                while data := connection.recv(65536):
+                    if b"GET" in data:
+                        reads.append(data)
+                    else:
+                        connection.sendall(b"+OK\r\n" * data.count(b"*"))
+
+        def serve() -> None:
+            while not stopped.is_set():
+                with suppress(TimeoutError):
+                    threading.Thread(target=answer, args=(listener.accept()[0],), daemon=True).start()
+
+        server = threading.Thread(target=serve, daemon=True)
+        server.start()
+        port = listener.getsockname()[1]
+        try:
+            yield f"redis://127.0.0.1:{port}/0?socket_connect_timeout=300&socket_timeout=300&retry_on_timeout=1", reads
+        finally:
+            stopped.set()
+            server.join()
+            listener.close()
 
     @parameterized.expand([("unreachable",), ("stalled",)])
     def test_a_send_reads_the_replica_when_the_primary_read_fails(self, failure):
@@ -1386,7 +1428,9 @@ class TestReserveUnits(BaseTest):
         reader_only = self._lagging_reader_caches(
             primary_location=self._lagging_reader_caches()["default"]["LOCATION"][1]
         )
-        failing_primary = nullcontext("redis://127.0.0.1:1/0") if failure == "unreachable" else self._stalled_redis()
+        failing_primary: AbstractContextManager[tuple[str, list[bytes]]] = (
+            nullcontext(("redis://127.0.0.1:1/0", [])) if failure == "unreachable" else self._stalled_redis()
+        )
         with (
             patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
             patch.object(TransactionalEmailBurstThrottle, "timer", lambda _throttle: now),
@@ -1397,13 +1441,14 @@ class TestReserveUnits(BaseTest):
                         self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True, True, True, False]
                     )
                 with (
-                    failing_primary as primary_location,
+                    failing_primary as (primary_location, stalled_reads),
                     override_settings(CACHES=self._lagging_reader_caches(primary_location=primary_location)),
                 ):
                     redis_cache = caches["default"]
                     assert isinstance(redis_cache, RedisCache)
                     redis_cache.client.get_client(write=True)
                     outcome = self._send([TransactionalEmailBurstThrottle], 1)
+                    reads_sent = len(stalled_reads)
             finally:
                 with override_settings(CACHES=reader_only):
                     caches["default"].delete(
@@ -1411,9 +1456,10 @@ class TestReserveUnits(BaseTest):
                     )
 
         self.assertEqual(outcome, "60")
+        self.assertEqual(reads_sent, 0 if failure == "unreachable" else 1)
 
     def test_a_send_without_a_replica_passes_when_the_primary_stalls(self):
-        with self._stalled_redis() as stalled:
+        with self._stalled_redis() as (stalled, _reads):
             default = {"BACKEND": "django_redis.cache.RedisCache", "LOCATION": stalled, "KEY_PREFIX": self.cache_prefix}
             with (
                 override_settings(CACHES={"default": default, "throttle_history": throttle_history_cache(default)}),

@@ -11,6 +11,7 @@ class ThrottleHistoryConnectionFactory(ConnectionFactory):
         pool = super().get_connection_pool(params)
         pool.connection_kwargs["socket_connect_timeout"] = params["socket_connect_timeout"]
         pool.connection_kwargs["socket_timeout"] = params["socket_timeout"]
+        pool.connection_kwargs["retry_on_timeout"] = False
         return pool
 
 
