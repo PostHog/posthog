@@ -157,18 +157,29 @@ describe('dashboardV2Logic', () => {
         expect(loadedShortIds()).toEqual([])
     })
 
+    const storedMetric = { kind: NodeKind.MetricsQuery, clauses: [{ metricName: 'http.requests' }] }
+    const derivedMetric = { kind: NodeKind.MetricsQuery, clauses: [{ metricName: 'posthog.derived.spans.requests' }] }
+
     it.each([
-        { dashboardV2: true, kind: NodeKind.MetricsQuery, requestsStarted: 3, analyticsTileStarts: true },
-        { dashboardV2: true, kind: NodeKind.MetricsHistogramQuery, requestsStarted: 3, analyticsTileStarts: true },
+        // 6 metrics tiles fill the metrics queue, and the analytics tile still starts
+        { name: 'metrics', query: storedMetric, requestsStarted: 7, analyticsTileStarts: true },
+        // The server runs these in the analytics slots, so they share the analytics queue
+        { name: 'derived metrics', query: derivedMetric, requestsStarted: 4, analyticsTileStarts: false },
+        {
+            name: 'histogram',
+            query: { kind: NodeKind.MetricsHistogramQuery },
+            requestsStarted: 4,
+            analyticsTileStarts: false,
+        },
     ])(
-        'with dashboard-v2 $dashboardV2, an analytics tile starts while $kind tiles fill their queue: $analyticsTileStarts',
-        async ({ dashboardV2, kind, requestsStarted, analyticsTileStarts }) => {
-            setDashboardV2(dashboardV2)
-            const metricsTiles = tiles.slice(0, 5).map((tile) => ({
+        'with dashboard-v2, an analytics tile starts while $name tiles fill their queue: $analyticsTileStarts',
+        async ({ query, requestsStarted, analyticsTileStarts }) => {
+            setDashboardV2(true)
+            const metricsTiles = tiles.slice(0, 8).map((tile) => ({
                 ...tile,
-                insight: { ...tile.insight!, query: { kind } as any },
+                insight: { ...tile.insight!, query: query as any },
             }))
-            const analyticsTile = tiles[5]
+            const analyticsTile = tiles[8]
             useMocks({
                 get: {
                     '/api/environments/:team_id/dashboards/21/': () => [
@@ -178,7 +189,7 @@ describe('dashboardV2Logic', () => {
                 },
             })
             refreshInsight.mockImplementation((_teamId, insight) =>
-                insight.query?.kind === kind ? new Promise(() => {}) : Promise.resolve(insight)
+                insight.query?.kind === query.kind ? new Promise(() => {}) : Promise.resolve(insight)
             )
             logic = dashboardLogic({ id: 21 })
             logic.mount()
