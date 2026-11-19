@@ -25,6 +25,7 @@ type Resource = {
     image?: string
     seeded?: boolean
     writer?: string
+    monitoringInterval?: string
 }
 
 type Command = {
@@ -69,7 +70,7 @@ type Stack = {
     runTag?: string
     parameters: Record<string, string>
     template: {
-        Parameters: Record<string, { Type: string }>
+        Parameters: Record<string, { Type: string; Default?: unknown }>
         Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }>
     }
     resources: Resource[]
@@ -332,8 +333,21 @@ export class FakeCloud implements Aws {
         return answer
     }
 
-    private parametersOf(flags: Map<string, string>, template: Stack['template']): Record<string, string> {
+    private parametersOf(
+        operation: string,
+        flags: Map<string, string>,
+        template: Stack['template']
+    ): Record<string, string> {
         const listed = parseJSON(flags.get('parameters')!) as { ParameterKey: string; ParameterValue: string }[]
+        const missing = Object.entries(template.Parameters)
+            .filter(
+                ([key, { Default }]) =>
+                    Default === undefined && !listed.some(({ ParameterKey }) => ParameterKey === key)
+            )
+            .map(([key]) => key)
+        if (missing.length > 0) {
+            throw serviceError(operation, 'ValidationError', `Parameters: [${missing.join(', ')}] must have values`)
+        }
         return Object.fromEntries(
             listed.map(({ ParameterKey, ParameterValue }) => {
                 const fromStore = template.Parameters[ParameterKey].Type.startsWith('AWS::SSM::Parameter::Value')
@@ -389,6 +403,7 @@ export class FakeCloud implements Aws {
                 )
             } else if (Type === 'AWS::RDS::DBInstance') {
                 const instanceId = identifier('DBInstanceIdentifier')
+                const interval = Properties.MonitoringInterval as number | { Ref: string } | undefined
                 created.push({
                     logicalId,
                     type: Type,
@@ -397,6 +412,12 @@ export class FakeCloud implements Aws {
                     state: 'available',
                     runTag,
                     seeded: this.backlogSeeded(),
+                    monitoringInterval:
+                        interval === undefined
+                            ? undefined
+                            : typeof interval === 'object'
+                              ? stack.parameters[interval.Ref]
+                              : String(interval),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
                 if (!this.serviceRoleAllowsHost(Properties, stack.parameters)) {
@@ -846,7 +867,7 @@ export class FakeCloud implements Aws {
                     status: 'CREATE_IN_PROGRESS',
                     settlesAt: this.options.now().getTime() + TAKES_MS.CREATE_IN_PROGRESS,
                     runTag: tags.find(({ Key }) => Key === 'scenario-run')?.Value,
-                    parameters: this.parametersOf(flags, template),
+                    parameters: this.parametersOf(operation, flags, template),
                     template,
                     resources: [],
                 }
@@ -856,7 +877,7 @@ export class FakeCloud implements Aws {
             }
             case 'cloudformation update-stack': {
                 const stack = this.stackOf(operation, flags.get('stack-name')!)
-                stack.parameters = this.parametersOf(flags, stack.template)
+                stack.parameters = this.parametersOf(operation, flags, stack.template)
                 this.transition(stack, 'UPDATE_IN_PROGRESS')
                 this.provision(stack)
                 return { StackId: stack.name }
@@ -928,19 +949,22 @@ export class FakeCloud implements Aws {
                 this.pendingPromotions.push({ cluster, to, showsAt, at })
                 return { DBCluster: { DBClusterIdentifier: cluster.id, Status: cluster.state } }
             }
-            case 'rds describe-db-instances':
+            case 'rds describe-db-instances': {
+                const instance = this.liveResource(
+                    'AWS::RDS::DBInstance',
+                    flags.get('db-instance-identifier')!,
+                    operation,
+                    'DBInstanceNotFound'
+                )
                 return {
                     DBInstances: [
                         {
-                            DBInstanceStatus: this.liveResource(
-                                'AWS::RDS::DBInstance',
-                                flags.get('db-instance-identifier')!,
-                                operation,
-                                'DBInstanceNotFound'
-                            ).state,
+                            DBInstanceStatus: instance.state,
+                            MonitoringInterval: Number(instance.monitoringInterval ?? 0),
                         },
                     ],
                 }
+            }
             case 'rds describe-db-cluster-snapshots': {
                 const kept = this.resources.filter(({ type, state }) => type === SNAPSHOT && state !== 'gone')
                 if (flags.has('db-cluster-snapshot-identifier')) {
