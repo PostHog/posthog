@@ -144,7 +144,7 @@ function readDecoded(
         })
         req.on('error', () => settle({ ok: false, status: 400 }))
         res.socket?.once('close', () => {
-            if (!settled) {
+            if (!settled && !requestEnded) {
                 settled = true
                 decompressor.destroy()
             }

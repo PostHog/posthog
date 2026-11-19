@@ -157,7 +157,7 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         }
     })
 
-    it('drops a compressed body whose client disconnects while it is decoding', async () => {
+    it('passes a complete compressed body to the route when its client disconnects while it is decoding', async () => {
         const releaseOtherThreads = holdThreadpool(threadpoolSize - 1)
         const releaseLastThread = holdThreadpool(1)
         try {
@@ -177,7 +177,6 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
             await releaseOtherThreads()
         }
 
-        expect(routedBodies).toContainEqual({ data: 'later' })
-        expect(routedBodies).not.toContainEqual({ data: 'x' })
+        expect(routedBodies).toEqual([{ data: 'round trip' }, { data: 'round trip' }, { data: 'x' }, { data: 'later' }])
     })
 })
