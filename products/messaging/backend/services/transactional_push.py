@@ -10,6 +10,7 @@ from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import send_transactional_push as run_transactional_push_workflow
 
 from products.messaging.backend.facade.contracts import (
+    ContentTooLarge,
     DeliveryUnavailable,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
@@ -81,6 +82,8 @@ def send_transactional_push(
     except Exception as e:
         logger.exception("transactional_push_queue_failed", team_id=team.id, hog_flow_id=str(hog_flow_id))
         raise DeliveryUnavailable() from e
+    if response.status_code == 413:
+        raise ContentTooLarge("The push notification is larger than PostHog can send. Make its message data smaller.")
     if response.status_code != 202:
         refusal_code = refusal_code_of(response)
         refusal = PUSH_REFUSALS.get(refusal_code or "")
