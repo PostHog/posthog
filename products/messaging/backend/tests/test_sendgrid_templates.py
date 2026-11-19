@@ -24,35 +24,82 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("{{#if a}}unclosed", "{% raw %}{{#if a}}{% endraw %}unclosed", "valid Handlebars"),
-            ("{{/if}}", "{% raw %}{{/if}}{% endraw %}", "valid Handlebars"),
-            ("{{> partial}}", "{% raw %}{{> partial}}{% endraw %}", "{{> partial}}"),
-            ("{{helper a b}}", "{% raw %}{{helper a b}}{% endraw %}", "{{helper a b}}"),
+            ("unclosed_block", "{{#if a}}unclosed"),
+            ("stray_close", "{{/if}}"),
+            ("partial", "{{> partial}}"),
+            ("helper", "{{helper a b}}"),
+            ("section", "{{#section}}x{{/section}}"),
+            ("loop_value", "{{#each xs}}{{@index}}{{/each}}"),
+            ("parent_path", "{{#each xs}}{{../name}}{{/each}}"),
+            ("format_date", "{{formatDate t}}"),
+            ("insert", '{{insert name "default=x"}}'),
+            ("else_if", "{{#if a}}A{{else if b}}B{{/if}}"),
+            ("unless", "{{#unless a}}A{{/unless}}"),
+            ("with", "{{#with a}}{{b}}{{/with}}"),
+            ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}'),
+            ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}"),
+            ("tilde", "<p>{{~name}}</p>"),
+            ("spaced_tilde", '<a href="https://example.com">{{ ~#if allow}}{{token}}{{/if}}</a>'),
+            ("entity", '<a href="{{&#35;if allow}}https://example.com">{{token}}</a>{{&#47;if}}'),
+            ("comment_tag", "<p>{ {{~!c}}% echo person.properties.secret %}</p>"),
+            ("block_in_a_comment", "<!-- {{#if allow}} --><p>{{token}}</p><!-- {{/if}} -->"),
+            ("block_after_a_stray_angle_bracket", "x < <!--{{#if allow}}-->>{{token}} <i<!--{{/if}}-->b> y"),
+            ("block_in_an_attribute", '<a href="{{#if allow}}https://example.com">{{token}}</a>{{/if}}'),
+            ("block_in_a_tag", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}'),
+            ("block_in_a_link", '<a href="https://example.com">{{#if allow}}{{token}}{{/if}}</a>'),
+            ("block_in_a_style_block", "<style>{{#if dark}}p{color:#fff}{{/if}}</style><p>{{token}}</p>"),
+            ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>"),
+            ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>'),
+            ("value_as_an_attribute_name", "<p {{token}}>x</p>"),
+            ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}'),
             (
-                "{{#section}}x{{/section}}",
-                "{% raw %}{{#section}}{% endraw %}x{% raw %}{{/section}}{% endraw %}",
-                "section",
+                "unsubscribe_tag_beside_a_block_in_an_attribute",
+                '<a href="<%subject%>{{#if allow}}u">{{token}}</a>{{/if}}',
             ),
-            ("{{@../index}}", "{% raw %}{{@../index}}{% endraw %}", "index"),
-            (
-                "{{formatDate t fmt}}",
-                '{{ variables.t | date: "%Y-%m-%dT%H:%M:%S.%LZ", 0 | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
-                "fmt",
-            ),
-            ("{{{Weblink}}}", "", "view in browser"),
-            (
-                '{{formatDate t "YYYY-MM-DD [at] HH:mm"}}',
-                '{% raw %}{{formatDate t "YYYY-MM-DD [at] HH:mm"}}{% endraw %}',
-                "formatDate",
-            ),
-            ('{{formatDate t "MMMM Do, YYYY"}}', '{% raw %}{{formatDate t "MMMM Do, YYYY"}}{% endraw %}', "formatDate"),
+            ("unsubscribe_tag_guarded_by_a_helper", '{{#if (lookup p "a")}}x<%body%>y{{/if}}'),
+            ("deep_nesting", "".join(f"{{{{#with {'a' * 1900}}}}}" for _ in range(40)) + "{{this}}" * 500),
         ]
     )
-    def test_what_cannot_convert_stays_visible_and_gets_a_note(self, source: str, html: str, note: str) -> None:
-        converted = convert_version({"html_content": source, "generate_plain_content": False, "plain_content": "p"})
+    def test_anything_but_a_supported_form_keeps_the_whole_template_as_text(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html})
 
-        assert converted.html == html
-        assert note in " ".join(converted.notes)
+        assert "this template's tags" in " ".join(converted.notes)
+        for part in (converted.html, converted.text):
+            assert "variables." not in part
+            assert "{% if" not in part
+            assert "unsubscribe_url" not in part
+            assert "\x00" not in part
+
+    @parameterized.expand(
+        [
+            ("value", "<p>Hi {{ name }}</p>", "{{ variables.name |"),
+            ("raw_value", "<p>{{{ body.html }}}</p>", '{{ variables.body.html | join: "," | raw }}'),
+            ("value_in_a_plain_attribute", '<a href="https://example.com/?id={{id}}">Go</a>', "variables.id |"),
+            ("condition_in_text", "<p>{{#if vip}}Hi{{else}}Hello{{/if}}</p>", "{% if variables.vip and"),
+            (
+                "loop_in_text",
+                "<ul>{{#each items}}<li>{{this.name}}</li>{{/each}}</ul>",
+                "{% for item in variables.items %}",
+            ),
+            ("unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', "{{ unsubscribe_url }}"),
+            (
+                "unsubscribe_tag_in_an_attribute",
+                '<a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>',
+                "{{ unsubscribe_url }}",
+            ),
+        ]
+    )
+    def test_supported_forms_convert(self, _name: str, html: str, expected: str) -> None:
+        converted = convert_version({"html_content": html})
+
+        assert expected in converted.html
+        assert not any("this template's tags" in note for note in converted.notes)
+
+    def test_plain_text_keeps_a_stray_brace_from_joining_a_tag(self) -> None:
+        converted = convert_version({"html_content": "<p>{<b>{{name}}</b></p>"})
+
+        assert "{{{" not in converted.text
+        assert converted.text.endswith('{{ variables.name | join: "," }}')
 
     @parameterized.expand(
         [
@@ -106,32 +153,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             '{{ variables.name | join: "," }} Go (https://example.com/?a={{ variables.id | join: "," }})'
         )
 
-    @parameterized.expand(
-        [
-            ("in_a_comment", "<!-- {{#if allow}} --><p>{{token}}</p><!-- {{/if}} -->", "comment"),
-            ("after_a_stray_angle_bracket", "x < <!--{{#if allow}}-->>{{token}} <i<!--{{/if}}-->b> y", "comment"),
-            ("in_an_attribute", '<a href="{{#if allow}}https://example.com">{{token}}</a>{{/if}}', "attribute"),
-            ("in_a_tag", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}', "attribute"),
-            ("in_a_link", '<a href="https://example.com">{{#if allow}}{{token}}{{/if}}</a>', "link"),
-            (
-                "entity_spelled_block",
-                '<a href="{{&#35;if allow}}https://example.com">{{token}}</a>{{&#47;if}}',
-                "attribute",
-            ),
-            ("spaced_tilde_block", '<a href="https://example.com">{{ ~#if allow}}{{token}}{{/if}}</a>', "link"),
-            ("in_a_style_block", "<style>{{#if dark}}p{color:#fff}{{/if}}</style><p>{{token}}</p>", "style"),
-            ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}', "inside another tag"),
-            ("unsubscribe_tag_in_a_comparison", '{{#equals a "<%subject%>"}}x{{/equals}}', "inside another tag"),
-        ]
-    )
-    def test_a_tag_in_an_unusual_place_keeps_the_whole_template_as_text(self, _name: str, html: str, why: str) -> None:
-        converted = convert_version({"html_content": html})
-
-        assert "variables.token" not in converted.html + converted.text
-        assert "{% if" not in converted.html + converted.text
-        assert why in " ".join(converted.notes)
-        assert "\x00" not in converted.html + " ".join(converted.notes)
-
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
 
@@ -142,12 +163,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         text = plain_text_from_html("<p>{% raw %}{{ person.properties.secret }}{% endraw %} \x011\x01</p>")
 
         assert text == "{% raw %}{{ person.properties.secret }}{% endraw %} 1"
-
-    def test_a_dropped_comment_cannot_join_text_into_a_liquid_tag(self) -> None:
-        converted = convert_version({"html_content": "<p>{ {{~!c}}% echo person.properties.secret %}</p>"})
-
-        assert converted.html == '<p>{{ "{" }}% echo person.properties.secret %}</p>'
-        assert converted.text == '{{ "{" }}% echo person.properties.secret %}'
 
     @parameterized.expand(
         [
@@ -168,56 +183,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert converted.text == f"{{% raw %}}{html[3:-4]}{{% endraw %}}"
 
-    def test_plain_text_drops_a_literal_attribute_whole(self) -> None:
-        converted = convert_version(
-            {"html_content": "<p title=\"{{default name '> {{ person.properties.secret }}'}}\">x</p>"}
-        )
-
-        assert converted.text == "x"
-
-    def test_a_loop_over_an_object_s_keys_stays_as_text_with_a_note(self) -> None:
-        converted = convert_version(
-            {"html_content": "{{#each o}}{{@key}}={{this}}{{/each}}", "generate_plain_content": False}
-        )
-
-        assert (
-            converted.html
-            == "{% raw %}{{#each o}}{% endraw %}{% raw %}{{@key}}{% endraw %}={% raw %}{{this}}{% endraw %}{% raw %}{{/each}}{% endraw %}"
-        )
-        assert "{{#each o}}" in " ".join(converted.notes)
-
-    def test_an_inverted_key_loop_kept_as_text_keeps_its_branches_in_order(self) -> None:
-        source = "{{^each o}}empty{{else}}{{@key}}={{this}}{{/each}}"
-
-        converted = convert_version({"html_content": source, "generate_plain_content": False})
-
-        assert converted.html.replace("{% raw %}", "").replace("{% endraw %}", "") == source
-
-    def test_a_block_that_cannot_convert_keeps_what_it_guards_as_text(self) -> None:
-        source = '{{#if (lookup permissions "allow_token")}}{{token}}{{/if}}'
-
-        converted = convert_version({"html_content": source, "generate_plain_content": False})
-
-        assert "variables.token" not in converted.html
-        assert converted.html.replace("{% raw %}", "").replace("{% endraw %}", "") == source
-
-    def test_a_quoted_key_is_not_a_key_lookup(self) -> None:
-        converted = convert_version(
-            {
-                "html_content": '{{#each xs}}{{#equals kind "@key"}}{{name}}{{/equals}}{{/each}}',
-                "generate_plain_content": False,
-            }
-        )
-
-        assert converted.html.startswith("{% for item in variables.xs %}")
-
-    def test_a_key_loop_kept_as_text_keeps_a_chained_condition_as_written(self) -> None:
-        source = "{{#each o}}{{@key}}{{#if a}}A{{else if b}}B{{/if}}{{/each}}"
-
-        converted = convert_version({"html_content": source, "generate_plain_content": False})
-
-        assert converted.html.replace("{% raw %}", "").replace("{% endraw %}", "") == source
-
     def test_a_loop_converts_as_a_loop_over_a_list(self) -> None:
         converted = convert_version({"html_content": "{{#each xs}}{{name}}{{/each}}", "generate_plain_content": False})
 
@@ -230,15 +195,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         )
 
         assert converted.html == "<!--İ-->{% raw %}{{ person.properties.secret }}{% endraw %}"
-
-    def test_deeply_nested_blocks_that_would_blow_up_stay_as_text_with_a_note(self) -> None:
-        path = "a" * 1900
-        source = "".join(f"{{{{#with {path}}}}}" for _ in range(40)) + "{{this}}" * 500 + "{{/with}}" * 40
-
-        converted = convert_version({"html_content": source, "generate_plain_content": False})
-
-        assert len(converted.html) < 1_000_000
-        assert "nest too deeply" in " ".join(converted.notes)
 
     def test_many_unclosed_tags_convert_quickly(self) -> None:
         assert convert_version({"html_content": "{{" * 200_000, "generate_plain_content": False}).html
