@@ -1,1 +1,1 @@
-0386_remove_surfacing_score_from_session_replay_ingestion
+0388_query_log_archive_warehouse_table_ids

@@ -7407,7 +7407,7 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     )
     adTable: str | None = Field(
         default=None,
-        description="Google Ads ad table, used to read the ad copy of each ad group.",
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
     )
     campaignConversionActionTable: str | None = Field(
         default=None,
@@ -22484,6 +22484,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,

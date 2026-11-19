@@ -164,7 +164,7 @@ export function TaskRunComposer({
     const groupRef = useRef<HTMLDivElement>(null)
     const [contextPickerOpen, setContextPickerOpen] = useState(false)
     const skin = useThreadSkin()
-    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const codexBillingEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
 
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
     const placeholder =

@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.parser import _builtin_parse_cache, _user_parse_cache, clear_parse_caches
+
 from products.cdp.backend.abuse.classifier import HogFunctionContent
 from products.cdp.backend.abuse.rules import Rule, matched_rules
 
@@ -235,13 +237,32 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "internal_function_name_bound_by_a_catch",
+                content(hog="try {\n  fetch(inputs.url)\n} catch (sendEmail) {\n  print(sendEmail)\n}"),
+                (),
+            ),
+            (
+                "internal_function_called_in_a_try_with_a_catch_of_that_name",
+                content(hog="try {\n  sendEmail({'to': inputs.to})\n} catch (sendEmail) {\n  print(sendEmail)\n}"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "internal_function_name_in_a_string",
                 content(hog="print('postHogCreateTask runs in workflows')\nfetch(inputs.url)"),
                 (),
             ),
             (
                 "property_named_like_an_internal_function",
-                content(hog="fetch(inputs.url, {'body': event.properties.postHogGetTicket})"),
+                content(hog="fetch(inputs.url, {'body': event.properties.postHogCreateTask})"),
+                (),
+            ),
+            (
+                "support_ticket_mirror_destination",
+                content(
+                    hog="let ticket := postHogGetTicket({'ticket_id': event.properties.ticket_id})\n"
+                    "postHogUpdateTicket({'ticket_id': event.properties.ticket_id, 'updates': {'status': 'pending'}})\n"
+                    "fetch(inputs.url, {'body': ticket.body})"
+                ),
                 (),
             ),
             (
@@ -333,12 +354,45 @@ class TestAbuseRules(SimpleTestCase):
                     ("a_quote_in_an_inline_comment", "{% # ' %}{{ (1..20000) | size }}"),
                     ("a_raw_block_with_a_loose_end_tag", "{% raw %}x{% endraw ignored %}{{ (1..20000) | size }}"),
                     (
+                        "a_comment_block_closed_by_a_trimmed_end",
+                        "{% comment %}x{% endcomment-%}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_comment_block_with_an_end_tag_in_a_quoted_string",
+                        '{% comment %}{{ "{% endcomment %}{{ \'x" }}{% endcomment %}{{ (1..20000) | size }}',
+                    ),
+                    (
+                        "a_raw_block_with_a_trimmed_end_tag_inside",
+                        "{% raw %}{%- endraw %}{{ 'x }}{% endraw %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_comment_block_closed_by_an_end_before_a_curly_quote",
+                        "{% comment %}x{% endcomment\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_raw_block_closed_by_an_end_before_a_curly_quote",
+                        "{% raw %}x{% endraw\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    ("a_raw_block_closed_after_a_liquid_blank", "{% raw %}x{%\u180eendraw %}{{ (1..20000) | size }}"),
+                    (
+                        "a_raw_block_whose_first_end_tag_meets_another_tag",
+                        "{% raw %}{% endraw\u201c {% assign x %}{{ '{% endraw %}{{ (1..20000) | size }}' }}",
+                    ),
+                    (
                         "a_line_comment_in_a_liquid_block",
                         "{% liquid\n  # the customer's note\n  assign xs = (1..20000)\n%}",
                     ),
                     (
                         "a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  note\n  endcomment\n  assign xs = (1..20000)\n%}",
+                    ),
+                    (
+                        "a_raw_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  raw\n  - endraw\n  echo (1..20000) | size\n%}",
+                    ),
+                    (
+                        "a_comment_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  comment\n  -endcomment\n  echo (1..20000) | size\n%}",
                     ),
                     (
                         "a_comment_block_closed_by_a_suffixed_end",
@@ -363,10 +417,34 @@ class TestAbuseRules(SimpleTestCase):
                     ),
                     ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
                     (
+                        "in_a_comment_block_opened_by_a_trimmed_statement",
+                        "{% liquid\n  - comment\n  echo (1..20000) | size\n  endcomment\n  echo 1\n%}",
+                    ),
+                    (
                         "in_a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  assign xs = (1..20000)\n  endcomment\n  echo 1\n%}",
                     ),
                     ("in_a_raw_block_with_trimmed_tags", "{%raw-%}{{ (1..20000) | size }}{%endraw%}"),
+                    (
+                        "in_a_raw_block_after_a_trimmed_end_tag",
+                        "{% raw %}{% endraw-%}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_a_python_only_blank",
+                        "{% raw %}{%\x1cendraw %}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_an_end_tag_that_meets_another_tag",
+                        "{% raw %}{% endraw\u201c {% assign x %}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_comment_block_after_an_end_tag_in_a_quoted_string",
+                        '{% comment %}{{ "{% endcomment %}" }}{{ (1..20000) | size }}{% endcomment %}',
+                    ),
+                    (
+                        "after_a_comment_block_with_an_end_tag_and_a_space",
+                        "{% comment %}x{% endcomment- %}{{ (1..20000) | size }}",
+                    ),
                     ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
                 ]
             ),
@@ -386,6 +464,17 @@ class TestAbuseRules(SimpleTestCase):
             ),
             ("huge_hog_range_with_a_start", content(hog="let ids := range(-5000, 5001)"), (Rule.HUGE_RANGE,)),
             ("hog_range_at_the_limit", content(hog="let ids := range(10000)"), ()),
+            ("local_function_named_range", content(hog="fun range(n) {\n  return [n]\n}\nprint(range(20000))"), ()),
+            (
+                "huge_range_beside_a_local_named_range_in_another_scope",
+                content(hog="fun helper() {\n  let range := 1\n}\nprint(range(20000))"),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "local_lambda_named_replace_all",
+                content(hog="let replaceAll := (s, a, b) -> s\nprint(replaceAll(event.event, '', 'xx'))"),
+                (),
+            ),
             (
                 "huge_range_in_a_hog_template_input",
                 content(inputs={"payload": {"value": "{range(1000000)}", "templating": "hog"}}),
@@ -445,3 +534,13 @@ class TestAbuseRules(SimpleTestCase):
     )
     def test_matched_rules(self, _name: str, function: HogFunctionContent, expected: tuple[Rule, ...]) -> None:
         assert matched_rules(function) == expected
+
+    def test_parsed_code_and_templates_stay_out_of_the_parse_cache(self) -> None:
+        clear_parse_caches()
+        function = content(
+            hog="let ids := range(10)\nfetch(inputs.url, {'body': ids})",
+            inputs={"token": {"value": "{replaceAll('a decrypted secret, long enough to be cached', '', 'x')}"}},
+        )
+
+        assert matched_rules(function) == (Rule.REPLACE_AMPLIFICATION,)
+        assert _builtin_parse_cache.currsize + _user_parse_cache.currsize == 0

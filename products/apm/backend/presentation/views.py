@@ -37,6 +37,7 @@ from products.apm.backend.facade.api import (
     get_endpoint_time_spent,
     get_service_map,
     is_apm_enabled,
+    list_deployments,
     list_endpoints_health,
     list_service_usage,
     list_services_health,
@@ -44,6 +45,8 @@ from products.apm.backend.facade.api import (
 from products.apm.backend.presentation.serializers import (
     DependenciesRequestSerializer,
     DependenciesResponseSerializer,
+    DeploymentsRequestSerializer,
+    DeploymentsResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
     EndpointTimeSpentRequestSerializer,
@@ -252,6 +255,40 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
+class DeploymentsViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """One service's versions in an environment and window, each compared with the one before. Same gate and window as services."""
+
+    scope_object = "tracing"
+
+    @extend_schema(parameters=[DeploymentsRequestSerializer], responses={200: DeploymentsResponseSerializer})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = DeploymentsRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data["service"]
+
+        try:
+            result = list_deployments(
+                team=self.team,
+                date_from=window.date_from,
+                date_to=window.date_to,
+                environment=window.environment,
+                service=service,
+            )
+        except CHQueryErrorTooManyBytes:
+            raise ValidationError("This window reads too many spans. Pick a shorter window.")
+        payload = {
+            "results": [asdict(row) for row in result.versions],
+            "version_source": result.version_source,
+            "service": service,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(DeploymentsResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
 class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Caller to callee edges over the whole window, including inferred dependencies. Same gate and window as services."""
 
@@ -280,6 +317,8 @@ class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewset
         payload = {
             "edges": [{**asdict(edge), "kind": edge.kind.value} for edge in result.edges],
             "truncated": result.truncated,
+            "sampled": result.sampled,
+            "trace_count": result.trace_count,
             "environment": window.environment,
             "service": service,
             "date_from": window.date_from,

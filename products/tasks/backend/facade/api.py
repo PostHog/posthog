@@ -90,7 +90,6 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     ARTIFACT_SCRIPT_SHA256_KEY as ARTIFACT_SCRIPT_SHA256_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
     FINAL_MESSAGE_MAX_CHARS,
@@ -442,11 +441,8 @@ __all__ = [
     "classify_permission_response",
     "get_task_run_stream_info",
     "get_task_summaries",
-    "is_internal_debug_team",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
-    "latest_task_run_pr_merged_subquery",
-    "latest_task_run_pr_url_subquery",
     "leave_task_presence",
     "list_sandbox_custom_images",
     "list_sandbox_environments",
@@ -515,7 +511,6 @@ __all__ = [
     "get_pull_requests_for_tasks",
     "get_prior_pr_output_by_task",
     "read_pr_urls",
-    "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_matches_current_ownership",
     "task_runtime",
@@ -1752,41 +1747,11 @@ def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[Task
     return TaskRun.objects.filter(*conditions, team_id=team_id).filter(_PR_CARRYING_OUTPUT_Q).values("task_id")
 
 
-def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
-    """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
-    (keyword lookups and/or positional ``Q`` objects). Returns a query expression to embed in the
-    caller's queryset — no ORM instances cross the boundary, and the tasks facade stays free of the
-    caller's domain."""
-    return Subquery(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
-        .exclude(output__pr_url="")
-        .order_by("-created_at")
-        .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-        .values("output_pr_url_text")[:1],
-        output_field=CharField(),
-    )
-
-
-def latest_task_run_pr_merged_subquery(*conditions: Q, **task_run_filter) -> Subquery:
-    """``Subquery`` of the webhook-attested merge flag on the same run ``latest_task_run_pr_url_subquery``
-    resolves for the same correlation — so a caller displaying that PR can say whether it merged rather
-    than inferring it. Same filter and ordering, so the two always describe one run. NULL when no
-    PR-bearing run matches; treat that as "not merged"."""
-    return Subquery(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
-        .exclude(output__pr_url="")
-        .order_by("-created_at")
-        .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
-        .values("output_pr_merged_flag")[:1],
-        output_field=CharField(),
-    )
-
-
 def get_merged_pr_task_ids(task_ids: Iterable[str | UUID], *conditions: Q) -> set[str]:
     """Of the supplied tasks, those whose latest PR-bearing run has a webhook-attested merged PR.
 
-    Batched counterpart to ``latest_task_run_pr_merged_subquery``, matching ``get_latest_pr_url_by_task``
-    run-for-run so the merge flag describes the PR URL that helper returns.
+    Matches ``get_latest_pr_url_by_task`` run-for-run so the merge flag describes the PR URL that helper
+    returns.
     """
     ids = [str(t) for t in task_ids]
     if not ids:
@@ -4762,18 +4727,6 @@ def sync_task_run_session(
         raise
 
 
-def task_run_has_slack_mapping(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
-    """Whether a run is mapped to a Slack thread. ``None`` if the run isn't found."""
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
-        SlackThreadTaskMapping,
-    )
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return SlackThreadTaskMapping.objects.filter(task_run=run).exists()
-
-
 def task_run_is_terminal(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
     """Whether a run is in a terminal state. ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -6189,10 +6142,6 @@ def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, t
     return _create(task_run=run)
 
 
-def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
-    return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
-
-
 def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
     """Whether this task is a server-created analysis, which accepts no further runs.
 
@@ -6742,17 +6691,6 @@ def relay_task_run_message(
 
 
 # --- Task run creation / start / cloud resume ---
-
-
-def user_can_author_repository(user_id: int, repository: str) -> bool:
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        get_user_github_integration,
-        user_github_integration_is_usable,
-    )
-
-    user = User.objects.filter(id=user_id).first()
-    integration = get_user_github_integration(user, repository=repository, allow_refresh=False)
-    return user_github_integration_is_usable(integration)
 
 
 def user_has_usable_personal_github(user_id: int) -> bool:
@@ -7426,15 +7364,6 @@ def channel_queryset():
     personal channels from ``validate_channel``.
     """
     return Channel.objects.unscoped().filter(deleted=False)
-
-
-def is_internal_debug_team(team_id: int | None) -> bool:
-    """Whether the team is the PostHog-internal debugging team. Mirrors the original view helper."""
-    from django.conf import settings  # noqa: PLC0415
-
-    if settings.DEBUG and not settings.TEST:
-        return team_id == 1
-    return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
 def _task_detail_queryset():

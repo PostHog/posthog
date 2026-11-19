@@ -248,7 +248,7 @@ class DeliveryUnavailable(Exception):
 
 
 class SendWarningCode(LabeledStrEnum):
-    SANDBOX_SENDER = "sandbox_sender", "Sent from the sandbox sender"
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the PostHog test sender"
 
 
 @frozen
@@ -275,6 +275,7 @@ class QueuedEmail:
     status: QueuedEmailStatus = QueuedEmailStatus.QUEUED
     # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
     scheduled_at: str | None = None
+    sent_from_sandbox: bool = False
 
 
 class SupabaseEmailActionType(LabeledStrEnum):

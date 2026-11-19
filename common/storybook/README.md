@@ -52,9 +52,10 @@ A story file outside those roots is never served. CI never sets the variable.
 
 `pnpm storybook` runs the `start` script of `common/storybook` through turbo:
 
-1. `pnpm build:products` generates the product manifests the app imports.
-2. `pnpm build:workers` builds the web workers into `common/storybook/.workers`, which Storybook serves under `/static`. Without them every `new Worker(...)` gets a 404, and the error fails any story whose play function is still running.
-3. `storybook dev -p 6006` starts the server.
+1. Turbo first builds the workspace packages the app imports, such as Quill and HogVM. `frontend/src/styles/global.scss` imports `@posthog/quill/dist/tokens.scoped.css`, so Storybook fails to load without them. Running `storybook` or the `start` script directly skips this step.
+2. `pnpm build:products` generates the product manifests the app imports.
+3. `pnpm build:workers` builds the web workers into `common/storybook/.workers`, which Storybook serves under `/static`. Without them every `new Worker(...)` gets a 404, and the error fails any story whose play function is still running.
+4. `storybook dev -p 6006` starts the server.
 
 Turbo drops env vars that a task doesn't declare.
 `common/storybook/turbo.json` declares `STORYBOOK_STORIES` for `start`, so add any new variable that `main.ts` reads there too.
@@ -81,6 +82,7 @@ The build uses the same port, so stop the dev server first. Then, from `common/s
 
 ```bash
 pnpm exec playwright install chromium
+pnpm --dir ../.. turbo run prepare --filter=@posthog/storybook   # workspace packages (Quill, HogVM), cached by turbo
 pnpm build:products && pnpm build:workers   # once, if `pnpm storybook` hasn't run them yet
 STORYBOOK_STORIES=frontend/src/toolbar pnpm exec storybook build --test -o /tmp/storybook-static
 pnpm exec http-server /tmp/storybook-static --port 6006 --silent &

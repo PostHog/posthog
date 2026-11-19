@@ -100,6 +100,9 @@ def is_embeddable_document(path: str) -> bool:
 # The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
 # a response that the view did not build. No report shows how such a response behaves under an
 # enforced policy.
+# The auth page serves password login on both paths without a reload
+RADAR_SIGNALS_DOCUMENT_PATHS = frozenset({"/login", "/login/", "/signup", "/signup/"})
+
 REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
 
 
@@ -316,6 +319,11 @@ class CSPMiddleware:
             # can carry page code to the report endpoint, so no other document asks for one, and that
             # includes the shared page at /exporter/<token>.
             report_sample = " 'report-sample'" if request.path == "/exporter" else ""
+            # Only the auth documents run the WorkOS Radar signals script, which posts to the WorkOS
+            # API from our page. WorkOS serves the script itself, so no other document trusts it.
+            is_radar_document = request.path in RADAR_SIGNALS_DOCUMENT_PATHS
+            radar_script_src = " https://js.workos.com/radar/" if is_radar_document else ""
+            radar_connect_src = " https://api.workos.com" if is_radar_document else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
@@ -347,7 +355,7 @@ class CSPMiddleware:
                 # matched against the URL path alone, so the `?2` the library appends does not
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js{radar_script_src}",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -394,7 +402,7 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}{radar_connect_src}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

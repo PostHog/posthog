@@ -73,6 +73,28 @@ class TestEntityStreams:
         assert [(row["id"], row["_campaign_id"]) for row in result.rows] == [("pl1", "c1")]
         assert result.requests[2].path == "/amplify/v0.1/campaigns/c1/promotedLinks"
 
+    def test_promoted_link_sequences_page_at_the_api_cap_of_50(self, mock_cache: mock.MagicMock) -> None:
+        mock_cache.get.return_value = "tok"
+        full_page = [{"id": f"seq{i}"} for i in range(50)]
+        result = _driver().run(
+            "promoted_link_sequences",
+            [
+                ScriptedResponse(json={"marketers": [{"id": "m1"}]}),
+                ScriptedResponse(json={"campaigns": [{"id": "c1"}]}),
+                ScriptedResponse(json={"sequences": full_page, "count": 50, "totalCount": 51}),
+                ScriptedResponse(json={"sequences": [{"id": "seq-last"}], "count": 1, "totalCount": 51}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [50, 1]
+        assert all(row["_campaign_id"] == "c1" for row in result.rows)
+        assert result.paths[2:] == ["/amplify/v0.1/campaigns/c1/promotedLinksSequences"] * 2
+        assert [(request.param("limit"), request.param("offset")) for request in result.requests[2:]] == [
+            ("50", "0"),
+            ("50", "50"),
+        ]
+
     def test_segments_include_archived(self, mock_cache: mock.MagicMock) -> None:
         mock_cache.get.return_value = "tok"
         result = _driver().run(
@@ -260,16 +282,18 @@ class TestReportStreams:
         assert result.requests[1].param("from") == "2024-05-02"
 
     @pytest.mark.parametrize(
-        "endpoint, report_path",
+        "endpoint, report_path, breakdown",
         [
-            ("promoted_link_performance", "promotedContent"),
-            ("publisher_performance", "publishers"),
-            ("section_performance", "sections"),
-            ("interest_performance", "interests"),
+            ("promoted_link_performance", "promotedContent", None),
+            ("publisher_performance", "publishers", None),
+            ("section_performance", "sections", None),
+            ("interest_performance", "interests", None),
+            ("geo_performance", "geo", "region"),
+            ("platform_performance", "platforms", None),
         ],
     )
     def test_breakdown_report_pages_with_offset(
-        self, mock_cache: mock.MagicMock, endpoint: str, report_path: str
+        self, mock_cache: mock.MagicMock, endpoint: str, report_path: str, breakdown: str | None
     ) -> None:
         mock_cache.get.return_value = "tok"
         full_page = [{"metadata": {"id": f"r{i}"}, "metrics": {"clicks": i}} for i in range(REPORT_ROW_LIMIT)]
@@ -289,6 +313,7 @@ class TestReportStreams:
         assert [request.param("offset") for request in result.requests[1:]] == ["0", str(REPORT_ROW_LIMIT)]
         assert all(request.param("includeArchivedCampaigns") == "true" for request in result.requests[1:])
         assert all(request.param("enabledCampaignsOnly") == "false" for request in result.requests[1:])
+        assert [request.param("breakdown") for request in result.requests[1:]] == [breakdown] * 2
         window = {"window_from": result.requests[1].param("from"), "window_to": result.requests[1].param("to")}
         assert result.saved_states == [
             OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT, **window),

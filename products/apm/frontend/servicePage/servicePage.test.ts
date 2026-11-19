@@ -1,14 +1,17 @@
+import { parseTagsFilter } from 'lib/utils/url'
+
 import { PropertyOperator } from '~/types'
 
 import type { Span } from 'products/tracing/frontend/types'
 
 import {
     ENVIRONMENT_KEYS,
+    bucketIntervalLabel,
     latencyPercentileSeries,
     mergeRequestsSeries,
     serviceScopeFilters,
-    spanErrorMessage,
-    topErrorMessages,
+    serviceTracesUrl,
+    topErrorGroups,
 } from './servicePage'
 
 const errorSpan = (n: number, attributes: Record<string, string>): Span => ({
@@ -71,24 +74,48 @@ describe('servicePage', () => {
         })
     })
 
-    it('groups error spans by their most specific message, most frequent first', () => {
+    it('groups error spans by message, falling back to exception type, HTTP status, then span name', () => {
         const spans = [
             // The exception event's message outranks the span attributes.
             {
-                ...errorSpan(4, { 'error.type': 'ValueError' }),
+                ...errorSpan(6, { 'error.type': 'ValueError' }),
                 events: [{ name: 'exception', timestamp: null, attributes: { 'exception.message': 'card declined' } }],
             },
-            errorSpan(3, { 'exception.message': 'timeout', 'error.type': 'TimeoutError' }),
-            errorSpan(2, { 'error.type': '503' }),
+            errorSpan(5, { 'exception.message': 'timeout', 'error.type': 'TimeoutError' }),
+            errorSpan(4, { 'error.type': 'TimeoutError', 'http.response.status_code': '504' }),
+            errorSpan(3, { 'http.response.status_code': '402' }),
+            errorSpan(2, { 'http.status_code': '402' }),
             errorSpan(1, { 'exception.message': 'timeout' }),
-            errorSpan(0, {}),
+            errorSpan(0, { 'exception.message': '402' }),
+            { ...errorSpan(7, {}), name: 'POST /pay' },
         ]
-        const top = topErrorMessages(spans)
-        expect(top.map(({ message, count, latest }) => [message, count, latest.span_id])).toEqual([
-            ['timeout', 2, 'span-3'],
-            ['card declined', 1, 'span-4'],
-            ['503', 1, 'span-2'],
-            [spanErrorMessage(spans[4]), 1, 'span-0'],
+        expect(
+            topErrorGroups(spans).map(({ kind, value, count, latest }) => [kind, value, count, latest.span_id])
+        ).toEqual([
+            ['message', 'timeout', 2, 'span-5'],
+            ['http_status', '402', 2, 'span-3'],
+            ['message', 'card declined', 1, 'span-6'],
+            ['exception_type', 'TimeoutError', 1, 'span-4'],
+            ['message', '402', 1, 'span-0'],
+            ['span_name', 'POST /pay', 1, 'span-7'],
         ])
+    })
+
+    it.each([
+        [['2024-01-01T00:00:00Z', '2024-01-01T00:02:00Z'], '2 min'],
+        [['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'], 'minute'],
+        [['2024-01-01T00:00:00Z', '2024-01-01T01:00:00Z'], 'hour'],
+        [['2024-01-01T00:00:00Z', '2024-01-01T00:00:30Z'], '30 s'],
+        [['2024-01-01T00:00:00Z'], null],
+    ])('names the bar width of %j as %p', (times, expected) => {
+        expect(bucketIntervalLabel(times)).toEqual(expected)
+    })
+
+    it('the traces link keeps a service name with a comma as one service', () => {
+        const url = new URL(
+            serviceTracesUrl('checkout,v2', { date_from: '-1h', date_to: null }, []),
+            'https://app.example.com'
+        )
+        expect(parseTagsFilter(url.searchParams.get('serviceNames'))).toEqual(['checkout,v2'])
     })
 })
