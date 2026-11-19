@@ -41,6 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvent,
+    WebhookEvents,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
     WebhookFallback,
     WebhookSourceManager,
@@ -58,7 +62,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-    CUSTOMER_HAS_PAYMENT_METHOD_FIELD,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
@@ -466,7 +469,7 @@ class StripeResource:
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
-@frozen
+@dataclasses.dataclass
 class StripeNestedResource:
     method: Callable[..., ListObject[Any]]
     nested_parent_param: str
@@ -483,12 +486,6 @@ class StripeNestedResource:
     # the default behaviour fans out one call per parent — most of which return nothing. A cheap
     # signal already present on the parent object lets us avoid the calls that can't yield data.
     parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
-    # Optional parent field that Stripe serves only to accounts it grants access to. When the caller
-    # turns it on, the parent listing asks for it with `expand[]=data.<field>`, and
-    # `parent_has_nested` reads it. Stripe answers an account without access with a 400, so the
-    # sweep then lists the parents again without the expand, and `parent_has_nested` must treat a
-    # missing field as "might have nested data".
-    parent_gated_expand_field: Optional[str] = None
     # Optional per-row rewrite applied to each nested row (after the parent id is stamped, before
     # secret scrubbing). The history table uses it to stamp its observation-metadata columns onto
     # the seed sweep's rows.
@@ -596,58 +593,6 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     (unexpected payload shape) is treated as "might have" so we never silently drop data."""
     balance = customer.get("balance")
     return balance is None or balance != 0
-
-
-def _customer_might_have_payment_methods(customer: dict[str, Any]) -> bool:
-    """Skip the per-customer payment-methods call only when Stripe says the customer has none.
-
-    Stripe documents `has_payment_method=false` as exact: `/v1/customers/:id/payment_methods` is then
-    empty. `true` only means "likely", and Stripe can force it to `true` while it fixes a problem, so
-    `true` always gets the call. The field is missing when the expand was not sent or Stripe refused
-    it, and a missing field also gets the call, so no payment method is ever dropped."""
-    return customer.get(CUSTOMER_HAS_PAYMENT_METHOD_FIELD) is not False
-
-
-def _is_gated_expand_refused(error: stripe_lib.InvalidRequestError, field: str) -> bool:
-    """True when Stripe rejects the request because of the gated expand.
-
-    For an account without access, Stripe returns a 400 `invalid_request_error` with the message
-    "This property cannot be included (data.<field>)" and no `code` or `param`. The match is on the
-    field name in the `param` or the message, so a later machine-readable `param`, or a different
-    message when Stripe retires the field, also falls back instead of failing the sync."""
-    message = error.user_message or str(error)
-    return field in (error.param or "") or field in message
-
-
-def _list_parents_with_gated_expand(
-    list_parents: Callable[..., ListObject[Any]],
-    params: dict[str, Any],
-    field: str,
-    parent_id: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[dict[str, Any]]:
-    """List the parents with `expand[]=data.<field>`, and without it after Stripe refuses it.
-
-    Stripe can remove an account's access at any time, so the refusal can come on any page, not only
-    the first. The second listing continues after the last parent already handed over, so no parent is
-    lost or swept twice. Stripe alerts on spikes of 400s, so one refusal stops the expand for the rest
-    of the sweep."""
-    last_parent_id: Optional[str] = None
-    try:
-        for obj in _call_stripe(list_parents, params={**params, "expand[]": f"data.{field}"}).auto_paging_iter():
-            last_parent_id = obj[parent_id]
-            yield obj
-        return
-    except stripe_lib.InvalidRequestError as e:
-        if not _is_gated_expand_refused(e, field):
-            raise
-        logger.info(
-            "Stripe: account refused the gated expand, listing parents without it",
-            field=field,
-            after_parent=last_parent_id,
-        )
-    resume_params = {"starting_after": last_parent_id} if last_parent_id is not None else {}
-    yield from _call_stripe(list_parents, params={**params, **resume_params}).auto_paging_iter()
 
 
 def _payment_method_history_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -960,17 +905,15 @@ def _build_resources(
             parent_name=CUSTOMER_RESOURCE_NAME,
             parent_has_nested=None if include_zero_balance_customers else _customer_might_have_balance_transactions,
         ),
-        # Stays on the parent API: the skip signal is the gated `has_payment_method` expand, which
-        # only a live customer listing returns. Stripe forbids storing it, so the synced Customer
-        # table never carries it.
+        # Stays on the parent API: one child call per customer with no skip signal, so the
+        # listing is a small fraction of the run and reusing the parent table saves ~nothing.
+        # Its cost needs a skip signal or webhook-driven sync, not parent reuse.
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.payment_methods.list,
             nested_parent_param="customer",
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
-            parent_has_nested=_customer_might_have_payment_methods,
-            parent_gated_expand_field=CUSTOMER_HAS_PAYMENT_METHOD_FIELD,
         ),
         # Same sweep as CustomerPaymentMethod, used only to seed the history table on its initial
         # sync; from then on `payment_method.*` webhook events land one row per event. The sweep
@@ -982,8 +925,6 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
-            parent_has_nested=_customer_might_have_payment_methods,
-            parent_gated_expand_field=CUSTOMER_HAS_PAYMENT_METHOD_FIELD,
             row_transform=_payment_method_history_snapshot_row,
         ),
         PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
@@ -1130,12 +1071,6 @@ def _webhook_fallback(
     return WebhookFallback.INCREMENTAL
 
 
-def _parent_gated_expand_field(api_key: str, endpoint: str) -> Optional[str]:
-    # Only the kind of resource matters here. Building the resources sends no request.
-    resource = _build_resources(StripeClient(api_key)).get(endpoint)
-    return resource.parent_gated_expand_field if isinstance(resource, StripeNestedResource) else None
-
-
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -1149,7 +1084,6 @@ def get_rows(
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
     warehouse_table_id: Optional[str] = None,
-    use_parent_gated_expand: bool = False,
 ):
     new_client = _client_factory(api_key, account_id, api_version)
     client = new_client(None)
@@ -1232,14 +1166,6 @@ def get_rows(
                     table_id=warehouse_table_id,
                 )
                 parent_rows = parent_pages
-            elif use_parent_gated_expand and resource.parent_gated_expand_field is not None:
-                parent_rows = _list_parents_with_gated_expand(
-                    resource.parent.method,
-                    params={**default_params, **resource.parent.params, **resume_params},
-                    field=resource.parent_gated_expand_field,
-                    parent_id=resource.parent_id,
-                    logger=logger,
-                )
             else:
                 parent_rows = _call_stripe(
                     resource.parent.method,
@@ -1563,6 +1489,29 @@ def _refetching_webhook_table_transformer(refetcher: WebhookObjectRefetcher) -> 
     return transform
 
 
+def _webhook_event(staged: dict[str, Any]) -> WebhookEvent | None:
+    data = staged.get("data")
+    if not isinstance(data, str):
+        return None
+    obj = orjson.loads(data).get("object")
+    if not isinstance(obj, dict) or obj.get("id") is None:
+        return None
+    created = staged.get("created")
+    return WebhookEvent(
+        row=_scrub_client_secrets(obj),
+        event_id=staged.get("id"),
+        time=datetime.fromtimestamp(created, UTC) if isinstance(created, int) else None,
+        rank=_webhook_tie_break(obj),
+    )
+
+
+def webhook_events(endpoint: str) -> WebhookEvents | None:
+    # The payment method history table already keeps one row per event.
+    if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
+        return None
+    return WebhookEvents(read=_webhook_event)
+
+
 def _lines_truncated(obj: dict[str, Any]) -> bool:
     lines = obj.get("lines")
     return isinstance(lines, Mapping) and bool(lines.get("has_more"))
@@ -1572,44 +1521,80 @@ def _tiers_missing(obj: dict[str, Any]) -> bool:
     return obj.get("billing_scheme") == "tiered" and not obj.get("tiers")
 
 
-def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+def _subscription_discounts(obj: Mapping[str, Any]) -> list[Any]:
     items = (obj.get("items") or {}).get("data") or []
-    discounts = [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
-    return any(isinstance(discount, str) for discount in discounts)
+    return [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
 
 
-def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
-    return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
+def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+    return any(isinstance(discount, str) for discount in _subscription_discounts(obj))
 
 
-# Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
-# fields and only fetch their lines, which is one request per object instead of two.
+def _with_all_lines(obj: dict[str, Any], lines: list[Any]) -> dict[str, Any]:
+    return {**obj, "lines": {**obj["lines"], "data": lines, "has_more": False, "url": None}}
+
+
+def _with_tiers(obj: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
+    return {**obj, "tiers": fetched.get("tiers")}
+
+
+def _with_expanded_discounts(subscription: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
+    expanded = {
+        discount["id"]: discount for discount in _subscription_discounts(fetched) if isinstance(discount, Mapping)
+    }
+
+    # An id the subscription no longer lists stays an id, so a later removal does not reach the event's state.
+    def expand(discounts: list[Any]) -> list[Any]:
+        return [expanded.get(d, d) if isinstance(d, str) else d for d in discounts]
+
+    merged = {**subscription}
+    if subscription.get("discounts"):
+        merged["discounts"] = expand(subscription["discounts"])
+    items = subscription.get("items")
+    if isinstance(items, Mapping) and items.get("data"):
+        merged["items"] = {
+            **items,
+            "data": [
+                {**item, "discounts": expand(item["discounts"])} if item.get("discounts") else item
+                for item in items["data"]
+            ],
+        }
+    return merged
+
+
+# Each entry adds back only the field the event payload leaves out. The API returns the object as it
+# is now, so taking any other field from it would put today's state under the event's time.
 WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
     INVOICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
-        complete=lambda client, invoice: _with_all_lines(
-            invoice, client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT})
+        fetch=lambda client, invoice: list(
+            client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT}).auto_paging_iter()
         ),
+        merge=_with_all_lines,
     ),
     CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
-        complete=lambda client, credit_note: _with_all_lines(
-            credit_note, client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT})
+        fetch=lambda client, credit_note: list(
+            client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT}).auto_paging_iter()
         ),
+        merge=_with_all_lines,
     ),
     PRICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        fetch=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        merge=_with_tiers,
     ),
     PLAN_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        fetch=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        merge=_with_tiers,
     ),
     SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_discounts_unexpanded,
-        complete=lambda client, subscription: client.subscriptions.retrieve(
+        fetch=lambda client, subscription: client.subscriptions.retrieve(
             subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
         ),
+        merge=_with_expanded_discounts,
     ),
 }
 
@@ -1777,7 +1762,7 @@ def stripe_source(
     use_warehouse_parent: bool = False,
     api_key_provider: Optional[Callable[[], str]] = None,
     include_zero_balance_customers: bool = False,
-    parent_gated_expand_enabled: Optional[Callable[[], bool]] = None,
+    events: Optional[WebhookEvents] = None,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1812,40 +1797,36 @@ def stripe_source(
             if fallback is not None:
                 async_to_sync(webhook_source_manager.record_webhook_fallback)(fallback)
 
-    # Evaluated here, on the caller's thread, because the flag check reads the database. Only a
-    # sweep that polls the API sends the expand, so other syncs skip the check.
-    use_parent_gated_expand = (
-        not webhook_enabled
-        and parent_gated_expand_enabled is not None
-        and _parent_gated_expand_field(api_key, endpoint) is not None
-        and parent_gated_expand_enabled()
-    )
-
     def items():
         if webhook_enabled:
             # History tables keep every event as its own row; everything else collapses each
             # batch to the latest state per object id and upserts it.
             refetch = WEBHOOK_REFETCH.get(endpoint)
+            history_events = events
             table_transformer: Callable[[pa.Table], pa.Table]
             if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
                 table_transformer = _webhook_history_table_transformer
             elif refetch is not None:
-                table_transformer = _refetching_webhook_table_transformer(
-                    WebhookObjectRefetcher(
-                        refetch,
-                        logger,
-                        client_factory_provider=lambda: _refetch_client_factory(
-                            api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
-                        ),
-                    )
+                refetcher = WebhookObjectRefetcher(
+                    refetch,
+                    logger,
+                    client_factory_provider=lambda: _refetch_client_factory(
+                        api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
+                    ),
                 )
+                table_transformer = _refetching_webhook_table_transformer(refetcher)
+                if history_events is not None:
+                    history_events = dataclasses.replace(
+                        history_events,
+                        complete=lambda rows: [_scrub_client_secrets(obj) for obj in refetcher.complete(rows)],
+                    )
             else:
                 table_transformer = _webhook_table_transformer
             # Objects grow once their lines or tiers are filled in, after the batch limits were
             # checked, so a batch that completes objects holds no more rows than a list sync chunk.
             batch_row_limit = STRIPE_CHUNK_SIZE if refetch is not None else DEFAULT_BATCH_ROW_LIMIT
             return webhook_source_manager.get_items(
-                table_transformer=table_transformer, batch_row_limit=batch_row_limit
+                table_transformer=table_transformer, batch_row_limit=batch_row_limit, events=history_events
             )
 
         return get_rows(
@@ -1861,7 +1842,6 @@ def stripe_source(
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
             warehouse_table_id=warehouse_table_id,
-            use_parent_gated_expand=use_parent_gated_expand,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
