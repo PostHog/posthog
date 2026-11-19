@@ -178,6 +178,19 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertGreaterEqual(edges[("web", "api", "service")]["p95_ms"], 50)
         self.assertFalse(data["truncated"])
+        self.assertEqual((data["sampled"], data["trace_count"]), (False, 7))
+
+    def test_busy_window_reads_a_sample_of_whole_traces(self) -> None:
+        with (
+            patch("products.apm.backend.logic.health.sources.MAP_TRACE_LIMIT", 3),
+            patch("products.apm.backend.logic.health.dependencies.MAP_TRACE_LIMIT", 3),
+        ):
+            data = self._get()
+        self.assertEqual((data["sampled"], data["trace_count"]), (True, 3))
+        full = {(e["caller"], e["callee"], e["kind"]): e["requests"] for e in self._get()["edges"]}
+        sampled = {(e["caller"], e["callee"], e["kind"]): e["requests"] for e in data["edges"]}
+        self.assertTrue(sampled)
+        self.assertTrue(all(0 < requests <= full[key] for key, requests in sampled.items()), sampled)
 
     def test_service_filter_keeps_edges_on_either_side(self) -> None:
         data = self._get(service="web")

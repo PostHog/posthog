@@ -8,8 +8,10 @@ in the window counts on that service's edge, so a call that never arrived still 
 Every edge is measured on the caller's side when the caller has a client or producer span, since
 that is the latency and the errors the caller saw. Without one, the callee span is used.
 
-Unlike the service map, this reads the whole window rather than a trace sample, so the counts add up
-to the spans in the window. Fail-fast settings cap the bytes read and the run time instead.
+Like the service map, this reads a bounded sample of whole traces rather than the whole window, so a
+busy window stays under the byte cap and every parent span is read with its children. When the window
+holds fewer traces than the sample takes, every trace is read and the counts are exact. Otherwise the
+result is marked as sampled and the counts cover only the sampled traces.
 """
 
 from dataclasses import dataclass
@@ -24,7 +26,12 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.apm.backend.logic.health.contract import DependencyEdge, DependencyKind
-from products.apm.backend.logic.health.sources import environment_where, window_where
+from products.apm.backend.logic.health.sources import (
+    MAP_TRACE_LIMIT,
+    environment_where,
+    sampled_traces_query,
+    window_where,
+)
 
 DEPENDENCY_EDGES_LIMIT = 500
 MAX_BYTES_TO_READ = 10_000_000_000
@@ -77,10 +84,12 @@ _TARGET_KIND = f"""multiIf(
 class DependenciesResult:
     edges: list[DependencyEdge]
     truncated: bool
+    sampled: bool
+    trace_count: int
 
 
 def _dependencies_query(
-    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None, trace_ids: list[str]
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
     # spans only, one per request, not from every span in the window. A client span whose child call
@@ -155,8 +164,8 @@ def _dependencies_query(
         placeholders={
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
-            "trace_where": _service_traces_where(date_from, date_to, environment, service),
-            "known_services_where": _known_services_where(date_from, date_to, environment, service),
+            "trace_where": _sampled_where(trace_ids),
+            "known_services_where": _known_services_where(date_from, date_to, environment, service, trace_ids),
             "service_where": (
                 parse_expr(
                     "caller = {service} OR callee = {service}", placeholders={"service": ast.Constant(value=service)}
@@ -176,7 +185,7 @@ def _service_traces_where(
 ) -> ast.Expr:
     # Every edge on a service, in either direction, sits in a trace that has a span from it or a call
     # span that names it: a call that never reached the service, or one to a service that sends no
-    # spans. The scans and the join then see only those traces instead of the whole environment.
+    # spans. The trace sample then holds only those traces instead of any in the environment.
     if not service:
         return ast.Constant(value=True)
     # Reading any attribute costs about as much as reading the whole attributes map for every span
@@ -202,8 +211,16 @@ def _service_traces_where(
     )
 
 
+def _sampled_where(trace_ids: list[str]) -> ast.Expr:
+    # The trace_id projection finds these rows without reading the rest of the window.
+    return parse_expr(
+        "trace_id IN {trace_ids}",
+        placeholders={"trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids])},
+    )
+
+
 def _known_services_where(
-    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None, trace_ids: list[str]
 ) -> ast.Expr:
     # Only the targets named by calls in the selected traces need checking. service_name follows
     # time_bucket in the sort key, so checking those names reads their granules, not the whole window.
@@ -217,7 +234,7 @@ def _known_services_where(
         placeholders={
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
-            "trace_where": _service_traces_where(date_from, date_to, environment, service),
+            "trace_where": _sampled_where(trace_ids),
         },
     )
 
@@ -225,18 +242,22 @@ def _known_services_where(
 def get_dependencies(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
 ) -> DependenciesResult:
-    rows = execute_hogql_query(
-        query_type="ApmDependenciesQuery",
-        query=_dependencies_query(date_from, date_to, environment, service),
-        team=team,
-        workload=Workload.LOGS,
-        limit_context=LimitContext.QUERY,
-        settings=HogQLGlobalSettings(
-            max_execution_time=MAX_EXECUTION_SECONDS,
-            max_bytes_to_read=MAX_BYTES_TO_READ,
-            read_overflow_mode="throw",
-        ),
-    ).results
+    trace_ids = [
+        row[0]
+        for row in _run(
+            team,
+            "ApmDependenciesTraceSample",
+            sampled_traces_query(
+                date_from,
+                date_to,
+                environment,
+                _service_traces_where(date_from, date_to, environment, service) if service else None,
+            ),
+        )
+    ]
+    if not trace_ids:
+        return DependenciesResult(edges=[], truncated=False, sampled=False, trace_count=0)
+    rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, trace_ids))
     edges = [
         DependencyEdge(
             caller=caller,
@@ -249,4 +270,25 @@ def get_dependencies(
         )
         for caller, callee, inferred, kind, requests, error_count, p95_ms in rows[:DEPENDENCY_EDGES_LIMIT]
     ]
-    return DependenciesResult(edges=edges, truncated=len(rows) > DEPENDENCY_EDGES_LIMIT)
+    return DependenciesResult(
+        edges=edges,
+        truncated=len(rows) > DEPENDENCY_EDGES_LIMIT,
+        # A full sample may have left traces out; a short one read every trace in the window.
+        sampled=len(trace_ids) >= MAP_TRACE_LIMIT,
+        trace_count=len(trace_ids),
+    )
+
+
+def _run(team: Team, query_type: str, query: ast.SelectQuery) -> list:
+    return execute_hogql_query(
+        query_type=query_type,
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        limit_context=LimitContext.QUERY,
+        settings=HogQLGlobalSettings(
+            max_execution_time=MAX_EXECUTION_SECONDS,
+            max_bytes_to_read=MAX_BYTES_TO_READ,
+            read_overflow_mode="throw",
+        ),
+    ).results
