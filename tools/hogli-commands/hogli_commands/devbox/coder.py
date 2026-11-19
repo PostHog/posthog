@@ -1226,6 +1226,10 @@ def print_setup_summary() -> None:
     click.echo("Show saved configuration: hogli devbox:config:show")
     click.echo("Clear saved settings:     hogli devbox:config:rm --help")
     click.echo()
+    click.echo("GitHub CLI on a running box:  hogli devbox:gh:login")
+    click.echo("Trunk CLI on a running box:   hogli devbox:trunk:login")
+    click.echo("Missing box setup:            hogli devbox:check")
+    click.echo()
     click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
     click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
@@ -1904,6 +1908,10 @@ class _CoderApi:
         parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
         return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
 
+    def dotfiles_uri(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == DOTFILES_URI_PARAMETER), None) or None
+
     def instance_type_options(self, template_version_id: str) -> list[str]:
         parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
         return next(
@@ -2096,6 +2104,18 @@ def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subpro
     )
 
 
+def workspace_dotfiles_uri(name: str) -> str | None:
+    """Return the dotfiles repo the box was built with, or ``None`` when it has none.
+
+    The laptop's saved repo can change after the box is built, and applying dotfiles runs the
+    repo's install script, so a retry uses the repo the box itself was given.
+    """
+    workspace = get_workspace(name)
+    if workspace is None:
+        return None
+    return _CoderApi().dotfiles_uri(workspace["latest_build"]["id"])
+
+
 def coder_ssh_alias_configured(name: str) -> bool:
     """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
 
@@ -2266,6 +2286,19 @@ def unshare_workspace(name: str, users: list[str]) -> None:
 def get_sharing_status(name: str) -> subprocess.CompletedProcess[str]:
     """Return the output of ``coder sharing status`` for a workspace."""
     return _run(["coder", "sharing", "status", name], capture_output=True)
+
+
+def get_workspace_shares(name: str) -> list[str] | None:
+    """Return every user and group a workspace is shared with, or ``None`` when Coder doesn't answer.
+
+    Unlike :func:`get_shared_users`, a failed lookup is ``None``, so callers that guard credentials can fail closed.
+    """
+    result = get_sharing_status(name)
+    if result.returncode != 0:
+        return None
+    # The first line is the table header. A group share has "-" in the user column.
+    rows = [line.split() for line in result.stdout.strip().splitlines()[1:] if line.strip()]
+    return [row[0] if row[0] != "-" else f"group {row[1]}" for row in rows]
 
 
 def get_shared_users(name: str) -> list[str]:

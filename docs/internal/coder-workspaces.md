@@ -196,6 +196,9 @@ When a build fails with `InsufficientInstanceCapacity`, AWS has no free capacity
 `devbox:start`, `devbox:restart` and `devbox:update` then start the box on the template's other instance types in turn, through the Coder build API, because the Coder CLI keeps a parameter's last-build value.
 The template changes the type of the same instance, so the disk stays, and the box keeps the type that started.
 
+After your own box starts, `devbox:start` lists the per-box setup it still needs, such as the Claude Code, GitHub CLI and Trunk CLI logins or dotfiles that failed to clone, with the command that sets each one up.
+Run `hogli devbox:check` to see the same list at any time.
+
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 When in doubt, `hogli devbox:doctor` reports which prerequisite is missing.
@@ -238,11 +241,43 @@ A command that `devbox-secrets run` started keeps the values after they expire o
 Unsharing doesn't end a former sharee's shells or processes. Restart the box after `devbox:unshare` and before you lend to it.
 Values must fit on one line. Push refuses a 1Password field with line breaks, such as a certificate.
 
+## GitHub on a devbox
+
+By default, git on a box uses Coder's GitHub app. It reaches only the repositories where a GitHub org admin installed that app, and only in SSH sessions, which get it through `GIT_ASKPASS`. `gh` doesn't use it.
+
+To use `gh`, log it in on the box:
+
+```bash
+hogli devbox:gh:login     # gh prints a code to enter at https://github.com/login/device
+hogli devbox:gh:status    # account and scopes, token masked
+hogli devbox:gh:logout    # delete the login from the box
+```
+
+Login also runs `gh auth setup-git`, so git uses the same login. git and `gh` then reach every repository your GitHub account can, in every process on the box, including Herdr tabs and agents that outlive the SSH connection that started them.
+Login also installs the `gh stack` extension when it's missing, for [stacked PRs](https://github.com/github/gh-stack).
+A private dotfiles repo fails to clone when a box first starts, because only Coder's app can reach GitHub then. Login applies your dotfiles again when that happened, and `hogli devbox:dotfiles` does the same on demand.
+After a logout, git falls back to Coder's app.
+
+The token stays on the box's disk until you log out or destroy the box. People you share the box with can read it, so `devbox:share` offers to log out first.
+Logging out deletes only the box's copy. To revoke the token, remove GitHub CLI under Settings > Applications on github.com, which also logs `gh` out on your other computers.
+A `GH_TOKEN` Coder user secret takes priority over the login for `gh`.
+
+To use the merge queue with `trunk merge` from the box, log the Trunk CLI in the same way:
+
+```bash
+hogli devbox:trunk:login     # trunk prints a link to open on your computer
+hogli devbox:trunk:status    # the Trunk account the box uses
+hogli devbox:trunk:logout    # delete the login from the box
+```
+
+The Trunk CLI comes from PostHog's flox environment in `~/posthog`. If login can't find it, run `hogli devbox:exec --flox -- true` once to set up the environment.
+The Trunk login also stays on the box's disk, and people you share the box with could use it to put PRs in the merge queue as you. `devbox:share` offers to log out first, like it does for `gh`.
+
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
 - SSH to a stopped devbox fails with "workspace must be started" instead of starting it. Run `hogli devbox:start` first. Tools that reconnect in the background, such as Herdr and editors, would otherwise queue a new build on every retry.
-- Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
+- Git inside the workspace uses HTTPS, through Coder external auth or `hogli devbox:gh:login`. Don't set up SSH Git inside the workspace. See [GitHub on a devbox](#github-on-a-devbox).
 - Claude Code logs in on each box with `hogli devbox:claude:login`. The optional `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret (requires Coder 2.33+) overrides that login on every box. See [Claude Code on a devbox](#claude-code-on-a-devbox).
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.

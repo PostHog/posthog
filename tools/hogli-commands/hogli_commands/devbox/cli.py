@@ -6,6 +6,7 @@ Provides hogli devbox:* commands for managing Coder-based remote dev environment
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import zlib
@@ -484,8 +485,16 @@ def _resume_sync(name: str) -> None:
         click.echo(f"Resumed the sync to '{name}'.")
 
 
+def _report_box_setup(name: str) -> None:
+    # box_checks builds its probes from the command builders in this module, so importing it at the top
+    # of the module would be circular.
+    from .box_checks import report_box_setup
+
+    report_box_setup(name)
+
+
 def _start_existing_workspace(
-    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool, check_setup: bool = False
 ) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     if start_app is not None:
@@ -498,6 +507,8 @@ def _start_existing_workspace(
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
         _print_connection_info(name)
+        if check_setup:
+            _report_box_setup(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
@@ -516,6 +527,8 @@ def _start_existing_workspace(
         click.echo("Started.")
         _resume_sync(name)
         _print_connection_info(name)
+        if check_setup:
+            _report_box_setup(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
@@ -524,6 +537,8 @@ def _start_existing_workspace(
     _wait_until_ready(name)
     _resume_sync(name)
     _print_connection_info(name)
+    if check_setup:
+        _report_box_setup(name)
 
 
 def _read_legacy_keychain_token() -> str | None:
@@ -1860,6 +1875,179 @@ def _refuse_to_share_lent_secrets(name: str) -> None:
         )
 
 
+_GH_AUTH_TIMEOUT = 60
+_KEEP_GH_LOGIN_HINT = "Run `hogli devbox:gh:status` to see why, or pass --keep-gh-login to share anyway."
+
+
+def remote_gh_auth(*args: str) -> list[str]:
+    # A GH_TOKEN or GITHUB_TOKEN env var, such as a Coder user secret, hides the login stored on the box
+    # from `gh auth status`, and `gh auth login` refuses to run while one is set.
+    return ["env", "-u", "GH_TOKEN", "-u", "GITHUB_TOKEN", "gh", "auth", *args, "--hostname", "github.com"]
+
+
+def read_gh_logins(name: str) -> list[str] | None:
+    """Return the GitHub accounts stored on the box, or ``None`` when the box doesn't say.
+
+    An account whose token GitHub rejects still counts, because the token is still on the box's disk.
+    """
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_gh_auth("status", "--json", "hosts"), timeout=_GH_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    start = result.stdout.find("{")
+    if start == -1:
+        return None
+    try:
+        hosts = json.loads(result.stdout[start:]).get("hosts", {})
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    return [account["login"] for account in hosts.get("github.com", []) if account.get("login")]
+
+
+def logout_gh(name: str, logins: list[str]) -> bool:
+    # Without a terminal, `gh auth logout` refuses to pick one of several accounts, so name each one.
+    _skip_startup_wait()
+    for login in logins:
+        try:
+            result = run_in_workspace(name, remote_gh_auth("logout", "--user", login), timeout=_GH_AUTH_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return False
+        if result.returncode != 0:
+            return False
+    return True
+
+
+def _warn_about_gh_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Log out of the GitHub CLI on the box before sharing it, unless told to keep the login.
+
+    gh keeps its token in a file on the box, and people the box is shared with get a shell as the owner.
+    """
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(
+            "Couldn't check the box's GitHub CLI login, because the devbox isn't running. "
+            "Start the box and run the command again, or pass --keep-gh-login to share anyway."
+        )
+    logins = read_gh_logins(name)
+    if logins is None:
+        _fail(f"Couldn't check the box's GitHub CLI login. {_KEEP_GH_LOGIN_HINT}")
+    if not logins:
+        return
+    click.echo(
+        click.style("The box is logged in to the GitHub CLI. People you share with could use that login.", fg="yellow")
+    )
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to the GitHub CLI. Run `hogli devbox:gh:logout` first, "
+            "or pass --keep-gh-login to share anyway."
+        )
+    if not click.confirm("Log out of the GitHub CLI on the box before sharing?", default=True):
+        return
+    if not logout_gh(name, logins):
+        _fail("Couldn't log out of the GitHub CLI on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of the GitHub CLI on the box.")
+
+
+# Coder clones dotfiles at first boot, when git on the box has only Coder's GitHub app token. That token
+# can't read a private dotfiles repo, so the clone fails and Coder logs the error to ~/.dotfiles.log.
+DOTFILES_FAILED_ON_BOX = (
+    "grep -qs 'Encountered an error running \"coder dotfiles\"' ~/.dotfiles.log "
+    "&& [ ! -d ~/.config/coderv2/dotfiles/.git ]"
+)
+
+
+def remote_apply_dotfiles(uri: str) -> list[str]:
+    return ["coder", "dotfiles", "-y", uri]
+
+
+_TRUNK_AUTH_TIMEOUT = 60
+TRUNK_MISSING_EXIT = 3
+TRUNK_LOGIN_WITHOUT_CLI_EXIT = 4
+_KEEP_TRUNK_LOGIN_HINT = "Run `hogli devbox:trunk:status` to see why, or pass --keep-trunk-login to share anyway."
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def remote_trunk(*args: str) -> list[str]:
+    # trunk is on PATH only inside PostHog's flox environment. flox puts the binary under .flox/run
+    # the first time it activates the environment, so the box can call it there without activating.
+    # Without the binary, a login that trunk stored before still sits in its user file, so that case
+    # gets its own exit code and a caller can't take it for "logged out".
+    script = (
+        f"cd {REMOTE_REPO_PATH} && "
+        f'for trunk in .flox/run/*/bin/trunk; do if [ -x "$trunk" ]; then exec "$trunk" {shlex.join(args)}; fi; done; '
+        f"grep -qs '^trunk_user:' ~/.cache/trunk/user.yaml && exit {TRUNK_LOGIN_WITHOUT_CLI_EXIT}; "
+        f"exit {TRUNK_MISSING_EXIT}"
+    )
+    return ["bash", "-c", script]
+
+
+def read_trunk_login(name: str) -> str | None:
+    """Return the `trunk whoami` line for the box's login, "" when there is none, or ``None`` when the box doesn't say.
+
+    A box without a trunk binary counts as logged out, unless trunk's user file still holds a login.
+    """
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_trunk("whoami", "--no-progress"), timeout=_TRUNK_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == TRUNK_MISSING_EXIT:
+        return ""
+    if result.returncode == TRUNK_LOGIN_WITHOUT_CLI_EXIT:
+        return None
+    output = _ANSI_ESCAPE.sub("", result.stdout + result.stderr)
+    for line in output.splitlines():
+        if "Logged in as" in line:
+            return line.strip(" ✔")
+    if "Not logged in" in output:
+        return ""
+    return None
+
+
+def logout_trunk(name: str) -> bool:
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_trunk("logout", "--no-progress"), timeout=_TRUNK_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def _warn_about_trunk_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Log out of the Trunk CLI on the box before sharing it, unless told to keep the login.
+
+    trunk keeps its token in a file on the box, and people the box is shared with get a shell as the owner,
+    so they could use the merge queue in the owner's name.
+    """
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(
+            "Couldn't check the box's Trunk CLI login, because the devbox isn't running. "
+            "Start the box and run the command again, or pass --keep-trunk-login to share anyway."
+        )
+    login = read_trunk_login(name)
+    if login is None:
+        _fail(f"Couldn't check the box's Trunk CLI login. {_KEEP_TRUNK_LOGIN_HINT}")
+    if not login:
+        return
+    click.echo(
+        click.style("The box is logged in to the Trunk CLI. People you share with could use that login.", fg="yellow")
+    )
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to the Trunk CLI. Run `hogli devbox:trunk:logout` first, "
+            "or pass --keep-trunk-login to share anyway."
+        )
+    if not click.confirm("Log out of the Trunk CLI on the box before sharing?", default=True):
+        return
+    if not logout_trunk(name):
+        _fail("Couldn't log out of the Trunk CLI on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of the Trunk CLI on the box.")
+
+
 def _logout_claude_before_destroy(name: str) -> None:
     """Run `claude auth logout` before destroy deletes the disk.
 
@@ -1888,12 +2076,26 @@ def _logout_claude_before_destroy(name: str) -> None:
     is_flag=True,
     help="Share without checking for or logging out a Claude Code login on the box",
 )
+@click.option(
+    "--keep-gh-login",
+    "keep_gh_login",
+    is_flag=True,
+    help="Share without checking for or logging out a GitHub CLI login on the box",
+)
+@click.option(
+    "--keep-trunk-login",
+    "keep_trunk_login",
+    is_flag=True,
+    help="Share without checking for or logging out a Trunk CLI login on the box",
+)
 def devbox_share(
     workspace: str | None,
     users: tuple[str, ...],
     role: str,
     list_sharing: bool,
     keep_claude_login: bool,
+    keep_gh_login: bool,
+    keep_trunk_login: bool,
 ) -> None:
     """Share your devbox with other Coder users."""
     ensure_runtime_ready()
@@ -1913,6 +2115,9 @@ def devbox_share(
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
     _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
+    _warn_about_gh_login_before_sharing(name, ws, keep_login=keep_gh_login)
+    _warn_about_trunk_login_before_sharing(name, ws, keep_login=keep_trunk_login)
+    # Last, right before the share: secrets can be lent while a logout prompt above waits for an answer.
     # Lent secrets live in memory, so only a box that has stopped or is coming up fresh can't hold any.
     # A pending or deleting box can still run with secrets until its queued job runs.
     if get_workspace_status(ws) not in ("stopped", "starting", "deleted"):
@@ -2023,7 +2228,9 @@ def devbox_start(
     if ws is not None:
         if workspace is None and region is None:
             _maybe_hint_region_mismatch(name)
-        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
+        _start_existing_workspace(
+            name, ws, start_app=start_app, verbose=verbose, check_setup=_targets_own_box(workspace)
+        )
         return
 
     config = load_config()
@@ -2047,6 +2254,8 @@ def devbox_start(
     _wait_until_ready(name)
     click.echo("Created.")
     _print_connection_info(name)
+    if _targets_own_box(workspace):
+        _report_box_setup(name)
 
 
 @click.command(
