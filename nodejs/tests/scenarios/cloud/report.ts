@@ -293,9 +293,11 @@ export async function report(
     const key = keyOf(runId, 'scorecard.json')
     if (t0) {
         controller.print(
-            readerAtT0 === null
-                ? `CloudWatch has no reader capacity for the minute before T0 (${t0}).`
-                : `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
+            readerAtT0 !== null
+                ? `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
+                : capacity
+                  ? `CloudWatch has no reader capacity for the minute before T0 (${t0}).`
+                  : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
         )
     }
     controller.print(`Cost estimate, excluding ${EXCLUDED.join(', ')}:`)

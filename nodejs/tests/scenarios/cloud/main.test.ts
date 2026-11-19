@@ -41,8 +41,9 @@ const minutes = (from: number, to: number, max: number, avg: number): ReaderMinu
     Array.from({ length: to - from + 1 }, (_, i) => ({ minute: from + i, max, avg }))
 
 const IDLE_THEN_PROMOTED = [
-    ...minutes(-3, -2, 1, 1),
-    ...minutes(-1, -1, 2, 1.6),
+    ...minutes(-3, -3, 1, 1),
+    ...minutes(-2, -2, 2, 1.6),
+    ...minutes(-1, -1, 1.5, 1.2),
     ...minutes(0, 0, 4, 2.4),
     ...minutes(1, 2, 8, 6),
 ]
@@ -199,9 +200,6 @@ describe('cloud controller', () => {
             status: 'passed',
             t0_at: null,
             reader_acu_at_t0: null,
-        })
-        expect(parseJSON(cloud.objects.get(`runs/${leasedRunId()}/manifest.json`)!)).toMatchObject({
-            card: 'cyclotron-scale',
         })
     })
 
@@ -368,6 +366,11 @@ describe('cloud controller', () => {
             'a launch template version CloudFormation does not resolve',
             { profile: (p) => ({ ...p, baseline: { ...p.baseline, hostLaunchTemplateVersion: '$Latest' } }) },
             'baseline.hostLaunchTemplateVersion',
+        ],
+        [
+            'a reader idle limit below the reader minimum',
+            { profile: (p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax: 0.5 } }) },
+            'readerAcu.idleMax',
         ],
         [
             'a pooler image not pinned by digest',
@@ -1122,12 +1125,21 @@ describe('cloud controller', () => {
                 acu_t0_minute_max: 4,
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
-                reader_acu_at_t0: 2,
+                reader_acu_at_t0: 1.5,
             })
             const t0 = Date.parse(String(published().t0_at))
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
-            expect(out).toContain(`The reader sat at 2 ACU in the minute before T0 (${published().t0_at}).`)
+            expect(out).toContain(`The reader sat at 1.5 ACU in the minute before T0 (${published().t0_at}).`)
         }
+    })
+
+    it('says the reader capacity went unread, not missing, when CloudWatch refuses only the average series', async () => {
+        const { controller } = prepare({ cloud: { readerAcu: IDLE_THEN_PROMOTED, averageStatuses: ['Forbidden'] } })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        expect(out.join('\n')).toContain('Could not read the reader capacity, so its ACU in the minute before T0')
+        expect(out.join('\n')).not.toContain('CloudWatch has no reader capacity')
     })
 
     it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {

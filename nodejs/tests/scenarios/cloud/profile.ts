@@ -70,7 +70,11 @@ export const CloudProfile = z
         writerClass: Name,
         readerAcu: z
             .object({ min: z.literal(1), max: z.number().int().positive(), idleMax: z.number().positive().optional() })
-            .strict(),
+            .strict()
+            .refine(({ min, idleMax }) => idleMax === undefined || idleMax >= min, {
+                path: ['idleMax'],
+                message: 'at or above readerAcu.min, the lowest capacity the reader can report',
+            }),
         host: z
             .object({
                 class: Name,
