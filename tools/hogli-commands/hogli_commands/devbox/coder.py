@@ -1908,6 +1908,10 @@ class _CoderApi:
         parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
         return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
 
+    def dotfiles_uri(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == DOTFILES_URI_PARAMETER), None) or None
+
     def instance_type_options(self, template_version_id: str) -> list[str]:
         parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
         return next(
@@ -2098,6 +2102,18 @@ def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subpro
         text=True,
         timeout=timeout,
     )
+
+
+def workspace_dotfiles_uri(name: str) -> str | None:
+    """Return the dotfiles repo the box was built with, or ``None`` when it has none.
+
+    The laptop's saved repo can change after the box is built, and applying dotfiles runs the
+    repo's install script, so a retry uses the repo the box itself was given.
+    """
+    workspace = get_workspace(name)
+    if workspace is None:
+        return None
+    return _CoderApi().dotfiles_uri(workspace["latest_build"]["id"])
 
 
 def coder_ssh_alias_configured(name: str) -> bool:

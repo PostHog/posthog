@@ -18,7 +18,6 @@ from .cli import (
     _ensure_ssh_alias,
     _skip_startup_wait,
     _targets_own_box,
-    load_config,
     logout_gh,
     read_gh_logins,
     remote_apply_dotfiles,
@@ -34,6 +33,7 @@ from .coder import (
     run_in_workspace,
     server_supports_user_secrets,
     user_secret_exists,
+    workspace_dotfiles_uri,
 )
 
 _DEVICE_URL = "https://github.com/login/device"
@@ -83,7 +83,7 @@ def devbox_gh_login(workspace: str | None) -> None:
         '|| echo "Couldn\'t install gh stack. Run gh extension install github/gh-stack on the box."; }'
     )
     steps = [login, setup_git, install_gh_stack]
-    dotfiles_uri = load_config().get("dotfiles_uri")
+    dotfiles_uri = workspace_dotfiles_uri(name)
     if dotfiles_uri:
         # git can now read a private dotfiles repo that the box couldn't clone when it started.
         steps.append(

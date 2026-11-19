@@ -8,12 +8,11 @@ from .cli import (
     _ensure_ssh_alias,
     _skip_startup_wait,
     _targets_own_box,
-    load_config,
     remote_apply_dotfiles,
     resolve_workspace_name,
     workspace_argument,
 )
-from .coder import _fail, ensure_runtime_ready, exec_replace
+from .coder import _fail, ensure_runtime_ready, exec_replace, workspace_dotfiles_uri
 
 
 @click.command(
@@ -22,14 +21,17 @@ from .coder import _fail, ensure_runtime_ready, exec_replace
 )
 @workspace_argument
 def devbox_dotfiles(workspace: str | None) -> None:
-    """Run `coder dotfiles` on the box with the dotfiles repo saved by `devbox:setup`."""
+    """Run `coder dotfiles` on the box with the dotfiles repo the box was built with."""
     if not _targets_own_box(workspace):
         _fail("Apply dotfiles only on your own devbox.")
-    uri = load_config().get("dotfiles_uri")
-    if not uri:
-        _fail("No dotfiles repo is configured. Run `hogli devbox:setup --configure-dotfiles` to set one.")
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
+    uri = workspace_dotfiles_uri(name)
+    if not uri:
+        _fail(
+            f"'{name}' was built without a dotfiles repo. Run `hogli devbox:setup --configure-dotfiles`, "
+            "and new devboxes get it."
+        )
     _ensure_ssh_alias(name)
     _skip_startup_wait()
     click.echo(f"Applying {uri} on '{name}'.")

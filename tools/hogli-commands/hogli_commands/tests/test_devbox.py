@@ -4607,26 +4607,30 @@ class TestDevboxShare:
         assert expected_output in result.output
 
     @pytest.mark.parametrize(
-        "saved_config, expected_commands, expected_output",
+        "box_uri, expected_commands, expected_output",
         [
             (
-                {"dotfiles_uri": "https://github.com/example/dotfiles.git"},
+                "https://github.com/example/dotfiles.git",
                 [["coder", "dotfiles", "-y", "https://github.com/example/dotfiles.git"]],
                 "Applying https://github.com/example/dotfiles.git",
             ),
-            ({}, [], "No dotfiles repo is configured"),
+            (None, [], "was built without a dotfiles repo"),
         ],
-        ids=["saved_repo", "no_saved_repo"],
+        ids=["box_repo", "no_box_repo"],
     )
-    def test_dotfiles_applies_the_saved_repo(
+    def test_dotfiles_applies_the_box_repo(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        saved_config: dict[str, str],
+        box_uri: str | None,
         expected_commands: list[list[str]],
         expected_output: str,
     ) -> None:
         commands: list[list[str]] = []
-        monkeypatch.setattr(devbox_dotfiles, "load_config", lambda: saved_config)
+        # The laptop's saved repo differs from the box's: the box's own repo must win.
+        monkeypatch.setattr(
+            devbox_config, "load_config", lambda: {"dotfiles_uri": "https://github.com/example/other.git"}
+        )
+        monkeypatch.setattr(devbox_dotfiles, "workspace_dotfiles_uri", lambda name: box_uri)
         monkeypatch.setattr(devbox_dotfiles, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_dotfiles, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_dotfiles, "_ensure_ssh_alias", lambda name: None)
