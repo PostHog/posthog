@@ -932,19 +932,19 @@ export class FakeCloud implements Aws {
                 this.pendingPromotions.push({ cluster, to, showsAt, at })
                 return { DBCluster: { DBClusterIdentifier: cluster.id, Status: cluster.state } }
             }
-            case 'rds describe-db-instances':
+            case 'rds describe-db-instances': {
+                const instance = this.liveResource(
+                    'AWS::RDS::DBInstance',
+                    flags.get('db-instance-identifier')!,
+                    operation,
+                    'DBInstanceNotFound'
+                )
                 return {
                     DBInstances: [
-                        {
-                            DBInstanceStatus: this.liveResource(
-                                'AWS::RDS::DBInstance',
-                                flags.get('db-instance-identifier')!,
-                                operation,
-                                'DBInstanceNotFound'
-                            ).state,
-                        },
+                        { DBInstanceStatus: instance.state, MonitoringInterval: Number(instance.monitoringInterval) },
                     ],
                 }
+            }
             case 'rds describe-db-cluster-snapshots': {
                 const kept = this.resources.filter(({ type, state }) => type === SNAPSHOT && state !== 'gone')
                 if (flags.has('db-cluster-snapshot-identifier')) {

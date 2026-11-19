@@ -188,20 +188,31 @@ describe('cloud controller', () => {
         }
     )
 
-    it.each<[string, Setup, string]>([
-        ['the production setting when the profile names none', {}, '60'],
-        ['the interval the profile names', { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }) }, '5'],
+    it.each<[string, Setup, number]>([
+        ['the production setting when the profile names none', {}, 60],
+        ['the interval the profile names', { profile: (p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }) }, 5],
     ])('monitors the reader at %s and the writer every second', async (_, setup, readerInterval) => {
         const { controller } = prepare(setup)
+        let intervals: Promise<[string, number][]> = Promise.resolve([])
+        cloud.beforeCall('send-command', () => {
+            intervals = Promise.all(
+                cloud.resources
+                    .filter(({ type, state }) => type === 'AWS::RDS::DBInstance' && state === 'available')
+                    .map(async ({ logicalId, id }) => {
+                        const { DBInstances } = (await cloud.call([
+                            'rds',
+                            'describe-db-instances',
+                            '--db-instance-identifier',
+                            id,
+                        ])) as { DBInstances: { MonitoringInterval: number }[] }
+                        return [logicalId, DBInstances[0].MonitoringInterval]
+                    })
+            )
+        })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
-        const intervals = Object.fromEntries(
-            cloud.resources
-                .filter(({ type }) => type === 'AWS::RDS::DBInstance')
-                .map(({ logicalId, monitoringInterval }) => [logicalId, monitoringInterval])
-        )
-        expect(intervals).toEqual({ Writer: '1', Reader: readerInterval })
+        expect(Object.fromEntries(await intervals)).toEqual({ Writer: 1, Reader: readerInterval })
     })
 
     it('runs the card it is given on the host and judges a card without a failover on its own verdict', async () => {
@@ -470,17 +481,29 @@ describe('cloud controller', () => {
         }
     )
 
-    it('prints the estimate when it refuses a run over the cap', async () => {
+    it.each<[string, number, Record<string, number>, string, number]>([
+        ['refuses a run far over the cap', 30, {}, '$250.86', 2],
+        ['admits a run just under the cap with the reader at the default interval', 22.72, {}, '$199.90', 0],
+        [
+            'refuses the same run when its reader is monitored every second',
+            22.72,
+            { readerMonitoringIntervalSeconds: 1 },
+            '$200.03',
+            2,
+        ],
+    ])('prints the estimate and %s', async (_, writerPerHour, monitoring, total, exitCode) => {
         const { controller } = prepare({
             profile: (p) => ({
                 ...p,
-                admission: { ...p.admission, rates: { ...p.admission.rates, writerPerHour: 30 } },
+                ...monitoring,
+                admission: { ...p.admission, rates: { ...p.admission.rates, writerPerHour } },
             }),
         })
 
-        await main(['run', profilePath(), FAILOVER_CARD], controller)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(exitCode)
 
-        expect(out.join('\n')).toContain('Admitted estimate: $250.86 of the $200 cap')
+        expect(out.join('\n')).toContain(`Admitted estimate: ${total} of the $200 cap`)
+        expect(err.join('\n').includes('The admitted estimate is over the $200 cap.')).toBe(exitCode === 2)
     })
 
     it('cleans up with only the cloud profile, after the runner profile is gone', async () => {
