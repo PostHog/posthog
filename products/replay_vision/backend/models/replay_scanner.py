@@ -687,14 +687,21 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         return old is not None and derive_scope(old) == self.scope
 
     def targeted_recordings_query(self) -> "RecordingsQuery":
-        """The query every scan and estimate must run: the persisted filter plus the exposure
-        filter derived from `experiment_scope()`.
+        """The query every scan and estimate must run: the persisted filter narrowed by the scope.
 
-        Derived here rather than persisted into `query` so the experiment can only ever enter
-        through the access-checked scope stores (see `experiment_scope`). The serializer rejects
-        `experiment_exposure` inside `query` for the same reason.
+        Narrowed here rather than persisted into `query` so the experiment can only ever enter
+        through the access-checked scope stores. The serializer rejects `experiment_exposure`
+        inside `query` for the same reason.
+
+        Reads through `scope_for`, so a scanner narrowed only by the `scope` column is filtered
+        the same as one still carrying a legacy store. Reading `experiment_scope()` here instead
+        would return None for that scanner and sweep every session its filters match.
         """
-        return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
+        from products.replay_vision.backend.scope.load import scope_for  # noqa: PLC0415
+
+        scope = scope_for(self)
+        query = self.recordings_query()
+        return scope.recordings_filter(query) if scope is not None else apply_experiment_targeting(query, None)
 
     @property
     def has_spend_ceiling(self) -> bool:
