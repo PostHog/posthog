@@ -139,9 +139,9 @@ def _parse_model_dict(
     return {_normalize_cost_key(key): model_cls(**config) for key, config in parsed.items()}
 
 
-# A `sync_mode` PostHog client retries a failed send in the calling thread. One attempt keeps a
-# capture thread from waiting through those retries when capture is slow or down.
-POSTHOG_SYNC_SEND_MAX_RETRIES = 0
+# A `sync_mode` PostHog client sends, and retries, in the calling thread. One retry recovers a
+# send whose connection dropped, and it bounds how long a capture thread waits when capture is down.
+POSTHOG_SYNC_SEND_MAX_RETRIES = 1
 # The same limit as an analytics send, so an AI event waits no longer than any other capture.
 POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS = 15
 
