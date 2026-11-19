@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0255_monitoring_cancelled_check_count"),
+        ("signals", "0256_signal_source_filter_state_fingerprint"),
     ]
 
     operations = [
