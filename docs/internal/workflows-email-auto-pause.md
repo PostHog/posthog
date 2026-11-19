@@ -66,7 +66,7 @@ The detector still logs their own breaches, with `mode="exempt"`, and writes not
 Their sends and feedback stay out of the project totals, so an exempt workflow cannot pause its siblings.
 A project breach that only an exempt workflow's feedback would cause is neither applied nor logged.
 An exempt workflow is judged on its own sends only, never on its project's.
-An id that is not a UUID stops Django from starting.
+An id that is not a UUID in the 8-4-4-4-12 form, in either case, stops Django from starting.
 Use it for a workflow whose email must not stop, such as sign-in verification codes.
 
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.

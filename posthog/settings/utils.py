@@ -77,7 +77,15 @@ def get_list(text: str) -> list[str]:
 
 
 def get_uuid_set(text: str) -> frozenset[str]:
-    return frozenset(str(UUID(item)) for item in get_list(text) if item)
+    ids = set()
+    for item in get_list(text):
+        if not item:
+            continue
+        canonical = str(UUID(item))
+        if canonical != item.lower():
+            raise ValueError(f"{item!r} is not a UUID in the 8-4-4-4-12 form")
+        ids.add(canonical)
+    return frozenset(ids)
 
 
 def get_set(text: str) -> set[str]:

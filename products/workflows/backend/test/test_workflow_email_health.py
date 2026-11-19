@@ -691,9 +691,13 @@ def test_exempt_workflow_ids_from_the_environment_match_stored_ids(raw: str, exp
         importlib.reload(ses_settings)
 
 
-def test_a_malformed_exempt_workflow_id_stops_startup():
+@pytest.mark.parametrize(
+    "raw",
+    ["not-a-workflow-id", "1_A16477-CF0E-0000-FCD4-AB12E88F3D00", "01a16477-cf0e-0000-fcd4-ab12e88f3d00,garbage"],
+)
+def test_a_malformed_exempt_workflow_id_stops_startup(raw: str):
     try:
-        with patch.dict(os.environ, {"WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS": "not-a-workflow-id"}):
+        with patch.dict(os.environ, {"WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS": raw}):
             with pytest.raises(ValueError):
                 importlib.reload(ses_settings)
     finally:
