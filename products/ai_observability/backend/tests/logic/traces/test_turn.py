@@ -9,6 +9,7 @@ from products.ai_observability.backend.logic.traces.turn import (
     TOO_LARGE,
     Side,
     Turn,
+    TurnSides,
     TurnStep,
     Unreadable,
     missing_reason,
@@ -343,3 +344,172 @@ def test_a_side_gives_its_text_or_why_it_is_missing(
 )
 def test_readable_tail(_name: str, items: list[Value], over_caps: tuple[bool, ...], expected: Side[Value]) -> None:
     assert readable_tail(items, over_caps) == expected
+
+
+def at_node(node_id: str, *messages: contracts.TraceMessage) -> contracts.TraceMessagesSide:
+    return conversation(*(m.model_copy(update={"source_node_id": node_id}) for m in messages))
+
+
+def messages_of(side: Side[contracts.TraceSideContent | None]) -> list[contracts.TraceMessage]:
+    assert isinstance(side.value, contracts.TraceMessagesSide)
+    return side.value.messages
+
+
+def tool_call_message() -> contracts.TraceMessage:
+    return parts_message("assistant", SEARCH_CALL)
+
+
+def sides_of(
+    *,
+    state: TurnStep | None = None,
+    first: TurnStep | None = None,
+    latest_input: contracts.TraceMessagesSide | contracts.TraceJsonSide | None = None,
+    latest: TurnStep | None = None,
+    latest_input_unread: Unreadable | None = None,
+) -> TurnSides:
+    return TurnSides.of(
+        state=state,
+        first_generation=first,
+        latest_generation_input=Side(value=latest_input, unread=latest_input_unread) if latest_input else None,
+        latest_generation=latest,
+    )
+
+
+HISTORY = [
+    SYSTEM_PROMPT,
+    text_message("user", "hi"),
+    text_message("assistant", "hello"),
+]
+
+
+def test_sides_cut_history_at_last_user_turn() -> None:
+    first = reading(at_node("gen-1", *HISTORY, text_message("user", "refund?")), at_node("gen-1", tool_call_message()))
+
+    sides = sides_of(first=first, latest=first)
+
+    assert sides.input.value == at_node("gen-1", text_message("user", "refund?"))
+
+
+def test_sides_extend_through_latest_generation_input() -> None:
+    question = text_message("user", "refund?")
+    first = reading(at_node("gen-1", *HISTORY, question), at_node("gen-1", tool_call_message()))
+    tool_result = text_message("tool", "refunds: 30 days")
+    latest_input = at_node("gen-2", *HISTORY, question, tool_call_message(), tool_result)
+    latest = reading(latest_input, at_node("gen-2", text_message("assistant", "yes, within 30 days")))
+
+    sides = sides_of(first=first, latest_input=latest_input, latest=latest)
+
+    assert sides.input.value == conversation(
+        question.model_copy(update={"source_node_id": "gen-1"}),
+        tool_call_message().model_copy(update={"source_node_id": "gen-2"}),
+        tool_result.model_copy(update={"source_node_id": "gen-2"}),
+    )
+    assert all(m.is_internal for m in messages_of(sides.input)[1:])
+    assert sides.output == latest.output
+
+
+def test_sides_match_the_anchor_after_repeated_earlier_messages() -> None:
+    again = text_message("user", "hi")
+    first = reading(at_node("gen-1", *HISTORY, again))
+    latest_input = at_node("gen-2", *HISTORY, again, tool_call_message())
+
+    sides = sides_of(first=first, latest_input=latest_input, latest=reading(latest_input))
+
+    assert [m.role for m in messages_of(sides.input)] == ["user", "assistant"]
+
+
+def test_sides_fall_back_when_latest_does_not_share_history() -> None:
+    first = reading(at_node("gen-1", *HISTORY, text_message("user", "refund?")))
+    summarizer_input = at_node("gen-9", text_message("user", "summarize this"))
+    latest = reading(summarizer_input, at_node("gen-9", text_message("assistant", "a summary")))
+
+    sides = sides_of(first=first, latest_input=summarizer_input, latest=latest)
+
+    assert sides.input.value == at_node("gen-1", text_message("user", "refund?"))
+    assert sides.output == latest.output
+
+
+def test_two_trailing_user_messages_both_kept() -> None:
+    first = reading(at_node("gen-1", *HISTORY, text_message("user", "refund?"), text_message("user", "also exchange?")))
+
+    sides = sides_of(first=first, latest=first)
+
+    assert [m.parts for m in messages_of(sides.input)] == [
+        text_message("user", "refund?").parts,
+        text_message("user", "also exchange?").parts,
+    ]
+
+
+def test_input_without_user_message_is_kept_whole() -> None:
+    first = reading(at_node("gen-1", SYSTEM_PROMPT, text_message("assistant", "hello")))
+
+    assert sides_of(first=first, latest=first).input == first.input
+
+
+def test_output_falls_back_to_first_generation() -> None:
+    first = reading(
+        at_node("gen-1", text_message("user", "refund?")), at_node("gen-1", text_message("assistant", "ok"))
+    )
+
+    assert sides_of(first=first).output == first.output
+
+
+def test_state_conversation_wins() -> None:
+    state = reading(
+        conversation(*HISTORY, text_message("user", "from state")),
+        conversation(text_message("assistant", "state answer")),
+    )
+    first = reading(at_node("gen-1", text_message("user", "refund?")))
+    latest = reading(None, at_node("gen-2", text_message("assistant", "gen answer")))
+
+    sides = sides_of(state=state, first=first, latest=latest)
+
+    assert sides.input == state.input
+    assert sides.output == state.output
+
+
+def test_json_sides_pass_through() -> None:
+    first = reading(json_side({"query": "refund?"}), json_side({"answer": 1}))
+
+    sides = sides_of(first=first, latest=first)
+
+    assert sides.input.value == json_side({"query": "refund?"})
+    assert sides.output.value == json_side({"answer": 1})
+
+
+def test_unread_side_keeps_reason() -> None:
+    first = reading(input_reading=FAILED, output_reading=FAILED, input_unread=TOO_LARGE, output_unread=TOO_LARGE)
+
+    sides = sides_of(first=first, latest=first)
+
+    assert sides.input == Side(value=None, unread=TOO_LARGE)
+    assert sides.output == Side(value=None, unread=TOO_LARGE)
+
+
+@parameterized.expand(
+    [
+        ("mid agent loop", [text_message("user", "q"), tool_call_message(), text_message("tool", "result")]),
+        ("assistant prefill", [text_message("user", "q"), text_message("assistant", "{")]),
+    ]
+)
+def test_user_message_before_the_last_assistant_message_still_anchors(
+    _name: str, tail: list[contracts.TraceMessage]
+) -> None:
+    first = reading(
+        at_node("gen-1", SYSTEM_PROMPT, text_message("user", "earlier"), text_message("assistant", "ok"), *tail)
+    )
+
+    sides = sides_of(first=first, latest=first)
+
+    assert sides.input.value == at_node("gen-1", *tail)
+
+
+def test_state_messages_input_wins_with_json_output() -> None:
+    state = reading(conversation(*HISTORY, text_message("user", "from state")), json_side({"answer": 1}))
+    first = reading(at_node("gen-1", text_message("user", "refund?")))
+    latest = reading(None, at_node("gen-2", text_message("assistant", "gen answer")))
+
+    sides = sides_of(state=state, first=first, latest=latest)
+
+    assert sides.input == state.input
+    assert sides.output == latest.output

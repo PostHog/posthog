@@ -1,5 +1,5 @@
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Final, Self
 
 from posthog.dataclasses import frozen
@@ -84,6 +84,34 @@ class Turn:
         )
 
 
+@frozen
+class TurnSides:
+    input: StepSide
+    output: StepSide
+
+    @classmethod
+    def of(
+        cls,
+        *,
+        state: TurnStep | None,
+        first_generation: TurnStep | None,
+        latest_generation_input: StepSide | None,
+        latest_generation: TurnStep | None,
+    ) -> Self:
+        """The input and output a turn shows: what its trace added, not the history every generation carries."""
+        output_source = latest_generation or first_generation
+        return cls(
+            input=_conversation_or(
+                state.input if state else None,
+                lambda: _added_input(first_generation.input if first_generation else None, latest_generation_input),
+            ),
+            output=_conversation_or(
+                state.output if state else None,
+                lambda: output_source.output if output_source else _NOTHING_READ,
+            ),
+        )
+
+
 def readable_tail(items: Sequence[Value], over_caps: Sequence[bool]) -> Side[Value]:
     """The items after the last one over the size cap, flagged by the matching entry of `over_caps`.
 
@@ -104,6 +132,63 @@ def preview(side: TurnSide, limit: int = PREVIEW_MAX_CHARS) -> str | None:
 
 def missing_reason(side: TurnSide) -> contracts.TracePreviewMissingReason | None:
     return side.reason if isinstance(side, Unreadable) else None
+
+
+_NOTHING_READ: Final[StepSide] = Side(value=None, unread=None)
+
+
+def _conversation_or(state_side: StepSide | None, fallback: Callable[[], StepSide]) -> StepSide:
+    if state_side is not None and isinstance(state_side.value, contracts.TraceMessagesSide):
+        return state_side
+    return fallback()
+
+
+def _added_input(first: StepSide | None, latest: StepSide | None) -> StepSide:
+    if first is None:
+        return latest or _NOTHING_READ
+    if not isinstance(first.value, contracts.TraceMessagesSide):
+        return first
+    anchor = _anchor(first.value.messages)
+    if not anchor:
+        return first
+    if latest is not None and isinstance(latest.value, contracts.TraceMessagesSide):
+        start = _last_run_start(latest.value.messages, anchor)
+        if start is not None:
+            after = latest.value.messages[start + len(anchor) :]
+            return Side(value=_messages([*anchor, *after]), unread=latest.unread or first.unread)
+    return Side(value=_messages(anchor), unread=first.unread)
+
+
+def _messages(messages: list[contracts.TraceMessage]) -> contracts.TraceMessagesSide:
+    return contracts.TraceMessagesSide(kind="messages", messages=messages)
+
+
+def _anchor(messages: list[contracts.TraceMessage]) -> list[contracts.TraceMessage]:
+    """The first user message after the last assistant message, and everything after it.
+
+    With no user message after the last assistant message (a trace that starts mid agent loop, or an assistant
+    prefill), the last user message and everything after it."""
+    after_assistant = next((i + 1 for i in reversed(range(len(messages))) if messages[i].role == "assistant"), 0)
+    first_user = next((i for i in range(after_assistant, len(messages)) if messages[i].role == "user"), None)
+    if first_user is None:
+        first_user = next((i for i in reversed(range(len(messages))) if messages[i].role == "user"), None)
+    return [] if first_user is None else messages[first_user:]
+
+
+def _last_run_start(messages: list[contracts.TraceMessage], run: list[contracts.TraceMessage]) -> int | None:
+    """Where `run` last appears in `messages`, comparing role and parts, since ids differ between generations."""
+    return next(
+        (
+            start
+            for start in reversed(range(len(messages) - len(run) + 1))
+            if all(_same_message(messages[start + offset], message) for offset, message in enumerate(run))
+        ),
+        None,
+    )
+
+
+def _same_message(a: contracts.TraceMessage, b: contracts.TraceMessage) -> bool:
+    return a.role == b.role and a.parts == b.parts
 
 
 def _side(
