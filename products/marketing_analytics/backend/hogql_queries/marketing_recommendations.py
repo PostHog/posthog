@@ -1656,7 +1656,7 @@ class _Recommender:
                 linkText="Ads",
             )
             shown = flagged[:POLICY_ADS_SHOWN]
-            headlines = Counter(ad.headline for ad in shown)
+            headlines = Counter(ad.headline for ad in flagged)
             fix = tuple(_policy_fix(ad, headlines[ad.headline] > 1) for ad in shown)
             # Some affected ads come without findings, so the count comes from the approval totals.
             if (others := disapproved + limited - len(shown)) > 0:

@@ -63,6 +63,8 @@ class GoogleAdsSessions:
 
 
 ROW_LIMIT = 50000
+# Steps name a few flagged ads per campaign. The rest only add rows, and some carry no finding worth naming.
+FLAGGED_ADS_PER_CAMPAIGN = 20
 PLAIN_AD_TEXT_FIELDS = (
     "ad_group_ad_ad_responsive_search_ad_path1",
     "ad_group_ad_ad_responsive_search_ad_path2",
@@ -649,11 +651,13 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         status = self._field(source.adTable, "ad_group_ad_policy_summary_approval_status")
         ad_id = self._field(source.adTable, "ad_group_ad_ad_id")
         rows = self._select(
-            """
-            SELECT toString(campaign_id), toString({ad_id}), {headlines}, {plain}, {policy_topics}
-            FROM {table}
-            WHERE ad_group_ad_status = 'ENABLED' AND ({status} = {disapproved} OR has({limited}, {status}))
-            ORDER BY campaign_id, {status} != {disapproved}, {ad_id}
+            f"""
+            SELECT toString(campaign_id), toString({{ad_id}}), {{headlines}}, {{plain}}, {{policy_topics}}
+            FROM {{table}}
+            WHERE ad_group_ad_status = 'ENABLED' AND ({{status}} = {{disapproved}} OR has({{limited}}, {{status}}))
+            ORDER BY campaign_id, {{status}} != {{disapproved}}, {{ad_id}}
+            LIMIT {FLAGGED_ADS_PER_CAMPAIGN} BY campaign_id
+            LIMIT {ROW_LIMIT}
             """,
             source.adTable,
             status=status,

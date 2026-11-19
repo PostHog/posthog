@@ -803,16 +803,22 @@ class TestMarketingRecommendations(SimpleTestCase):
                 [GENERIC_POLICY_FIX],
             ),
             (
-                "shared_headline_names_each_ad_by_id",
-                (2, 0),
-                ((TRADEMARK,), (TRADEMARK,)),
-                "2 ads are disapproved by Google policy, which cuts the campaign's reach.",
+                "headline_shared_with_an_ad_beyond_the_shown_ones",
+                (4, 0),
+                tuple((TRADEMARK,) for _ in range(4)),
+                "4 ads are disapproved by Google policy, which cuts the campaign's reach.",
                 [
-                    f'The ad "Acme Analytics" with ID {i} breaks the policy "Trademarks in ad text" '
-                    '(flagged text: "Acme", "Acme Pro").'
-                    for i in range(2)
+                    'The ad "Acme Analytics" with ID 0 breaks the policy "Trademarks in ad text" '
+                    '(flagged text: "Acme", "Acme Pro").',
+                    *(
+                        f'The ad "Ad {i}" breaks the policy "Trademarks in ad text" (flagged text: "Acme", "Acme Pro").'
+                        for i in (1, 2)
+                    ),
+                    "Filter Ads by the status Disapproved or Eligible (limited) to find 1 more ad. "
+                    "Hover the status of each ad to see which policy it breaks.",
                 ],
-                "Acme Analytics",
+                ("Acme Analytics", "Ad 1", "Ad 2", "Acme Analytics"),
+                ["0", "Ad 1", "Ad 2"],
             ),
             (
                 "more_ads_than_shown_including_ads_without_findings",
@@ -837,7 +843,8 @@ class TestMarketingRecommendations(SimpleTestCase):
         topics_by_ad: tuple[tuple[PolicyTopic, ...], ...],
         expected_reason: str,
         expected_fixes: list[str],
-        shared_headline: str | None = None,
+        headlines: tuple[str, ...] | None = None,
+        expected_copy: list[str] | None = None,
     ) -> None:
         campaign = _campaign(status_reasons=("HAS_ADS_DISAPPROVED",))
         policy_ads: tuple[PolicyAds, ...] = (PolicyAds(campaign_id="other", disapproved=3, limited=0),)
@@ -845,7 +852,12 @@ class TestMarketingRecommendations(SimpleTestCase):
             policy_ads += (PolicyAds(campaign_id="c1", disapproved=totals[0], limited=totals[1]),)
         flagged_ads = (
             *(
-                FlaggedAd(campaign_id="c1", ad_id=str(i), headline=shared_headline or f"Ad {i}", policy_topics=topics)
+                FlaggedAd(
+                    campaign_id="c1",
+                    ad_id=str(i),
+                    headline=headlines[i] if headlines else f"Ad {i}",
+                    policy_topics=topics,
+                )
                 for i, topics in enumerate(topics_by_ad)
             ),
             FlaggedAd(campaign_id="other", ad_id="9", headline="Other campaign", policy_topics=(TRADEMARK,)),
@@ -862,7 +874,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         named = [fix for fix in expected_fixes if fix.startswith('The ad "')]
         assert [step.copyValue for step in steps if step.copyValue] == [
             "Search",
-            *(str(i) if shared_headline else f"Ad {i}" for i in range(len(named))),
+            *(expected_copy if expected_copy is not None else [f"Ad {i}" for i in range(len(named))]),
         ]
 
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
