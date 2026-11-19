@@ -667,11 +667,18 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     // hasUnsavedChanges comparison against the seeded local reducers never settles to false.
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
 
+    let serverTicket: Ticket
+    const patchServerTicket = (_projectId: string, _id: string, data: Partial<Ticket>): Promise<Ticket> => {
+        serverTicket = { ...serverTicket, ...data }
+        return Promise.resolve(serverTicket)
+    }
+
     beforeEach(async () => {
         initKeaTests()
         createResponseMock.mockReset().mockResolvedValue(commentResponse(makeSupportComment()))
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
-        ticketUpdateMock.mockReset()
+        serverTicket = loadedTicket()
+        ticketUpdateMock.mockReset().mockImplementation(patchServerTicket)
         // A non-'new', dash-free id: sendMessage early-returns on 'new' and loadTicket
         // treats ids containing '-' as UUIDs to redirect.
         logic = supportTicketSceneLogic({ id: 42 })
@@ -690,9 +697,6 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         ['keeps a role assignee', { type: 'role', id: 'role-1' }, 'on_hold'],
         ['keeps a user assignee', { type: 'user', id: 999 }, 'pending'],
     ])('%s', async (_name, presetAssignee, statusAfterSend) => {
-        ticketUpdateMock.mockImplementation((_projectId: string, _id: string, data: Record<string, unknown>) =>
-            Promise.resolve({ ...loadedTicket(), ...data })
-        )
         if (presetAssignee) {
             logic.actions.setAssignee(presetAssignee)
             await expectLogic(logic).toFinishAllListeners()
@@ -702,11 +706,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
             logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
         }).toFinishAllListeners()
 
-        expect(ticketUpdateMock).toHaveBeenCalledWith(
-            expect.any(String),
-            '42',
-            expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
-        )
+        expect(serverTicket).toMatchObject({ status: statusAfterSend, assignee: presetAssignee })
         expect(logic.values.status).toBe(statusAfterSend)
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
@@ -735,39 +735,42 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(logic.values.unsavedTicketChanges).toEqual(expected)
     })
 
-    // Each sidebar edit autosaves. Overlapping saves must serialize: the second PATCH waits for the
-    // first and carries the newest local edits, and the first (stale) response must not clobber them.
-    it('serializes overlapping autosaves so the newest status wins', async () => {
-        let resolveFirst: (() => void) | undefined
-        ticketUpdateMock.mockImplementationOnce(
-            () =>
-                new Promise((resolve) => {
-                    resolveFirst = () => resolve({ ...loadedTicket(), status: 'resolved' })
-                })
-        )
-        ticketUpdateMock.mockImplementationOnce((_projectId: string, _id: string, data: Record<string, unknown>) =>
-            Promise.resolve({ ...loadedTicket(), ...data })
-        )
+    test.each<[TicketStatus]>([['pending'], ['open']])(
+        'serializes overlapping autosaves so the newest status (%s) wins',
+        async (finalStatus) => {
+            let releaseFirst: (() => void) | undefined
+            ticketUpdateMock.mockImplementationOnce(
+                (projectId: string, id: string, data: Partial<Ticket>) =>
+                    new Promise((resolve) => {
+                        releaseFirst = () => resolve(patchServerTicket(projectId, id, data))
+                    })
+            )
 
-        logic.actions.setStatus('resolved')
-        logic.actions.setStatus('pending')
+            logic.actions.setStatus('resolved')
+            logic.actions.setStatus(finalStatus)
 
-        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
-        resolveFirst?.()
-        await expectLogic(logic).toFinishAllListeners()
+            expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+            releaseFirst?.()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
-        expect(ticketUpdateMock).toHaveBeenLastCalledWith(
-            expect.any(String),
-            '42',
-            expect.objectContaining({ status: 'pending' })
-        )
-        expect(logic.values.status).toBe('pending')
-        expect(logic.values.ticketUpdating).toBe(false)
+            expect(serverTicket.status).toBe(finalStatus)
+            expect(logic.values.status).toBe(finalStatus)
+            expect(logic.values.ticketUpdating).toBe(false)
+        }
+    )
+
+    it('keeps a teammate assignee when this page saves a different field', async () => {
+        const teammateAssignee: TicketAssignee = { type: 'role', id: 'role-1' }
+        serverTicket = { ...serverTicket, assignee: teammateAssignee }
+
+        await expectLogic(logic, () => {
+            logic.actions.setPriority('high')
+        }).toFinishAllListeners()
+
+        expect(serverTicket).toMatchObject({ priority: 'high', assignee: teammateAssignee })
+        expect(logic.values.assignee).toEqual(teammateAssignee)
     })
 
-    // Nothing retries a failed autosave, so the field must fall back to the saved value
-    // instead of showing an edit the server never stored.
     it('rolls a field back when its autosave fails', async () => {
         ticketUpdateMock.mockRejectedValue(new Error('request failed'))
 
