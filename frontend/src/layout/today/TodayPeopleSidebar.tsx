@@ -34,6 +34,7 @@ export function TodayPeopleSidebar(): JSX.Element {
         searchQuery,
     } = useValues(todayPeopleLogic)
     const { toggleSection, setSearchQuery } = useActions(todayPeopleLogic)
+    const { canReorder } = useValues(sidebarPinsLogic)
     const { movePinned } = useActions(sidebarPinsLogic)
     const { moveRecent } = useActions(todayRecentsLogic)
 
@@ -82,7 +83,7 @@ export function TodayPeopleSidebar(): JSX.Element {
                         isSearching ? undefined : (pin, overPin) => movePinned(pin.shortcutId, overPin.shortcutId)
                     }
                     onMoveRecent={
-                        isSearching
+                        !canReorder || isSearching
                             ? undefined
                             : (recent, overRecent) => moveRecent('people', recent.href, overRecent.href)
                     }

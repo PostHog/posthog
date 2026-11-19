@@ -24,6 +24,7 @@ export function TodayMonitorSidebar(): JSX.Element {
         searchQuery,
     } = useValues(todayMonitorLogic)
     const { toggleSection, setSearchQuery } = useActions(todayMonitorLogic)
+    const { canReorder } = useValues(sidebarPinsLogic)
     const { movePinned } = useActions(sidebarPinsLogic)
     const { moveRecent } = useActions(todayRecentsLogic)
 
@@ -80,7 +81,7 @@ export function TodayMonitorSidebar(): JSX.Element {
                         isSearching ? undefined : (pin, overPin) => movePinned(pin.shortcutId, overPin.shortcutId)
                     }
                     onMoveRecent={
-                        isSearching
+                        !canReorder || isSearching
                             ? undefined
                             : (recent, overRecent) => moveRecent('monitor', recent.href, overRecent.href)
                     }

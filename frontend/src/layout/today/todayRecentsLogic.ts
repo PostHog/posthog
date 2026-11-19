@@ -18,10 +18,10 @@ import {
     TodaySortableRecentPane,
     StoredReleaseRecent,
     addTodayRecent,
-    applyRecentOrder,
     isPeopleRecent,
     recentPane,
 } from './todayRecents'
+import { applySavedOrder, movedKeys } from './todaySavedOrder'
 import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
 function rowsByName<T extends TodayRecent>(recents: T[]): T[] {
@@ -178,25 +178,26 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
         peopleRecentRows: [
             (s) => [s.peopleRecents, s.recentOrder],
             (recents: TodayPeopleRecent[], recentOrder: Record<TodaySortableRecentPane, string[]>) =>
-                applyRecentOrder(rowsByName(recents), recentOrder.people),
+                applySavedOrder(rowsByName(recents), recentOrder.people, (recent) => recent.href),
         ],
         monitorRecentRows: [
             (s) => [s.monitorRecents, s.recentOrder],
             (recents: TodayMonitorRecent[], recentOrder: Record<TodaySortableRecentPane, string[]>) =>
-                applyRecentOrder(rowsByName(recents), recentOrder.monitor),
+                applySavedOrder(rowsByName(recents), recentOrder.monitor, (recent) => recent.href),
         ],
     }),
     listeners(({ actions, values }) => ({
         moveRecent: ({ pane, href, overHref }) => {
             // A pane shows only some of its recents, so the move happens in the full list to keep the others in place.
             const rows = pane === 'people' ? values.peopleRecentRows : values.monitorRecentRows
-            const hrefs = rows.map((recent) => recent.href)
-            const from = hrefs.indexOf(href)
-            const to = hrefs.indexOf(overHref)
-            if (from < 0 || to < 0 || from === to) {
+            const hrefs = movedKeys(
+                rows.map((recent) => recent.href),
+                href,
+                overHref
+            )
+            if (!hrefs) {
                 return
             }
-            hrefs.splice(to, 0, ...hrefs.splice(from, 1))
             actions.setRecentOrder(pane, hrefs)
             posthog.capture('today recent reordered', { pane })
         },

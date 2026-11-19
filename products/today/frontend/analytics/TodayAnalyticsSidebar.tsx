@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
-import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { pinKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { productPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
@@ -44,10 +44,10 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
  */
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
-    const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
+    const { toggleSection, setSearchQuery, moveRecent } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
     const { showPinHint } = useActions(analyticsPinnedLogic)
-    const { shortcutDataLoading } = useValues(sidebarPinsLogic)
+    const { shortcutDataLoading, canReorder } = useValues(sidebarPinsLogic)
     const { movePinned } = useActions(sidebarPinsLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
@@ -164,10 +164,17 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             sections={{ isOpen: isSectionOpen, toggle: toggleSection, dataAttrPrefix: 'analytics-section' }}
             navigation={{
                 lists,
-                reorder: {
-                    pinned: (fromIndex, toIndex) =>
-                        movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
-                },
+                reorder: canReorder
+                    ? {
+                          pinned: (fromIndex, toIndex) =>
+                              movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
+                          recents: (fromIndex, toIndex) =>
+                              moveRecent(
+                                  pinKey(recentAnalytics[fromIndex].type, recentAnalytics[fromIndex].id),
+                                  pinKey(recentAnalytics[toIndex].type, recentAnalytics[toIndex].id)
+                              ),
+                      }
+                    : undefined,
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
                     return target

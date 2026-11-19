@@ -3,10 +3,11 @@ import { Fragment } from 'react'
 
 import { Button, Skeleton, Text, TooltipProvider, cn } from '@posthog/quill'
 
-import { sessionPinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { sessionPinKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection, SidebarSectionProps } from '~/layout/today/sidebar/SidebarSection'
+import { SortableSidebarList } from '~/layout/today/sidebar/SortableSidebarList'
 
 import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
@@ -52,8 +53,10 @@ export function TodaySpacesSidebar(): JSX.Element {
         setRecentQuery,
         clearRecentSearchAndFilters,
         setPhoneSection,
+        movePinnedSession,
     } = useActions(todaySpacesLogic)
     const { phoneLayout } = useValues(todayShellLogic)
+    const { canReorder } = useValues(sidebarPinsLogic)
     const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
     const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
@@ -172,11 +175,25 @@ export function TodaySpacesSidebar(): JSX.Element {
         />
     )
 
-    const pinnedRows = shownPinnedItems.map((item) => (
+    const renderPinnedRow = (item: TodayWorkItem): JSX.Element => (
         <SidebarRowEnter key={`${item.kind}-${item.id}`} pinKey={sessionPinKey(item.id)}>
             {renderItem(item, 'pinned', 'today-pinned-session', true)}
         </SidebarRowEnter>
-    ))
+    )
+    // A search hides pinned chats, so a drop there has no clear place in the full order.
+    // On a phone, a drag on a row must scroll the list.
+    const pinnedRows =
+        canReorder && !phoneLayout && !recentQuery.trim() && shownPinnedItems.length > 1 ? (
+            <SortableSidebarList
+                rows={shownPinnedItems.map((item) => ({ value: item.id, item }))}
+                renderRow={(row) => renderPinnedRow(row.item)}
+                onReorder={(fromIndex, toIndex) =>
+                    movePinnedSession(shownPinnedItems[fromIndex].id, shownPinnedItems[toIndex].id)
+                }
+            />
+        ) : (
+            shownPinnedItems.map(renderPinnedRow)
+        )
 
     const recentBody =
         recentState === 'loading' ? (

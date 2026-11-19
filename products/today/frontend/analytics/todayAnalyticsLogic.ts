@@ -18,6 +18,7 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { pinKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { newestByName } from '~/layout/today/todayNewestByName'
+import { applySavedOrder, movedKeys } from '~/layout/today/todaySavedOrder'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -43,6 +44,7 @@ export interface todayAnalyticsLogicValues {
     newFolderDialogOpen: boolean
     newFolderParent: string | null
     recentAnalytics: AnalyticsItem[]
+    recentOrder: string[]
     savedRecentAnalytics: AnalyticsItem[]
     searchQuery: string
 }
@@ -54,6 +56,16 @@ export interface todayAnalyticsLogicActions {
     } // projectTreeDataLogic
     createFolder: (name: string) => {
         name: string
+    }
+    moveRecent: (
+        key: string,
+        overKey: string
+    ) => {
+        key: string
+        overKey: string
+    }
+    setRecentOrder: (keys: string[]) => {
+        keys: string[]
     }
     folderCreated: () => {
         value: true
@@ -89,7 +101,8 @@ export interface todayAnalyticsLogicMeta {
             recentsHasLoaded: boolean,
             freshRecentAnalytics: AnalyticsItem[],
             savedRecentAnalytics: AnalyticsItem[],
-            pinnedShortcutIds: Map<string, string>
+            pinnedShortcutIds: Map<string, string>,
+            recentOrder: string[]
         ) => AnalyticsItem[]
     }
 }
@@ -126,6 +139,8 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         createFolder: (name: string) => ({ name }),
         folderCreated: true,
         folderCreationFailed: true,
+        moveRecent: (key: string, overKey: string) => ({ key, overKey }),
+        setRecentOrder: (keys: string[]) => ({ keys }),
     }),
     reducers({
         // pinned: storage key for the saved Recents list. Renaming it makes everyone's Recents pop in once more.
@@ -134,6 +149,8 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             TODAY_USER_PERSIST_OPTIONS,
             { storeRecentAnalytics: (_, { items }) => items },
         ],
+        // The keys of the Recents, in the order a person dragged them into.
+        recentOrder: [[] as string[], TODAY_USER_PERSIST_OPTIONS, { setRecentOrder: (_, { keys }) => keys }],
         searchQuery: ['', { setSearchQuery: (_, { searchQuery }) => searchQuery }],
         // pinned: storage key for the persisted sections. Renaming it reopens everyone's sections.
         collapsedSections: [
@@ -191,17 +208,41 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         ],
         // The saved list covers only the wait for the shared list. Once it has loaded, even empty, it is the answer.
         recentAnalytics: [
-            (s) => [s.recentsHasLoaded, s.freshRecentAnalytics, s.savedRecentAnalytics, s.pinnedShortcutIds],
+            (s) => [
+                s.recentsHasLoaded,
+                s.freshRecentAnalytics,
+                s.savedRecentAnalytics,
+                s.pinnedShortcutIds,
+                s.recentOrder,
+            ],
             (
                 recentsHasLoaded: boolean,
                 fresh: AnalyticsItem[],
                 saved: AnalyticsItem[],
-                pinnedShortcutIds: Map<string, string>
+                pinnedShortcutIds: Map<string, string>,
+                recentOrder: string[]
             ): AnalyticsItem[] =>
-                recentsHasLoaded ? fresh : saved.filter((item) => !pinnedShortcutIds.has(pinKey(item.type, item.id))),
+                applySavedOrder(
+                    recentsHasLoaded
+                        ? fresh
+                        : saved.filter((item) => !pinnedShortcutIds.has(pinKey(item.type, item.id))),
+                    recentOrder,
+                    (item) => pinKey(item.type, item.id)
+                ),
         ],
     }),
     listeners(({ actions, values }) => ({
+        moveRecent: ({ key, overKey }) => {
+            const keys = movedKeys(
+                values.recentAnalytics.map((item) => pinKey(item.type, item.id)),
+                key,
+                overKey
+            )
+            if (keys) {
+                actions.setRecentOrder(keys)
+                posthog.capture('today recent reordered', { pane: 'analytics' })
+            }
+        },
         toggleSection: ({ section }) => {
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
             posthog.capture('analytics section toggled', {
