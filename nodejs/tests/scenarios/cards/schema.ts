@@ -67,6 +67,10 @@ export const Card = z
                     path: ['ramp'],
                 }
             )
+            .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp ?? []).every((step) => durationMs(step.for) > 0), {
+                message: 'every step of a ramp that stops on a break must last longer than 0ms',
+                path: ['ramp'],
+            })
             .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp?.length ?? 0) >= 2, {
                 message: 'stopOnBreak needs a ramp of at least two steps',
                 path: ['stopOnBreak'],
