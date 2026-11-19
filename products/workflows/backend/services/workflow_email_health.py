@@ -181,15 +181,24 @@ class PauseDecision:
             "Spam complaints" if self.threshold.signal == "complaint" else "Emails to addresses that do not exist"
         )
         if self.project is not None:
+            outcome = (
+                "drew a spam complaint"
+                if self.threshold.signal == "complaint"
+                else "went to an address that does not exist"
+            )
             return (
                 f"{signal_text} reached {_format_rate(self.project.rate)} of the {self.project.sent:,} emails "
-                f"this project's workflows sent in {self.threshold.window_description}. This workflow's rate was "
-                f"{_format_rate(self.rate)} of its {self.sent:,} emails."
+                f"this project's workflows sent in {self.threshold.window_description}. This workflow sent "
+                f"{self.sent:,} of those emails, and {self.events:,} of them {outcome}."
             )
         return (
             f"{signal_text} reached {_format_rate(self.rate)} of the {self.sent:,} emails this workflow "
             f"sent in {self.threshold.window_description}."
         )
+
+
+def _shown_percent(rate: float) -> float:
+    return float(_format_rate(rate).removesuffix("%"))
 
 
 def _format_rate(rate: float) -> str:
@@ -404,7 +413,7 @@ def _first_breach(
 
 def _below_pause_rate(warning: PauseDecision) -> bool:
     shown_rate = warning.project.rate if warning.project is not None else warning.rate
-    return round(shown_rate, 4) < round(_pause_rate_for(warning.threshold), 4)
+    return _shown_percent(shown_rate) < _shown_percent(_pause_rate_for(warning.threshold))
 
 
 def _project_counts(judged: dict[str, tuple[HogFlow, JudgedCounts]]) -> JudgedCounts:
@@ -416,7 +425,10 @@ def _project_counts(judged: dict[str, tuple[HogFlow, JudgedCounts]]) -> JudgedCo
             bounced_hard=sum(item.counts.bounced_hard for item in counted),
             complained=sum(item.counts.complained for item in counted),
         ),
-        earlier_sent=sum(item.earlier_sent for item in counted if item.counts.bounced_hard),
+        earlier_sent=sum(
+            max(item.counts.sent, item.earlier_sent) if item.counts.bounced_hard else item.counts.sent
+            for item in counted
+        ),
     )
 
 

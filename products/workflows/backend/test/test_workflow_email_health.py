@@ -1,3 +1,5 @@
+import os
+import importlib
 from datetime import datetime, timedelta
 
 import pytest
@@ -10,7 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from posthog.settings.utils import get_uuid_set
+from posthog.settings import ses as ses_settings
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -278,7 +280,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_reason == (
             "Emails to addresses that do not exist reached 14.44% of the 450 emails this project's workflows "
-            "sent in the last hour. This workflow's rate was 20% of its 150 emails."
+            "sent in the last hour. This workflow sent 150 of those emails, and 30 of them went to an address "
+            "that does not exist."
         )
         under_the_rate.refresh_from_db()
         assert under_the_rate.email_sending_paused_at is None
@@ -322,18 +325,25 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("own_rate_past_the_pause_line", [(0, 2, 600, 0, 0), (0, 1, 300, 0, 40)], 0.01, []),
-            ("rate_that_rounds_to_the_pause_line", [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)], 0.01, []),
+            ("own_rate_past_the_pause_line", [(0, 2, 600, 0, 0), (0, 1, 300, 0, 40)], {}, []),
+            ("project_rate_past_the_pause_line", [(0, 2, 450, 0, 0), (0, 1, 150, 0, 30), (1, 1, 150, 0, 10)], {}, []),
+            ("rate_that_rounds_to_the_pause_line", [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)], {}, []),
             (
                 "rate_that_rounds_to_an_unrounded_pause_line",
                 [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)],
-                0.01004,
+                {"WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_1H": 0.01004},
+                [],
+            ),
+            (
+                "rate_that_shows_as_a_pause_line_rounded_half_up",
+                [(0, 1, 10_000, 30, 0)],
+                {"WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_24H": 0.00305},
                 [],
             ),
             (
                 "complaints_past_the_line_fall_through_to_bounces",
                 [(0, 2, 550, 0, 0), (0, 1, 300, 5, 28)],
-                0.01,
+                {},
                 [
                     (
                         0,
@@ -346,12 +356,13 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             (
                 "project_rate_under_the_line",
                 [(0, 1, 100, 0, 15), (1, 1, 150, 0, 6)],
-                0.01,
+                {},
                 [
                     (
                         0,
                         "Emails to addresses that do not exist reached 8.4% of the 250 emails this project's "
-                        "workflows sent in the last hour. This workflow's rate was 15% of its 100 emails.",
+                        "workflows sent in the last hour. This workflow sent 100 of those emails, and 15 of them "
+                        "went to an address that does not exist.",
                         "10%",
                     )
                 ],
@@ -362,7 +373,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         seeds: list[tuple[int, int, int, int, int]],
-        complaint_pause_rate: float,
+        pause_rates: dict[str, float],
         warned: list[tuple[int, str, str]],
     ):
         flows = [self.flow, HogFlow.objects.create(name="Second blast", team=self.team)]
@@ -375,7 +386,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 at=self.now - timedelta(hours=hours_ago),
             )
 
-        with override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_1H=complaint_pause_rate):
+        with override_settings(**pause_rates):
             self._sweep()
 
         flow_ids = [str(flow.id) for flow in flows]
@@ -413,6 +424,12 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             (
                 "project_breach_after_a_bouncing_sibling_sent_a_large_batch",
                 [(0, 1, 150, 30), (1, 1, 150, 30), (2, 1, 1, 1), (2, 2, 3000, 0)],
+                None,
+                [],
+            ),
+            (
+                "project_breach_from_late_bounces_beside_a_clean_sibling",
+                [(0, 1, 150, 15), (1, 1, 0, 20), (1, 2, 300, 0), (2, 1, 150, 0), (2, 2, 1000, 0)],
                 None,
                 [],
             ),
@@ -633,9 +650,17 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     ],
 )
 def test_exempt_workflow_ids_from_the_environment_match_stored_ids(raw: str, expected: frozenset[str]):
-    assert get_uuid_set(raw) == expected
+    try:
+        with patch.dict(os.environ, {"WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS": raw}):
+            assert importlib.reload(ses_settings).WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS == expected
+    finally:
+        importlib.reload(ses_settings)
 
 
 def test_a_malformed_exempt_workflow_id_stops_startup():
-    with pytest.raises(ValueError):
-        get_uuid_set("not-a-workflow-id")
+    try:
+        with patch.dict(os.environ, {"WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS": "not-a-workflow-id"}):
+            with pytest.raises(ValueError):
+                importlib.reload(ses_settings)
+    finally:
+        importlib.reload(ses_settings)
