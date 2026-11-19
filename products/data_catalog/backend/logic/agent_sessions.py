@@ -44,6 +44,7 @@ FIRST_INTENTS = 3
 MAX_INTENTS = 12
 MAX_INTENT_CHARS = 300
 RUN_TOOL = "data-catalog-metric-run"
+LIST_TOOL = "metric-list"
 SQL_TOOL = "execute-sql"
 # A session that called none of these tools computed no number, so it says nothing about catalog coverage.
 DATA_TOOLS = (RUN_TOOL, SQL_TOOL, "insight-query", "dashboard-insights-run")
@@ -498,6 +499,7 @@ FROM (
                                                 coalesce(
                                                     nullIf(toString(properties.exec_learn_target), ''),
                                                     nullIf(toString(properties.exec_search_query), ''),
+                                                    nullIf(toString(properties.$mcp_exec_target_tool), ''),
                                                     ''
                                                 ),
                                                 1,

@@ -75,6 +75,8 @@ def capture_effectiveness(result: TeamEffectiveness, team: Team) -> None:
                 "pieces_read": result.pieces_read,
                 "stitch_failures": result.stitch_failures,
                 "unread_sessions": result.unread_sessions,
+                "scheduled_sessions": result.scheduled_sessions,
+                "unclear_sessions": result.unclear_sessions,
                 "analysis_sessions": result.analysis_sessions,
                 "unchecked_queries": result.unchecked_queries,
                 "unchecked_sessions": result.unchecked_sessions,

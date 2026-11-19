@@ -2,9 +2,10 @@
 
 Each analysis session lands in one of five outcomes: used, adapted, missed, asked with no match, and
 did not ask. Every analysis session should ask the catalog, so a session that did not ask counts even
-when no metric fits. Its asset kind says whether a metric existed. Each row also says what the session
-searched: the metric catalog, only table descriptions, or nothing. Only a search of the metric catalog
-counts as asking.
+when no metric fits. Only a session that asked the catalog at some point gets its queries matched, so a
+`did_not_ask` row names a metric only when the session queried before its first catalog call. Each row
+also says what the session searched: the metric catalog, only table descriptions, or nothing. Only a
+search of the metric catalog counts as asking.
 The results go to PostHog's own project as events, so that staff can compare teams. They never go
 into a usage snapshot, because the usage tab and its API show snapshots to the team.
 """
@@ -36,6 +37,7 @@ from ..models import Metric
 from .agent_sessions import (
     CATALOG_CALL_LOOKBACK,
     DATA_TOOL_PREFIX,
+    LIST_TOOL,
     RUN_TOOL,
     SQL_TOOL,
     Piece,
@@ -73,7 +75,7 @@ from .usage_adjusted import (
     read_metric_first,
     select_for_judging,
 )
-from .usage_judge import JUDGE_MODEL, JudgeVerdict, MetricBrief
+from .usage_judge import JUDGE_MAX_TOKENS, JUDGE_MODEL, JudgeVerdict, MetricBrief
 from .usage_topics import SessionLookups, decode_nested_json, fetch_session_lookups, merge_lookups
 
 logger = structlog.get_logger(__name__)
@@ -98,22 +100,22 @@ _CATALOG_END_TAG = "</governed-metric-catalog>"
 _FULL_LISTING_MARKER = '"next":null'
 _PAGING_ARGUMENTS = frozenset({"limit", "offset"})
 EXAMPLES_PER_OUTCOME = 15
+# A conversation can end on a catalog listing with no query, and that is still a conversation that asked.
+_LIST_ONLY = frozenset({LIST_TOOL})
 # A conversation that only reads or runs saved insights and dashboards reuses their definitions, so the
 # catalog check does not apply to it. The usage scan still counts these conversations.
-_LIST_TOOL = "metric-list"
-# A conversation can end on a catalog listing with no query, and that is still a conversation that asked.
-_LIST_ONLY = frozenset({_LIST_TOOL})
-_COVERAGE_TOOLS = frozenset({RUN_TOOL, SQL_TOOL, _LIST_TOOL})
+_COVERAGE_TOOLS = frozenset({RUN_TOOL, SQL_TOOL, LIST_TOOL})
 
 
 def _queries_fresh_data(window_tools: frozenset[str]) -> bool:
     return any(tool in _COVERAGE_TOOLS or tool.startswith(DATA_TOOL_PREFIX) for tool in window_tools)
 
 
-def _computes_fresh_measure(session_id: str, window_tools: frozenset[str], queried_sessions: set[str]) -> bool:
-    """`execute-sql` also runs metadata searches, and they compute no measure, so that tool needs a real query."""
+def _counts_for_analysis(session_id: str, window_tools: frozenset[str], queried_sessions: set[str]) -> bool:
+    """A session counts when it computed a measure or listed the catalog. `execute-sql` also runs metadata
+    searches, and they compute no measure, so that tool needs a real query."""
     return session_id in queried_sessions or any(
-        tool in (RUN_TOOL, _LIST_TOOL) or tool.startswith(DATA_TOOL_PREFIX) for tool in window_tools
+        tool in (RUN_TOOL, LIST_TOOL) or tool.startswith(DATA_TOOL_PREFIX) for tool in window_tools
     )
 
 
@@ -144,7 +146,7 @@ SELECT
     ifNull(a.output_state, '') AS output
 FROM posthog.ai_events AS a
 WHERE a.event = '$ai_span'
-    AND a.span_name = 'metric-list'
+    AND a.span_name = {list_tool}
     AND a.timestamp >= {start}
     AND a.timestamp < {end}
     AND toString(a.properties.$mcp_project_uuid) = {project}
@@ -166,8 +168,6 @@ Decide one thing:
 - "description": true when a metadata search returned a table, column, or view with a filled description, that description fits what the main question measures, and the agent then used that table, column, or view. An empty description, shown as null, does not count. A table the agent used without that description does not count.
 
 Reply with JSON only: {{"description": true or false}}"""
-# The judge model thinks before it answers, and the thinking counts against max_tokens.
-_FIT_MAX_TOKENS = 4096
 
 
 class SessionOutcome(StrEnum):
@@ -295,7 +295,7 @@ async def judge_fit(client: AsyncAnthropic, question: str, lookups: SessionLooku
             prompt=_FIT_PROMPT.format(
                 question=neutralize(question), steps="\n---\n".join(neutralize(step) for step in lookups.steps)
             ),
-            max_tokens=_FIT_MAX_TOKENS,
+            max_tokens=JUDGE_MAX_TOKENS,
         )
         description = parsed["description"]
         if not isinstance(description, bool):
@@ -332,7 +332,10 @@ class TeamEffectiveness:
     chains_read: int = 0
     pieces_read: int = 0
     stitch_failures: int = 0
+    # A failed motive read or a failed classification.
     unread_sessions: int
+    scheduled_sessions: int = 0
+    unclear_sessions: int = 0
     analysis_sessions: int
     unchecked_queries: int
     unchecked_sessions: int
@@ -582,7 +585,10 @@ def fetch_listings(
         window_start,
         window_end,
         "DataCatalogEffectivenessListings",
-        placeholders={"traces": ast.Tuple(exprs=[ast.Constant(value=trace) for trace in traces])},
+        placeholders={
+            "traces": ast.Tuple(exprs=[ast.Constant(value=trace) for trace in traces]),
+            "list_tool": ast.Constant(value=LIST_TOOL),
+        },
     ):
         listings[trace_id].append(
             CatalogListing(trace_id=trace_id, occurred_at=occurred_at, arguments=arguments, output=output)
@@ -847,6 +853,8 @@ async def measure_team(
         needs: list[CatalogNeed] = await gather_each(
             (classify_motive(client, motive.motive) for _session, motive in kept), heartbeat
         )
+        if kept and all(need.failed for need in needs):
+            raise SessionReadsUnavailable(f"All {len(needs)} motive classifications failed.")
         read_analysis = {
             session.session_id: _AnalysisSession(session=session, question=motive.motive)
             for (session, motive), need in zip(kept, needs, strict=True)
@@ -857,7 +865,7 @@ async def measure_team(
         analysis = {
             session_id: member
             for session_id, member in read_analysis.items()
-            if _computes_fresh_measure(session_id, window_tools[session_id], queried_sessions)
+            if _counts_for_analysis(session_id, window_tools[session_id], queried_sessions)
         }
         session_ids = list(analysis)
         lookups = await _session_lookups(window, stitched, session_ids, heartbeat)
@@ -929,7 +937,9 @@ async def measure_team(
         chains_read=run.chains,
         pieces_read=run.pieces,
         stitch_failures=run.failed_calls,
-        unread_sessions=sum(motive.failed or motive.unclear for motive in motives) + sum(need.failed for need in needs),
+        unread_sessions=sum(motive.failed for motive in motives) + sum(need.failed for need in needs),
+        scheduled_sessions=sum(not motive.failed and motive.scheduled for motive in motives),
+        unclear_sessions=sum(not motive.failed and not motive.scheduled and motive.unclear for motive in motives),
         analysis_sessions=len(analysis),
         unchecked_queries=count_unchecked_queries(verdicts, selection.over_cap),
         unchecked_sessions=sum(verdict.failed for verdict in coverage_verdicts),
@@ -960,25 +970,18 @@ class CoverageUnavailable(Exception):
     pass
 
 
-def _queries_after_asking(activity: _AgentActivity) -> list[AgentQuery]:
-    """Only a query after a catalog call shows how the agent used what it found. A conversation that never
-    asked is `did_not_ask` whatever metrics existed, so its queries need no matching."""
-    first_ask = {
-        unit: catalog[0].occurred_at
-        for unit, calls in activity.calls_by_trace.items()
-        if (catalog := [call for call in calls if not call.searched_tables])
-    }
-    return [
-        query
-        for query in activity.queries
-        if query.trace_id in first_ask and query.occurred_at >= first_ask[query.trace_id]
-    ]
+def _queries_of_asking_sessions(activity: _AgentActivity) -> list[AgentQuery]:
+    """A conversation that never asked is `did_not_ask` whatever metrics existed, so its queries need no
+    matching. A conversation that asked keeps its queries from before the first catalog call too:
+    `fetch_outcome` makes such a query `did_not_ask`, so a metric that fit it does not read as no match."""
+    asked = {unit for unit, calls in activity.calls_by_trace.items() if any(not call.searched_tables for call in calls)}
+    return [query for query in activity.queries if query.trace_id in asked]
 
 
 def _candidate_groups(
     activity: _AgentActivity, catalog: _CatalogView, questions: Mapping[str, str]
 ) -> list[CandidateGroup]:
-    queries = _queries_after_asking(activity)
+    queries = _queries_of_asking_sessions(activity)
     # The fingerprint also nominates metrics the agent never saw, which shows where the catalog search missed.
     groups = merge_candidate_groups(
         build_candidate_groups(queries, catalog.index),
