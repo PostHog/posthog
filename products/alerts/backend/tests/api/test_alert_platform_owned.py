@@ -96,7 +96,7 @@ from products.alerts_platform.backend.facade.enums import HoldRelease, HoldRelea
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.discord.template_discord import template as template_discord
-from products.cdp.backend.templates.fixtures import template_pagerduty, template_webhook
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack, template_webhook
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
 from products.product_analytics.backend.facade.models import Insight
