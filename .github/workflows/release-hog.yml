@@ -1261,22 +1261,15 @@ jobs:
             - name: Ensure modern npm (OIDC support)
               run: npm install -g npm@11.6.4
 
-            # A plain request rather than the shared Slack action, so only this repository's code runs in a
-            # job that can publish.
             - name: Notify Slack - Publishing to npm
               if: needs.release.outputs.slack-ts != ''
               continue-on-error: true
-              env:
-                  SLACK_TOKEN: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  CHANNEL: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
-                  THREAD_TS: ${{ needs.release.outputs.slack-ts }}
-              run: |
-                  set -euo pipefail
-                  response=$(jq -nc --arg channel "$CHANNEL" --arg ts "$THREAD_TS" --arg text "Publishing hog $VERSION to npm. npm takes a few minutes to serve a new version, so the GitHub release, the manifest and Homebrew wait until \`npm install\` gets it." \
-                      '{channel: $channel, thread_ts: $ts, text: $text}' \
-                      | curl -fsS --max-time 30 -H "Authorization: Bearer $SLACK_TOKEN" \
-                          -H 'Content-Type: application/json; charset=utf-8' --data @- https://slack.com/api/chat.postMessage)
-                  jq -e '.ok' <<<"$response" >/dev/null || { echo "Slack refused the message: $(jq -r '.error' <<<"$response")"; exit 1; }
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: 'Publishing hog ${{ needs.release.outputs.version }} to npm. npm takes a few minutes to serve a new version, so the GitHub release, the manifest and Homebrew wait until `npm install` gets it.'
 
             # Before the GitHub release, the manifest and Homebrew, so nothing names this version before npm
             # can install it. npm accepts a publish minutes before it serves the file, and an install in
@@ -1359,17 +1352,12 @@ jobs:
             - name: Notify Slack - npm installs the release
               if: needs.release.outputs.slack-ts != ''
               continue-on-error: true
-              env:
-                  SLACK_TOKEN: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  CHANNEL: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
-                  THREAD_TS: ${{ needs.release.outputs.slack-ts }}
-              run: |
-                  set -euo pipefail
-                  response=$(jq -nc --arg channel "$CHANNEL" --arg ts "$THREAD_TS" --arg text "npm installs hog $VERSION. Moving the GitHub release, the manifest and Homebrew to it." \
-                      '{channel: $channel, thread_ts: $ts, text: $text}' \
-                      | curl -fsS --max-time 30 -H "Authorization: Bearer $SLACK_TOKEN" \
-                          -H 'Content-Type: application/json; charset=utf-8' --data @- https://slack.com/api/chat.postMessage)
-                  jq -e '.ok' <<<"$response" >/dev/null || { echo "Slack refused the message: $(jq -r '.error' <<<"$response")"; exit 1; }
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: 'npm installs hog ${{ needs.release.outputs.version }}. Moving the GitHub release, the manifest and Homebrew to it.'
 
             - name: Get the hog releaser token
               id: app-token
