@@ -281,8 +281,12 @@ def retire_leaked_team_secret_token(team_id: int, token: str) -> bool:
     # Lazy: conversations imports posthog.api modules at load time.
     from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
 
-    RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(team_id=team_id, secure_value=hash_key_value(token))
-    return retire_leaked_signing_secret(team_id, token)
+    # One transaction: the revoked hash and the signing secret change commit together.
+    with transaction.atomic():
+        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(
+            team_id=team_id, secure_value=hash_key_value(token)
+        )
+        return retire_leaked_signing_secret(team_id, token)
 
 
 def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> bool:

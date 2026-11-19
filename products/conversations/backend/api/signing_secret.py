@@ -17,12 +17,13 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
 
 from products.conversations.backend.models import SigningSecret
+from products.conversations.backend.services.signing_secrets import log_signing_secret_change
 
 
 class SigningSecretSerializer(serializers.Serializer):
@@ -112,26 +113,19 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 row.secret = generate_random_token()
                 row.rotated_independently = True
                 row.save()
-            log_activity(
-                organization_id=self.team.organization_id,
-                team_id=self.team_id,
+            log_signing_secret_change(
+                self.team,
+                [
+                    Change(
+                        type="Team",
+                        action="created" if created else "changed",
+                        field="conversations_signing_secret",
+                        before=mask_key_value(old_secret) if old_secret else None,
+                        after=mask_key_value(row.secret),
+                    )
+                ],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
-                scope="Team",
-                item_id=self.team_id,
-                activity="updated",
-                detail=Detail(
-                    name=str(self.team.name),
-                    changes=[
-                        Change(
-                            type="Team",
-                            action="created" if created else "changed",
-                            field="conversations_signing_secret",
-                            before=mask_key_value(old_secret) if old_secret else None,
-                            after=mask_key_value(row.secret),
-                        )
-                    ],
-                ),
             )
         serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)
@@ -150,26 +144,19 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 row.previous_secret = None
                 row.previous_secret_rotated_at = None
                 row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
-                log_activity(
-                    organization_id=self.team.organization_id,
-                    team_id=self.team_id,
+                log_signing_secret_change(
+                    self.team,
+                    [
+                        Change(
+                            type="Team",
+                            action="deleted",
+                            field="conversations_signing_secret_previous",
+                            before=mask_key_value(expired),
+                            after=None,
+                        )
+                    ],
                     user=cast(User, request.user),
                     was_impersonated=is_impersonated(request),
-                    scope="Team",
-                    item_id=self.team_id,
-                    activity="updated",
-                    detail=Detail(
-                        name=str(self.team.name),
-                        changes=[
-                            Change(
-                                type="Team",
-                                action="deleted",
-                                field="conversations_signing_secret_previous",
-                                before=mask_key_value(expired),
-                                after=None,
-                            )
-                        ],
-                    ),
                 )
         serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)

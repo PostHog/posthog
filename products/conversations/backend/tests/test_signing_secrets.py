@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from posthog.models import ActivityLog
+from posthog.models.utils import mask_key_value
 
 from products.conversations.backend.models import SigningSecret
 from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
@@ -15,7 +16,7 @@ class TestRetireLeakedSigningSecret(BaseTest):
         )
         if entry is None or entry.detail is None:
             return []
-        return [change["field"] for change in entry.detail["changes"]]
+        return entry.detail["changes"]
 
     def test_replaces_active_secret_and_logs_the_change(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_leaked")
@@ -25,7 +26,10 @@ class TestRetireLeakedSigningSecret(BaseTest):
         row.refresh_from_db()
         self.assertNotEqual(row.secret, "phs_leaked")
         self.assertTrue(row.rotated_independently)
-        self.assertIn("conversations_signing_secret", self._changes())
+        changes = self._changes()
+        self.assertEqual([change["field"] for change in changes], ["conversations_signing_secret"])
+        # Team members can read this trail, so the new live secret must arrive masked.
+        self.assertEqual(changes[0]["after"], mask_key_value(row.secret))
 
     def test_clears_a_previous_secret_holding_the_token(self):
         from django.utils import timezone
@@ -45,7 +49,7 @@ class TestRetireLeakedSigningSecret(BaseTest):
         self.assertEqual(row.secret, "phs_rotated_fresh")
         self.assertIsNone(row.previous_secret)
         self.assertIsNone(row.previous_secret_rotated_at)
-        self.assertIn("conversations_signing_secret_previous", self._changes())
+        self.assertIn("conversations_signing_secret_previous", [change["field"] for change in self._changes()])
 
     def test_leaves_an_unrelated_row_untouched(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_unrelated")

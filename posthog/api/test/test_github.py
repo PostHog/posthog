@@ -638,6 +638,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertNotEqual(signing_secret.secret, token)
         self.assertTrue(signing_secret.rotated_independently)
         mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args[0][3], True)
         mock_psak_exposed.assert_not_called()
 
     @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
@@ -667,6 +668,8 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         )
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
+        # No signing secret row carried the token, so the email must not claim a replacement.
+        self.assertIs(mock_ff_exposed.call_args[0][3], False)
         alert_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "github_secret_alert"]
         self.assertEqual(len(alert_events), 1)
         self.assertEqual(alert_events[0].kwargs["properties"]["key_kind"], "team_secret_token")

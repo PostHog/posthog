@@ -84,11 +84,12 @@ def reconcile_signing_secrets(apps, schema_editor):
                     "previous_secret": None,
                     "previous_secret_rotated_at": None,
                 }
-                if (
+                token_revoked = (
                     RevokedTeamSecretToken.objects.using(alias)
                     .filter(team_id=row.team_id, secure_value=hash_key_value(current_token))
                     .exists()
-                ):
+                )
+                if token_revoked:
                     updates["secret"] = generate_random_token()
                     # The row no longer mirrors the column; a rerun must not re-mint.
                     updates["rotated_independently"] = True
@@ -101,7 +102,7 @@ def reconcile_signing_secrets(apps, schema_editor):
                     SigningSecret.objects.using(alias).filter(pk=row.pk, rotated_independently=False).update(**updates)
                 )
                 resynced += updated
-                replaced_fail_closed = bool(updated) and "rotated_independently" in updates
+                replaced_fail_closed = bool(updated) and token_revoked
             if replaced_fail_closed:
                 failed_closed_team_ids.append(row.team_id)
                 # Logged per commit: a restarted run skips already-repaired rows, so the

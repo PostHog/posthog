@@ -241,6 +241,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertTrue(signing_secret.rotated_independently)
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args[0][3], True)
 
     def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
         # An expired access token can't authenticate on its own, but revoking still

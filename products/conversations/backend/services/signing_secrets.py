@@ -1,9 +1,25 @@
 from django.db import transaction
 
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.utils import generate_random_token, mask_key_value
 
 from products.conversations.backend.models import SigningSecret
+
+
+def log_signing_secret_change(team: Team, changes: list[Change], *, user: User | None, was_impersonated: bool) -> None:
+    """Audit write shared by every signing secret change (rotate, expire, leak
+    retirement), so all entries carry the same scope and fields."""
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=user,
+        was_impersonated=was_impersonated,
+        scope="Team",
+        item_id=team.id,
+        activity="updated",
+        detail=Detail(name=str(team.name), changes=changes),
+    )
 
 
 def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
@@ -24,7 +40,6 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
         update_fields = []
         replaced = False
         if row.secret == token:
-            old_secret = row.secret
             row.secret = generate_random_token()
             row.rotated_independently = True
             update_fields += ["secret", "rotated_independently"]
@@ -33,13 +48,12 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
                     type="Team",
                     action="changed",
                     field="conversations_signing_secret",
-                    before=mask_key_value(old_secret),
+                    before=mask_key_value(token),
                     after=mask_key_value(row.secret),
                 )
             )
             replaced = True
         if row.previous_secret == token:
-            expired = row.previous_secret
             row.previous_secret = None
             row.previous_secret_rotated_at = None
             update_fields += ["previous_secret", "previous_secret_rotated_at"]
@@ -48,7 +62,7 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
                     type="Team",
                     action="deleted",
                     field="conversations_signing_secret_previous",
-                    before=mask_key_value(expired),
+                    before=mask_key_value(token),
                     after=None,
                 )
             )
@@ -57,14 +71,5 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
         row.save(update_fields=update_fields)
         # user=None: the change is system-initiated by leak revocation, and the admin who
         # later finds a new secret needs this trail, same as the rotate endpoint writes.
-        log_activity(
-            organization_id=row.team.organization_id,
-            team_id=team_id,
-            user=None,
-            was_impersonated=False,
-            scope="Team",
-            item_id=team_id,
-            activity="updated",
-            detail=Detail(name=str(row.team.name), changes=changes),
-        )
+        log_signing_secret_change(row.team, changes, user=None, was_impersonated=False)
         return replaced
