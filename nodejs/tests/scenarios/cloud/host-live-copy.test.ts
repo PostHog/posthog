@@ -7,6 +7,7 @@ import {
     readFileSync,
     readdirSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'fs'
 import os from 'os'
@@ -354,8 +355,8 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
             await until(
                 () =>
                     existsSync(object(run, 'live.jsonl')) &&
-                    !processesOf(run).some((args) => args.slice(4).join(' ').includes(' s3 cp ')),
-                'a live log copy, with no copy in flight'
+                    Date.now() - statSync(object(run, 'live.jsonl')).mtimeMs > 1000,
+                'the copy loop to wait a second past its first copy'
             )
             const before = copied(run)
 
