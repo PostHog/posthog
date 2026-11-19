@@ -146,7 +146,6 @@ import type {
     TasksRunsListParams,
     TasksRunsLivingArtifactsVersionContentParams,
     TasksRunsLogEntriesRetrieveParams,
-    TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
     TasksRunsStreamTokenRetrieveParams,
     TasksSearchRetrieveParams,
@@ -2131,44 +2130,6 @@ export const tasksRunsResumeInCloudCreate = async (
     return apiMutator<TaskRunDetailDTOApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getTasksRunsSessionLogsRetrieveUrl = (
-    projectId: string,
-    taskId: string,
-    id: string,
-    params?: TasksRunsSessionLogsRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
-}
-
-/**
- * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
- * @summary Get filtered task run session logs
- */
-export const tasksRunsSessionLogsRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    params?: TasksRunsSessionLogsRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsSessionLogsRetrieveUrl(projectId, taskId, id, params), {
-        ...options,
-        method: 'GET',
     })
 }
 

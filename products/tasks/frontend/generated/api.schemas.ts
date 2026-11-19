@@ -6275,34 +6275,6 @@ export const TasksRunsLogEntriesRetrieveView = {
     Thread: 'thread',
 } as const
 
-export type TasksRunsSessionLogsRetrieveParams = {
-    /**
-     * Only return events after this ISO8601 timestamp
-     */
-    after?: string
-    /**
-     * Comma-separated list of event types to include
-     * @minLength 1
-     */
-    event_types?: string
-    /**
-     * Comma-separated list of event types to exclude
-     * @minLength 1
-     */
-    exclude_types?: string
-    /**
-     * Maximum number of entries to return (default 1000, max 5000)
-     * @minimum 1
-     * @maximum 5000
-     */
-    limit?: number
-    /**
-     * Zero-based offset into the filtered log entries
-     * @minimum 0
-     */
-    offset?: number
-}
-
 export type TasksRunsStreamRetrieveParams = {
     /**
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
