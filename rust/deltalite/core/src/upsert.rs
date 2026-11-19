@@ -1261,7 +1261,6 @@ async fn delete_uncommitted(table: &DeltaTable, actions: &[Action]) {
     }
 }
 
-/// The order columns must be table and source columns, and hold no null in the source.
 fn check_order_columns(
     source_batches: &[RecordBatch],
     source_schema: &SchemaRef,
@@ -1304,7 +1303,6 @@ struct OrderGuard {
     source: HashMap<Box<[u8]>, SourceOrder>,
 }
 
-/// A keyed source row's order value and its position in the partition's source.
 struct SourceOrder {
     order: Box<[u8]>,
     position: u32,
@@ -1566,7 +1564,6 @@ fn source_footprint(
         pk_bytes += column_bytes(pk)?;
     }
     let mut pk_set_bytes = estimate_pk_set_bytes(pk_bytes, rows);
-    // The order guard holds its own copy of every key with its order value.
     if !order_columns.is_empty() {
         let mut order_bytes = 0usize;
         for column in order_columns {

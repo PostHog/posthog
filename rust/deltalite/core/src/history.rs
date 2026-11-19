@@ -192,7 +192,6 @@ impl std::str::FromStr for LateRows {
 }
 
 impl HistoryUpsertOptions {
-    /// Whether closed versions in month partitions take part in the call.
     fn reads_closed_versions(&self) -> bool {
         self.late_rows == LateRows::Insert || self.dedupe_column.is_some()
     }
@@ -567,7 +566,6 @@ enum FirstKeyRange {
     Unknown,
 }
 
-/// The values of the first key column of a set of keys, for pruning files by stats.
 struct KeyRange {
     range: FirstKeyRange,
     has_null: bool,
@@ -600,13 +598,11 @@ struct SourcePlan {
     order_converter: RowConverter,
     /// Order value of every source row, as order-preserving bytes.
     orders: Rows,
-    /// Converter of the table's `valid_to` type, which `valid_from` is cast to.
     time_converter: RowConverter,
     /// Every source row's `valid_from`, as order-preserving bytes. Only when closed
     /// versions take part.
     valid_from_rows: Option<Rows>,
     dedupe_converter: Option<RowConverter>,
-    /// Every source row's `dedupe_column` value, as bytes.
     dedupe: Option<Rows>,
     /// Every source row's `valid_from`, cast to the table's `valid_to` type.
     valid_from: ArrayRef,
@@ -851,7 +847,6 @@ impl SourcePlan {
         (batch, row - self.offsets[batch])
     }
 
-    /// Decode `valid_from`-encoded bytes back into an array of the table's `valid_to` type.
     fn decode_times<'a>(&self, values: impl IntoIterator<Item = &'a [u8]>) -> Result<ArrayRef> {
         let parser = self.time_converter.parser();
         let mut arrays = self
@@ -862,7 +857,6 @@ impl SourcePlan {
             .ok_or_else(|| Error::Generic("time decode returned no column".into()))
     }
 
-    /// The first-key range of the keys whose `times` entry is set.
     fn key_range_of(&self, times: &[SourceTimes]) -> Result<KeyRange> {
         let mut keys: Vec<&[u8]> = self
             .by_key
@@ -1131,7 +1125,6 @@ impl SourcePlan {
 /// key's closed versions do not take part.
 type SourceTimes = Option<Vec<Box<[u8]>>>;
 
-/// Every `%Y-%m` month from `lo` to `hi`, both included.
 fn months_between(lo: &str, hi: &str) -> Result<Vec<String>> {
     let parse = |m: &str| -> Result<i64> {
         let bad = || Error::Generic(format!("'{m}' is not a YYYY-MM month"));
@@ -1193,9 +1186,7 @@ impl Decision {
 
 /// A version of a source key that the probe found in the table.
 struct Existing {
-    /// Index of its file in the probe's file list.
     file: u32,
-    /// Row index inside the file.
     row: u32,
     group: u32,
     order: Box<[u8]>,
@@ -1392,13 +1383,10 @@ fn key_and_order_columns(
         .collect()
 }
 
-/// What the probe found in one file: the versions of source keys it holds, and whether a
-/// rewrite may need it.
 struct FileProbe {
     file: TargetFile,
     /// Without closed versions: the highest order value of each key in the file.
     open: HashMap<u32, Box<[u8]>>,
-    /// With closed versions: the versions `spec` keeps.
     seen: Vec<Existing>,
     /// Index in `seen` of the lowest-order candidate per (key, source value), see
     /// [`keep_closed`].
@@ -1428,7 +1416,6 @@ fn keep_lowest(
     }
 }
 
-/// The columns a probe reads and the versions it keeps.
 struct ProbeSpec<'a> {
     /// Name and table type of the key columns, then the order columns, then, when closed
     /// versions take part, `valid_from` and `valid_to` (as the `valid_to` type) and the
@@ -1663,7 +1650,6 @@ async fn probe_file(
     Ok((probe, metadata))
 }
 
-/// A file the probe read, and the keys it holds.
 struct ProbedFile {
     file: TargetFile,
     partition: String,
@@ -1709,17 +1695,14 @@ impl Retained {
     }
 }
 
-/// What every probe of one call found.
 #[derive(Default)]
 struct Probed {
     files: Vec<ProbedFile>,
     /// Without closed versions: the open order value of each key, folded per file.
     open: Vec<Option<Box<[u8]>>>,
-    /// With closed versions: every version the decision needs.
     existing: Vec<Existing>,
     /// Index in `existing` of the lowest-order candidate per (key, source value).
     next_after: HashMap<(u32, u32), usize>,
-    /// Files that kept their footer for the rewrite.
     footers: usize,
 }
 
@@ -1818,9 +1801,7 @@ struct CloseOutcome {
 
 /// Which rows of a rewritten file get a `valid_to`, as an index into the `valid_to` pool.
 enum CloseRows {
-    /// The open row of every key, by key.
     ByKey(Arc<Vec<Option<u32>>>),
-    /// By row index in the file.
     ByRow(HashMap<u32, u32>),
 }
 
