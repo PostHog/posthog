@@ -130,6 +130,7 @@ pub struct Settings {
     pub mode: Mode,
     pub window: Duration,
     pub value_limit: u64,
+    pub min_share: f64,
     pub min_new_share: f64,
     pub candidate_min_new_series: u32,
     pub max_candidates: usize,
@@ -196,6 +197,7 @@ struct Candidate {
     family: Box<str>,
     window: i64,
     qualified_window: i64,
+    series: Sketch,
     keys: HashMap<(Scope, u64), KeySketch>,
     flagged: Vec<(Scope, u64)>,
 }
@@ -207,6 +209,7 @@ struct NewSeriesCount {
 }
 
 struct RowHashes<'a> {
+    series: u64,
     new_series: bool,
     values: Vec<(Scope, u64, u64, &'a str)>,
 }
@@ -390,6 +393,7 @@ impl LabelCardinality {
             family: truncated(family_name).into(),
             window,
             qualified_window: window,
+            series: Sketch::new(),
             keys: HashMap::new(),
             flagged: Vec::new(),
         };
@@ -482,6 +486,7 @@ impl LabelCardinality {
         new_series: bool,
         source: &Source,
     ) -> RowHashes<'r> {
+        let mut series = value_hash(&row.service_name);
         let mut values = Vec::new();
         for (scope, map) in [
             (Scope::Attribute, &row.attributes),
@@ -495,15 +500,22 @@ impl LabelCardinality {
                     continue;
                 }
                 let key = key_hash(name);
+                let hash = value_hash(value);
+                series = series.wrapping_add(pair_hash(scope, key, hash));
                 if !self.protected.contains(&(scope, key)) {
-                    values.push((scope, key, value_hash(value), name.as_str()));
+                    values.push((scope, key, hash, name.as_str()));
                 }
             }
         }
-        RowHashes { new_series, values }
+        RowHashes {
+            series,
+            new_series,
+            values,
+        }
     }
 
     fn feed(&self, candidate: &mut Candidate, row: RowHashes) {
+        candidate.series.insert(row.series);
         let max_keys = self.settings.max_keys_per_candidate;
         let new_rows = u64::from(row.new_series);
         let mut keys_full = 0u64;
@@ -543,14 +555,20 @@ impl LabelCardinality {
         }
         self.evaluate(candidate);
         candidate.window = window;
+        candidate.series = Sketch::new();
         candidate.keys.clear();
     }
 
+    /// A key must drive the metric's series and give most of its points a new series. The first
+    /// test skips a stable key, such as a user ID, that only appears with a per-point key.
+    /// The second test skips a key, such as a pod name, whose series repeat.
     fn evaluate(&self, candidate: &mut Candidate) {
         candidate.flagged.clear();
+        let series = candidate.series.estimate();
         for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
             if distinct < self.settings.value_limit
+                || (distinct as f64) < self.settings.min_share * series as f64
                 || (entry.new_rows as f64) < self.settings.min_new_share * entry.rows as f64
             {
                 continue;
@@ -562,6 +580,7 @@ impl LabelCardinality {
                 scope = ?scope,
                 key = %entry.name,
                 distinct_values = distinct,
+                distinct_series = series,
                 rows = entry.rows,
                 new_series_rows = entry.new_rows,
                 mode = self.settings.mode.as_str(),
@@ -630,6 +649,14 @@ fn token_key(token: &str) -> u64 {
     hasher.finish()
 }
 
+fn pair_hash(scope: Scope, key_hash: u64, value_hash: u64) -> u64 {
+    let mut hasher = SipHasher13::new();
+    hasher.write_u8(scope as u8);
+    hasher.write(&key_hash.to_le_bytes());
+    hasher.write(&value_hash.to_le_bytes());
+    hasher.finish()
+}
+
 fn key_hash(key: &str) -> u64 {
     let mut hasher = SipHasher13::new_with_keys(0, 1);
     hasher.write(key.as_bytes());
@@ -686,6 +713,7 @@ mod tests {
             mode,
             window: Duration::from_secs(1800),
             value_limit: LIMIT,
+            min_share: 0.5,
             min_new_share: 0.5,
             candidate_min_new_series: 10,
             max_candidates: 100,
@@ -851,6 +879,33 @@ mod tests {
             detector.observe(TOKEN, &ids, &all_rows_new(&ids), &rw());
             detector.note_new_series(TOKEN, &ids, &all_rows_new(&ids), &rw());
         }
+        end_window(&detector, &now);
+
+        assert_eq!(
+            rule_keys(&detector),
+            HashSet::from([rule_key("jobs", Scope::Attribute, "request_id")])
+        );
+    }
+
+    #[test]
+    fn a_stable_key_beside_a_per_point_key_is_not_flagged() {
+        let (detector, now) = detector(Mode::Shadow);
+        let timestamp = Utc::now().timestamp_millis();
+        let series: Vec<TimeSeries> = (0..2000)
+            .map(|i| TimeSeries {
+                labels: vec![
+                    label("__name__", "jobs"),
+                    label("user_id", &format!("u{}", i % 300)),
+                    label("request_id", &format!("r{i}")),
+                ],
+                samples: vec![Sample {
+                    value: 1.0,
+                    timestamp,
+                }],
+            })
+            .collect();
+        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
         end_window(&detector, &now);
 
         assert_eq!(
