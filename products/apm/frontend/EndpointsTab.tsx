@@ -56,12 +56,10 @@ export function EndpointsTab(): JSX.Element {
         },
         ...healthColumns<EndpointHealthApi>(filteredEndpoints),
         {
-            title: 'Open in',
             key: 'links',
+            width: 0,
             render: (_, row) => (
-                <span className="flex gap-2 whitespace-nowrap">
-                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
-                </span>
+                <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" compact />
             ),
         },
     ]
