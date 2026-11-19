@@ -683,21 +683,24 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         stopPolling(logic)
     })
 
-    // "Send and set status" must persist through the same PATCH as the "Save changes" button,
+    // "Send and set status" must persist through the same PATCH as a sidebar edit,
     // and must never change who the ticket is assigned to.
     test.each<[string, TicketAssignee, TicketStatus]>([
         ['leaves an unassigned ticket unassigned', null, 'resolved'],
         ['keeps a role assignee', { type: 'role', id: 'role-1' }, 'on_hold'],
         ['keeps a user assignee', { type: 'user', id: 999 }, 'pending'],
     ])('%s', async (_name, presetAssignee, statusAfterSend) => {
+        ticketUpdateMock.mockImplementation((_projectId: string, _id: string, data: Record<string, unknown>) =>
+            Promise.resolve({ ...loadedTicket(), ...data })
+        )
         if (presetAssignee) {
             logic.actions.setAssignee(presetAssignee)
+            await expectLogic(logic).toFinishAllListeners()
         }
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: presetAssignee })
 
         await expectLogic(logic, () => {
             logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
-        }).toDispatchActions(['updateTicket', 'setTicket'])
+        }).toFinishAllListeners()
 
         expect(ticketUpdateMock).toHaveBeenCalledWith(
             expect.any(String),
@@ -732,9 +735,9 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(logic.values.unsavedTicketChanges).toEqual(expected)
     })
 
-    // Overlapping updates must serialize: the second PATCH waits for the first and carries the
-    // newest local edits, and the first (stale) response must not clobber them via setTicket.
-    it('serializes overlapping updates so the newest status wins', async () => {
+    // Each sidebar edit autosaves. Overlapping saves must serialize: the second PATCH waits for the
+    // first and carries the newest local edits, and the first (stale) response must not clobber them.
+    it('serializes overlapping autosaves so the newest status wins', async () => {
         let resolveFirst: (() => void) | undefined
         ticketUpdateMock.mockImplementationOnce(
             () =>
@@ -747,9 +750,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         )
 
         logic.actions.setStatus('resolved')
-        logic.actions.updateTicket()
         logic.actions.setStatus('pending')
-        logic.actions.updateTicket()
 
         expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
         resolveFirst?.()
@@ -762,6 +763,20 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
             expect.objectContaining({ status: 'pending' })
         )
         expect(logic.values.status).toBe('pending')
+        expect(logic.values.ticketUpdating).toBe(false)
+    })
+
+    // Nothing retries a failed autosave, so the field must fall back to the saved value
+    // instead of showing an edit the server never stored.
+    it('rolls a field back when its autosave fails', async () => {
+        ticketUpdateMock.mockRejectedValue(new Error('request failed'))
+
+        await expectLogic(logic, () => {
+            logic.actions.setPriority('high')
+        }).toFinishAllListeners()
+
+        expect(logic.values.priority).toBe('medium')
+        expect(logic.values.hasUnsavedChanges).toBe(false)
         expect(logic.values.ticketUpdating).toBe(false)
     })
 })

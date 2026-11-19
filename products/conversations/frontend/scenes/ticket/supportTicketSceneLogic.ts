@@ -1427,6 +1427,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicketLoading(false)
             }
         },
+        setStatus: () => actions.updateTicket(),
+        setPriority: () => actions.updateTicket(),
+        setAssignee: () => actions.updateTicket(),
+        setTags: () => actions.updateTicket(),
+        setSnoozedUntil: () => actions.updateTicket(),
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
@@ -1465,14 +1470,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = await request
                 breakpoint()
                 actions.setTicket(ticket as Ticket)
-                lemonToast.success('Ticket updated')
+                lemonToast.success('Ticket saved')
                 actions.loadTickets()
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                lemonToast.error('Failed to update ticket')
+                lemonToast.error("Couldn't save the ticket change. Try again.")
+                // A newer edit is already queued and will send the latest local values, so only the
+                // last failed save rolls the fields back to what the server holds.
+                breakpoint()
+                if (values.ticket) {
+                    actions.setTicket(values.ticket)
+                }
             } finally {
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
@@ -1685,7 +1696,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             if (statusAfterSend) {
                 actions.setStatus(statusAfterSend)
-                actions.updateTicket()
             }
             actions.loadTickets()
         },
