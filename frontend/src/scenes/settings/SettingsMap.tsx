@@ -956,7 +956,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-ai-features',
                 title: 'AI features',
                 component: <AIFeaturesSettings />,
-                flag: 'ERROR_TRACKING_ISSUE_SUMMARIES',
+                allowForTeam: (t) => !!t?.available_error_tracking_ai_features?.length,
                 keywords: ['ai', 'llm', 'summary', 'summaries', 'credits'],
             },
             {

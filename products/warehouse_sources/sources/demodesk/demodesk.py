@@ -1,3 +1,4 @@
+import functools
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -22,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     build_dependent_resource,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -115,15 +117,6 @@ def demodesk_client_config(api_key: str, api_version: DemodeskApiVersion) -> Cli
         # unstructured content.
         "capture": False,
     }
-
-
-def _flatten_json_api_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Merge a v1 JSON:API item's `attributes` into the row root, keeping `id`/`relationships`."""
-    attributes = item.pop("attributes", None)
-    if isinstance(attributes, dict):
-        for key, value in attributes.items():
-            item.setdefault(key, value)
-    return item
 
 
 def _paginator_for(config: DemodeskEndpointConfig) -> BasePaginator:
@@ -288,7 +281,7 @@ def demodesk_source(
         initial_paginator_state=initial_paginator_state,
     )
     if config.flatten_json_api:
-        resource = resource.add_map(_flatten_json_api_item)
+        resource = resource.add_map(functools.partial(flatten_jsonapi, relationships_as_ids=False))
     return resource
 
 

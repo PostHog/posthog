@@ -107,7 +107,8 @@ tools:
             does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when
             `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
             is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order:
-            recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the
+            recent` for the series flagged the fewest buckets ago first, so an hourly series flagged in the latest hour
+            ties a daily series flagged in the latest day. Pass `search` to keep only insights whose name contains the
             text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
             search is not available for this project.
         exclude_params:
@@ -227,8 +228,10 @@ tools:
             set, the task exists but its run did not start. The run cannot ask questions, so it writes a note to the
             report's work log when it needs a decision. 409 `report_action_run_active` means a run already works on the
             pull request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action
-            from a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
-            `report_action_unavailable`, the detail says why.
+            from a person's session. 403 `report_action_not_granted` means this scout was not granted the action or sent
+            a `message`, which a scout cannot; leave a note for a person instead. 429 `report_action_scout_daily_cap`
+            means this scout started its daily allowance of actions. 402 and 429 mean a trial, task, or usage limit: do
+            not retry until it clears. For `report_action_unavailable`, the detail says why.
         param_overrides:
             id:
                 aliases:
@@ -648,6 +651,7 @@ tools:
                 - title
                 - summary
                 - metrics
+                - tags
                 - status
                 - priority
                 - actionability
@@ -1044,19 +1048,20 @@ tools:
         title: Get monthly Self-driving usage
         description: >
             Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month.
-            Usage is available from October 2026 onward. Returns credits by signal source (processing, research, and
-            downstream report implementation) and by scout (execution costs, including runs that produce no report). The
-            two breakdowns are additive: their totals sum to total_credits. Implementation uses the report's current
-            triggering source. Missing source metadata stays in a null-source bucket. Finalized costs belong to the
-            month they finalized, even if work started earlier. Unsettled work created in the month is reported
-            separately, as are missing scout receipts. Fractional credits are decimal strings; multiply by
-            pricing.usd_per_credit to convert to USD. Exempt credits are a subset of recorded usage. This is not an
-            invoice: billing cutovers, grants, discounts and rounding can change billed amounts. Child environments
-            resolve to the parent project, which requires parent-project access; project_id identifies the project whose
-            usage is returned. For daily trends, individual runs or reports, custom filters, or finer breakdowns, use
-            execute-sql with system.signal_spend, system.scout_runs and system.inbox_reports. Report detail can show
-            associated scout costs shared with other reports; do not add those shared amounts to this summary or across
-            reports.
+            Usage starts in October 2026 and receipts expire three calendar months after creation. Months that include
+            expired history are rejected; choose the current month or either of the two previous months. Returns credits
+            by signal source (processing, research, and downstream report implementation) and by scout (execution costs,
+            including runs that produce no report). The two breakdowns are additive: their totals sum to total_credits.
+            Implementation uses the report's current triggering source. Missing source metadata stays in a null-source
+            bucket. Finalized costs belong to the month they finalized, even if work started earlier. Unsettled work
+            created in the month is reported separately, as are missing scout receipts. Fractional credits are decimal
+            strings; multiply by pricing.usd_per_credit to convert to USD. Exempt credits are a subset of recorded
+            usage. This is not an invoice: billing cutovers, grants, discounts and rounding can change billed amounts.
+            Child environments resolve to the parent project, which requires parent-project access; project_id
+            identifies the project whose usage is returned. For daily trends, individual runs or reports, custom
+            filters, or finer breakdowns, use execute-sql with system.signal_spend, system.scout_runs and
+            system.inbox_reports. Report detail can show associated scout costs shared with other reports; do not add
+            those shared amounts to this summary or across reports.
         feature_flag: self-driving-usage-display
     scout-check-record-result:
         operation: signals_scout_record_check_result
