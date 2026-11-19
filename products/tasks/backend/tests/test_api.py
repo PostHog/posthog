@@ -16727,6 +16727,39 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual((task.state or {}).get("mobile_push_user_ids", []), [self.user.id] if acknowledged else [])
 
+    @parameterized.expand(
+        [
+            ("task_scope_only", ["task:write"], status.HTTP_403_FORBIDDEN),
+            ("with_project_write", ["task:write", "project:write"], status.HTTP_200_OK),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_persistent_approval_requires_project_write(self, _name, scopes, expected_status, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-4", "result": {"resolved": True}})
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="Approver", secure_value=hash_key_value(api_key_value), scopes=scopes
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow", "confirmPersistentApproval": True},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        assert (response.status_code, mock_post.called) == (expected_status, expected_status == status.HTTP_200_OK)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_proxies_set_config_option(self, mock_post):

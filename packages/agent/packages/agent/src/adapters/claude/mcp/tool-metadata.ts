@@ -132,7 +132,9 @@ const alwaysAskMcpServers = new Set<string>();
 
 export function setAlwaysAskMcpServers(serverNames: string[]): void {
   alwaysAskMcpServers.clear();
-  for (const name of serverNames) alwaysAskMcpServers.add(name);
+  for (const name of serverNames) {
+    alwaysAskMcpServers.add(sanitizeMcpServerName(name));
+  }
 }
 
 export function getMcpToolApprovalState(
@@ -158,6 +160,23 @@ export function setMcpToolApprovalStates(approvals: McpToolApprovals): void {
       });
     }
   }
+}
+
+export function replaceMcpToolApprovalStates(
+  approvals: McpToolApprovals,
+): void {
+  for (const metadata of mcpToolMetadataCache.values()) {
+    metadata.approvalState = undefined;
+  }
+  setMcpToolApprovalStates(approvals);
+}
+
+export function getMcpToolApprovalStates(): McpToolApprovals {
+  return Object.fromEntries(
+    [...mcpToolMetadataCache].flatMap(([toolKey, metadata]) =>
+      metadata.approvalState ? [[toolKey, metadata.approvalState]] : [],
+    ),
+  );
 }
 
 export function clearMcpToolMetadataCache(): void {

@@ -49,6 +49,7 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
+from posthog.exceptions import InsufficientScope
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
@@ -57,6 +58,7 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_mcp_built_in_agent_oauth_request,
+    scopes_missing_after_legacy_fallback,
 )
 from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
@@ -3818,7 +3820,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required to message this run's agent",
+                description="PostHog Desktop access is required to message this run's agent, or a "
+                "`permission_response` with `confirmPersistentApproval` came from a token without `project:write`",
             ),
             404: OpenApiResponse(description="Task run not found"),
             409: OpenApiResponse(
@@ -3904,6 +3907,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
+        if method == "permission_response" and params.get("confirmPersistentApproval") is True:
+            # The sandbox saves this MCP tool approval with the run's own token, so the caller's
+            # token must be able to change tool approvals itself.
+            held_scopes = get_authenticator_scopes(request.successful_authenticator)
+            if (
+                held_scopes is not None
+                and "*" not in held_scopes
+                and scopes_missing_after_legacy_fallback(request, self, held_scopes, ["project:write"])
+            ):
+                raise InsufficientScope(["project:write"])
 
         if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(
             pk, task_id, self.team_id

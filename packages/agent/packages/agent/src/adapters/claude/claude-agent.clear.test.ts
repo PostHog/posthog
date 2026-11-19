@@ -77,6 +77,9 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 vi.mock("./mcp/tool-metadata", () => ({
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
+  getMcpToolApprovalStates: vi.fn().mockReturnValue({}),
+  replaceMcpToolApprovalStates: vi.fn(),
+  setMcpToolApprovalStates: vi.fn(),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
   getCachedMcpTools: vi.fn().mockReturnValue([]),
   clearMcpToolMetadataCache: vi.fn(),

@@ -25,6 +25,8 @@ import {
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
   type McpServerConnection,
+  type McpToolPolicy,
+  mcpToolKey,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
@@ -97,7 +99,11 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
-import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import {
+  type McpToolApprovals,
+  sanitizeMcpServerName,
+  setAlwaysAskMcpServers,
+} from "../adapters/claude/mcp/tool-metadata";
 import type { InitializationPhase } from "../adapters/claude/session/initialization";
 import {
   getSessionJsonlPath,
@@ -262,6 +268,40 @@ const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
 const KNOWLEDGE_WRITER_ORIGIN_PRODUCT = "knowledge_writer";
+// Approval states are best-effort; past this, tools load ungated rather than delay the run.
+const MCP_TOOL_APPROVALS_TIMEOUT_MS = 5_000;
+
+interface RelayedPermissionRequest {
+  options: Array<{ kind: string; optionId: string; name?: string }>;
+  toolCall?: Record<string, unknown> | null;
+}
+
+interface RelayedPermissionResponse {
+  outcome: { outcome: "selected"; optionId: string };
+  _meta?: Record<string, unknown>;
+}
+
+interface PermissionAnswer {
+  response: RelayedPermissionResponse;
+  /** The `/command` caller who answered; unset when the session settled it. */
+  answeredByUserId?: number;
+  /** Sent only when a person picks an approval that outlives the run; auto-responders omit it. */
+  confirmPersistentApproval?: boolean;
+}
+
+function mcpToolApprovalCancel(
+  policy: McpToolPolicy,
+  reason: string,
+): RequestPermissionResponse {
+  return {
+    outcome: { outcome: "cancelled" },
+    _meta: {
+      message:
+        `The ${policy.toolName} tool on ${policy.serverName} needs approval, and ${reason}. ` +
+        "Do NOT retry; tell the user to approve it in PostHog under the MCP server's tool settings.",
+    },
+  };
+}
 
 export function systemPromptAppendText(
   prompt: ClaudeCodeConfig["systemPrompt"],
@@ -547,6 +587,8 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
+  // Keyed by the sanitized `mcp__<server>__<tool>` name the SDK reports in permission requests.
+  private mcpToolPolicies = new Map<string, McpToolPolicy>();
   private contextSelectionAPI: PostHogAPIClient;
   private contextSelectionApiKey: string;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
@@ -618,10 +660,7 @@ export class AgentServer {
   private pendingPermissions = new Map<
     string,
     {
-      resolve: (response: {
-        outcome: { outcome: "selected"; optionId: string };
-        _meta?: Record<string, unknown>;
-      }) => void;
+      resolve: (answer: PermissionAnswer) => void;
       toolCallId?: string;
       optionIds: Set<string>;
       /**
@@ -663,6 +702,68 @@ export class AgentServer {
       setAlwaysAskMcpServers(names);
     }
     return this.mcpRelayServer.mcpServers;
+  }
+
+  private async loadMcpToolPolicies(
+    servers: McpServerConnection[],
+    previous: Map<string, McpToolPolicy> = new Map(),
+  ): Promise<Map<string, McpToolPolicy>> {
+    const { policies, failedServers } =
+      await this.posthogAPI.getMcpRuntimeConfiguration(
+        servers,
+        AbortSignal.timeout(MCP_TOOL_APPROVALS_TIMEOUT_MS),
+      );
+    if (failedServers.length > 0) {
+      this.logger.warn("Failed to load MCP tool approval states", {
+        servers: failedServers.map(({ name }) => name),
+      });
+    }
+    // A failed fetch keeps the installation's last loaded states, so a refresh
+    // blip does not drop its prompts. Matching by installation id lets a
+    // replaced connection with the same name still reset.
+    const failedInstallationIds = new Set(
+      failedServers.map(({ installationId }) => installationId),
+    );
+    const carriedPolicies = [...previous.values()].filter((policy) =>
+      failedInstallationIds.has(policy.installationId),
+    );
+    // Two installations whose names sanitize alike are indistinguishable to the
+    // SDK, so leave them ungated rather than approve the wrong one.
+    const ambiguousKeys = new Set<string>();
+    const policiesByKey = new Map<string, McpToolPolicy>();
+    for (const policy of [...policies, ...carriedPolicies]) {
+      const key = mcpToolKey({
+        server: sanitizeMcpServerName(policy.serverName),
+        tool: sanitizeMcpServerName(policy.toolName),
+      });
+      if (policiesByKey.has(key)) ambiguousKeys.add(key);
+      policiesByKey.set(key, policy);
+    }
+    for (const key of ambiguousKeys) policiesByKey.delete(key);
+    if (ambiguousKeys.size > 0) {
+      this.logger.warn("Skipping ambiguous MCP tool approval keys", {
+        keys: [...ambiguousKeys],
+      });
+    }
+    return policiesByKey;
+  }
+
+  private applyMcpToolPolicies(
+    policies: Map<string, McpToolPolicy>,
+  ): McpToolApprovals {
+    this.mcpToolPolicies = policies;
+    return Object.fromEntries(
+      [...policies].map(([key, policy]) => [key, policy.approvalState]),
+    );
+  }
+
+  private needsApprovalMcpTool(
+    params: RequestPermissionRequest,
+  ): McpToolPolicy | undefined {
+    const descriptor = this.readPermissionMcpDescriptor(params);
+    if (!descriptor) return undefined;
+    const policy = this.mcpToolPolicies.get(mcpToolKey(descriptor));
+    return policy?.approvalState === "needs_approval" ? policy : undefined;
   }
 
   private detachSseController(controller: SseController): void {
@@ -1022,7 +1123,11 @@ export class AgentServer {
           ? this.resolveCredentialResponse(
               paramsValidation.data as CredentialResponseParams,
             )
-          : await this.executeCommand(command.method, command.params ?? {});
+          : await this.executeCommand(
+              command.method,
+              command.params ?? {},
+              payload,
+            );
         return c.json({
           jsonrpc: "2.0",
           id: command.id,
@@ -1463,6 +1568,7 @@ export class AgentServer {
   private async executeCommand(
     method: string,
     params: Record<string, unknown>,
+    caller?: JwtPayload,
   ): Promise<unknown> {
     if (!this.session) {
       throw new Error("No active session");
@@ -1914,7 +2020,15 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
+          {
+            mcpServers: toAcpMcpServers(refreshedMcpServers),
+            mcpToolApprovals: this.applyMcpToolPolicies(
+              await this.loadMcpToolPolicies(
+                mcpServers as McpServerConnection[],
+                this.mcpToolPolicies,
+              ),
+            ),
+          },
         );
       }
 
@@ -1939,6 +2053,8 @@ export class AgentServer {
         const optionId = params.optionId as string;
         const customInput = params.customInput as string | undefined;
         const answers = params.answers as Record<string, string> | undefined;
+        const confirmPersistentApproval =
+          params.confirmPersistentApproval === true;
 
         this.logger.debug("Permission response received", {
           requestId,
@@ -1950,6 +2066,7 @@ export class AgentServer {
           optionId,
           customInput,
           answers,
+          { answeredByUserId: caller?.user_id, confirmPersistentApproval },
         );
         if (resolved === "not_found") {
           throw new Error(
@@ -2215,6 +2332,9 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
+    const mcpToolPoliciesPromise = this.loadMcpToolPolicies(
+      this.config.mcpServers ?? [],
+    );
     const [preTaskRun, preTask] = await this.measureInitialization(
       "context_fetch",
       () =>
@@ -2547,12 +2667,8 @@ export class AgentServer {
     // `.posthog/skills/<runId>/...`, which is gitignored (untracked) in target
     // repos, so `git checkout` — which only updates tracked files — cannot
     // conflict with those writes or leave them associated with the wrong branch.
-    let effectiveSessionMeta: typeof sessionMeta & {
-      nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
-    } = sessionMeta;
-    const [nativeResume, sessionMcpServers] = await this.measureInitialization(
-      "session_dependencies",
-      async () => {
+    const [nativeResume, sessionMcpServers, mcpToolApprovals] =
+      await this.measureInitialization("session_dependencies", async () => {
         try {
           await this.installSkillBundleArtifacts(
             payload.task_id,
@@ -2574,7 +2690,11 @@ export class AgentServer {
             ...(this.config.mcpServers ?? []),
             ...(await this.startMcpRelayServer()),
           ]);
-          return [preparedNativeResume, preparedMcpServers] as const;
+          return [
+            preparedNativeResume,
+            preparedMcpServers,
+            this.applyMcpToolPolicies(await mcpToolPoliciesPromise),
+          ] as const;
         } finally {
           if (existingPrCheckoutPromise) {
             this.logExistingPrCheckoutResult(
@@ -2583,8 +2703,12 @@ export class AgentServer {
             );
           }
         }
-      },
-    );
+      });
+
+    let effectiveSessionMeta: typeof sessionMeta & {
+      mcpToolApprovals: McpToolApprovals;
+      nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
+    } = { ...sessionMeta, mcpToolApprovals };
 
     const acpSessionId = await this.measureInitialization(
       "session_create",
@@ -2621,9 +2745,12 @@ export class AgentServer {
           this.shutdownController.signal.throwIfAborted();
           const restoredNativeGoal =
             this.getNativeGoalForFreshSession(runtimeAdapter);
-          effectiveSessionMeta = restoredNativeGoal
-            ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
-            : sessionMeta;
+          if (restoredNativeGoal) {
+            effectiveSessionMeta = {
+              ...effectiveSessionMeta,
+              nativeGoal: restoredNativeGoal,
+            };
+          }
           const sessionResponse = await clientConnection.newSession({
             cwd: sessionCwd,
             mcpServers: sessionMcpServers,
@@ -5229,6 +5356,19 @@ export class AgentServer {
           }
         }
 
+        // The gateway proxy rejects a needs_approval tool until it is approved
+        // in PostHog, so auto-approving here would only produce a failed call.
+        const gatedMcpTool = this.needsApprovalMcpTool(params);
+        if (gatedMcpTool) {
+          if (mode !== "background" && this.hasReachableClient()) {
+            return this.relayMcpToolApproval(params, gatedMcpTool);
+          }
+          return mcpToolApprovalCancel(
+            gatedMcpTool,
+            "no user is available to approve it",
+          );
+        }
+
         const posthogExecSubTool =
           this.matchesPostHogExecPermissionRequest(params);
         if (mode !== "background" && posthogExecSubTool) {
@@ -5701,8 +5841,10 @@ export class AgentServer {
     // cleanup may await operations that are blocked on a permission response.
     for (const [, pending] of this.pendingPermissions) {
       pending.resolve({
-        outcome: { outcome: "selected", optionId: "reject" },
-        _meta: { customInput: "Session is shutting down." },
+        response: {
+          outcome: { outcome: "selected", optionId: "reject" },
+          _meta: { customInput: "Session is shutting down." },
+        },
       });
     }
     this.pendingPermissions.clear();
@@ -5968,6 +6110,69 @@ export class AgentServer {
     }
   }
 
+  /** Ask about a needs_approval MCP tool and save an allow to PostHog, only when the run's own user confirms it, so the proxy accepts the call. */
+  private async relayMcpToolApproval(
+    params: RequestPermissionRequest,
+    policy: McpToolPolicy,
+  ): Promise<RequestPermissionResponse> {
+    const { response, answeredByUserId, confirmPersistentApproval } =
+      await this.awaitPermissionAnswer({
+        ...params,
+        toolCall: {
+          ...params.toolCall,
+          _meta: { ...params.toolCall._meta, persistsApproval: true },
+        },
+        // Clients hide "always" options by default, so the saving allow is
+        // the plain allow, relabeled.
+        options: params.options.flatMap((option) => {
+          if (option.kind === "allow_always") return [];
+          if (option.kind === "allow_once") {
+            return [
+              { ...option, name: "Yes, and approve this tool in PostHog" },
+            ];
+          }
+          return [option];
+        }),
+      });
+    const selected = params.options.find(
+      (option) => option.optionId === response.outcome.optionId,
+    );
+    if (selected?.kind !== "allow_once") {
+      return response;
+    }
+    if (!confirmPersistentApproval) {
+      return mcpToolApprovalCancel(
+        policy,
+        "the answer did not confirm saving the approval",
+      );
+    }
+    const runUserId = await this.posthogAPI.getUserId();
+    if (answeredByUserId !== runUserId) {
+      return mcpToolApprovalCancel(
+        policy,
+        "only the user this run acts as can approve it",
+      );
+    }
+    try {
+      await this.posthogAPI.approveMcpTool(
+        policy.installationId,
+        policy.toolName,
+      );
+    } catch (error) {
+      this.logger.warn("Failed to record MCP tool approval", {
+        installationId: policy.installationId,
+        toolName: policy.toolName,
+        error: getErrorMessage(error),
+      });
+      return mcpToolApprovalCancel(
+        policy,
+        "the approval could not be saved (on a shared connection, only its owner can approve tools)",
+      );
+    }
+    policy.approvalState = "approved";
+    return response;
+  }
+
   /**
    * Relay a permission request (e.g., plan approval) to the connected desktop
    * app via SSE and wait for a response via the `/command` endpoint.
@@ -5976,13 +6181,15 @@ export class AgentServer {
    * buffered by broadcastEvent and replayed when the client reconnects. Session
    * cleanup force-resolves all pending permissions, so there is no leak.
    */
-  private relayPermissionToClient(params: {
-    options: Array<{ kind: string; optionId: string; name?: string }>;
-    toolCall?: Record<string, unknown> | null;
-  }): Promise<{
-    outcome: { outcome: "selected"; optionId: string };
-    _meta?: Record<string, unknown>;
-  }> {
+  private async relayPermissionToClient(
+    params: RelayedPermissionRequest,
+  ): Promise<RelayedPermissionResponse> {
+    return (await this.awaitPermissionAnswer(params)).response;
+  }
+
+  private awaitPermissionAnswer(
+    params: RelayedPermissionRequest,
+  ): Promise<PermissionAnswer> {
     const requestId = crypto.randomUUID();
     const toolCallId = params.toolCall?.toolCallId as string | undefined;
 
@@ -6033,6 +6240,7 @@ export class AgentServer {
     optionId: string,
     customInput?: string,
     answers?: Record<string, string>,
+    answerer: Omit<PermissionAnswer, "response"> = {},
   ): "resolved" | "not_found" | "invalid_option" {
     const pending = this.pendingPermissions.get(requestId);
     if (!pending) return "not_found";
@@ -6055,8 +6263,11 @@ export class AgentServer {
     if (answers) meta.answers = answers;
 
     pending.resolve({
-      outcome: { outcome: "selected" as const, optionId },
-      ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
+      response: {
+        outcome: { outcome: "selected" as const, optionId },
+        ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
+      },
+      ...answerer,
     });
     return "resolved";
   }
