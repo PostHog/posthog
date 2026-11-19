@@ -50,7 +50,7 @@ export const PosthogSupportDraftsCreateBody = () => zod.object({
         .max(posthogSupportDraftsCreateBodyAlreadyCheckedMax)
         .optional()
         .describe(
-            "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. Never write a number the person gave you as your own check."
+            "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check."
         ),
     error: zod
         .string()

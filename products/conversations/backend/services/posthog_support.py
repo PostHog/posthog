@@ -44,15 +44,24 @@ class SupportTicketDraft:
     message: str
     filing_reason: FilingReason
     expires_at: int
+    mcp_session_id: str | None = None
+    mcp_conversation_id: str | None = None
 
     @property
     def ticket_context(self) -> str:
-        # The person cannot see or edit this note, so it holds only text the server writes.
-        return (
-            "Drafted by an AI agent through the PostHog MCP, then reviewed and sent by the person.\n"
-            f"Why the agent drafted it: {FilingReason(self.filing_reason).label}.\n"
-            f"Draft id: {self.id}"
-        )
+        # The person cannot see or edit this note, so it holds only text the server writes. The MCP ids
+        # come from request headers, so the API keeps a value only when it has the form of an id.
+        lines = [
+            "Drafted by an AI agent through the PostHog MCP, then reviewed and sent by the person.",
+            f"Why the agent drafted it: {FilingReason(self.filing_reason).label}.",
+            f"Draft id: {self.id}",
+        ]
+        # Support finds the agent's tool calls by these ids, under $mcp_session_id and $mcp_conversation_id.
+        if self.mcp_session_id:
+            lines.append(f"MCP session id: {self.mcp_session_id}")
+        if self.mcp_conversation_id:
+            lines.append(f"MCP conversation id: {self.mcp_conversation_id}")
+        return "\n".join(lines)
 
 
 def compose_ticket_message(
@@ -87,18 +96,37 @@ class SupportDraftStore:
         self._user_id = user_id
         self._cache = caches["posthog_support_drafts"]
 
-    def create(self, *, message: str, filing_reason: FilingReason) -> SupportTicketDraft:
+    def create(
+        self,
+        *,
+        message: str,
+        filing_reason: FilingReason,
+        mcp_session_id: str | None = None,
+        mcp_conversation_id: str | None = None,
+    ) -> SupportTicketDraft:
         # The cap check and the index write must not interleave, or parallel calls each pass the
         # check and the last index write drops the others' drafts from the count.
         lock_key = f"posthog_support_drafts_lock:{self._user_id}"
         if not self._cache.add(lock_key, 1, timeout=10):
             raise DraftCreateInProgress()
         try:
-            return self._create(message=message, filing_reason=filing_reason)
+            return self._create(
+                message=message,
+                filing_reason=filing_reason,
+                mcp_session_id=mcp_session_id,
+                mcp_conversation_id=mcp_conversation_id,
+            )
         finally:
             self._cache.delete(lock_key)
 
-    def _create(self, *, message: str, filing_reason: FilingReason) -> SupportTicketDraft:
+    def _create(
+        self,
+        *,
+        message: str,
+        filing_reason: FilingReason,
+        mcp_session_id: str | None,
+        mcp_conversation_id: str | None,
+    ) -> SupportTicketDraft:
         # The index can name drafts that were sent or expired. Only unclaimed live ones count.
         indexed = self._cache.get(self._index_key()) or []
         found = self._cache.get_many(
@@ -115,6 +143,8 @@ class SupportDraftStore:
             message=message,
             filing_reason=filing_reason,
             expires_at=int(time.time()) + DRAFT_TTL_SECONDS,
+            mcp_session_id=mcp_session_id,
+            mcp_conversation_id=mcp_conversation_id,
         )
         self._cache.set_many(
             {self._key(draft.id): asdict(draft), self._index_key(): [*open_ids, draft.id]}, DRAFT_TTL_SECONDS
@@ -134,6 +164,8 @@ class SupportDraftStore:
             message=stored["message"],
             filing_reason=stored["filing_reason"],
             expires_at=stored["expires_at"],
+            mcp_session_id=stored.get("mcp_session_id"),
+            mcp_conversation_id=stored.get("mcp_conversation_id"),
         )
 
     def claim(self, draft_id: str, claimant: str) -> bool:

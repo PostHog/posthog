@@ -79,7 +79,8 @@ Error:
   - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open when only a general rule answers it, but one you answered from their own data is answered.
 - **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
   - Write "<your name> checked" only for a lookup run in this conversation. A number the person gave you is theirs, so it goes in **Request** or **Details**.
-  - Keep checks that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open questions, and name the rest in one line, such as "Claude Code checked: no bot traffic and no mid-run flag change".
+  - Keep only your checks that bear on the open questions: one that answers part of a question, or rules out a cause support would check first. Leave out the rest, because support can look up every call you made from the note PostHog adds to the ticket.
+  - Keep every step the person took, because support cannot look those up.
   - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - **Error** is an error the person saw. A lookup of yours that failed goes in **Already checked**.
 - Copy IDs, queries and errors exactly.

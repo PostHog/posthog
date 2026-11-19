@@ -21,6 +21,7 @@ export function SupportDraftReviewModal(): JSX.Element {
             isOpen={isReviewingDraft}
             onClose={closeDraftReview}
             title="Review your support ticket"
+            width="min(1200px, 90vw)"
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton type="secondary" onClick={closeDraftReview}>

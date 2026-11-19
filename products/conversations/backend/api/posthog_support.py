@@ -7,6 +7,7 @@ so no API key or OAuth token can complete a send.
 
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 from django.conf import settings
@@ -34,6 +35,14 @@ from products.conversations.backend.services.posthog_support import (
 )
 
 DRAFT_ID_PATTERN = r"[0-9a-f-]{36}"
+# Any caller can set the MCP headers, and the ids end up in a ticket note the person cannot edit, so a
+# value that could carry words is dropped.
+MCP_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+
+
+def _mcp_id(value: str | None) -> str | None:
+    value = sanitize_header_value(value)
+    return value if value and MCP_ID_PATTERN.fullmatch(value) else None
 
 
 class PostHogSupportErrorSerializer(serializers.Serializer):
@@ -69,7 +78,8 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         help_text=(
             "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', "
             "a lookup you ran in this conversation with '<your name> checked:', and a step the person took with "
-            "'I tried:'. Never write a number the person gave you as your own check."
+            "'I tried:'. List only your checks that bear on the open questions, because support can look up the "
+            "rest of your calls. Never write a number the person gave you as your own check."
         ),
     )
     error = serializers.CharField(
@@ -184,8 +194,15 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False, url_path="drafts")
     def create_draft(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
+        mcp_session_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Session-Id"))
+        mcp_conversation_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
         try:
-            draft = self._draft_store().create(message=data["message"], filing_reason=data["filing_reason"])
+            draft = self._draft_store().create(
+                message=data["message"],
+                filing_reason=data["filing_reason"],
+                mcp_session_id=mcp_session_id,
+                mcp_conversation_id=mcp_conversation_id,
+            )
         except DraftCreateInProgress:
             return Response(
                 {"detail": "Another draft is being saved. Try again in a few seconds."},
@@ -206,8 +223,8 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "authenticated_with": type(request.successful_authenticator).__name__,
                 # The MCP server records each tool call under these same ids, so support can follow a
                 # ticket's draft id back to every call the agent made before it drafted the ticket.
-                "mcp_session_id": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id")),
-                "mcp_conversation_id": sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id")),
+                "mcp_session_id": mcp_session_id,
+                "mcp_conversation_id": mcp_conversation_id,
             },
             team=self.team,
         )
