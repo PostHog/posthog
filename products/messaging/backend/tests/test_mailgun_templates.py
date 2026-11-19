@@ -225,6 +225,13 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert converted.too_large
         assert len(converted.text) <= 5_000_000
 
+    def test_a_huge_template_is_cut_before_its_fallback_text_is_built(self) -> None:
+        with patch.object(mailgun_templates.html, "escape", wraps=mailgun_templates.html.escape) as escape:
+            converted = convert_text("{{" * 2_000_000)
+
+        assert converted.too_large
+        assert max(len(call.args[0]) for call in escape.call_args_list) <= 1_000_000
+
     def test_markup_in_a_template_too_large_to_convert_shows_as_text(self) -> None:
         converted = convert_text("{{#with a}}" * 101 + "<img src=x onerror=alert(1)>")
 

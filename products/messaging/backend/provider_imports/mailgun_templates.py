@@ -287,11 +287,10 @@ class _Converter:
 
     def _as_text(self, source: str) -> str:
         """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
-        text = _literal(html.escape(source, quote=False) if self.is_html else source)
-        if len(text) <= _MAX_OUTPUT_CHARS:
-            return text
-        # Escaping makes a character at most five long, so this much of the source always fits what Liquid parses.
-        return self._as_text(source[: _MAX_OUTPUT_CHARS // 5])
+        # Escaping makes a character at most five long, so this much of the source always fits what Liquid parses,
+        # and a huge template is cut before it's copied.
+        source = source[: _MAX_OUTPUT_CHARS // 5]
+        return _literal(html.escape(source, quote=False) if self.is_html else source)
 
     def _convert(self) -> ConvertedText:
         matches = _tokens(self.text)
