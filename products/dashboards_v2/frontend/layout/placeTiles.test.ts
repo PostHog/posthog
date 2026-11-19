@@ -6,6 +6,7 @@ const places = (items: PlacedItem[]): Record<string, [number, number, number, nu
 
 describe('placeTiles', () => {
     const fullRow = [item('a', 0, 0, 6, 3), item('b', 6, 0, 6, 3), item('c', 12, 0, 6, 3), item('d', 18, 0, 6, 3)]
+    const stackedRows = [item('r0', 0, 0, 24, 4, 24), item('r1', 0, 4, 24, 4, 24), item('r2', 0, 8, 24, 4, 24)]
 
     test.each([
         {
@@ -41,6 +42,12 @@ describe('placeTiles', () => {
             items: [item('wide', 0, 0, 24, 6, 24), item('new', 4, 4, 6, 3)],
             gesture: { activeId: 'new', kind: 'drag' as const, baseline: [item('wide', 0, 0, 24, 6, 24)] },
             expected: { wide: [0, 0, 24, 6], new: [4, 6, 6, 3] },
+        },
+        {
+            name: 'goes right under the targeted row when it is tall enough to overlap the rows below too',
+            items: [...stackedRows, item('new', 0, 2, 24, 8)],
+            gesture: { activeId: 'new', kind: 'drag' as const, baseline: [...stackedRows, item('new', 0, 12, 24, 8)] },
+            expected: { r0: [0, 0, 24, 4], new: [0, 4, 24, 8], r1: [0, 12, 24, 4], r2: [0, 16, 24, 4] },
         },
         {
             name: 'keeps a resized tile in its row when it grows into a taller neighbour',
