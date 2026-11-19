@@ -20,7 +20,7 @@ from products.replay_vision.backend.scanner_access import (
     snapshot_experiment_scope_q,
 )
 from products.replay_vision.backend.scope import experiment_id_of, scope_for
-from products.replay_vision.backend.scope.load import EXPERIMENT_ID_SNAPSHOT_STORES, snapshot_experiment_id
+from products.replay_vision.backend.scope.load import EXPERIMENT_ID_SNAPSHOT_STORES, settings_of, snapshot_experiment_id
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 
 
@@ -211,6 +211,56 @@ class TestSnapshotAccessGate(BaseTest):
     def test_a_snapshot_naming_nothing_reads_as_no_experiment(self) -> None:
         self.assertIsNone(snapshot_experiment_id({"scanner_config": {"prompt": "p"}}))
         self.assertIsNone(snapshot_experiment_id(None))
+
+
+class TestScopesTheMirrorWroteBeforeBalance(BaseTest):
+    """Scopes the mirror wrote before `balance` reached the settings model carry neither it nor
+    `start_on_launch`, and `stored_scope` prefers the stored blob over re-deriving one."""
+
+    def test_a_stale_mirrored_scope_still_samples_proportionally(self) -> None:
+        # The regression: reading the blob as it stands gives `balance` its default of True, so a
+        # scanner whose config turned balancing off starts sampling evenly on its next sweep.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={
+                "prompt": "p",
+                "experiment_id": 9,
+                "variants": ["control", "test"],
+                "balance_variants": False,
+            },
+        )
+        # Written as the mirror wrote it before `balance` existed: derived, but missing the key.
+        ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+            scope={"kind": "experiment", "experiment_id": 9, "variants": ["control", "test"]}
+        )
+        scanner.refresh_from_db()
+
+        settings = settings_of(scanner)
+        assert settings is not None
+        self.assertFalse(settings.balance)
+
+    def test_a_scope_set_by_hand_keeps_its_own_default(self) -> None:
+        # Only a blob this row's own mirror owns is filled. A scope that disagrees with the older
+        # store was set deliberately, and a `balance` left at its default there means True.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={
+                "prompt": "p",
+                "experiment_id": 9,
+                "variants": ["control", "test"],
+                "balance_variants": False,
+            },
+        )
+        ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+            scope={"kind": "experiment", "experiment_id": 9, "variants": ["control"]}
+        )
+        scanner.refresh_from_db()
+
+        settings = settings_of(scanner)
+        assert settings is not None
+        self.assertTrue(settings.balance)
 
 
 class TestScopeDualWrite(BaseTest):
