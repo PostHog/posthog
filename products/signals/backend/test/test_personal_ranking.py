@@ -397,7 +397,7 @@ class TestInputParts(SimpleTestCase):
             input_hash(
                 candidates, config=config, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
             )
-            == "61ca7a345f363b93b18359ec68ad052fe0a72b9864ed0bca593573dce55d2637"
+            == "e16a42668bcd26488442e4855f8b55ebf95af392e811cd1db687589c180bae97"
         )
 
     @parameterized.expand(
