@@ -196,6 +196,15 @@ describe('applicationObservabilityLogic', () => {
         expect(logic.values.timeRange).toBe(expected)
     })
 
+    it('keeps a URL range equal to the services default when switching to dependencies', async () => {
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { range: '-1h' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTab('dependencies')
+        expect(logic.values.timeRange).toBe('-1h')
+        expect(router.values.searchParams).toMatchObject({ tab: 'dependencies', range: '-1h' })
+    })
+
     it('ignores an inherited-property range value in the URL', async () => {
         // `in` matches inherited Object.prototype keys like `toString`, so a naive `value in
         // TIME_RANGE_LABELS` check would accept this and break TIME_RANGE_MS lookups.

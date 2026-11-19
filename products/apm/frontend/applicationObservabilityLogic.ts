@@ -527,7 +527,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             APPLICATION_OBSERVABILITY_PATH,
             {
                 ...(values.environment !== null ? { environment: values.environment } : {}),
-                ...(values.timeRange !== defaultTimeRange(values.tab) ? { range: values.timeRange } : {}),
+                ...(values.pickedTimeRange !== null ? { range: values.pickedTimeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
                 ...(values.search ? { search: encodeSearchParam(values.search) } : {}),
@@ -578,7 +578,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             if (environment !== values.environment) {
                 actions.setEnvironment(environment)
             }
-            if ((range ?? defaultTimeRange(tab)) !== values.timeRange) {
+            if (range !== values.pickedTimeRange) {
                 actions.setTimeRange(range)
             }
         },
@@ -586,7 +586,12 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
 
     listeners(({ actions, values, selectors, cache }) => ({
         setEnvironment: () => actions.requestReload(),
-        setTimeRange: () => actions.requestReload(),
+        // A pick equal to the tab's default keeps the same window, so it changes the URL but loads nothing.
+        setTimeRange: (_, __, ___, previousState) => {
+            if (selectors.timeRange(previousState) !== values.timeRange) {
+                actions.requestReload()
+            }
+        },
         // Tabs have different default windows, so a tab change can move the effective window. The
         // services list then reloads too, so it never shows one window's data under another's label.
         setTab: (_, __, ___, previousState) =>
