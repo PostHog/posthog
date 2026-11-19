@@ -722,6 +722,10 @@ def _without_raw_filter(tag: str) -> str:
     return f"{{{{{head.removesuffix(_HTML_ESCAPE)} }}}}"
 
 
+def _is_control_flow(tag: str) -> bool:
+    return tag.startswith("{%") and not _RAW_OPEN.match(tag)
+
+
 def plain_text_from_html(html: str) -> str:
     """The plain text part SendGrid would have built from the HTML when it sent the email. PostHog only sends a plain
     text part it's given, so this happens at import."""
@@ -735,9 +739,17 @@ def plain_text_from_html(html: str) -> str:
     text = _hold_raw_blocks(html.replace("\x01", ""), tags)
     text = _LIQUID_TAG.sub(hold, text)
     spans = list(_not_content_spans(text))
+
+    def kept_control_flow(span: _Span) -> str:
+        # A comment can hold the `if` around visible content, and dropping only the tag would print what it guards.
+        held = (match.group(0) for match in _LIQUID_SLOT.finditer(text, span.start, span.end))
+        return "".join(slot for slot in held if _is_control_flow(tags[int(slot.strip("\x01"))]))
+
     text = "".join(
-        text[start:end]
-        for start, end in zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
+        text[start:end] + (kept_control_flow(spans[index]) if index < len(spans) else "")
+        for index, (start, end) in enumerate(
+            zip([0, *(span.end for span in spans)], [*(span.start for span in spans), len(text)])
+        )
     )
     text = _HTML_LINK.sub(
         lambda match: (

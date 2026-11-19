@@ -106,6 +106,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             '{{ variables.name | join: "," }} Go (https://example.com/?a={{ variables.id | join: "," }})'
         )
 
+    def test_plain_text_keeps_a_condition_written_inside_html_comments(self) -> None:
+        converted = convert_version({"html_content": "<!-- {{#if allow}} --><p>{{token}}</p><!-- {{/if}} -->"})
+
+        assert (
+            converted.text
+            == '{% if variables.allow and variables.allow != 0 and variables.allow != empty %}{{ variables.token | join: "," }}\n{% endif %}'
+        )
+
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
 
