@@ -498,7 +498,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             200: OpenApiResponse(response=TransactionalEmailResultsSerializer),
             403: OpenApiResponse(
-                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope."
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, or the user "
+                "has no access to workflows in this project."
             ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
@@ -530,8 +531,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             200: OpenApiResponse(response=TransactionalEmailImpactSerializer),
             403: OpenApiResponse(
-                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, or an event was named and the user "
-                "has no access to querying events."
+                description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, the user has "
+                "no access to workflows in this project, or an event was named and the user has no access to querying events."
             ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },

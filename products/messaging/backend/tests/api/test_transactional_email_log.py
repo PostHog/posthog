@@ -884,6 +884,25 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": {"sends": 0, "converted": 0},
         }
 
+    def test_impact_leaves_out_a_purchase_between_a_send_and_its_click_in_one_millisecond(self, _flag):
+        create_person(team=self.team, distinct_ids=["quick"])
+        message_id = self._send(
+            30, "quick@example.com", [("sent", 0, ""), ("delivered", 0, ""), ("clicked", 0.0005, "")]
+        )
+        sent_at = NOW - timedelta(minutes=30)
+        self._record_distinct_id(message_id, "quick", "quick@example.com", sent_at)
+        _create_event(
+            team=self.team, event="purchase", distinct_id="quick", timestamp=sent_at + timedelta(microseconds=200)
+        )
+        flush_persons_and_events()
+
+        impact = self._impact(event="purchase", date_from=(sent_at - timedelta(hours=1)).isoformat())
+
+        assert (impact["after_click"], impact["without_click"]) == (
+            {"sends": 1, "converted": 0},
+            {"sends": 0, "converted": 0},
+        )
+
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
         visible_id = self._send(20, "jane@example.com", [("sent", 1, "")])
