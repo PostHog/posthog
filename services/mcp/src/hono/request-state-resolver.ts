@@ -70,7 +70,6 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
-    /** Reads stay on `exec` and writes go to `exec-write`, so a client can always allow one and ask on the other. */
     splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined

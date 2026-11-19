@@ -27,7 +27,6 @@ export type RequestProperties = {
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
-    // Undefined leaves the choice to the server; see `resolveSplitWrites`.
     splitWrites?: boolean | undefined
     mode?: McpMode | undefined
     viaMcpStore?: boolean | undefined

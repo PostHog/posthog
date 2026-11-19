@@ -1200,7 +1200,6 @@ function challengeStepUpForGatedTool(toolName: string, args: Record<string, unkn
         return
     }
     const scopeGatedTool = state.findScopeGatedTool(targetToolName)
-    // A split `exec` refuses the write anyway, so asking for its scope there would be wasted.
     const refusedOnExec = toolName === EXEC_TOOL_NAME && state.splitWrites && !isReadOnlyDefinition(targetToolName)
     if (scopeGatedTool && !refusedOnExec) {
         challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)

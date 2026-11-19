@@ -174,7 +174,6 @@ describe('ToolExecutor', () => {
                 expect(request).not.toHaveBeenCalled()
             })
 
-            // A client that listed tools before the split keeps working on its cached `exec`.
             it.each([
                 ['exec on a default connection', 'exec', false],
                 ['exec-write on a split connection', 'exec-write', true],
@@ -318,8 +317,6 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
-        // Clients attach always-allow and ask policies to these names and hints, so a read-only
-        // hint on a tool that can write would let a mutation through unprompted.
         it.each([
             ['a default connection', {}, [['exec', false]]],
             [

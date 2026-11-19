@@ -129,7 +129,6 @@ export class InstructionsBuilder {
         }
     }
 
-    /** A client sets its approval policy by these names and hints, so `exec` claims read-only only when it refuses writes. */
     buildExecToolEntries(state: ExecToolState & Pick<ResolvedState, 'splitWrites'>): McpTool[] {
         if (!state.splitWrites) {
             return [this.buildExecToolEntry(state, { readOnly: state.requestContext.readOnly === true })]

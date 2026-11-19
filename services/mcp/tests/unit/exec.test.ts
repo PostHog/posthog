@@ -2060,7 +2060,6 @@ describe('exec tool', () => {
             { refuseWrites: true, gatewayToolsProvider: async () => [readOnlyConnectedTool] }
         )
 
-        // A connected server's readOnlyHint is its own claim, which PostHog cannot check.
         it.each(['call dashboard-delete {}', 'call --confirm dashboard-delete {}', 'call linear__list_issues {}'])(
             'sends %s to exec-write',
             async (command) => {

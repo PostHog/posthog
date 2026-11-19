@@ -305,7 +305,6 @@ export interface ExecToolOptions {
      */
     heldTools?: ReadonlySet<string>
     metricCatalogLookup?: boolean
-    /** Refuse every `call` that can write, so a client that always allows this dispatcher never lets a write through. */
     refuseWrites?: boolean
 }
 
@@ -314,7 +313,6 @@ function isTrustedReadOnly(tool: Tool<ZodObjectAny>): boolean {
     return tool.annotations.readOnlyHint === true && !isGatewayToolName(tool.name)
 }
 
-/** For a catalog tool this connection can't reach yet, such as one missing a scope. */
 export function isReadOnlyDefinition(toolName: string): boolean {
     return getToolDefinitions()[toolName]?.annotations.readOnlyHint === true
 }
