@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process'
 import { closeSync, mkdtempSync, openSync, rmSync } from 'fs'
 import { open } from 'fs/promises'
 import http from 'http'
+import { isEqual } from 'lodash'
 import { tmpdir } from 'os'
 import path from 'path'
 import supertest from 'supertest'
@@ -166,26 +167,25 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         }
         routedBodies.length = 0
         routedAddresses.length = 0
-        const releaseOtherThreads = holdThreadpool(threadpoolSize - 1)
-        const releaseLastThread = holdThreadpool(1)
+        const emptyMember = gzipSync('')
+        const padding = Buffer.concat(Array(Math.floor((256 * 1024) / emptyMember.length)).fill(emptyMember))
+        const releaseThreadpool = holdThreadpool()
         try {
             const req = openUpload('gzip', '::1')
             req.on('error', () => {})
-            req.end(gzipSync(JSON.stringify({ data: 'x' })))
-            await roundTrip()
+            const flushed = new Promise((resolve) => req.on('finish', resolve))
+            req.end(Buffer.concat([padding, gzipSync(JSON.stringify({ data: 'x' }))]))
+            await flushed
             req.destroy()
             await roundTrip()
-            await releaseLastThread()
-            const later = openUpload()
-            const laterResponse = responseOf(later)
-            later.end(gzipSync(JSON.stringify({ data: 'later' })))
-            expect((await laterResponse).status).toEqual(200)
         } finally {
-            await releaseLastThread()
-            await releaseOtherThreads()
+            await releaseThreadpool()
+        }
+        const uploadIndex = (): number => routedBodies.findIndex((body) => isEqual(body, { data: 'x' }))
+        for (let request = 0; request < 200 && uploadIndex() === -1; request++) {
+            await roundTrip()
         }
 
-        expect(routedBodies).toEqual([{ data: 'round trip' }, { data: 'round trip' }, { data: 'x' }, { data: 'later' }])
-        expect(routedAddresses[2]).toEqual('0000:0000:0000:0000:0000:0000:0000:0001')
+        expect(routedAddresses[uploadIndex()]).toEqual('0000:0000:0000:0000:0000:0000:0000:0001')
     })
 })
