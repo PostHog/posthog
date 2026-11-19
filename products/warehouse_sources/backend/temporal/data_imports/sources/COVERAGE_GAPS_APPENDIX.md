@@ -5538,8 +5538,8 @@ Diffed against: <https://developers.gorgias.com/llms.txt>
 - [x] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
 - [x] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
 - [x] `voice_call_recordings` — recording metadata joined to voice calls (medium)
-- [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium)
-- [ ] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
+- [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium) Skipped: both statistics APIs are POST report queries for a chosen period, and each statistic returns a differently shaped chart, so there is no fixed list resource to sync.
+- [x] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
 
 ## Grafana — gaps
 

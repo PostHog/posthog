@@ -498,7 +498,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 return undefined
             })
             useMocks({
-                get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
+                get: { '/api/organizations/:organization_id/members/': { results: MEMBERS, next: null } },
                 post: {
                     '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
                         submitted.push((await request.json()) as HogFlowInvocationApi)
@@ -534,7 +534,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             sentTo = []
             personEmails = []
             useMocks({
-                get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
+                get: { '/api/organizations/:organization_id/members/': { results: MEMBERS, next: null } },
                 post: {
                     '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
                         const { configuration, globals } = (await request.json()) as {
@@ -581,7 +581,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             ['the member lookup failed', 'mocked', false],
         ])('sends nothing from a sandbox step when %s (%s run)', async (_, run, membersLoad) => {
             if (!membersLoad) {
-                useMocks({ get: { '/api/organizations/@current/members/': () => [500, { detail: 'Unavailable' }] } })
+                useMocks({
+                    get: { '/api/organizations/:organization_id/members/': () => [500, { detail: 'Unavailable' }] },
+                })
             }
             await openSandboxTest('lead@example.com')
 
@@ -607,7 +609,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 "Couldn't load your organization's members. Refresh the page to try again.",
             ],
         ])('explains why a sandbox step test cannot run when %s', async (_, membersResponse, reason) => {
-            useMocks({ get: { '/api/organizations/@current/members/': membersResponse } })
+            useMocks({ get: { '/api/organizations/:organization_id/members/': membersResponse } })
 
             await openSandboxTest('lead@example.com')
 
