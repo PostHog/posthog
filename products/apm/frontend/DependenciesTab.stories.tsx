@@ -140,7 +140,7 @@ const healthRow = (service_name: string): ServicesHealthResponseApi['results'][n
     service_name,
     environment: 'production',
     status: 'good',
-    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0 },
+    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0, apdex: 1 },
     sparkline: [1],
 })
 
