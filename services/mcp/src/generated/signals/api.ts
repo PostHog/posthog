@@ -282,7 +282,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(signalsAnomaliesSearchRetrieveQueryIncludePointsDefault)
         .describe(
-            'Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.'
+            'Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.'
         ),
     insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
     interval: zod
