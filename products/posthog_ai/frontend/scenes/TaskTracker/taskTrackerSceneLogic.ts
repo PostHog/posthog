@@ -969,6 +969,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.activeCreation || !values.dataProcessingAccepted) {
                 return
             }
+            if (values.effectiveRepositoryConfig.repository) {
+                actions.releaseWarm()
+                return
+            }
             const request = buildWarmRequest(
                 { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
                 values.catalogue,

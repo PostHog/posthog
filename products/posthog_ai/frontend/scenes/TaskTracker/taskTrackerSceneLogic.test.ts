@@ -132,9 +132,14 @@ describe('taskTrackerSceneLogic', () => {
         jest.useRealTimers()
     })
 
-    it.each(['', 'Explain this funnel'])(
-        'warms before typing and releases an unfocused empty draft (draft: %s)',
-        async (description) => {
+    it.each([
+        { description: '', repository: undefined },
+        { description: 'Explain this funnel', repository: undefined },
+        { description: '', repository: 'example/project' },
+        { description: 'Explain this funnel', repository: 'example/project' },
+    ])(
+        'warms only without a repository (draft: $description, repository: $repository)',
+        async ({ description, repository }) => {
             const warmBodies: Record<string, unknown>[] = []
             useMocks({
                 post: {
@@ -146,6 +151,13 @@ describe('taskTrackerSceneLogic', () => {
             })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewTaskData({
+                repositoryConfig: {
+                    repository,
+                    integrationId: repository ? 1 : undefined,
+                    branch: repository ? 'main' : undefined,
+                },
+            })
             const warm = taskWarmLogic({ panelId: undefined })
             expect(warm.values.warmLease).toBeNull()
 
@@ -155,10 +167,14 @@ describe('taskTrackerSceneLogic', () => {
             jest.useRealTimers()
             await expectLogic(warm).toFinishAllListeners()
 
-            expect(warmBodies).toEqual([
-                expect.objectContaining({ repository: null, github_integration: null, branch: null }),
-            ])
-            expect(warm.values.warmLease).toMatchObject({ taskId: 'warm-task', runId: 'warm-run' })
+            expect(warmBodies).toEqual(
+                repository
+                    ? []
+                    : [expect.objectContaining({ repository: null, github_integration: null, branch: null })]
+            )
+            expect(warm.values.warmLease).toEqual(
+                repository ? null : expect.objectContaining({ taskId: 'warm-task', runId: 'warm-run' })
+            )
 
             jest.useFakeTimers()
             logic.actions.setComposerFocused(true)
@@ -166,7 +182,7 @@ describe('taskTrackerSceneLogic', () => {
             jest.advanceTimersByTime(5000)
             jest.useRealTimers()
             await expectLogic(warm).toFinishAllListeners()
-            expect(warmBodies).toHaveLength(1)
+            expect(warmBodies).toHaveLength(repository ? 0 : 1)
             expect(cancelledWarmRuns).toEqual([])
 
             jest.useFakeTimers()
@@ -174,9 +190,35 @@ describe('taskTrackerSceneLogic', () => {
             jest.advanceTimersByTime(5000)
             jest.useRealTimers()
             await expectLogic(warm).toFinishAllListeners()
-            expect(cancelledWarmRuns).toEqual(description ? [] : ['warm-run'])
+            expect(cancelledWarmRuns).toEqual(repository || description ? [] : ['warm-run'])
         }
     )
+
+    it('releases an unused warm run when a repository is attached', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => [200, { task_id: 'warm-task', run_id: 'warm-run' }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const warm = taskWarmLogic({ panelId: undefined })
+
+        jest.useFakeTimers()
+        logic.actions.setComposerFocused(true)
+        jest.advanceTimersByTime(700)
+        jest.useRealTimers()
+        await expectLogic(warm).toFinishAllListeners()
+        expect(warm.values.warmLease).not.toBeNull()
+
+        await expectLogic(logic, () =>
+            logic.actions.setNewTaskData({ repositoryConfig: { repository: 'example/project', integrationId: 1 } })
+        ).toFinishAllListeners()
+        await expectLogic(warm).toFinishAllListeners()
+
+        expect(warm.values.warmLease).toBeNull()
+        expect(cancelledWarmRuns).toEqual(['warm-run'])
+    })
 
     it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
         let warmCalls = 0
