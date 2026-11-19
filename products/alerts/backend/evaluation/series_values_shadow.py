@@ -20,7 +20,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
+from products.product_analytics.backend.facade.contracts import (
+    ClosedSeriesValues,
+    SeriesValuesUnavailable,
+    SeriesValuesVerification,
+)
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_series_values
 
 logger = structlog.get_logger(__name__)
@@ -53,6 +57,7 @@ class ShadowComparison:
     buckets_compared: int = 0
     max_abs_difference: float = 0.0
     freshly_built: bool = False
+    verification: SeriesValuesVerification | None = None
 
 
 def is_series_values_precompute_enabled(team: Team) -> bool:
@@ -103,7 +108,10 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
     ]
     if not differences:
         return ShadowComparison(
-            outcome="unavailable", reason="no_overlapping_buckets", freshly_built=closed.freshly_built
+            outcome="unavailable",
+            reason="no_overlapping_buckets",
+            freshly_built=closed.freshly_built,
+            verification=closed.verification,
         )
     largest = max(differences)
     return ShadowComparison(
@@ -111,6 +119,7 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
         buckets_compared=len(differences),
         max_abs_difference=largest,
         freshly_built=closed.freshly_built,
+        verification=closed.verification,
     )
 
 
@@ -131,7 +140,9 @@ def compare_series_values_shadow(
             comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
         else:
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-            closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
+            closed = closed_series_values(
+                runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS, verify=True
+            )
             comparison = compare_closed_values(closed, live)
     except _CANCELLATION:
         raise
@@ -171,6 +182,7 @@ def _record(
         if duration_seconds is not None:
             _SHADOW_COMPARISON_DURATION.labels(outcome=comparison.outcome).observe(duration_seconds)
         team = alert.team
+        verification = comparison.verification
         posthoganalytics.capture(
             event=SHADOW_COMPARISON_EVENT,
             distinct_id=str(team.uuid),
@@ -185,6 +197,9 @@ def _record(
                 "insight_kind": insight_kind,
                 "duration_ms": None if duration_seconds is None else round(duration_seconds * 1000),
                 "freshly_built": comparison.freshly_built,
+                "verified": verification is not None,
+                "stale_days": 0 if verification is None else verification.stale_days,
+                "verify_duration_ms": None if verification is None else verification.duration_ms,
             },
             groups=groups(team.organization, team),
         )
