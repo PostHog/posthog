@@ -111,6 +111,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
 from products.signals.backend.scout_harness.workflow_trigger_queue import enqueue_workflow_trigger
+from products.signals.backend.scout_report_actions import SCOUT_GRANTABLE_REPORT_ACTIONS
 from products.signals.backend.task_profiles import FIRST_REPORT_SCOUT, SCOUT, SCOUT_FULL_NETWORK
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     EvaluateScoutPrecheckOutput,
@@ -499,6 +500,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             business_knowledge_maintained=business_knowledge_maintained,
             project_has_governed_metrics=True,
             write_scopes=["dashboard:write"],
+            report_actions=["make_it_green"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
             repositories=["acme-co/service"],
@@ -510,6 +512,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 "# Governed metrics",
                 "# External MCP servers",
                 "# Write access",
+                "# Report actions",
                 "# Your checkout",
                 "# Structured output",
                 "# Your run identity",
@@ -1284,6 +1287,38 @@ class TestWriteAccessPromptSection(SimpleTestCase):
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
+
+
+class TestReportActionsPromptSection(SimpleTestCase):
+    def test_section_renders_only_for_a_run_that_holds_an_action(self) -> None:
+        def _prompt(report_actions: list[str] | None = None) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-orchestrator",
+                    version=1,
+                    body="tend",
+                    description="d",
+                    allowed_tools=[],
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                report_actions=report_actions,
+            )
+
+        # Every kind a person can grant has to reach the prompt, or a granted scout learns of it only by trial.
+        for kind in sorted(SCOUT_GRANTABLE_REPORT_ACTIONS):
+            granted = _prompt(report_actions=[kind])
+            assert "# Report actions" in granted
+            assert f"- `{kind}`:" in granted
+        # A run with no grant keeps the prompt it had before the grant existed.
+        ungranted = _prompt()
+        assert _prompt(report_actions=[]) == ungranted
+        assert "# Report actions" not in ungranted
 
 
 class TestPromptBuilder(BaseTest):
@@ -2611,6 +2646,8 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
     )()
     assert metadata.get("write_scopes", []) == expected_grant
     assert metadata.get("report_actions", []) == expected_report_actions
+    # The endpoint refuses a kind the stamp does not name, so the prompt must name the same kinds.
+    assert ("# Report actions" in captured["prompt"]) == bool(expected_report_actions)
 
 
 @pytest.mark.asyncio
