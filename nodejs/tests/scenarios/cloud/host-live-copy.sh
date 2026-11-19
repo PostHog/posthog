@@ -26,8 +26,21 @@ whole_lines_of_log() {
     stat -c %s "$snapshot"
 }
 
+follow() {
+    local stopped=
+    while kill -0 "$1" 2>/dev/null; do
+        if [ -z "$stopped" ] && ! kill -0 "$wrapper" 2>/dev/null; then
+            kill -TERM "$1" 2>/dev/null
+            stopped=1
+        fi
+        sleep 0.2 </dev/null >/dev/null 2>&1 &
+        wait $!
+    done
+    wait "$1"
+}
+
 copy() {
-    local size status upload stopped=
+    local size status
     size=$(stat -c %s "$log" 2>/dev/null) && [ "$size" -gt "$copied" ] || return 0
     size=$(whole_lines_of_log) || {
         say "could not read the live log"
@@ -35,16 +48,7 @@ copy() {
     }
     [ "$size" -gt "$copied" ] || return 0
     timeout --foreground -k 2 "$limit" aws s3 cp --only-show-errors - "$target" <"$snapshot" >/dev/null 2>&1 &
-    upload=$!
-    while kill -0 "$upload" 2>/dev/null; do
-        if [ -z "$stopped" ] && ! kill -0 "$wrapper" 2>/dev/null; then
-            kill -TERM "$upload" 2>/dev/null
-            stopped=1
-        fi
-        sleep 0.2 </dev/null >/dev/null 2>&1 &
-        wait $!
-    done
-    wait "$upload"
+    follow $!
     status=$?
     if [ "$status" = 0 ]; then
         copied=$size
@@ -77,8 +81,7 @@ trap finish TERM
 while kill -0 "$wrapper" 2>/dev/null; do
     kill -0 "$runner" 2>/dev/null || finish
     copy
-    kill -0 "$wrapper" 2>/dev/null || break
     sleep "$interval" </dev/null >/dev/null 2>&1 &
-    wait $!
+    follow $!
 done
 rm -f "$snapshot"

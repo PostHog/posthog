@@ -144,6 +144,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         const dir = path.join(run.dir, 's3.held')
         return existsSync(dir)
             ? readdirSync(dir)
+                  .filter((name) => /^\d+$/.test(name))
                   .sort((a, b) => Number(a) - Number(b))
                   .map((name) => readFileSync(path.join(dir, name), 'utf8'))
             : []
@@ -344,8 +345,15 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     ])(
         'leaves no process but the card behind, and copies nothing more, once the wrapper is gone%s',
         async (_, env, stopping) => {
-            const run = start('run', { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1' })
-            await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
+            const run = start(
+                'run',
+                { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1', SCENARIO_LIVE_COPY_SECONDS: '600' },
+                { runId: RUN_ID, content: `${START}\n` }
+            )
+            await until(
+                () => processesOf(run).some(([, , , , command, interval]) => command === 'sleep' && interval === '600'),
+                'the copy loop to wait for its next copy'
+            )
             const before = copied(run)
 
             if (stopping) {
