@@ -104,7 +104,11 @@ def _own_plan_state(integration: Any, user: Any, *, runtime_adapter: str | None)
 
 def _strip_context_tag(text: str) -> str:
     """Remove both thread tags from participant text, so none of it can open or close a thread block."""
-    return re.sub(rf"</?\s*(?:{_THREAD_CONTEXT_UPDATE_TAG}|{_THREAD_CONTEXT_TAG})\s*/?>", "", text, flags=re.IGNORECASE)
+    pattern = rf"</?\s*(?:{_THREAD_CONTEXT_UPDATE_TAG}|{_THREAD_CONTEXT_TAG})\s*/?>"
+    # Removing one tag can join the text around it into another, so repeat until none is left.
+    while (stripped := re.sub(pattern, "", text, flags=re.IGNORECASE)) != text:
+        text = stripped
+    return text
 
 
 def _max_ts(*candidates: str | None) -> str:
