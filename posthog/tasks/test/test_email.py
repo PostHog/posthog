@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.core import mail
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,7 +20,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.models.instance_setting import set_instance_setting
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
@@ -33,7 +34,6 @@ from posthog.tasks.email import (
     send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
-    send_email_sender_domain_sending_stopped,
     send_email_sending_reputation_finding,
     send_email_sending_tier_demoted,
     send_email_verification_code,
@@ -265,23 +265,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert "1,000 emails per day" in mocked_email_messages[0].html_body
         assert "per hour" not in mocked_email_messages[0].html_body
-
-    def test_send_email_sender_domain_sending_stopped_skips_a_deactivated_admin(
-        self, MockEmailMessage: MagicMock
-    ) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        deactivated_admin = self._create_user("deactivated-admin@posthog.com", is_active=False)
-        OrganizationMembership.objects.filter(user=deactivated_admin, organization=self.organization).update(
-            level=OrganizationMembership.Level.ADMIN
-        )
-
-        send_email_sender_domain_sending_stopped(
-            team_id=self.team.id, domain="mail.example.com", stopped_at="2026-01-05T07:15:00+00:00"
-        )
-
-        assert [entry["raw_email"] for entry in mocked_email_messages[0].to] == [self.user.email]
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -1430,10 +1413,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert mocked_email_messages == []
 
-    @parameterized.expand([("left_the_organization",), ("deactivated",)])
-    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(
-        self, MockEmailMessage: MagicMock, how_they_left: str
-    ) -> None:
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -1445,11 +1425,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
         )
         # The email names the project and quotes the error, so it must not follow a stale created_by.
-        if how_they_left == "left_the_organization":
-            OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
-        else:
-            creator.is_active = False
-            creator.save(update_fields=["is_active"])
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
 
         send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
 
@@ -2671,3 +2647,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         assert mocked_email_messages == []
+
+
+class TestHogFunctionFiltersUncompilableDelivery(APIBaseTest):
+    def test_delivers_to_active_admins_and_creators_only(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        broken_ids = []
+        for email, is_active in (("active-creator@posthog.com", True), ("deactivated-creator@posthog.com", False)):
+            creator = self._create_user(email, is_active=is_active)
+            hog_function = HogFunction.objects.create(
+                team=self.team, name=f"Broken by {email}", enabled=True, created_by=creator
+            )
+            HogFunction.objects.filter(id=hog_function.id).update(
+                filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+            )
+            broken_ids.append(str(hog_function.id))
+        mail.outbox.clear()
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            send_hog_function_filters_uncompilable(self.team.id, broken_ids)
+
+        delivered_to = sorted(address for message in mail.outbox for address in message.to)
+        assert delivered_to == sorted([self.user.email, "active-creator@posthog.com"])
