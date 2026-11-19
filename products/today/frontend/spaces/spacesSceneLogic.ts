@@ -8,8 +8,9 @@ import { urls } from 'scenes/urls'
 import { starredSpaces, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { Breadcrumb } from '~/types'
 
-import { taskChannelsContributorsRetrieve, tasksList } from '../generated/api'
-import { ChannelDTOApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { taskChannelsContributorsRetrieve, tasksList } from 'products/tasks/frontend/generated/api'
+import { ChannelDTOApi, TaskListItemApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { PRESENCE_RECENT_WINDOW_MS, SpacePresence, presenceBySpace } from './spacePresence'
 
 const SPACE_PRESENCE_FETCH_LIMIT = 100

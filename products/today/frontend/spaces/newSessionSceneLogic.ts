@@ -8,7 +8,8 @@ import { urls } from 'scenes/urls'
 import { starredSpaces, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { Breadcrumb } from '~/types'
 
-import { ChannelDTOApi } from '../generated/api.schemas'
+import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { newSessionSuggestionsLogic } from './newSessionSuggestionsLogic'
 import { SpaceComposerRepositoryConfig, spaceComposerRepositoryConfig } from './spaceSceneLogic'
 

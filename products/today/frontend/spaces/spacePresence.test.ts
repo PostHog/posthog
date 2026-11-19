@@ -1,4 +1,5 @@
-import { TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { presenceBySpace } from './spacePresence'
 
 const NOW = Date.parse('2026-09-28T18:30:00Z')

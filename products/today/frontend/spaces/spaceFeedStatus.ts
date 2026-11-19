@@ -1,4 +1,4 @@
-import { PrStateEnumApi, TaskRunDetailDTOApi } from '../generated/api.schemas'
+import { PrStateEnumApi, TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export type SpaceFeedStatusVariant = 'default' | 'info' | 'destructive' | 'success' | 'completed'
 

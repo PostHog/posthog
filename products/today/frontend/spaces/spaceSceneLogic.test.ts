@@ -11,8 +11,8 @@ import { initKeaTests } from '~/test/init'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
+import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { TaskListItemApi } from '../generated/api.schemas'
 import { DEFAULT_SPACE_FEED_FILTERS, SpaceFeedFilters, SpaceFeedType } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import {

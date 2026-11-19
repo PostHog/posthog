@@ -26,7 +26,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { ChannelDTOApi } from '../generated/api.schemas'
+import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { newSpaceLogic } from './newSpaceLogic'
 import { SpacesIndexRow } from './SpacesIndexRow'
 import { spacesSceneLogic } from './spacesSceneLogic'

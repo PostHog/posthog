@@ -5,9 +5,9 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-import { pullRequestLinkLabel, pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
-import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
-import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
+import { pullRequestLinkLabel, pullRequestStateMeta } from 'products/today/frontend/spaces/TaskPullRequestChip'
+import { TaskPullRequest } from 'products/today/frontend/spaces/taskPullRequests'
+import { TaskUserAvatar, taskUserName } from 'products/today/frontend/spaces/TaskUserAvatar'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionBadge } from './todayWorkItems'

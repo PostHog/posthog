@@ -1,7 +1,7 @@
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 import { type ComposerPrefillRequest, EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
+import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { ChannelDTOApi } from '../generated/api.schemas'
 import { SpaceComposerRepositoryConfig } from './spaceSceneLogic'
 
 const SPACE_COMPOSER_OVERRIDE = {

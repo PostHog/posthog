@@ -8,8 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
-import { taskChannelsCreate, taskChannelsStarCreate } from '../generated/api'
-import { ChannelDTOApi } from '../generated/api.schemas'
+import { taskChannelsCreate, taskChannelsStarCreate } from 'products/tasks/frontend/generated/api'
+import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export const NEW_SPACE_NAME_MAX_LENGTH = 80
 

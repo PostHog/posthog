@@ -31,7 +31,7 @@ import {
     TasksListExcludeOriginProduct,
     TasksListParams,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
+import { pullRequestStates, sessionIdsWithPullRequests } from 'products/today/frontend/spaces/taskPullRequests'
 
 import { matchesPaneQuery } from './todayPaneSearch'
 import {

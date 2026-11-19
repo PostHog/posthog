@@ -1,4 +1,4 @@
-import { TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { TaskListItemApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 
 // The same windows as PostHog Desktop, so both apps show the same faces.
 /** A face pulses while its person was active this recently: work is happening now. */

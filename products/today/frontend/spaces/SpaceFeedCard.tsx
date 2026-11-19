@@ -31,8 +31,8 @@ import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/tod
 
 import { artifactPreviewKind } from 'products/posthog_ai/frontend/api/taskArtifacts'
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
+import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { TaskListItemApi } from '../generated/api.schemas'
 import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'

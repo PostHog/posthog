@@ -16,8 +16,8 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
+import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { TaskListItemApi } from '../generated/api.schemas'
 import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'

@@ -1,4 +1,5 @@
-import { TaskRunArtifactResponseApi } from '../generated/api.schemas'
+import { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { taskFiles } from './taskFiles'
 
 function artifact(name: string, overrides: Partial<TaskRunArtifactResponseApi> = {}): TaskRunArtifactResponseApi {

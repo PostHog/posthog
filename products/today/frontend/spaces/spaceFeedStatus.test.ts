@@ -1,4 +1,5 @@
-import { TaskRunDetailDTOApi } from '../generated/api.schemas'
+import { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { spaceFeedStatus } from './spaceFeedStatus'
 
 const run = (

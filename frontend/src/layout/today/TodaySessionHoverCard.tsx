@@ -19,8 +19,8 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
-import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
+import { pullRequestStateMeta } from 'products/today/frontend/spaces/TaskPullRequestChip'
+import { TaskUserAvatar, taskUserName } from 'products/today/frontend/spaces/TaskUserAvatar'
 
 import { TodayHoverCardFact } from './TodayHoverCardFact'
 import { cardMenuParts } from './todayMenuParts'

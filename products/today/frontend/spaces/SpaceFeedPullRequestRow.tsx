@@ -8,7 +8,8 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { TodayWorkItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
-import { TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { pullRequestLinkLabel, pullRequestStateMeta } from './TaskPullRequestChip'
 import { TaskPullRequest, pullRequestReference } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'

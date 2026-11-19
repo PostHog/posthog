@@ -1,4 +1,5 @@
-import { TaskRunDetailDTOApi, TaskSummaryDTOApi } from '../generated/api.schemas'
+import { TaskRunDetailDTOApi, TaskSummaryDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import {
     TaskPullRequest,
     pullRequestLabel,

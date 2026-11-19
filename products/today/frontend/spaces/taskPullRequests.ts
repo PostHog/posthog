@@ -1,4 +1,9 @@
-import { PrStateEnumApi, TaskListItemApi, TaskRunDetailDTOApi, TaskSummaryDTOApi } from '../generated/api.schemas'
+import {
+    PrStateEnumApi,
+    TaskListItemApi,
+    TaskRunDetailDTOApi,
+    TaskSummaryDTOApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 export type TaskPullRequestProvider = 'github' | 'gitlab'
 

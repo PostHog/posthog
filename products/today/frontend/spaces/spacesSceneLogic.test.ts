@@ -4,7 +4,8 @@ import { isLockedSpace, spaceLabel } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ChannelDTOApi } from '../generated/api.schemas'
+import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { spacesIndexLists, spacesSceneLogic } from './spacesSceneLogic'
 
 const space = (id: string, name: string, starred: boolean, system_role: string | null = null): ChannelDTOApi =>

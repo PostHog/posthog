@@ -17,7 +17,7 @@ import { dayjs } from 'lib/dayjs'
 import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { CommentApi } from 'products/platform_features/frontend/generated/api.schemas'
-import { TaskUserAvatar } from 'products/tasks/frontend/spaces/TaskUserAvatar'
+import { TaskUserAvatar } from 'products/today/frontend/spaces/TaskUserAvatar'
 
 /** One comment in a thread: who wrote it, when, and what it says. `actions` show on hover and focus. */
 export function ArtifactCommentEntry({ comment, actions }: { comment: CommentApi; actions?: ReactNode }): JSX.Element {

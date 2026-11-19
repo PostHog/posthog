@@ -4,7 +4,7 @@ import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { gravatarUrl } from 'lib/utils/gravatar'
 
-import { TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export type TaskAvatarUser = Pick<TaskUserBasicInfoApi, 'first_name' | 'last_name' | 'email'> & {
     uuid?: string | null

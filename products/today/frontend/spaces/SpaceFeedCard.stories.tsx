@@ -4,7 +4,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { TaskBasicApi, TaskRunArtifactResponseApi, TaskRuntimeEnumApi } from '../generated/api.schemas'
+import {
+    TaskBasicApi,
+    TaskRunArtifactResponseApi,
+    TaskRuntimeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
+
 import { SpaceFeedCard } from './SpaceFeedCard'
 
 const SPACE_ID = 'space-growth'

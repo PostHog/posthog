@@ -24,7 +24,6 @@ import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { EmbeddedTaskComposerProps } from 'products/posthog_ai/frontend/api/runner'
 import { type ArtifactPreviewKind, captureArtifactChipClicked } from 'products/posthog_ai/frontend/api/taskArtifacts'
-
 import {
     taskChannelsDestroy,
     taskChannelsMembersRetrieve,
@@ -34,8 +33,14 @@ import {
     taskChannelsStarCreate,
     tasksList,
     tasksPullRequestTitlesCreate,
-} from '../generated/api'
-import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+} from 'products/tasks/frontend/generated/api'
+import {
+    ChannelDTOApi,
+    PatchedChannelUpdateApi,
+    TaskListItemApi,
+    TaskUserBasicInfoApi,
+} from 'products/tasks/frontend/generated/api.schemas'
+
 import { SpaceCanvasSections, spaceCanvasSections } from './spaceCanvasDisplay'
 import {
     SpaceFeedFilters,

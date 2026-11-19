@@ -3,7 +3,8 @@ import { Badge, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qui
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { PrStateEnumApi } from '../generated/api.schemas'
+import { PrStateEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { TaskPullRequest, pullRequestReference } from './taskPullRequests'
 
 export interface PullRequestStateMeta {

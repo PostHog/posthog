@@ -4,8 +4,7 @@ import {
     groupArtifactVersions,
     taskArtifactPath,
 } from 'products/posthog_ai/frontend/api/taskArtifacts'
-
-import { TaskRunArtifactResponseApi } from '../generated/api.schemas'
+import { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export interface TaskFile {
     file: ArtifactFile

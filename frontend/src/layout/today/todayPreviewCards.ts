@@ -6,7 +6,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
+import { TaskPullRequest } from 'products/today/frontend/spaces/taskPullRequests'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
