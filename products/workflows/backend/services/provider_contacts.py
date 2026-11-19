@@ -11,6 +11,7 @@ from collections.abc import Collection, Sequence
 from structlog import get_logger
 
 from posthog.api.capture import capture_batch_internal
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.storage import object_storage
 
@@ -75,10 +76,10 @@ def stage_provider_contacts(
     """
     if not rows:
         return ProviderContactsResult(status="skipped", notes=("No contacts to import.",))
-    checked = _check_creator(team_id, user_id)
-    if isinstance(checked, ProviderContactsResult):
-        return checked
-    team, user, access = checked
+    creator = _check_creator(team_id, user_id)
+    if isinstance(creator, ProviderContactsResult):
+        return creator
+    team, user, access = creator.team, creator.user, creator.access
     cohort = import_cohort(team_id, user, access, description=cohort_description, name=cohort_name, source=source)
     if cohort.cohort_id is None:
         return ProviderContactsResult(status="failed", notes=(cohort.problem,))
@@ -147,10 +148,10 @@ def send_provider_contact_properties(
     """
     if not rows:
         return ProviderContactsResult(status="skipped")
-    checked = _check_creator(team_id, user_id)
-    if isinstance(checked, ProviderContactsResult):
-        return checked
-    team, user, _ = checked
+    creator = _check_creator(team_id, user_id)
+    if isinstance(creator, ProviderContactsResult):
+        return creator
+    team, user = creator.team, creator.user
     try:
         prepared = prepare_people(
             team, user, [dict(row) for row in rows], create_missing=create_people, fill_only=True, require_rows=False
@@ -162,7 +163,14 @@ def send_provider_contact_properties(
     return ProviderContactsResult(status="created" if prepared.people else "skipped", people=len(prepared.people))
 
 
-def _check_creator(team_id: int, user_id: int | None) -> tuple[Team, User, UserAccessControl] | ProviderContactsResult:
+@frozen
+class _Creator:
+    team: Team
+    user: User
+    access: UserAccessControl
+
+
+def _check_creator(team_id: int, user_id: int | None) -> _Creator | ProviderContactsResult:
     """The person who started the import, or a failed result when they can't edit persons in the project anymore."""
     team = Team.objects.get(id=team_id)
     user = User.objects.filter(id=user_id).first()
@@ -178,7 +186,7 @@ def _check_creator(team_id: int, user_id: int | None) -> tuple[Team, User, UserA
         return ProviderContactsResult(
             status="failed", notes=("The person who started this import can't edit persons in this project.",)
         )
-    return team, user, access
+    return _Creator(team=team, user=user, access=access)
 
 
 def import_contact_chunk(team_id: int, storage_prefix: str, chunk: int, *, send_events: bool) -> ContactChunkOutcome:
