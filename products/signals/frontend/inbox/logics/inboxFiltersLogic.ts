@@ -506,9 +506,6 @@ export interface inboxFiltersLogicActions {
     toggleSourceProduct: (source: string) => {
         source: string
     }
-    toggleTag: (tag: string) => {
-        tag: string
-    }
     toggleState: (state: InboxReportSectionKey) => {
         state:
             | 'closed'
@@ -519,6 +516,9 @@ export interface inboxFiltersLogicActions {
             | 'not-actionable'
             | 'outcome-monitoring'
             | 'resolved'
+    }
+    toggleTag: (tag: string) => {
+        tag: string
     }
 }
 

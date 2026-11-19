@@ -335,17 +335,14 @@ export interface reportListLogicActions {
     setSourceFilter: (selection: null | import('./inboxFiltersLogic').InboxSourceSelection) => {
         selection: null | import('./inboxFiltersLogic').InboxSourceSelection
     } // inboxFiltersLogic
+    setTagFilter: (tags: string[]) => {
+        tags: string[]
+    } // inboxFiltersLogic
     sourceFilterAvailabilityChanged: () => {
         value: true
     } // inboxFiltersLogic
     tagFilterAvailabilityChanged: () => {
         value: true
-    } // inboxFiltersLogic
-    setTagFilter: (tags: string[]) => {
-        tags: string[]
-    } // inboxFiltersLogic
-    toggleTag: (tag: string) => {
-        tag: string
     } // inboxFiltersLogic
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
@@ -355,6 +352,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     toggleSourceProduct: (source: string) => {
         source: string
+    } // inboxFiltersLogic
+    toggleTag: (tag: string) => {
+        tag: string
     } // inboxFiltersLogic
     trackReports: (
         source: string,
