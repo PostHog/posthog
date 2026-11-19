@@ -355,3 +355,29 @@ class TestBillingConsumerAIReloadOutcome(SimpleTestCase):
         mock_report.assert_not_called()
         mock_capture.assert_called_once()
         mock_delete.assert_not_called()
+
+
+class TestBillingConsumerUnreadableBody(SimpleTestCase):
+    def _build_consumer(self) -> BillingConsumer:
+        with patch("ee.sqs.SQSConsumer.boto3"):
+            return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+
+    @parameterized.expand(
+        [
+            ("invalid_json", "not json", {}),
+            ("invalid_gzip", "bm90IGd6aXA=", {"content_encoding": {"StringValue": "gzip"}}),
+        ]
+    )
+    @patch(f"{CONSUMER}.capture_exception")
+    def test_an_unreadable_body_is_captured_with_its_message_id_and_left_on_the_queue(
+        self, _name, raw_body, attributes, mock_capture
+    ):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            consumer.process_message(
+                {"Body": raw_body, "MessageAttributes": attributes, "MessageId": "msg-1", "ReceiptHandle": "receipt-1"}
+            )
+
+        contexts = [call.args[1] for call in mock_capture.call_args_list if len(call.args) > 1]
+        self.assertIn("msg-1", [context.get("message_id") for context in contexts])
+        mock_delete.assert_not_called()

@@ -54,12 +54,15 @@ class BillingConsumer(SQSConsumer):
         """
         close_old_connections()
 
+        # Set these before parsing the body, so the handlers below can report a body that PostHog can't read.
+        message_id = message.get("MessageId", "unknown")
+        message_type = None
+
         try:
             raw_body = message.get("Body", "{}")
             message_attributes = message.get("MessageAttributes", {})
 
             body = self._decompress_and_parse_message(raw_body, message_attributes)
-            message_id = message.get("MessageId", "unknown")
 
             # Extract message type to determine processing logic
             message_type = body.get("type")
