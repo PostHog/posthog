@@ -36,6 +36,7 @@ export interface dependenciesLogicValues {
     currentTeamId: number | null // teamLogic
     dependencies: DependenciesResponseApi | null
     dependenciesLoadError: boolean
+    dependenciesLoadErrorDetail: string | null
     dependenciesLoading: boolean
     dependencyLayout: DependencyGraph | null
     dependencyLayoutError: boolean
@@ -158,6 +159,16 @@ export const dependenciesLogic = kea<dependenciesLogicType>([
                 loadDependenciesFailure: () => true,
             },
         ],
+        // The API answers 400 with a message saying how to narrow the request when a window is too
+        // heavy to read, so that message is shown in place of the generic network error.
+        dependenciesLoadErrorDetail: [
+            null as string | null,
+            {
+                loadDependenciesSuccess: () => null,
+                loadDependenciesFailure: (_, { errorObject }) =>
+                    errorObject?.status === 400 && typeof errorObject.detail === 'string' ? errorObject.detail : null,
+            },
+        ],
         dependencyLayoutError: [
             false,
             {
@@ -243,9 +254,11 @@ export const dependenciesLogic = kea<dependenciesLogicType>([
         requestReload: () => actions.loadDependencies(),
         loadDependenciesSuccess: () => actions.layoutDependencies(),
         setShowAllDependencies: () => actions.layoutDependencies(),
-        // The layout follows from loadDependenciesSuccess. The URL's `service` mirrors the pick, so a
-        // later URL rewrite (a range or environment change) keeps it.
+        // The map narrows to the new service right away, so it never shows the last selection when the
+        // scoped load fails. The URL's `service` mirrors the pick, so a later URL rewrite (a range or
+        // environment change) keeps it.
         setDependencyService: ({ service }) => {
+            actions.layoutDependencies()
             actions.loadDependencies()
             if (service !== values.endpointsService) {
                 actions.setEndpointsService(service)

@@ -159,3 +159,38 @@ export const AllServicesCapped: Story = {
         }),
     ],
 }
+
+export const Sampled: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/apm/dependencies/': { ...dependencies, sampled: true, trace_count: 2000 },
+            },
+        }),
+    ],
+}
+
+const healthRow = (service_name: string): ServicesHealthResponseApi['results'][number] => ({
+    service_name,
+    environment: 'production',
+    status: 'good',
+    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0, apdex: 1 },
+    sparkline: [1],
+})
+
+export const TooManySpans: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/apm/services/': {
+                    ...servicesHealth,
+                    results: ['checkout', 'frontend', 'payments'].map(healthRow),
+                },
+                '/api/projects/:team_id/apm/dependencies/': [
+                    400,
+                    { detail: 'This window reads too many spans. Pick a shorter window or one service.' },
+                ],
+            },
+        }),
+    ],
+}

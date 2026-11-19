@@ -1,0 +1,29 @@
+name: Revert proof trigger
+
+# revert-proof.yml runs on `workflow_run` after this workflow, from its default-branch copy,
+# because it holds the change prover App key, which a `pull_request` job must never see.
+# A revert can touch any path, so no `paths` filter fits. The job runs only when the title starts
+# with "Revert", which is the title `git revert` and GitHub's revert button write. On every other
+# pull request the job is skipped, the run concludes `skipped`, and revert-proof.yml does no work.
+
+on:
+    pull_request:
+        # `edited` covers a title changed to a revert after the PR opened. Stamphog waits for a revert
+        # proof on every PR whose title starts with "Revert", so such a PR must get a check too.
+        types: [opened, synchronize, reopened, edited]
+
+concurrency:
+    # A branch name is not unique across forks, so the pull request number keys the group.
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    trigger:
+        name: Request a revert proof
+        if: startsWith(github.event.pull_request.title, 'Revert')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        steps:
+            - run: 'true'
