@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -22,7 +23,15 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActivityScope, CohortType, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
+import {
+    ActivityScope,
+    CohortType,
+    DashboardType,
+    InsightLogicProps,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+} from '~/types'
 
 // The logic preloads the chart renderers on mount. No test here draws one, and loading them takes seconds.
 jest.mock('~/queries/Query/queryNodeRenderers')
@@ -556,6 +565,53 @@ describe('insightSceneLogic', () => {
         expect(router.values.location.pathname).toEqual(
             addProjectIdIfMissing(redirect ? urls.dashboard(6) : urls.insightEdit(Insight42), MOCK_TEAM_ID)
         )
+    })
+
+    describe('opening an insight from a dashboard tile', () => {
+        const storedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+        }
+        // The API applies the dashboard's filters to the query it returns for a tile
+        const tileQuery: InsightVizNode = {
+            ...storedQuery,
+            source: {
+                ...storedQuery.source,
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                dateRange: { date_from: '-7d' },
+            } as InsightVizNode['source'],
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [{ id: 42, short_id: Insight42, query: storedQuery, result: [] }],
+                    },
+                },
+            })
+            const tileProps: InsightLogicProps = {
+                dashboardItemId: Insight42,
+                dashboardId: 6,
+                cachedInsight: { id: 42, short_id: Insight42, query: tileQuery, result: [] },
+                doNotLoad: true,
+            }
+            insightLogic(tileProps).mount()
+            insightDataLogic(tileProps).mount()
+        })
+
+        it.each([
+            ['edit mode loads the stored query', urls.insightEdit(Insight42, 6), storedQuery],
+            ['view mode keeps the dashboard filters', urls.insightView(Insight42, 6), tileQuery],
+        ])('%s', async (_name, url, expectedQuery) => {
+            router.actions.push(url)
+            logic = insightSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic.values.insightLogicRef!.logic).delay(150).toFinishAllListeners() // loadInsight debounce
+
+            expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(expectedQuery)
+        })
     })
 
     const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {

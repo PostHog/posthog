@@ -835,7 +835,8 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
 export const getOverrideWarningPropsForButton = (
     query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
-    variablesOverride: Record<string, HogQLVariable> | null | undefined
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    tileFiltersOverride?: TileFilters | null
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
     // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
     // dashboard variables only to the variables the query declares. Other overrides do not change
@@ -845,9 +846,13 @@ export const getOverrideWarningPropsForButton = (
         : isNodeWithSource(query) && isHogQLQuery(query.source)
           ? query.source
           : null
+    const hasFilterValues = (filters: object | null | undefined): boolean =>
+        isObject(filters) &&
+        Object.values(filters).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
+    // `explicitDate` only qualifies the tile's date range, so on its own it filters nothing
+    const { ignoreDashboardFilters, explicitDate: _explicitDate, ...tileFilters } = tileFiltersOverride ?? {}
     const filterOverridesExist =
-        isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        ((!ignoreDashboardFilters && hasFilterValues(filtersOverride)) || hasFilterValues(tileFilters)) &&
         (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
     const variableOverridesExist =
         isObject(variablesOverride) &&

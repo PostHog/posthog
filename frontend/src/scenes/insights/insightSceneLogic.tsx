@@ -759,6 +759,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
                     }
+                    // A dashboard tile mounts its insight logic under this same key, and its query has the
+                    // dashboard's and the tile's filters applied. The editor would show that query and save
+                    // it, so the filters would become part of the insight.
+                    const reusesDashboardTileLogic =
+                        values.insightMode === ItemMode.Edit &&
+                        insightProps.dashboardId != null &&
+                        !!insightLogic.findMounted(insightProps)?.props.cachedInsight
 
                     const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
@@ -767,6 +774,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     const logic2 = insightDataLogic.build(insightProps)
                     const unmount2 = logic2.mount()
                     actions.setInsightDataLogicRef(logic2, unmount2)
+
+                    if (reusesDashboardTileLogic) {
+                        // Load the insight as it is stored, like switching to edit mode in this scene does
+                        logic.actions.loadInsight(
+                            insightId as InsightShortId,
+                            values.filtersOverride,
+                            values.variablesOverride,
+                            values.tileFiltersOverride
+                        )
+                    }
 
                     // Mount the new owners before releasing the old ones to preserve shared insight state.
                     cache.disposables.add(
