@@ -852,6 +852,19 @@ def _rendered_follow_up(messages: list[SlackThreadMessage], text: str, prefix: s
             "User: \n\nplease check the totals\nAssistant: done.\nUser: and now?",
             [ThreadMessage(author="<@U_THEO|theo>", body="the export looks off")],
         ),
+        (
+            _build_posthog_code_task_description(
+                "is this affected?",
+                [
+                    SlackThreadMessage(user="theo", user_id="U_THEO", text="pasted token sk_test_x", ts="1.000"),
+                    SlackThreadMessage(user="mira", user_id="U_MIRA", text="is this affected?", ts="2.000"),
+                ],
+                "2.000",
+                mentioner_slack_user_id="U_MIRA",
+            ).split("<@U_THEO|theo>:", 1)[1],
+            "is this affected?",
+            [],
+        ),
     ],
     ids=[
         "mention_with_text",
@@ -865,6 +878,7 @@ def _rendered_follow_up(messages: list[SlackThreadMessage], text: str, prefix: s
         "role_wording_in_display_name",
         "mention_without_text_or_message",
         "mention_without_text_in_history",
+        "truncated_opening",
     ],
 )
 def test_context_selector_separates_rendered_thread_from_request(prompt, request_text, thread):

@@ -53,11 +53,22 @@ def _thread_messages(block: str) -> tuple[str, list[ThreadMessage], bool]:
     return _mentioner(header), kept, bool(parsed) and parsed[0].body == _INITIATOR_PLACEHOLDER
 
 
+def _drop_truncated_block(text: str) -> str:
+    # The agent keeps only the end of a long prompt or history, which can cut a block's opening tag but
+    # keep its closing tag. Participant text holds no tags, so a closing tag before any opening one ends
+    # a truncated block, and everything up to it is thread text.
+    openings = [i for i in (text.find(f"<{tag}>\n") for tag in THREAD_CONTEXT_TAGS) if i >= 0]
+    head = text[: min(openings, default=len(text))]
+    closings = [(head.rfind(f"</{tag}>"), tag) for tag in THREAD_CONTEXT_TAGS]
+    end, tag = max(closings)
+    return text[end + len(tag) + 3 :] if end >= 0 else text
+
+
 def split_thread_context(text: str) -> SplitPrompt:
     """Separate the Slack thread blocks in a prompt, or in a history of prompts, from the requests around them."""
     thread: list[ThreadMessage] = []
     subject = ""
-    rest = text
+    rest = _drop_truncated_block(text)
     while True:
         # The Slack app strips both tags from participant text, so a tag here is one it rendered. The update
         # block's header names the original tag in prose, so only a tag that ends its line opens a block.
