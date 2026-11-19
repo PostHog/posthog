@@ -96,10 +96,14 @@ from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import (
+    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorUnknownIdentifier,
     ExposedCHQueryError,
+    InternalCHQueryError,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
@@ -887,6 +891,9 @@ class HogQLQueryExecutor:
                 self.clickhouse_sql = ""
                 if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     self.error = str(e)
+                elif isinstance(e, InternalCHQueryError):
+                    error_code = look_up_clickhouse_error_code_meta(e).name
+                    self.error = internal_ch_error_user_message(error_code) or GENERIC_INTERNAL_CH_ERROR_MESSAGE
                 else:
                     self.error = "Unknown error"
             else:
@@ -1126,6 +1133,9 @@ class HogQLQueryExecutor:
                     self.results = []
                     if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                         self.error = str(e)
+                    elif isinstance(e, InternalCHQueryError):
+                        error_code = look_up_clickhouse_error_code_meta(e).name
+                        self.error = internal_ch_error_user_message(error_code) or GENERIC_INTERNAL_CH_ERROR_MESSAGE
                     else:
                         self.error = "Unknown error"
                 else:
