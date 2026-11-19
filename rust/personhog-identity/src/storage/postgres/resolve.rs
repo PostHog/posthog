@@ -39,7 +39,8 @@ pub(super) async fn resolve_distinct_ids(
         [] => return Ok(HashMap::new()),
         [(team_id, distinct_id)] => resolve_one(pools, tables, *team_id, distinct_id).await?,
         [(team_id, _), rest @ ..] if rest.iter().all(|(t, _)| t == team_id) => {
-            resolve_in_team(pools, tables, *team_id, keys).await?
+            let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
+            resolve_in_team(pools, tables, *team_id, &distinct_ids).await?
         }
         _ => resolve_across_teams(pools, tables, keys).await?,
     };
@@ -103,10 +104,8 @@ async fn resolve_in_team(
     pools: &IdentityPools,
     tables: &IdentityTables,
     team_id: i64,
-    keys: &[(i64, String)],
+    distinct_ids: &[String],
 ) -> StorageResult<Vec<ResolvedRow>> {
-    let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
-
     let mut conn = pools.acquire(Lane::Fast).await?;
     let rows = mirrored_query_as!(
         ResolvedRow,
@@ -125,7 +124,7 @@ async fn resolve_in_team(
           AND p.team_id = $1 AND p.is_deleted = false
         "#,
         team_id as i32,
-        &distinct_ids
+        distinct_ids
         => fetch_all(&mut *conn)
     )?;
     Ok(rows)

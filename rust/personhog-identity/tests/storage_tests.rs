@@ -865,13 +865,16 @@ async fn every_resolve_statement_returns_only_live_keys() {
     let dead_person = ctx.insert_person_with_distinct_id("dead-person").await;
     ctx.tombstone_person(dead_person, 5).await;
     let elsewhere_id = other_team.insert_person_with_distinct_id("elsewhere").await;
+    let shared_id = other_team.insert_person_with_distinct_id("known").await;
+    other_team.insert_person_with_distinct_id("unknown").await;
 
-    let one_team: Vec<(i64, String)> = ["known", "unknown", "dead-mapping", "dead-person"]
+    let one_team: Vec<(i64, String)> = ["known", "known", "unknown", "dead-mapping", "dead-person"]
         .into_iter()
         .map(|distinct_id| (ctx.team_id, distinct_id.to_string()))
         .collect();
     let mut across_teams = one_team.clone();
     across_teams.push((other_team.team_id, "elsewhere".to_string()));
+    across_teams.push((other_team.team_id, "known".to_string()));
 
     let resolve = |keys: Vec<(i64, String)>| {
         let storage = ctx.storage.clone();
@@ -912,11 +915,13 @@ async fn every_resolve_statement_returns_only_live_keys() {
     alone_in_one_team.retain(|(team_id, _), _| *team_id == ctx.team_id);
     assert_eq!(fields(&in_one_team), fields(&alone_in_one_team));
     let ids: BTreeSet<i64> = alone.values().map(|person| person.id).collect();
-    assert_eq!(ids, BTreeSet::from([person_id, elsewhere_id]));
+    assert_eq!(ids, BTreeSet::from([person_id, elsewhere_id, shared_id]));
 
     ctx.cleanup().await.ok();
     other_team.cleanup().await.ok();
 }
+
+const EXECUTIONS_PAST_GENERIC_PLAN_CHOICE: usize = 10;
 
 #[tokio::test]
 async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
@@ -956,14 +961,16 @@ async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
         vec![pruned.clone(), absent],
         vec![pruned.clone(), elsewhere],
     ] {
-        let resolved = tokio::time::timeout(
-            Duration::from_secs(5),
-            ctx.storage.resolve_distinct_ids(&keys),
-        )
-        .await
-        .expect("resolve waited on a person partition its batch does not touch")
-        .expect("resolve should succeed");
-        assert_eq!(resolved[&pruned].id, person_id);
+        for _ in 0..EXECUTIONS_PAST_GENERIC_PLAN_CHOICE {
+            let resolved = tokio::time::timeout(
+                Duration::from_secs(5),
+                ctx.storage.resolve_distinct_ids(&keys),
+            )
+            .await
+            .expect("resolve waited on a person partition its batch does not touch")
+            .expect("resolve should succeed");
+            assert_eq!(resolved[&pruned].id, person_id);
+        }
     }
 
     blocker.rollback().await.ok();
