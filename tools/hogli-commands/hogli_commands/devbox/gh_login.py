@@ -47,7 +47,7 @@ def _box(workspace: str | None) -> str:
 @click.command(name="devbox:gh:login", help="Log the GitHub CLI in on your devbox, for gh and git")
 @workspace_argument
 def devbox_gh_login(workspace: str | None) -> None:
-    """Run `gh auth login` on the box, then `gh auth setup-git` so git uses the same login.
+    """Run `gh auth login` on the box, then `gh auth setup-git` so git uses the same login, then install gh stack.
 
     gh prints a one-time code to enter at https://github.com/login/device on this computer.
     The login stays on the box's disk until `devbox:gh:logout` or `devbox:destroy`.
@@ -71,7 +71,12 @@ def devbox_gh_login(workspace: str | None) -> None:
     # questions. The workflow scope lets git push branches that change .github/workflows.
     login = shlex.join(remote_gh_auth("login", "--git-protocol", "https", "--web", "--scopes", "workflow"))
     setup_git = shlex.join(remote_gh_auth("setup-git"))
-    exec_replace(name, ["bash", "-c", f"{login} && {setup_git}"])
+    # gh stack is how this repo stacks pull requests. A failed install leaves the login in place.
+    install_gh_stack = (
+        "{ gh extension list | grep -q gh-stack || gh extension install github/gh-stack; } "
+        '|| echo "Couldn\'t install gh stack. Run gh extension install github/gh-stack on the box."'
+    )
+    exec_replace(name, ["bash", "-c", f"{login} && {setup_git} && {install_gh_stack}"])
 
 
 @click.command(name="devbox:gh:status", help="Show which GitHub account the GitHub CLI on your devbox uses")

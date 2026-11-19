@@ -32,6 +32,7 @@ from hogli_commands.devbox import (
     mutagen as devbox_mutagen,
     secrets_lend,
     sync as devbox_sync,
+    trunk_login,
     worktree as devbox_worktree,
 )
 
@@ -4294,6 +4295,8 @@ class TestDevboxShare:
         def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
             if "gh" in command:
                 return subprocess.CompletedProcess([], 0, '{"hosts":{}}\n', "")
+            if "trunk" in command[-1]:
+                return subprocess.CompletedProcess([], 1, "", "Not logged in.")
             if "devbox-secrets" in command[-1]:
                 return subprocess.CompletedProcess([], 0, "checked\n", "")
             if "logout" in command[-1]:
@@ -4349,6 +4352,8 @@ class TestDevboxShare:
         def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
             if "gh" in command:
                 return subprocess.CompletedProcess([], 0, '{"hosts":{}}\n', "")
+            if "trunk" in command[-1]:
+                return subprocess.CompletedProcess([], 1, "", "Not logged in.")
             if "devbox-secrets" in command[-1]:
                 return subprocess.CompletedProcess([], 0, "checked\n", "")
             if "logout" in command[-1]:
@@ -4422,6 +4427,7 @@ class TestDevboxShare:
         )
         monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "_refuse_to_share_lent_secrets", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_trunk_login_before_sharing", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
         monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
         monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
@@ -4433,6 +4439,74 @@ class TestDevboxShare:
         assert expected_output in result.output
 
     @pytest.mark.parametrize(
+        "whoami_exit, whoami_err, interactive, logout_exit, expected_calls, expected_output",
+        [
+            (
+                0,
+                "\x1b[32m✔\x1b[0m Logged in as Jane (jane@example.com)",
+                True,
+                0,
+                ["trunk-logout", "share"],
+                "Logged out of the Trunk",
+            ),
+            (0, "✔ Logged in as Jane (jane@example.com)", False, 0, [], "Run `hogli devbox:trunk:logout` first"),
+            (0, "✔ Logged in as Jane (jane@example.com)", True, 1, ["trunk-logout"], "wasn't shared"),
+            (1, "error connecting to api.trunk.io", True, 0, [], "--keep-trunk-login"),
+            (devbox_cli.TRUNK_MISSING_EXIT, "", True, 0, ["share"], "Shared"),
+        ],
+        ids=[
+            "logs_out",
+            "no_terminal_refuses",
+            "failed_logout_blocks_share",
+            "unknown_login_refuses",
+            "no_trunk_binary_shares",
+        ],
+    )
+    def test_share_handles_a_trunk_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        whoami_exit: int,
+        whoami_err: str,
+        interactive: bool,
+        logout_exit: int,
+        expected_calls: list[str],
+        expected_output: str,
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            assert command[:2] == ["bash", "-c"]
+            if "logout" in command[-1]:
+                calls.append("trunk-logout")
+                return subprocess.CompletedProcess([], logout_exit, "", "")
+            return subprocess.CompletedProcess([], whoami_exit, "", whoami_err)
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_gh_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_refuse_to_share_lent_secrets", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input="y\n")
+
+        assert (result.exit_code == 0) == ("share" in expected_calls), result.output
+        assert calls == expected_calls
+        assert expected_output in result.output
+
+    @pytest.mark.parametrize(
+        "login_module, command",
+        [(gh_login, "devbox:gh:login"), (trunk_login, "devbox:trunk:login")],
+        ids=["gh", "trunk"],
+    )
+    @pytest.mark.parametrize(
         "status_exit, status_out, expected_output",
         [
             (0, "USER  GROUP  ROLE\n-  eng  use\n", "group eng"),
@@ -4440,18 +4514,24 @@ class TestDevboxShare:
         ],
         ids=["shared_with_a_group", "status_lookup_fails"],
     )
-    def test_gh_login_refuses_a_shared_box(
-        self, monkeypatch: pytest.MonkeyPatch, status_exit: int, status_out: str, expected_output: str
+    def test_login_refuses_a_shared_box(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        login_module: Any,
+        command: str,
+        status_exit: int,
+        status_out: str,
+        expected_output: str,
     ) -> None:
-        monkeypatch.setattr(gh_login, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(gh_login, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(gh_login, "_ensure_ssh_alias", lambda name: None)
+        monkeypatch.setattr(login_module, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(login_module, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(login_module, "_ensure_ssh_alias", lambda name: None)
         monkeypatch.setattr(
             coder, "get_sharing_status", lambda name: subprocess.CompletedProcess([], status_exit, status_out, "")
         )
-        monkeypatch.setattr(gh_login, "exec_replace", lambda *a, **kw: pytest.fail("logged in on a shared box"))
+        monkeypatch.setattr(login_module, "exec_replace", lambda *a, **kw: pytest.fail("logged in on a shared box"))
 
-        result = runner.invoke(cli, ["devbox:gh:login"])
+        result = runner.invoke(cli, [command])
 
         assert result.exit_code != 0
         assert expected_output in result.output
@@ -6679,6 +6759,7 @@ class TestDevboxSecretsLend:
         )
         monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "_warn_about_gh_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_trunk_login_before_sharing", lambda *a, **kw: None)
         monkeypatch.setattr(
             devbox_cli,
             "run_in_workspace",

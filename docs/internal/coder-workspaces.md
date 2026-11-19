@@ -251,11 +251,23 @@ hogli devbox:gh:logout    # delete the login from the box
 ```
 
 Login also runs `gh auth setup-git`, so git uses the same login. git and `gh` then reach every repository your GitHub account can, in every process on the box, including Herdr tabs and agents that outlive the SSH connection that started them.
+Login also installs the `gh stack` extension when it's missing, for [stacked PRs](https://github.com/github/gh-stack).
 After a logout, git falls back to Coder's app.
 
 The token stays on the box's disk until you log out or destroy the box. People you share the box with can read it, so `devbox:share` offers to log out first.
 Logging out deletes only the box's copy. To revoke the token, remove GitHub CLI under Settings > Applications on github.com, which also logs `gh` out on your other computers.
 A `GH_TOKEN` Coder user secret takes priority over the login for `gh`.
+
+To use the merge queue with `trunk merge` from the box, log the Trunk CLI in the same way:
+
+```bash
+hogli devbox:trunk:login     # trunk prints a link to open on your computer
+hogli devbox:trunk:status    # the Trunk account the box uses
+hogli devbox:trunk:logout    # delete the login from the box
+```
+
+The Trunk CLI comes from PostHog's flox environment in `~/posthog`. If login can't find it, run `hogli devbox:exec --flox -- true` once to set up the environment.
+The Trunk login also stays on the box's disk, and people you share the box with could use it to put PRs in the merge queue as you. `devbox:share` offers to log out first, like it does for `gh`.
 
 ## Auth model
 

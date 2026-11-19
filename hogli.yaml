@@ -256,6 +256,15 @@ devbox:
     devbox:gh:logout:
         click: hogli_commands.devbox.gh_login:devbox_gh_logout
         description: Log the GitHub CLI out on your devbox
+    devbox:trunk:login:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_login
+        description: Log the Trunk CLI in on your devbox, for the merge queue
+    devbox:trunk:status:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_status
+        description: Show which Trunk account the Trunk CLI on your devbox uses
+    devbox:trunk:logout:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_logout
+        description: Log the Trunk CLI out on your devbox
     devbox:config:show:
         click: hogli_commands.devbox.cli:devbox_config_show
         description: Show saved devbox setup configuration

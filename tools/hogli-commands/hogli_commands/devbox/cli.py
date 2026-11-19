@@ -6,6 +6,7 @@ Provides hogli devbox:* commands for managing Coder-based remote dev environment
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import zlib
@@ -1935,6 +1936,86 @@ def _warn_about_gh_login_before_sharing(name: str, workspace: dict[str, Any], *,
     click.echo("Logged out of the GitHub CLI on the box.")
 
 
+_TRUNK_AUTH_TIMEOUT = 60
+TRUNK_MISSING_EXIT = 3
+_KEEP_TRUNK_LOGIN_HINT = "Run `hogli devbox:trunk:status` to see why, or pass --keep-trunk-login to share anyway."
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def remote_trunk(*args: str) -> list[str]:
+    # trunk is on PATH only inside PostHog's flox environment. flox puts the binary under .flox/run
+    # the first time it activates the environment, so the box can call it there without activating.
+    script = (
+        f"cd {REMOTE_REPO_PATH} && "
+        f'for trunk in .flox/run/*/bin/trunk; do if [ -x "$trunk" ]; then exec "$trunk" {shlex.join(args)}; fi; done; '
+        f"exit {TRUNK_MISSING_EXIT}"
+    )
+    return ["bash", "-c", script]
+
+
+def read_trunk_login(name: str) -> str | None:
+    """Return the `trunk whoami` line for the box's login, "" when there is none, or ``None`` when the box doesn't say.
+
+    A box without a trunk binary counts as logged out, because only that binary logs in.
+    """
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_trunk("whoami", "--no-progress"), timeout=_TRUNK_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == TRUNK_MISSING_EXIT:
+        return ""
+    output = _ANSI_ESCAPE.sub("", result.stdout + result.stderr)
+    for line in output.splitlines():
+        if "Logged in as" in line:
+            return line.strip(" ✔")
+    if "Not logged in" in output:
+        return ""
+    return None
+
+
+def logout_trunk(name: str) -> bool:
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, remote_trunk("logout", "--no-progress"), timeout=_TRUNK_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def _warn_about_trunk_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Log out of the Trunk CLI on the box before sharing it, unless told to keep the login.
+
+    trunk keeps its token in a file on the box, and people the box is shared with get a shell as the owner,
+    so they could use the merge queue in the owner's name.
+    """
+    if keep_login:
+        return
+    if get_workspace_status(workspace) != "running":
+        _fail(
+            "Couldn't check the box's Trunk CLI login, because the devbox isn't running. "
+            "Start the box and run the command again, or pass --keep-trunk-login to share anyway."
+        )
+    login = read_trunk_login(name)
+    if login is None:
+        _fail(f"Couldn't check the box's Trunk CLI login. {_KEEP_TRUNK_LOGIN_HINT}")
+    if not login:
+        return
+    click.echo(
+        click.style("The box is logged in to the Trunk CLI. People you share with could use that login.", fg="yellow")
+    )
+    if not _can_prompt():
+        _fail(
+            "The box is logged in to the Trunk CLI. Run `hogli devbox:trunk:logout` first, "
+            "or pass --keep-trunk-login to share anyway."
+        )
+    if not click.confirm("Log out of the Trunk CLI on the box before sharing?", default=True):
+        return
+    if not logout_trunk(name):
+        _fail("Couldn't log out of the Trunk CLI on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of the Trunk CLI on the box.")
+
+
 def _logout_claude_before_destroy(name: str) -> None:
     """Run `claude auth logout` before destroy deletes the disk.
 
@@ -1969,6 +2050,12 @@ def _logout_claude_before_destroy(name: str) -> None:
     is_flag=True,
     help="Share without checking for or logging out a GitHub CLI login on the box",
 )
+@click.option(
+    "--keep-trunk-login",
+    "keep_trunk_login",
+    is_flag=True,
+    help="Share without checking for or logging out a Trunk CLI login on the box",
+)
 def devbox_share(
     workspace: str | None,
     users: tuple[str, ...],
@@ -1976,6 +2063,7 @@ def devbox_share(
     list_sharing: bool,
     keep_claude_login: bool,
     keep_gh_login: bool,
+    keep_trunk_login: bool,
 ) -> None:
     """Share your devbox with other Coder users."""
     ensure_runtime_ready()
@@ -1996,6 +2084,7 @@ def devbox_share(
 
     _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
     _warn_about_gh_login_before_sharing(name, ws, keep_login=keep_gh_login)
+    _warn_about_trunk_login_before_sharing(name, ws, keep_login=keep_trunk_login)
     # Last, right before the share: secrets can be lent while a logout prompt above waits for an answer.
     # Lent secrets live in memory, so only a box that has stopped or is coming up fresh can't hold any.
     # A pending or deleting box can still run with secrets until its queued job runs.
