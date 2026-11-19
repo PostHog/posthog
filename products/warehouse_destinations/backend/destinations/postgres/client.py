@@ -18,6 +18,7 @@ import psycopg
 from psycopg import sql
 from psycopg.errors import SerializationFailure
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.integration import MISSING_CERT_PATH
 from posthog.psycopg_helpers import (
     has_ipv6_route,
@@ -25,6 +26,7 @@ from posthog.psycopg_helpers import (
     is_temporary_resolution_failure,
     resolve_psycopg_hostaddr_with_timeout,
 )
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
@@ -134,6 +136,11 @@ async def host_configuration_error_detail(host: str, port: int) -> str | None:
     """
     if not host or host.startswith("/"):
         return None
+
+    # An out-of-band interaction domain resolves to an ordinary public IP, so the IP-based SSRF
+    # check would let it through.
+    if is_cloud() and matched_oob_domain(host) is not None:
+        return OOB_DOMAIN_REFUSAL
 
     if is_resolvable_hostname(host):
         try:
