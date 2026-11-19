@@ -862,6 +862,16 @@ jobs:
               uses: ./.depot/actions/setup-pnpm
               with:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # With the Depot-issued github.token the lookup read the pull request without an error but found
+            # no full pass that an app token with checks: read finds, so it reads with the paths-filter app.
+            - name: Mint full-run lookup token
+              id: full-run-token
+              if: env.SELECTION_APPLIES == 'true' && github.event.pull_request.draft != true && vars.DISABLE_BACKEND_TEST_SELECTION != 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - name: Look up an earlier full backend pass on this PR
               id: full-run-state
               # A ready PR runs the full matrices at most once: after a full run passes, a selector
@@ -872,7 +882,7 @@ jobs:
               continue-on-error: true
               timeout-minutes: 2
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.full-run-token.outputs.token || github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: node .github/scripts/backend-full-run-state.js >> "$GITHUB_OUTPUT"
             - name: Install turbo

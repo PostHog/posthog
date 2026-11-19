@@ -115,6 +115,19 @@ if (require.main === module) {
         process.exit(1)
     }
     const { passed, rearmedByQueueKick } = fullRunState(pullRequest)
+    const heads = [
+        ...(pullRequest.commits?.nodes ?? []).map((node) => node?.commit),
+        ...(pullRequest.timelineItems?.nodes ?? []).map((node) => node?.beforeCommit),
+    ]
+    const suites = heads.flatMap((commit) => commit?.checkSuites?.nodes ?? [])
+    const comments = pullRequest.comments?.nodes ?? []
+    console.error(
+        `Read: ${heads.length} heads, ${suites.length} gate check suites ` +
+            `(app ids ${JSON.stringify([...new Set(suites.map((suite) => suite?.app?.databaseId ?? null))])}), ` +
+            `${heads.flatMap(gateChecksOf).length} gate checks, ${comments.length} comments ` +
+            `(${comments.filter((comment) => TRUNK_LOGIN.test(comment?.author?.login ?? '')).length} from Trunk, ` +
+            `more unread: ${pullRequest.comments?.pageInfo?.hasPreviousPage})`
+    )
     console.error(
         `Full backend run already passed: ${passed}${rearmedByQueueKick ? ' (re-armed by a merge queue kick)' : ''}`
     )
