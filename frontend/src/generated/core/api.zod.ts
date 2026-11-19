@@ -702,6 +702,21 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Get or update access controls for the resource.
+ */
+export const accessControlsUpdateBodyResourceMax = 32
+
+export const accessControlsUpdateBodyResourceIdMax = 36
+
+export const AccessControlsUpdateBody = /* @__PURE__ */ zod.object({
+    access_level: zod.string().nullable(),
+    resource: zod.string().max(accessControlsUpdateBodyResourceMax),
+    resource_id: zod.string().max(accessControlsUpdateBodyResourceIdMax).nullish(),
+    organization_member: zod.uuid().nullish(),
+    role: zod.uuid().nullish(),
+})
+
+/**
  * Create a new password for the sharing configuration.
  */
 export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod
