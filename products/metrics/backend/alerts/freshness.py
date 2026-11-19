@@ -48,8 +48,11 @@ _TEAM_FRESHNESS_QUERY: Final = parse_select(
 )
 
 
-# Not scoped to a team, because every team's samples spread over every partition. A floor more than
-# 5 minutes old is a stalled partition or a dead writer, so it gets none.
+# Not scoped to a team, because every team's samples spread over every partition. An old floor is kept,
+# however old, because a lagging partition is the case the checkpoint exists for. A partition that stops
+# receiving records holds every check at its last capture time. Over no rows, min returns the epoch and
+# least() returns now() for a NULL, so an empty table would read as fully caught up. HAVING returns no
+# row instead.
 _PARTITION_CHECKPOINT_QUERY: Final = parse_select(
     """
     SELECT least(min(partition_checkpoint), now()) AS checkpoint FROM (
@@ -57,7 +60,7 @@ _PARTITION_CHECKPOINT_QUERY: Final = parse_select(
         FROM posthog.metrics_kafka_metrics
         GROUP BY _topic, _partition
     )
-    HAVING checkpoint >= now() - toIntervalMinute(5)
+    HAVING count() > 0
     """
 )
 
@@ -75,7 +78,7 @@ def fetch_metrics_freshness(team: Team, *, max_execution_time: int) -> dt.dateti
 
 
 def fetch_partition_checkpoint(team: Team, *, max_execution_time: int) -> dt.datetime | None:
-    """The capture time every ingestion partition has passed, or None when it is more than 5 minutes behind."""
+    """The capture time every ingestion partition has passed, or None before any partition has reported."""
     return _fetch_instant(
         team,
         _PARTITION_CHECKPOINT_QUERY,

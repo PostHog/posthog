@@ -278,22 +278,24 @@ class TestPartitionCheckpointRead(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_partition_recent", timedelta(seconds=40), timedelta(seconds=40)),
-            ("one_partition_stalled", timedelta(minutes=6), None),
+            ("every_partition_recent", timedelta(seconds=40)),
+            ("one_partition_stalled", timedelta(minutes=6)),
+            ("one_partition_stalled_for_hours", timedelta(hours=3)),
         ]
     )
-    def test_reads_the_oldest_partitions_newest_capture(
-        self, _name: str, slowest_age: timedelta, expected_age: timedelta | None
-    ) -> None:
+    def test_reads_the_oldest_partitions_newest_capture(self, _name: str, slowest_age: timedelta) -> None:
         now = datetime.now(UTC).replace(microsecond=0)
         # A partition's older block must not lower its checkpoint.
-        self._deliver(0, now - timedelta(minutes=30))
+        self._deliver(0, now - timedelta(hours=5))
         self._deliver(0, now - timedelta(seconds=10))
         self._deliver(1, now - slowest_age)
 
         checkpoint = fetch_partition_checkpoint(self.team, max_execution_time=5)
 
-        assert checkpoint == (None if expected_age is None else now - expected_age)
+        assert checkpoint == now - slowest_age
+
+    def test_has_no_checkpoint_before_any_partition_reports(self) -> None:
+        assert fetch_partition_checkpoint(self.team, max_execution_time=5) is None
 
 
 class TestMetricsAlertEvaluation(APIBaseTest):
