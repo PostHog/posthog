@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
@@ -21,6 +22,12 @@ from products.data_catalog.backend.facade.api import certifications_for_team, pr
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.facade.testing import (
+    patch_dag_schedule_reconcile,
+    patch_deletion_dependents_check,
+    patch_frequency_target_apply,
+    patch_node_type_update,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -48,7 +55,6 @@ from .test_suggestions import make_draft
 
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
-DELETION_DEPENDENTS_CHECK = "products.data_modeling.backend.logic.saved_query_deletion.check_saved_query_deletable"
 DAY_KEYS = {"refresh_mode": "incremental", "incremental_key": "day", "unique_key": ["day"]}
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
@@ -505,7 +511,7 @@ class TestAcceptSuggestion(APIBaseTest):
         suggestion = self._suggest_deprecate()
         add_dependent_view(self.view)
 
-        with patch(DELETION_DEPENDENTS_CHECK, side_effect=RuntimeError("lock timeout")):
+        with patch_deletion_dependents_check(side_effect=RuntimeError("lock timeout")):
             accepted = self._accept(suggestion.id, {"delete_view": True})
 
         self.view.refresh_from_db()
@@ -513,20 +519,20 @@ class TestAcceptSuggestion(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("node_type_update", "products.data_modeling.backend.logic.saved_query_materialization.update_node_type"),
+            ("node_type_update", patch_node_type_update),
             (
                 "frequency_target_clear",
-                "products.data_modeling.backend.logic.schedule_reconcile.apply_saved_query_frequency_target",
+                patch_frequency_target_apply,
             ),
         ]
     )
     def test_a_deprecate_whose_stop_fails_leaves_the_view_materialized_and_a_retry_stops_it(
-        self, _name: str, failing_step: str
+        self, _name: str, failing_step: Callable[..., Any]
     ) -> None:
         table = materialize_in_place(self.view)
         suggestion = self._suggest(WarehouseSuggestionKind.DEPRECATE)
 
-        with patch(failing_step, side_effect=RuntimeError("database is down")):
+        with failing_step(side_effect=RuntimeError("database is down")):
             failed = self._accept(suggestion.id)
         suggestion.refresh_from_db()
         self.view.refresh_from_db()
@@ -867,8 +873,7 @@ class TestAcceptOutsideATransaction(NonAtomicAPIBaseTest):
     def test_a_failed_first_schedule_keeps_the_materialize_suggestion_open(self) -> None:
         suggestion = suggest(self.team.id, self.view.id, WarehouseSuggestionKind.MATERIALIZE)
 
-        with patch(
-            "products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules",
+        with patch_dag_schedule_reconcile(
             side_effect=RuntimeError("temporal is down"),
         ):
             response = self.client.post(f"/api/projects/{self.team.id}/warehouse_suggestions/{suggestion.id}/accept/")

@@ -33,6 +33,12 @@ from products.data_modeling.backend.facade.api import (
     set_declared_target,
 )
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
+from products.data_modeling.backend.facade.testing import (
+    patch_dag_schedule_reconcile,
+    patch_reconcile_capture,
+    patch_refresh_floor_flag,
+    patch_temporal_client,
+)
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
@@ -366,11 +372,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ]
             self.organization.save(update_fields=["available_product_features"])
             with (
-                mock.patch(
-                    "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
-                ),
-                mock.patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
-                mock.patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+                patch_refresh_floor_flag(return_value=True),
+                patch_dag_schedule_reconcile(),
+                patch_reconcile_capture(),
             ):
                 self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
         else:
@@ -2406,8 +2410,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 "products.data_modeling.backend.schedule.get_v2_saved_query_ids",
                 side_effect=lambda ids, **_kwargs: set(ids),
             ),
-            mock.patch(
-                "products.data_modeling.backend.logic.node_materialization.sync_connect",
+            patch_temporal_client(
                 return_value=mock_client,
             ),
         ):

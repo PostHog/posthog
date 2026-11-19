@@ -30,6 +30,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_modeling.backend.facade.testing import patch_refresh_floor_flag
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -1278,9 +1279,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="plan_floor_test", team=self.team, query=self.sample_hogql_query, created_by=self.user
         )
 
-        with mock.patch(
-            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
-        ):
+        with patch_refresh_floor_flag(return_value=flag_enabled):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())

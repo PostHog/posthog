@@ -13,6 +13,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.facade.testing import patch_dag_reconcile, patch_temporal_client
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -602,7 +603,7 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand([("plain_run", {}), ("full_refresh", {"full_refresh": True})])
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_running_the_view_is_denied_when_the_query_reads_a_denied_table(self, _name, body, mock_sync_connect):
         dag = DAG.objects.create(team=self.team, name="dag")
         Node.objects.create(team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW)
@@ -706,7 +707,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._deny_the_consumer(self.editor_user)
         self.client.force_login(self.editor_user)
 
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -721,7 +722,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
                 {"sync_frequency": "24hour"},
@@ -739,7 +740,7 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
             apply_saved_query_frequency_target,
         )
 
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             with self.assertRaises(UnsatisfiableFrequencyError) as caught:
                 apply_saved_query_frequency_target(self.upstream, timedelta(days=1))
 

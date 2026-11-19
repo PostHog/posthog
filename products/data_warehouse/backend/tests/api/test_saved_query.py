@@ -48,6 +48,14 @@ from products.data_modeling.backend.facade.models import (
     ViewEngineTarget,
 )
 from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
+from products.data_modeling.backend.facade.testing import (
+    patch_access_check,
+    patch_dag_reconcile,
+    patch_frequency_target_apply,
+    patch_managed_warehouse_shadow_enabled,
+    patch_refresh_floor_flag,
+    patch_temporal_client,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.saved_query.editing import (
@@ -1328,10 +1336,8 @@ class TestSavedQuery(APIBaseTest):
         saved_query = self._create_saved_query_for_frequency_tests()
         node = Node.objects.get(saved_query_id=saved_query["id"])
         set_declared_target(node, timedelta(hours=12))
-        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
-
         with (
-            patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
+            patch_dag_reconcile() as reconcile,
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
@@ -1364,10 +1370,8 @@ class TestSavedQuery(APIBaseTest):
         saved_query = self._create_saved_query_for_frequency_tests()
         node = Node.objects.get(saved_query_id=saved_query["id"])
         set_declared_target(node, timedelta(hours=12))
-        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
-
         with (
-            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+            patch_dag_reconcile(),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
@@ -1387,10 +1391,8 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = self._create_saved_query_for_frequency_tests()
         Node.objects.filter(saved_query_id=saved_query["id"]).delete()
-        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
-
         with (
-            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+            patch_dag_reconcile(),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
@@ -1404,11 +1406,8 @@ class TestSavedQuery(APIBaseTest):
         from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
 
         saved_query = self._create_saved_query_for_frequency_tests()
-        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
-
         with (
-            patch(
-                f"{reconcile_module}.apply_saved_query_frequency_target",
+            patch_frequency_target_apply(
                 side_effect=UnsatisfiableFrequencyError("target is fresher than its sources deliver"),
             ),
         ):
@@ -1527,9 +1526,7 @@ class TestSavedQuery(APIBaseTest):
             {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        return patch(
-            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
-        )
+        return patch_refresh_floor_flag(return_value=flag_enabled)
 
     @parameterized.expand(
         [
@@ -1549,7 +1546,7 @@ class TestSavedQuery(APIBaseTest):
             self.assertIn(blocked_by, {option["blocked_by"] for option in options if not option["allowed"]})
 
             for option in options:
-                with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+                with patch_dag_reconcile():
                     response = self.client.patch(
                         f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                         {"sync_frequency": option["cadence"]},
@@ -1590,7 +1587,7 @@ class TestSavedQuery(APIBaseTest):
         # writes anyway must be told the same thing the picker would have shown.
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
 
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                 {"sync_frequency": "24hour"},
@@ -1661,7 +1658,7 @@ class TestSavedQuery(APIBaseTest):
     def test_create_applies_the_requested_sync_frequency(self) -> None:
         from products.data_modeling.backend.facade.api import get_declared_target
 
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
@@ -1681,7 +1678,7 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = self._create_saved_query_for_frequency_tests()
         url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}"
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             initial = self.client.patch(url, {"sync_frequency": "6hour"})
             self.assertEqual(initial.status_code, 200, initial.content)
             response = self.client.patch(url, {"sync_frequency": None})
@@ -1702,7 +1699,7 @@ class TestSavedQuery(APIBaseTest):
             query={**view.query, "connectionId": str(uuid.uuid4())}
         )
 
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": value},
@@ -3467,7 +3464,7 @@ class TestSavedQueryRun(APIBaseTest):
         client.get_workflow_handle = mock.Mock(side_effect=handle_for)
         return client
 
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_materializes_node(self, mock_sync_connect):
         saved_query, _dag, node = self._make_saved_query_with_node("v2_view")
         mock_client = AsyncMock()
@@ -3512,7 +3509,7 @@ class TestSavedQueryRun(APIBaseTest):
             ("query_edited_while_the_run_ran", [(DataModelingJob.Status.COMPLETED, 10)], 8, 200),
         ]
     )
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_with_an_api_key_is_refused_soon_after_the_last_run(
         self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
     ):
@@ -3563,7 +3560,7 @@ class TestSavedQueryRun(APIBaseTest):
             ),
         ]
     )
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
         self, _name, body, job_statuses, expected_status, mock_sync_connect
     ):
@@ -3630,7 +3627,7 @@ class TestSavedQueryRun(APIBaseTest):
             ("deleted_view_never_ran", None, None, NodeType.MAT_VIEW, True, 429, "600"),
         ]
     )
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_with_direction_and_an_api_key_is_refused_only_when_every_built_view_ran_recently(
         self,
         _name,
@@ -3689,7 +3686,7 @@ class TestSavedQueryRun(APIBaseTest):
             self.assertNotIn("clickhouse", suspension_state(node))
 
     @parameterized.expand([("upstream",), ("downstream",)])
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_with_dependencies(self, direction, mock_sync_connect):
         saved_query, dag, node = self._make_saved_query_with_node(f"{direction}_view")
         related_saved_query = DataWarehouseSavedQuery.objects.create(
@@ -3724,8 +3721,8 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertFalse(mock_client.start_workflow.call_args.args[1]["managed_warehouse_only"])
 
     @parameterized.expand([("only_this_view", None), ("with_upstream", "upstream")])
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_run_on_trino_starts_a_managed_warehouse_dag_run(self, _name, direction, mock_sync_connect, mock_eligible):
         saved_query, dag, node = self._make_saved_query_with_node("trino_view")
         related_saved_query = DataWarehouseSavedQuery.objects.create(
@@ -3775,8 +3772,8 @@ class TestSavedQueryRun(APIBaseTest):
             ("clickhouse_downstream", "clickhouse", "downstream"),
         ]
     )
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_run_of_a_view_that_names_the_window_start_starts(
         self, _name, engine, direction, mock_sync_connect, mock_eligible
     ):
@@ -3801,7 +3798,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_of_a_view_that_no_longer_resolves_is_a_bad_request_not_a_denial(self, mock_sync_connect):
         saved_query, _dag, _node = self._make_saved_query_with_node("broken_view")
         saved_query.query = {"kind": "HogQLQuery", "query": "SELECT a_column_that_was_renamed FROM events"}
@@ -3815,8 +3812,8 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertIn("a_column_that_was_renamed", response.json()["detail"])
         mock_client.start_workflow.assert_not_called()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_run_on_trino_without_a_managed_warehouse_is_forbidden(self, mock_sync_connect, mock_eligible):
         saved_query, _dag, _node = self._make_saved_query_with_node("no_warehouse_view")
         mock_eligible.return_value = False
@@ -3830,16 +3827,15 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 403, response.content)
         mock_client.start_workflow.assert_not_called()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_run_on_trino_checks_access_to_the_single_view(self, mock_sync_connect, mock_eligible):
         saved_query, _dag, _node = self._make_saved_query_with_node("restricted_view")
         mock_eligible.return_value = True
         mock_client = self._trino_client()
         mock_sync_connect.return_value = mock_client
 
-        with patch(
-            "products.data_modeling.backend.logic.node_materialization.UserAccessControl.check_access_level_for_object",
+        with patch_access_check(
             return_value=False,
         ):
             response = self.client.post(
@@ -3850,8 +3846,8 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 403, response.content)
         mock_client.start_workflow.assert_not_called()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_run_on_trino_while_a_selected_model_is_building_conflicts(self, mock_sync_connect, mock_eligible):
         saved_query, dag, node = self._make_saved_query_with_node("busy_view")
         mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
@@ -3873,8 +3869,8 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
     @parameterized.expand([("unrelated_model_building", False), ("build_state_unreadable", True)])
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_run_on_trino_starts_unless_a_selected_model_is_building(
         self, _name, describe_fails, mock_sync_connect, mock_eligible
     ):
@@ -3900,8 +3896,8 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.json()["node_ids"], [str(node.id)])
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_managed_warehouse_shadow_enabled()
+    @patch_temporal_client()
     def test_manual_trino_runs_of_different_models_both_start(self, mock_sync_connect, mock_eligible):
         first_saved_query, dag, _first_node = self._make_saved_query_with_node("first_view")
         second_saved_query = DataWarehouseSavedQuery.objects.create(
@@ -3923,7 +3919,7 @@ class TestSavedQueryRun(APIBaseTest):
         for workflow_id in workflow_ids:
             self.assertTrue(workflow_id.startswith(f"execute-dag-trino-{dag.id}-manual-"))
 
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):
         saved_query, dag, node = self._make_saved_query_with_node("readable_view")
         related_saved_query = DataWarehouseSavedQuery.objects.create(
@@ -3936,8 +3932,7 @@ class TestSavedQueryRun(APIBaseTest):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
-        with patch(
-            "products.data_modeling.backend.logic.node_materialization.UserAccessControl.check_access_level_for_object",
+        with patch_access_check(
             side_effect=lambda obj, required_level, **_: obj.id != related_saved_query.id,
         ):
             response = self.client.post(
@@ -3948,7 +3943,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 403, response.content)
         mock_client.start_workflow.assert_not_called()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     def test_run_without_backing_node_reports_the_failure(self, mock_sync_connect):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="orphan_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
@@ -3963,7 +3958,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         mock_client.start_workflow.assert_not_called()
 
-    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch_temporal_client()
     @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
     def test_materialize_on_v2_schedule_starts_initial_run(self, mock_v2_dags, mock_sync_connect):
         saved_query, dag, _node = self._make_saved_query_with_node("v2_matview")
