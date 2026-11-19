@@ -333,3 +333,28 @@ class TestQuotaRedis(SimpleTestCase):
             if os.waitpid(child_pid, os.WNOHANG)[0] == 0:
                 os.kill(child_pid, signal.SIGKILL)
                 os.waitpid(child_pid, 0)
+
+    def test_forked_child_does_not_reuse_parent_cached_client(self) -> None:
+        client = quota_redis.get_secondary_quota_redis_client()
+        # Finalize earlier tests' garbage here: its finalizers can block in a forked child.
+        gc.collect()
+        read_fd, write_fd = os.pipe()
+        child_pid = os.fork()
+        if child_pid == 0:
+            try:
+                os.close(read_fd)
+                reused = quota_redis.get_secondary_quota_redis_client() is client
+                os.write(write_fd, b"same" if reused else b"new")
+            finally:
+                os._exit(0)
+        os.close(write_fd)
+        try:
+            readable, _, _ = select.select([read_fd], [], [], 30)
+            self.assertTrue(readable, "Forked child did not report within 30 seconds")
+            self.assertEqual(os.read(read_fd, 4), b"new", "Forked child must build its own quota Redis client")
+            self.assertIs(quota_redis.get_secondary_quota_redis_client(), client)
+        finally:
+            os.close(read_fd)
+            if os.waitpid(child_pid, os.WNOHANG)[0] == 0:
+                os.kill(child_pid, signal.SIGKILL)
+                os.waitpid(child_pid, 0)
