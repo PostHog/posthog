@@ -117,13 +117,9 @@
     ;; The flox activation scripts. They run unsandboxed on every `flox activate`,
     ;; and on-activate.sh is what builds this sandbox — poisoning it is a shortcut
     ;; past everything else here. Only .flox/env is denied: run/, cache/ and log/
-    ;; are generated and stay writable, except the node shims below.
+    ;; are generated and stay writable.
     (subpath (string-append (param "PROJECT") "/.flox/env"))
     (subpath (string-append (param "MAINREPO") "/.flox/env"))
-    ;; The pnpm/corepack launchers on-activate.sh writes into cache/. They sit on
-    ;; PATH ahead of flox's own bin, so a planted one runs on the next `pnpm`.
-    (subpath (string-append (param "PROJECT") "/.flox/cache/node-shims"))
-    (subpath (string-append (param "MAINREPO") "/.flox/cache/node-shims"))
     ;; The husky hooks. core.hooksPath points git at .husky, so these are the hooks
     ;; that actually run — .git/hooks above is the directory git never reads once
     ;; that is set. Same unsandboxed execution, one step more direct.
