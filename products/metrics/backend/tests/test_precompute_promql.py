@@ -97,6 +97,7 @@ class TestParsePromQL(SimpleTestCase):
             ("too_many_labels", "sum by (a, b, c, d, e, f) (sum_over_time(m[1h]))"),
             ("window_past_any_stored_range", "sum(sum_over_time(m[1000000y]))"),
             ("overlong_duration_token", f"sum(sum_over_time(m[{'1' * 40}s]))"),
+            ("longer_than_the_api_accepts", f'sum(sum_over_time(m{{a="{"x" * 9000}"}}[1h]))'),
             ("digit_dense_duration", "sum(sum_over_time(m[99999999999999999999ms]))"),
             ("summed_durations_past_timedelta", "sum(sum_over_time(m[999999999d999999999d]))"),
         ]

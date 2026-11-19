@@ -36,6 +36,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.metrics.backend.dashboard_import.promql_text import Token, tokenize
+from products.metrics.backend.facade.contracts import MAX_PROMQL_LENGTH
 from products.metrics.backend.facade.enums import AttributeScope, PrecomputedMetricKind
 from products.metrics.backend.metric_query_runner import (
     _QUERY_SETTINGS,
@@ -331,6 +332,9 @@ def _histogram_quantile(parser: _Parser) -> PromQLLeafQuery:
 
 def parse_promql(text: str) -> PromQLLeafQuery | str:
     """The planned shape of a query, or why it runs raw."""
+    # The tokenizer is quadratic on some malformed strings, so bound the text before it runs.
+    if len(text) > MAX_PROMQL_LENGTH:
+        return "the PromQL query is too long to precompute"
     parser = _Parser(text)
     try:
         token = parser.peek()
