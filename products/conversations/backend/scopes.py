@@ -10,7 +10,6 @@ SCOPE_DOCS = (
         description="Single tickets fetched through the external ticket API, for project secret API keys only.",
         group="Customers & support",
         docs_url="https://posthog.com/docs/support",
-        actions=("read",),
     ),
     ScopeDoc(
         object="ticket",

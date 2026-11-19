@@ -789,7 +789,7 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         plural: 'tickets from the external ticket API',
         description: 'Single tickets fetched through the external ticket API, for project secret API keys only.',
         group: 'Customers & support',
-        actions: ['read'],
+        actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/support',
     },
     survey: {
