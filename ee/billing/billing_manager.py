@@ -901,9 +901,7 @@ class BillingManager:
             }
 
             current_customer_trust_scores = organization.customer_trust_scores or {}
-            # Replace rather than merge: billing sends a score for every product with a usage key, and a
-            # merge would keep a grace period billing has since withdrawn. Quota limiting reads a missing
-            # key as 0.
+            # Replace, not merge: a merge would keep grace that billing has since withdrawn.
             updated_customer_trust_scores = org_customer_trust_scores or current_customer_trust_scores
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
