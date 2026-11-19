@@ -267,18 +267,23 @@ def test_get_object_key(inputs, expected):
         ("posthog-{table}/{hour}:{minute}:{second}", BatchExportEventsModel(), "posthog-events/03:04:05"),
         ("posthog/{year}-{month}-{day}/{hour}:{minute}:{second}", None, "posthog/2023-01-02/03:04:05"),
         ("{year}-{month}-{day}", BatchExportPersonsModel(), "2023-01-02"),
+        (
+            "{start_year}-{start_month}-{start_day}/{start_hour}:{start_minute}:{start_second}",
+            None,
+            "2022-12-31/02:01:09",
+        ),
     ],
 )
 def test_get_object_key_fills_prefix_template_variables(prefix, batch_export_model, expected_prefix):
     result = get_object_key(
         prefix=prefix,
-        data_interval_start="2023-01-02T02:04:05+00:00",
+        data_interval_start="2022-12-31T02:01:09+00:00",
         data_interval_end="2023-01-02T03:04:05+00:00",
         batch_export_model=batch_export_model,
         file_format="JSONLines",
     )
 
-    assert result == f"{expected_prefix}/2023-01-02T02:04:05+00:00-2023-01-02T03:04:05+00:00.jsonl"
+    assert result == f"{expected_prefix}/2022-12-31T02:01:09+00:00-2023-01-02T03:04:05+00:00.jsonl"
 
 
 @pytest.mark.parametrize(
