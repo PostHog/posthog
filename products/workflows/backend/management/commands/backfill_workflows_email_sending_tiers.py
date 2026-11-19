@@ -24,6 +24,7 @@ from products.workflows.backend.services.email_sending_tier import (
 )
 from products.workflows.backend.services.email_sending_tier_audit import (
     EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
+    EmailSendingWindowMetrics,
     log_email_sending_tier_change,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -80,7 +81,7 @@ class Command(BaseCommand):
         )
         decisions = self._decide(histories=histories, team_ids=team_ids)
 
-        written = self._apply(decisions) if apply_changes else 0
+        written = self._apply(decisions, histories=histories, days=days) if apply_changes else 0
 
         self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes, written=written)
 
@@ -140,7 +141,7 @@ class Command(BaseCommand):
                 decisions.append(decision)
         return decisions
 
-    def _apply(self, decisions: list[TierDecision]) -> int:
+    def _apply(self, decisions: list[TierDecision], *, histories: dict[int, TeamSendingHistory], days: int) -> int:
         teams = {team.id: team for team in Team.objects.filter(id__in=[d.team_id for d in decisions])}
         now = timezone.now()
         trigger = Trigger(job_type=EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE, job_id=str(uuid4()), payload={})
@@ -178,6 +179,10 @@ class Command(BaseCommand):
                 previous_tier=decision.previous_tier,
                 new_tier=decision.new_tier,
                 reason=decision.reason,
+                # A suspended team can be decided with no sends in the window, so it has no history here.
+                window=EmailSendingWindowMetrics.from_history(history, days)
+                if (history := histories.get(decision.team_id))
+                else None,
                 trigger=trigger,
             )
         return written

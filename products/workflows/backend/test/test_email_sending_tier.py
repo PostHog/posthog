@@ -405,10 +405,12 @@ class TestRecomputeEmailSendingTiers(BaseTest):
     ) -> None:
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
-        histories = {self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)}
+        sent = sum(used.values())
+        histories = {self.team.id: history(team_id=self.team.id, sent=sent, hard_bounced=4, daily_sends=used)}
+        recent = {self.team.id: history(team_id=self.team.id, sent=100, hard_bounced=1, daily_sends=used)}
         with patch(
             "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
-            return_value=SendingHistoryWindows(window=histories, recent=histories),
+            return_value=SendingHistoryWindows(window=histories, recent=recent),
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
@@ -423,7 +425,25 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert entry.user == (self.user if by_staff else None)
         detail = entry.detail or {}
-        assert detail["context"] == {"reason": "clean_and_used"}
+        assert detail["context"] == {
+            "reason": "clean_and_used",
+            "window": {
+                "days": 30,
+                "sent": sent,
+                "hard_bounced": 4,
+                "complained": 0,
+                "hard_bounce_rate": 4 / sent,
+                "complaint_rate": 0.0,
+            },
+            "recent_window": {
+                "days": 7,
+                "sent": 100,
+                "hard_bounced": 1,
+                "complained": 0,
+                "hard_bounce_rate": 0.01,
+                "complaint_rate": 0.0,
+            },
+        }
         assert (detail["trigger"] or {}).get("job_type") == expected_job_type
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == [("email_sending_tier", 0, 1)]
 
@@ -500,12 +520,30 @@ class TestBackfillEmailSendingTiers(BaseTest):
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned}
         )
         decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
-        assert BackfillCommand()._apply([decision]) == (0 if pinned else 1)
+        histories = {self.team.id: history(team_id=self.team.id, sent=1000, hard_bounced=5)}
+        assert BackfillCommand()._apply([decision], histories=histories, days=90) == (0 if pinned else 1)
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
 
         entries = ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
-        assert [(entry.detail or {})["trigger"]["job_type"] for entry in entries] == (
-            [] if pinned else ["backfill_workflows_email_sending_tiers"]
+        assert [
+            ((entry.detail or {})["trigger"]["job_type"], (entry.detail or {})["context"]["window"])
+            for entry in entries
+        ] == (
+            []
+            if pinned
+            else [
+                (
+                    "backfill_workflows_email_sending_tiers",
+                    {
+                        "days": 90,
+                        "sent": 1000,
+                        "hard_bounced": 5,
+                        "complained": 0,
+                        "hard_bounce_rate": 0.005,
+                        "complaint_rate": 0.0,
+                    },
+                )
+            ]
         )
 
     def test_history_for_a_deleted_team_is_dropped(self) -> None:
