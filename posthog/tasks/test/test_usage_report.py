@@ -774,6 +774,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "unity_events_count_in_period": 1,
                     "roblox_events_count_in_period": 1,
                     "rust_events_count_in_period": 0,
+                    "rust_ffi_events_count_in_period": 0,
+                    "electron_events_count_in_period": 0,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
                     "mobile_recording_bytes_in_period": 6,
@@ -882,6 +884,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "unity_events_count_in_period": 1,
                             "roblox_events_count_in_period": 1,
                             "rust_events_count_in_period": 0,
+                            "rust_ffi_events_count_in_period": 0,
+                            "electron_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -984,6 +988,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "unity_events_count_in_period": 0,
                             "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
+                            "rust_ffi_events_count_in_period": 0,
+                            "electron_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
                             "mobile_recording_bytes_in_period": 6,
@@ -1109,6 +1115,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "unity_events_count_in_period": 0,
                     "roblox_events_count_in_period": 0,
                     "rust_events_count_in_period": 0,
+                    "rust_ffi_events_count_in_period": 0,
+                    "electron_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_bytes_in_period": 0,
@@ -1217,6 +1225,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "unity_events_count_in_period": 0,
                             "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
+                            "rust_ffi_events_count_in_period": 0,
+                            "electron_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -1861,6 +1871,8 @@ class TestQueryUsageReportSQL:
         assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
         assert "lib_expr = 'posthog-laravel', 'laravel_events'" in main_query
+        assert "lib_expr = 'posthog-rs-ffi', 'rust_ffi_events'" in main_query
+        assert "lib_expr = 'posthog-electron', 'electron_events'" in main_query
         assert (
             "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events'"
             in main_query
@@ -1933,6 +1945,8 @@ class TestQueryUsageReportSQL:
             "godot_events",
             "unreal_events",
             "laravel_events",
+            "rust_ffi_events",
+            "electron_events",
         ]
         main_results = iter(
             [
@@ -6682,6 +6696,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             ("posthog-godot", "godot_events", "unity_events"),
             ("posthog-unreal", "unreal_events", "unity_events"),
             ("posthog-laravel", "laravel_events", "php_events"),
+            ("posthog-rs-ffi", "rust_ffi_events", "rust_events"),
+            ("posthog-electron", "electron_events", "node_events"),
         ]
     )
     def test_sdk_events_have_separate_metrics(self, sdk_type: str, metric_name: str, parent_metric: str) -> None:

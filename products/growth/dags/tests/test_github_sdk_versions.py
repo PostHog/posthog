@@ -506,6 +506,17 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 {"4.11.0", "4.10.0"},
             ),
             (
+                "posthog-electron",
+                "PostHog/posthog-js",
+                [
+                    _release("@posthog/electron@0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("@posthog/convex@0.3.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-node@5.0.0", "2026-08-01T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0"},
+            ),
+            (
                 "posthog-rails",
                 "PostHog/posthog-ruby",
                 [
@@ -535,6 +546,17 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 ],
                 "0.29.0",
                 {"0.29.0", "0.5.1"},
+            ),
+            (
+                "posthog-rs-ffi",
+                "PostHog/posthog-rs",
+                [
+                    _release("posthog-rs-ffi-v0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-rs-ffi-v0.1.0", "2026-07-01T00:00:00Z"),
+                    _release("v1.3.0", "2026-08-01T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0", "0.1.0"},
             ),
             (
                 "posthog-godot",
