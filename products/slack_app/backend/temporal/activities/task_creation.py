@@ -146,7 +146,8 @@ def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     (bots, app-posted messages, unresolved users), fall back to the plain display name
     so the line still reads naturally.
     """
-    name = _strip_context_tag(display_name or "").strip() or "user"
+    # Angle brackets in a name could complete a thread tag or pass as another person's mention token.
+    name = _strip_context_tag(display_name or "").replace("<", "").replace(">", "").strip() or "user"
     uid = (user_id or "").strip()
     if uid:
         return f"<@{uid}|{name}>"
