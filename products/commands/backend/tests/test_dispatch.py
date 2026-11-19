@@ -546,21 +546,23 @@ class TestDispatchCommentCommand(BaseTest):
     ) -> None:
         self._link_github_login()
         github = FakeGitHub(pull_request=_pull_request(is_fork=True))
+        recreations: list[dict[str, Any]] = []
+
+        def recreate(**request: Any) -> ForkRecreationOutcome:
+            recreations.append(request)
+            return result
 
         with (
             patch(OWNING_TEAM_ID, return_value=self.team.id),
-            patch(RECREATE_FORK_PR, return_value=result) as recreate,
+            patch(RECREATE_FORK_PR, side_effect=recreate),
         ):
             outcome = dispatch_comment_command(self._request(verb="recreate"), github=github)
 
         assert outcome == expected_outcome
         assert github.replies[-1].endswith(expected_reply)
-        assert recreate.call_args.kwargs == {
-            "team_id": self.team.id,
-            "installation_id": INSTALLATION_ID,
-            "repository": REPOSITORY,
-            "pr_number": 7,
-        }
+        assert recreations == [
+            {"team_id": self.team.id, "installation_id": INSTALLATION_ID, "repository": REPOSITORY, "pr_number": 7}
+        ]
 
     @parameterized.expand(
         [
