@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -24,6 +25,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
+    ErrorTrackingIssueTagFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
     ErrorTrackingSimilarIssuesQuery,
@@ -41,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.utils import uuid7
 
@@ -71,6 +74,10 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     MAX_RECENT_ISSUE_STATES,
     load_recent_issue_states,
 )
+from products.error_tracking.backend.logic import team_flags
+from products.error_tracking.backend.logic.issue_tags import registry
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -79,8 +86,28 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
+from products.error_tracking.backend.sql import ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE, INSERT_ERROR_TRACKING_ISSUE_TAG
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
+
+BLOCKS_CHECKOUT = IssueTagDefinition(
+    key="blocks_checkout",
+    label="Blocks checkout",
+    description="The error stops a user from paying.",
+    question_version=1,
+    enabled_flag="error-tracking-issue-tag-blocks-checkout",
+    taggers=(),
+)
+OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag")
+
+
+@frozen
+class _TagRow:
+    issue_id: str
+    key: str
+    value: bool | None
+    version: int = 1
+    is_deleted: bool = False
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -239,6 +266,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         orderDirection=None,
         status=None,
         severity=None,
+        issueTag=None,
         volumeResolution=1,
         withAggregations=False,
         withFirstEvent=False,
@@ -264,6 +292,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     orderDirection=orderDirection,
                     status=status,
                     severity=severity,
+                    issueTag=issueTag,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
@@ -706,7 +735,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
-    def _assign_severities(self):
+    def _create_issues_four_and_five(self):
         # `sync_issues_to_clickhouse` stamps rows with the wall clock as their ReplacingMergeTree
         # version, and the test clock is frozen, so two syncs under one frozen instant write the
         # same version and ClickHouse picks between them arbitrarily. Create at the fixture instant.
@@ -723,6 +752,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 )
         flush_persons_and_events()
 
+    def _assign_severities(self):
+        self._create_issues_four_and_five()
         severities = {
             self.issue_id_one: ErrorTrackingIssue.Severity.CRITICAL,
             self.issue_id_two: ErrorTrackingIssue.Severity.LOW,
@@ -732,6 +763,36 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         for issue_id, severity in severities.items():
             ErrorTrackingIssue.objects.filter(id=issue_id).update(severity=severity)
         sync_issues_to_clickhouse(issue_ids=list(severities), team_id=self.team.pk)
+
+    def _write_tag_rows(self, *rows: _TagRow) -> None:
+        # One insert per row, with merges stopped, keeps every row in its own part, as ClickHouse holds them before a
+        # merge. One batched insert or a merge leaves only the newest row, which hides an older version.
+        sync_execute(f"SYSTEM STOP MERGES {ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE}")
+        self.addCleanup(sync_execute, f"SYSTEM START MERGES {ERROR_TRACKING_ISSUE_TAGS_RAW_TABLE}")
+        for row in rows:
+            sync_execute(
+                INSERT_ERROR_TRACKING_ISSUE_TAG,
+                {
+                    "team_id": self.team.pk,
+                    "issue_id": row.issue_id,
+                    "key": row.key,
+                    "value": None if row.value is None else int(row.value),
+                    "is_deleted": int(row.is_deleted),
+                    "version": row.version,
+                },
+            )
+
+    def _status_is_set_filter(self) -> PropertyGroupFilter:
+        # Matches every issue, so it only forces the legacy shape.
+        return PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)],
+                )
+            ],
+        )
 
     def _severity_is_set_filter(self) -> PropertyGroupFilter:
         return PropertyGroupFilter(
@@ -1215,15 +1276,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_severity_field(self, _name: str, legacy_shape: bool):
         self._assign_severities()
-        shape_filters: list[ErrorTrackingIssueFilter] = []
-        if legacy_shape:
-            # Matches every issue, so it only forces the legacy shape.
-            shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
-
-        filter_group = PropertyGroupFilter(
-            type=FilterLogicalOperator.AND_,
-            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
-        )
+        filter_group = self._status_is_set_filter() if legacy_shape else None
 
         builder = ErrorTrackingQueryBuilder(
             query=ErrorTrackingQuery(
@@ -1255,6 +1308,96 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "high": {self.issue_id_three},
                 "critical": {self.issue_id_one},
             },
+        )
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False, {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag}, True),
+            ("legacy_shape", True, {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag}, True),
+            ("issue_tags_off", False, {BLOCKS_CHECKOUT.enabled_flag}, False),
+            ("tag_off", False, {ISSUE_TAGS_FLAG}, False),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_issue_tag_filter(self, _name: str, legacy_shape: bool, enabled_flags: set[str], filter_applies: bool):
+        self._create_issues_four_and_five()
+        self._write_tag_rows(
+            _TagRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False, version=2),
+            _TagRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=None, version=2),
+            _TagRow(issue_id=self.issue_id_four, key=OTHER_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True, version=2, is_deleted=True),
+        )
+        filter_group = self._status_is_set_filter() if legacy_shape else None
+
+        with (
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT,)),
+            mock.patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
+            ),
+        ):
+            by_applied = {
+                applied: {
+                    result["id"]
+                    for result in self._calculate(
+                        filterGroup=filter_group,
+                        issueTag=ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=applied),
+                    )["results"]
+                }
+                for applied in (True, False)
+            }
+
+        every_issue = {
+            self.issue_id_one,
+            self.issue_id_two,
+            self.issue_id_three,
+            self.issue_id_four,
+            self.issue_id_five,
+        }
+        expected = {
+            True: {self.issue_id_one},
+            False: {self.issue_id_two, self.issue_id_three, self.issue_id_four, self.issue_id_five},
+        }
+        self.assertEqual(by_applied, expected if filter_applies else dict.fromkeys(expected, every_issue))
+
+    @parameterized.expand([("issue_tags_on", True), ("issue_tags_off", False)])
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_results_carry_the_applied_tags_of_each_issue(self, _name: str, issue_tags_on: bool):
+        self._write_tag_rows(
+            _TagRow(issue_id=self.issue_id_one, key=OTHER_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_one, key="retired_tag", value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False, version=2),
+        )
+
+        with (
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG)),
+            mock.patch.object(team_flags, "feature_enabled_or_false", return_value=issue_tags_on),
+            # A default limit below the applied tag count fails the test if the tag read relies on the default.
+            mock.patch("posthog.hogql.query.get_default_limit_for_context", return_value=1),
+        ):
+            results = self._calculate()["results"]
+
+        def tag(definition: IssueTagDefinition) -> dict[str, object]:
+            return {
+                "key": definition.key,
+                "label": definition.label,
+                "description": definition.description,
+                "source": None,
+            }
+
+        expected = {
+            self.issue_id_one: [tag(BLOCKS_CHECKOUT), tag(OTHER_TAG)],
+            self.issue_id_two: [],
+            self.issue_id_three: [],
+        }
+        self.assertEqual(
+            {result["id"]: result["tags"] for result in results},
+            expected if issue_tags_on else dict.fromkeys(expected),
         )
 
     @parameterized.expand(

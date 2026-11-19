@@ -24,6 +24,7 @@ describe('usage key resolvers', () => {
         ['$conversations_message_sent', null],
         ['$anomaly_score', null],
         ['$anomaly_score_shadow', null],
+        ['$recording_observed', null],
     ])('resolveAnalyticsUsageKey bills %s under %s', (event, expected) => {
         expect(resolveAnalyticsUsageKey(event)).toBe(expected)
     })

@@ -36,7 +36,7 @@ export function ReleaseScheduleFlagSearch({ row }: { row: ReleaseRow }): JSX.Ele
                 <ComboboxList>
                     {(flagId: number) => (
                         <ComboboxItem key={flagId} value={flagId} data-attr="release-schedule-flag">
-                            <span className="font-mono">{keys.get(flagId)}</span>
+                            <span>{keys.get(flagId)}</span>
                         </ComboboxItem>
                     )}
                 </ComboboxList>

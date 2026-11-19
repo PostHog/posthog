@@ -6,10 +6,12 @@ const upstream = require(
     })
 )
 
-// The WebView gets mermaid's browser bundle as text. Exporting it as a string
-// keeps Hermes from running a DOM library and keeps it out of startup until a
-// diagram requires it.
-const RAW_MODULES = [path.join('mermaid', 'dist', 'mermaid.min.js')]
+// The WebView gets mermaid's browser bundle and the replay player as text. Exporting them as strings
+// keeps Hermes from running a DOM library and keeps them out of startup until a WebView requires one.
+const RAW_MODULES = [
+    path.join('mermaid', 'dist', 'mermaid.min.js'),
+    path.join('src', 'features', 'replay', 'web', 'phonePlayer.generated.replay'),
+]
 
 module.exports = {
     ...upstream,

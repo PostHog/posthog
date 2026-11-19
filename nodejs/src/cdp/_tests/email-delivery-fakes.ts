@@ -6,7 +6,10 @@ import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'n
 import { FakeSes, FakeSesAttachment } from '~/cdp/_tests/fake-ses'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { CyclotronV2Worker, CyclotronV2WorkerConfig } from '~/cdp/services/cyclotron-v2'
+import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
+import { IdempotentInvocation } from '~/cdp/services/job-queue/job-queue.interface'
 import { AttachmentStore, buildAttachmentStore } from '~/cdp/services/messaging/attachment-store'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '~/cdp/types'
 
@@ -73,6 +76,7 @@ export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdCopies' | 'holdFile
 export class BucketProxy {
     answer: BucketAnswer = 'pass'
     lastModifiedAgeMs = 0
+    downloadDelayMs = 0
     requests = 0
     copied: string[] = []
     abandonedRequests = 0
@@ -124,6 +128,10 @@ export class BucketProxy {
         }
         if (request.headers['x-amz-copy-source']) {
             this.copied.push(new URL(request.url ?? '', this.endpoint).pathname)
+        }
+        if (request.method === 'GET' && this.downloadDelayMs > 0) {
+            setTimeout(() => this.answerRequest(request, response), this.downloadDelayMs)
+            return
         }
         this.answerRequest(request, response)
     }
@@ -192,9 +200,14 @@ export const sesClientFor = (
 export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     constructor(
         private readonly queueName: string,
-        config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1]
+        config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1],
+        private readonly workerOverrides: Partial<CyclotronV2WorkerConfig> = {}
     ) {
         super(10, config)
+    }
+
+    protected override createWorker(workerConfig: CyclotronV2WorkerConfig): CyclotronV2Worker {
+        return super.createWorker({ ...workerConfig, ...this.workerOverrides })
     }
 
     public override startAsConsumer(
@@ -208,6 +221,14 @@ export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
 
     public override queueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         return super.queueInvocations(invocations.map((invocation) => this.onOwnQueue(invocation)))
+    }
+
+    public override queueInvocationsIdempotently(
+        entries: IdempotentInvocation[]
+    ): Promise<CyclotronV2IdempotentClaim[]> {
+        return super.queueInvocationsIdempotently(
+            entries.map((entry) => ({ ...entry, invocation: this.onOwnQueue(entry.invocation) }))
+        )
     }
 
     public override queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {

@@ -47,6 +47,8 @@ const SetupStateSchema = z.object({
     products: z.array(z.string()).transform((ids) => ids.flatMap((id) => ProductIdSchema.safeParse(id).data ?? [])),
     // The host the purpose step picked, so the login goes there before posthog.json names it.
     host: HostSchema,
+    // Set when nobody named the host or answered the region, so the login step can offer the other region.
+    hostPicked: z.enum(['default', 'last_login']).optional().catch(undefined),
     reads: z.array(SkillFileSchema),
     completed: z.array(z.string()).transform((ids) => ids.filter((id): id is StepId => isStepId(id))),
 })

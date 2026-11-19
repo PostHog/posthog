@@ -23,7 +23,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.job_owners import JobOwners
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import run_check_for_team

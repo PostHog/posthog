@@ -278,7 +278,13 @@ describe('traceViewLogic', () => {
         })
     })
 
-    it('reports how long the reads took and how long a click waited', async () => {
+    it.each([
+        ['2026-09-01T10:15:00Z', 2.5],
+        ['2026-09-01T12:15:00+02:00', 2.5],
+        ['invalid', null],
+    ])('reports trace age and read timing for timestamp %s', async (createdAt, traceAgeMinutes) => {
+        jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-01T10:17:30Z'))
+        useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource({ createdAt })] } })
         const capture = jest.spyOn(posthog, 'capture')
         const logic = await mountedLogic()
 
@@ -290,6 +296,7 @@ describe('traceViewLogic', () => {
         expect(capture).toHaveBeenCalledWith('llma trace view loaded', {
             trace_load_ms: expect.any(Number),
             node_count: 4,
+            trace_age_minutes: traceAgeMinutes,
         })
         expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
             load_ms: expect.any(Number),

@@ -239,6 +239,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'A catalog of all user sessions with your app or website.',
         iconType: 'session_replay',
     },
+    [Scene.ExploreFlagCalls]: {
+        projectBased: true,
+        name: 'Flag calls',
+        description: 'Feature flag calls from your app or website, across all flags.',
+        iconType: 'feature_flag',
+    },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -363,10 +369,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AnalyticsSpaces]: {
         projectBased: true,
         name: 'Collections',
-    },
-    [Scene.AnalyticsProductHome]: {
-        projectBased: true,
-        name: 'Product analytics',
     },
     [Scene.Tools]: {
         projectBased: true,
@@ -506,6 +508,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
+    [Scene.DataDeletionRequestNew]: { projectBased: true, name: 'New deletion request' },
     [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
@@ -654,6 +657,7 @@ export const redirects: Record<
     [urls.analytics()]: urls.analyticsList(),
     // Collections were called spaces; this keeps old links working.
     '/analytics/spaces': urls.analyticsSpaces(),
+    '/analytics/product-analytics': urls.insights(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -806,7 +810,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
-    [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
     [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
     [urls.webAnalyticsAgents()]: [Scene.WebAnalytics, 'webAnalyticsAgents'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
@@ -828,6 +831,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
     [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
+    [urls.activity(ActivityTab.ExploreFlagCalls)]: [Scene.ExploreFlagCalls, 'exploreFlagCalls'],
     [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
@@ -881,7 +885,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
     [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
     [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
-    [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
@@ -954,6 +957,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
+    [urls.dataDeletionRequestNew()]: [Scene.DataDeletionRequestNew, 'dataDeletionRequestNew'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],

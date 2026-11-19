@@ -24,7 +24,7 @@ import {
 } from '../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
-import { createCdpCoreServices } from './cdp-services'
+import { CdpOutputs, createCdpCoreServices } from './cdp-services'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import {
     CdpSourceWebhooksConsumer,
@@ -32,6 +32,8 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
+import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
@@ -51,8 +53,14 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
+import {
+    SCHEDULED_RUNS_PER_BATCH,
+    ScheduledRuns,
+    ScheduledRunsNotQueuedError,
+    ScheduledRunsRequestSchema,
+} from './services/hogflows/scheduled-runs'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
@@ -69,9 +77,14 @@ import {
     isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
-import { ScheduledTransactionalSends, TransactionalSends } from './services/hogflows/transactional-sends'
+import {
+    ScheduledTransactionalSends,
+    TransactionalSendResult,
+    TransactionalSends,
+} from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { JobQueue } from './services/job-queue/job-queue.interface'
+import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
+import { createInvocationSanitizer } from './services/job-queue/shared'
 import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
@@ -93,6 +106,11 @@ import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import {
+    SANDBOX_CODE_SEND_REFUSAL_STATUS,
+    refuseSandboxCodeSend,
+    senderOfCodeSend,
+} from './services/messaging/sandbox/sandbox-code-send'
 import { SandboxFeedbackService } from './services/messaging/sandbox/sandbox-feedback.service'
 import {
     HogWatcherService,
@@ -100,6 +118,7 @@ import {
     sameWatcherState,
     sameWatcherStates,
 } from './services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -121,6 +140,7 @@ import {
 import { recordRequestOrigins } from './utils/cdp-fetch'
 import { deadlineAfter, throwIfDeadlinePassed } from './utils/deadline'
 import { dualRead, dualWrite } from './utils/dual-store'
+import { EncryptedFields } from './utils/encryption-utils'
 import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
@@ -141,6 +161,15 @@ const SAFE_CONTENT_TYPES = new Set([
     'image/jpeg',
     'image/webp',
 ])
+
+// A test invocation's error message can quote the sample event, so log the stack frames without the header that repeats it
+function stackFramesWithoutMessage(e: unknown): string | undefined {
+    if (!(e instanceof Error) || typeof e.stack !== 'string') {
+        return undefined
+    }
+    const header = String(e)
+    return e.stack.startsWith(header) ? e.stack.slice(header.length + 1) : undefined
+}
 
 function sanitizeContentType(contentType: string | undefined, fallback: string): string {
     if (!contentType) {
@@ -177,8 +206,8 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps & {
-    /** Holds caller-supplied idempotency keys. Null or unset makes the store report itself unavailable. */
-    idempotencyValkey?: RedisV2 | null
+    /** Holds the daily upload byte budget. Null or unset makes the upload route answer 503. */
+    emailAttachmentsValkey?: RedisV2 | null
 }
 
 // Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
@@ -199,6 +228,20 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
         return null
     }
     return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
+}
+
+// Null means the run asks to resolve its audience up front but its deadline is unreadable, so the caller
+// rejects it instead of running the live query the snapshot was meant to replace.
+function parseAudienceSnapshot(value: unknown): BatchResolverState['audienceSnapshot'] | null {
+    if (typeof value !== 'object' || value === null) {
+        return undefined
+    }
+    const { wait_until } = value as { wait_until?: unknown }
+    const waitUntil = typeof wait_until === 'string' ? new Date(wait_until) : null
+    if (!waitUntil || isNaN(waitUntil.getTime())) {
+        return null
+    }
+    return { waitUntil: waitUntil.toISOString() }
 }
 
 const emailRenderLimitExceeded = (emailStep: EmailStep): SendRefusal => ({
@@ -253,9 +296,10 @@ const liquidTagsInStep = (emailStep: EmailStep): number =>
 type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
-    idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
+    intake_unavailable: 503,
+    invalid_request: 400,
     not_sendable: 400,
     sending_suspended: 422,
     sending_paused: 422,
@@ -263,6 +307,7 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     quota_limited: 429,
     recipient_unreachable: 422,
     invalid_scheduled_at: 400,
+    ...SANDBOX_CODE_SEND_REFUSAL_STATUS,
 }
 
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
@@ -274,6 +319,7 @@ const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies =>
 }
 
 export class CdpApi {
+    private outputs: CdpOutputs
     private hogExecutorAsync: HogExecutorAsyncService
     private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -288,13 +334,15 @@ export class CdpApi {
     private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
+    private workflowsActivationReporter: WorkflowsActivationReporter
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private hogQueue: JobQueue
-    private hogflowQueue: JobQueue
+    private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
     private emailTrackingCodeSigner: EmailTrackingCodeSigner
+    private fingerprintSigner: EncryptedFields
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
@@ -307,10 +355,10 @@ export class CdpApi {
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
     private manualRunJwt: ScopedServiceJwt
+    private scheduledRunsJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
-    private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -321,7 +369,7 @@ export class CdpApi {
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue },
         batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
@@ -341,7 +389,9 @@ export class CdpApi {
         this.hogWatcher = services.hogWatcher
         this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.emailStatusService = services.emailStatusService
+        this.outputs = services.outputs
         this.personsManager = services.personsManager
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -352,11 +402,11 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(
-            config,
-            deps,
-            jobQueues,
-            new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
+        // A fingerprint hashes the request, login code included, so new ones are signed with the sealed state keys. The
+        // shared keys come last, so a claim signed with them before this change still replays.
+        this.fingerprintSigner = new EncryptedFields(
+            [config.CDP_SEALED_STATE_KEYS, config.ENCRYPTION_SALT_KEYS].filter(Boolean).join(',')
         )
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
@@ -398,6 +448,10 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANUAL_RUN,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
+        this.scheduledRunsJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
         this.stepResumeJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
             config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
@@ -410,11 +464,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
-        this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
-            deps.idempotencyValkey ?? null,
-            'transactional-email'
-        )
-        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
+        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
             maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
         })
@@ -448,6 +498,7 @@ export class CdpApi {
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
                 runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
+                backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
             })
             await this.rerunJobManager.connect()
         }
@@ -483,6 +534,7 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/scheduled_invocations',
             asyncHandler(this.postHogflowScheduledInvocation)
         )
+        router.post('/api/hog_flows/scheduled_invocations', asyncHandler(this.postHogflowScheduledInvocations))
         router.post(
             '/api/projects/:team_id/hog_flows/:id/manual_invocations',
             asyncHandler(this.postHogFlowManualInvocation)
@@ -690,13 +742,6 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            // Redact configuration: it carries function inputs (auth headers, API keys) that must not land in logs
-            logger.info('⚡️', 'Received invocation', {
-                id,
-                team_id,
-                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
-            })
-
             const invocationID = invocation_id ?? new UUIDT().toString()
 
             // Check the invocationId is a valid UUID
@@ -704,6 +749,14 @@ export class CdpApi {
                 res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
+
+            // Allowlist: the body carries secrets in inputs and customer data in the sample event
+            logger.info('⚡️', 'Received invocation', {
+                id,
+                team_id,
+                invocationId: invocationID,
+                mock_async_functions,
+            })
 
             const isNewFunction = req.params.id === 'new'
 
@@ -961,7 +1014,12 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
         } catch (e) {
-            console.error(e)
+            logger.error('⚡️', 'Test invocation failed', {
+                id: req.params.id,
+                team_id: req.params.team_id,
+                error: e.name,
+                stack: stackFramesWithoutMessage(e),
+            })
             res.status(500).json({ errors: [e.message], request_origins: [...requestOrigins].sort() })
         } finally {
             await this.invocationResultsService.flush()
@@ -974,13 +1032,6 @@ export class CdpApi {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
-            // Redact configuration: it carries action inputs (auth headers, API keys) that must not land in logs
-            logger.info('⚡️', 'Received hogflow invocation', {
-                id,
-                team_id,
-                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
-            })
-
             const invocationID = invocation_id ?? new UUIDT().toString()
 
             // Check the invocationId is a valid UUID
@@ -988,6 +1039,14 @@ export class CdpApi {
                 res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
+
+            logger.info('⚡️', 'Received hogflow invocation', {
+                id,
+                team_id,
+                invocationId: invocationID,
+                current_action_id,
+                mock_async_functions,
+            })
 
             const isNewHogFlow = req.params.id === 'new'
             const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
@@ -1119,81 +1178,105 @@ export class CdpApi {
                 request_origins: [...requestOrigins].sort(),
             })
         } catch (e) {
-            console.error(e)
+            logger.error('⚡️', 'Test invocation failed', {
+                id: req.params.id,
+                team_id: req.params.team_id,
+                error: e.name,
+                stack: stackFramesWithoutMessage(e),
+            })
             res.status(500).json({ error: [e.message], request_origins: [...requestOrigins].sort() })
         }
+    }
+
+    private scheduledRuns(): ScheduledRuns {
+        return new ScheduledRuns({
+            siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
+            teams: this.deps.teamManager,
+            hogFlows: this.hogFlowManager,
+            queue: this.hogflowQueue,
+            invocationResults: this.invocationResultsService,
+            quotaLimiting: this.deps.quotaLimiting,
+            workflowsActivationReporter: this.workflowsActivationReporter,
+        })
     }
 
     private postHogflowScheduledInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { variables } = req.body
-
             logger.info('⚡️', 'Received hogflow scheduled invocation', { id, team_id })
 
-            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
-            if (!team) {
-                return res.status(404).json({ error: 'Team not found' })
+            const [outcome] = await this.scheduledRuns().queue([
+                { teamId: parseInt(team_id), hogFlowId: id, variables: req.body.variables ?? {} },
+            ])
+            switch (outcome.status) {
+                case 'queued':
+                    return res.json({ status: 'queued', invocation_id: outcome.invocationId })
+                case 'team_not_found':
+                    return res.status(404).json({ error: 'Team not found' })
+                case 'workflow_not_found':
+                    return res.status(404).json({ error: 'Workflow not found' })
+                case 'not_a_schedule_trigger':
+                    return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
+                case 'quota_limited':
+                    return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
             }
-
-            const hogFlow = await this.hogFlowManager.getHogFlow(id)
-            if (!hogFlow || hogFlow.team_id !== team.id) {
-                return res.status(404).json({ error: 'Workflow not found' })
-            }
-
-            if (hogFlow.trigger?.type !== 'schedule') {
-                return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
-            }
-
-            // Build a synthetic event for the scheduled run. Schedule triggers don't have a real
-            // event, but the executor expects one to populate globals.event used by downstream actions.
-            const syntheticEvent: HogFunctionInvocationGlobals['event'] = {
-                uuid: new UUIDT().toString(),
-                event: '$workflow_scheduled',
-                distinct_id: `workflow-${hogFlow.id}`,
-                timestamp: DateTime.now().toISO(),
-                url: '',
-                properties: {},
-                elements_chain: '',
-            }
-
-            const triggerGlobals: HogFunctionInvocationGlobals = {
-                event: syntheticEvent,
-                project: {
-                    id: team.id,
-                    name: team.name,
-                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
-                },
-                variables: variables ?? {},
-            }
-
-            const filterGlobals = convertToHogFunctionFilterGlobal({
-                event: syntheticEvent,
-                person: undefined,
-                groups: {},
-                variables: variables ?? {},
-            })
-
-            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-
-            // Queued before queueInvocations serializes the invocation, so the
-            // `state.firstScheduledAt` stamp reaches cyclotron.
-            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-
-            try {
-                await this.hogflowQueue.queueInvocations([invocation])
-            } catch (error) {
-                this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
-                throw error
-            }
-            // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
-            // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
-            await this.invocationResultsService.invocationResultsRowsService.flush()
-
-            res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocation', { error: e })
             res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    private postHogflowScheduledInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        if (!this.scheduledRunsJwt.enabled) {
+            return res.status(503).json({
+                error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+            })
+        }
+        const allowedTeamIds = this.scheduledRunsTeamIds(req)
+        if (!allowedTeamIds) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
+        }
+        const parsed = ScheduledRunsRequestSchema.safeParse(req.body)
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues })
+        }
+        if (parsed.data.runs.some((run) => !allowedTeamIds.has(run.team_id))) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
+        }
+        if (parsed.data.runs.length > SCHEDULED_RUNS_PER_BATCH) {
+            return res.status(400).json({ error: `A batch holds at most ${SCHEDULED_RUNS_PER_BATCH} runs` })
+        }
+        try {
+            const outcomes = await this.scheduledRuns().queue(
+                parsed.data.runs.map((run) => ({
+                    teamId: run.team_id,
+                    hogFlowId: run.hog_flow_id,
+                    variables: run.variables,
+                }))
+            )
+            return res.json({
+                results: outcomes.map((outcome) =>
+                    outcome.status === 'queued'
+                        ? { status: outcome.status, invocation_id: outcome.invocationId }
+                        : { status: outcome.status }
+                ),
+            })
+        } catch (e) {
+            logger.error('Error handling hogflow scheduled invocations', { error: e })
+            res.status(e instanceof ScheduledRunsNotQueuedError ? 503 : 500).json({ error: [e.message] })
+        }
+    }
+
+    private scheduledRunsTeamIds(req: ModifiedRequest): Set<number> | null {
+        const authHeader = req.headers['authorization']
+        if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+            return null
+        }
+        try {
+            const teamIds: unknown = this.scheduledRunsJwt.verify(authHeader.slice(7)).team_ids
+            return Array.isArray(teamIds) && teamIds.every(Number.isInteger) ? new Set(teamIds) : null
+        } catch {
+            return null
         }
     }
 
@@ -1412,7 +1495,43 @@ export class CdpApi {
                     })
                     return reply('invalid_request', 400, { error: parsed.error.message })
                 }
-                const references = parsed.data.send?.attachments ?? []
+                const { send } = parsed.data
+                const senderLookup = send?.from
+                    ? this.deps.integrationManager.getCheckingPrimaryOnMiss(send.from.integrationId)
+                    : Promise.resolve(null)
+                // Several answers return before the sender lookup is awaited, so its failure must not go unhandled.
+                senderLookup.catch(() => undefined)
+                const answer = (result: TransactionalSendResult) => {
+                    if ('invocationId' in result) {
+                        return reply(result.outcome, 202, {
+                            status: result.scheduledAt ? 'scheduled' : 'queued',
+                            invocation_id: result.invocationId,
+                            scheduled_at: result.scheduledAt,
+                            replayed: result.outcome === 'replayed',
+                            ...result.replyFields,
+                            ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
+                        })
+                    }
+                    if ('refused' in result) {
+                        return reply(result.refused.body.error, result.refused.status, result.refused.body)
+                    }
+                    return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
+                        error: result.outcome,
+                        ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
+                    })
+                }
+                const sends = this.transactionalSendsForRequest()
+                const recalled = await sends.recall(
+                    parseInt(req.params.team_id),
+                    req.params.id,
+                    parsed.data,
+                    stages,
+                    senderLookup
+                )
+                if (recalled) {
+                    return answer(recalled)
+                }
+                const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
                 }
@@ -1433,30 +1552,24 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
+                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
 
-                const result = await this.transactionalSendsForRequest().accept(team, hogFlow, parsed.data, stages, {
-                    shape: filesShape,
-                    sizeMessageBodies: (invocation, emailStep, deadline) =>
-                        this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
-                    deadline: verificationDeadline,
-                })
-                if ('invocationId' in result) {
-                    return reply(result.outcome, 202, {
-                        status: result.scheduledAt ? 'scheduled' : 'queued',
-                        invocation_id: result.invocationId,
-                        scheduled_at: result.scheduledAt,
-                        replayed: result.outcome === 'replayed',
-                        ...result.replyFields,
-                    })
-                }
-                if ('refused' in result) {
-                    return reply(result.refused.body.error, result.refused.status, result.refused.body)
-                }
-                return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
-                    error: result.outcome,
-                    ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
-                })
+                return answer(
+                    await sends.accept(
+                        team,
+                        hogFlow,
+                        parsed.data,
+                        stages,
+                        {
+                            shape: filesShape,
+                            sizeMessageBodies: (invocation, emailStep, deadline) =>
+                                this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
+                            deadline: verificationDeadline,
+                        },
+                        sender
+                    )
+                )
             } catch (e) {
                 logger.error('Error queueing transactional email', {
                     error: e instanceof Error ? e.message : String(e),
@@ -1599,8 +1712,21 @@ export class CdpApi {
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
-            idempotencyKeys: this.transactionalEmailIdempotencyKeys,
-            queue: this.hogflowQueue,
+            encryptedFields: this.fingerprintSigner,
+            runIntake: new RunIntake({
+                hogflowQueue: this.hogflowQueue,
+                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+                intake: {
+                    modeOf: intakeModeOf(this.config),
+                    producer: new IntakeProducer(
+                        this.outputs,
+                        undefined,
+                        createInvocationSanitizer(this.config).seal,
+                        intakeClusterOf(this.config)
+                    ),
+                    sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
+                },
+            }),
             invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
@@ -1608,6 +1734,13 @@ export class CdpApi {
             emailValidation: this.emailValidationService,
             quotaLimiting: this.deps.quotaLimiting,
             attachmentUploads: this.attachmentUploads,
+            refuseSandboxSend: (teamId, recipient) =>
+                refuseSandboxCodeSend(this.deps.postgres, {
+                    enabled: this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                    teamId,
+                    recipient,
+                    tenantName: this.config.SES_SANDBOX_TENANT_NAME,
+                }),
         })
     }
 
@@ -1682,6 +1815,7 @@ export class CdpApi {
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
+                stateOpener: new EncryptedFields(this.config.CDP_SEALED_STATE_KEYS),
             })
             return await handle(sends, parseInt(req.params.team_id), req.params.message_id)
         } catch (e) {
@@ -2066,6 +2200,10 @@ export class CdpApi {
             if (realtimeCohort === null) {
                 return res.status(400).json({ error: 'realtime_cohort.wait_until must be an ISO 8601 date' })
             }
+            const audienceSnapshot = parseAudienceSnapshot(req.body.audience_snapshot)
+            if (audienceSnapshot === null) {
+                return res.status(400).json({ error: 'audience_snapshot.wait_until must be an ISO 8601 date' })
+            }
 
             const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
             const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
@@ -2105,6 +2243,7 @@ export class CdpApi {
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 realtimeCohort,
+                audienceSnapshot,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

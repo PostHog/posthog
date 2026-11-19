@@ -10,8 +10,14 @@
             "type": "string"
         },
         "id": {
-            "description": "A UUID string identifying this external data source.",
+            "description": "UUID of the data warehouse source (from external-data-sources-list). Not a table (schema) id.",
             "type": "string"
+        },
+        "limit": {
+            "description": "Maximum number of jobs to return, from 1 to 100 (default 20). Jobs are newest first. To get older jobs, pass the returned `next_before` as `before`.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
         },
         "schemas": {
             "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables.",

@@ -330,6 +330,7 @@ const CHECKS_WITH_ROWS: HealthPanelCheck[] = [
             forced_condition_count: 1,
             matched_count: 4277,
             traffic_since_at: '2026-10-27T12:00:00Z',
+            flag_service_call_percentage: 92.4,
         },
         rows: [
             { variant: 'control', variant_matched_count: 2140, forced_count: 0, forced_percentage: 0 },
@@ -339,7 +340,20 @@ const CHECKS_WITH_ROWS: HealthPanelCheck[] = [
     },
     {
         ...passed('release_conditions_changed_mid_run', 'Release condition changes since launch'),
-        rows: [{ changed_at: '2026-10-19T07:05:00Z', before_exposure: true }],
+        rows: [
+            {
+                changed_at: '2026-10-19T07:05:00Z',
+                before: 'Set 1: 100%, filters on email, forces "test"\nSet 2: 50%',
+                after: 'Set 1: 100%, filters on email, forces "test"\nSet 2: 100%',
+                before_exposure: true,
+            },
+            {
+                changed_at: '2026-10-24T12:10:00Z',
+                before: 'Set 1: 100%, filters on email, forces "test"\nSet 2: 100%',
+                after: 'Set 1: 100%, filters on email\nSet 2: 100%',
+                before_exposure: false,
+            },
+        ],
     },
     {
         ...passed('stale_experiment', 'Experiment running past 60 days'),
@@ -376,6 +390,15 @@ export const PassedCheckDetailsWithRows: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(
             await within(canvasElement).findByRole('button', { name: /Significance on a small sample/ })
+        )
+    },
+}
+
+export const FlagChangeDetails: Story = {
+    args: PassedCheckDetailsWithRows.args,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Release condition changes since launch/ })
         )
     },
 }

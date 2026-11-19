@@ -7,8 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
 
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+
 if TYPE_CHECKING:
     from posthog.temporal.oauth import PosthogMcpScopes
+
+TRUSTED_DOMAINS: tuple[str, ...] = tuple(DEFAULT_TRUSTED_DOMAINS)
 
 
 class Read(StrEnum):
@@ -195,8 +199,6 @@ class TaskProfile:
     create_pr: bool
     # True gives the agent a finish tool that moves the task to done.
     finish_tool: bool
-    # True moves the task to done when a turn closes, including a failed turn. Use it for work that
-    # nobody replies to, such as loops, workflow steps and scouts, so idle tasks don't pile up.
     done_on_turn_close: bool
 
     # How long the sandbox stays up after a turn closes, in case someone replies. After that the

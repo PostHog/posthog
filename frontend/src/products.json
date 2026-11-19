@@ -103,7 +103,7 @@
             "path": "Data catalog",
             "category": "Data",
             "iconType": "data_catalog",
-            "type": null,
+            "type": "data_catalog",
             "intents": ["data_catalog"]
         },
         {

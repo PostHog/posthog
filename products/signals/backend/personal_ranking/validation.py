@@ -65,6 +65,8 @@ class ValidationCounts:
     invalid_folds: int = 0
     # Ranked entries that claim a needs-you kind the facts do not hold. The kind drops and the reason is replaced.
     false_needs_you: int = 0
+    # Ranked entries whose reason is over the limit of their tier. The served reason ends in an ellipsis.
+    reasons_cut: int = 0
 
 
 @frozen
@@ -86,8 +88,14 @@ class _RawEntry:
 
 
 def cap(text: str, limit: int) -> str:
+    """Collapse whitespace, then cut at a word boundary and mark the cut. One long word is cut inside the word."""
     text = " ".join(text.split())
-    return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "…"
+    if len(text) <= limit:
+        return text
+    cut = text[: max(limit - 1, 0)]
+    if text[len(cut)] != " " and " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:") + "…"
 
 
 def _reason_limit(tier: Tier, limits: ReasonLimits) -> int:
@@ -230,7 +238,7 @@ def validate_ranking(
     caps: dict[Tier, int] = {"top": top_max, "worth_a_look": worth_a_look_max}
     tier_sizes: Counter[Tier] = Counter()
     entries: list[RankedEntry] = []
-    renumbered = tier_corrections = tier_demotions = false_needs_you = 0
+    renumbered = tier_corrections = tier_demotions = false_needs_you = reasons_cut = 0
     # Corrections follow the model's own tiers, so a demotion is not counted again as a correction.
     worst_corrected = worst_tier = 0
     for rank, entry in enumerate(top, start=1):
@@ -253,12 +261,14 @@ def validate_ranking(
             matched = Matched(theme=matched.theme, needs_you=tuple(kind for kind in matched.needs_you if kind in facts))
             # The model's reason may repeat the false claim. A real needs-you fact outranks the theme.
             reason = _theme_reason(matched.theme) if matched.theme and not facts else model_reasons[entry.ref]
+        reason_limit = _reason_limit(tier, reason_limits)
+        reasons_cut += len(" ".join(reason.split())) > reason_limit
         entries.append(
             RankedEntry(
                 ref=entry.ref,
                 rank=rank,
                 tier=tier,
-                reason=cap(reason, _reason_limit(tier, reason_limits)),
+                reason=cap(reason, reason_limit),
                 next_step=cap(entry.next_step, next_step_max_chars) if entry.next_step and rank <= limit else None,
                 matched=matched,
                 ranked_by="llm",
@@ -291,5 +301,6 @@ def validate_ranking(
             tier_demotions=tier_demotions,
             invalid_folds=invalid_folds,
             false_needs_you=false_needs_you,
+            reasons_cut=reasons_cut,
         ),
     )

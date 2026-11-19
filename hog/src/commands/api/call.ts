@@ -3,7 +3,14 @@ import { z } from 'zod'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { parseJson } from '@/core/json'
-import { findTool, grantedScopes, missingScopesError, toHogError, withApiConnection } from '@/posthog/api-tools'
+import {
+    findTool,
+    grantedScopes,
+    missingScopesError,
+    toHogError,
+    withApiConnection,
+    withStaleToolsHint,
+} from '@/posthog/api-tools'
 import { parseOrganizationId, parseProjectId } from '@/posthog/ids'
 
 const ToolInput = z.record(z.string(), z.unknown(), { error: 'The input must be a JSON object.' })
@@ -80,7 +87,7 @@ export default defineCommand({
             return result.value
         }
         if (result.error.code !== 'permission_denied') {
-            throw toHogError(result.error, tool.name)
+            throw withStaleToolsHint(result.error, toHogError(result.error, tool.name))
         }
         const credentials = await ctx.credentials()
         // PostHog names one missing scope per refusal, so look up the key to name all of them.

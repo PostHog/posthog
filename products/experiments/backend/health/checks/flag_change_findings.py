@@ -3,6 +3,7 @@ What the findings about flag changes after launch share besides their words, and
 the reader can't view. Pure functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
@@ -13,8 +14,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthRowValue,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames, describe_bucketing_value
 from products.experiments.backend.health.checks.change_wording import (
     delay,
     duration,
@@ -40,10 +43,22 @@ from products.experiments.backend.health.skips import (
     not_applicable,
     not_checked,
 )
+from products.experiments.backend.health.split_changes import split_value
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    BucketingSetting,
+    ConditionsChange,
+    ReleaseCondition,
+    SplitChange,
+)
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
 # `finding_subcode` on the health finding events.
 NOT_CHECKED = "not_checked"
+
+# The most characters of saved release conditions that the rows of one check carry, so that the health response
+# stays small for API and MCP readers. One save of a flag that targets a long list of IDs can be larger.
+MAX_SAVED_CONDITIONS_LENGTH = 20_000
 
 EvidenceValue = str | int | float | bool | None
 
@@ -105,13 +120,100 @@ def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:
     history = changes_to_check(ctx)
     if isinstance(history, CheckSkip):
         return ()
+    changes = history.of_kind(kind)
+    saved = _saved_conditions(changes)
     return tuple(
         {
             ExperimentHealthValueKey.CHANGED_AT: change.changed_at.astimezone(UTC).isoformat(),
+            **_described(change, history.group_type_names),
+            **saved[index],
             ExperimentHealthValueKey.BEFORE_EXPOSURE: _before_exposure(history, change.changed_at),
         }
-        for change in history.of_kind(kind)
+        for index, change in enumerate(changes)
     )
+
+
+def _saved_conditions(
+    changes: Sequence[FlagChange],
+) -> list[dict[ExperimentHealthValueKey, ExperimentHealthRowValue]]:
+    """The release conditions as saved, per release-condition change, up to MAX_SAVED_CONDITIONS_LENGTH. When they
+    don't all fit, the latest changes keep theirs, because the findings' next steps start from the last change."""
+    remaining = MAX_SAVED_CONDITIONS_LENGTH
+    saved: list[dict[ExperimentHealthValueKey, ExperimentHealthRowValue]] = [{} for _ in changes]
+    for index in reversed(range(len(changes))):
+        change = changes[index]
+        if not isinstance(change, ConditionsChange):
+            continue
+        before, after = change.before_filters, change.after_filters
+        length = len(json.dumps([before, after], default=str))
+        # The flag page's diff needs both sides. With only the after side, it would show every condition as added.
+        fits = before is not None and after is not None and length <= remaining
+        if fits:
+            remaining -= length
+        saved[index] = {
+            ExperimentHealthValueKey.BEFORE_FILTERS: before if fits else None,
+            ExperimentHealthValueKey.AFTER_FILTERS: after if fits else None,
+        }
+    return saved
+
+
+# The settings as the flag page labels them.
+_SETTING_LABELS = {
+    BucketingSetting.KEY: "Flag key",
+    BucketingSetting.AGGREGATION: "Match by",
+    BucketingSetting.BUCKETING_IDENTIFIER: "Match by",
+    BucketingSetting.EXPERIENCE_CONTINUITY: "Persist flag across authentication steps",
+}
+
+
+def _described(change: FlagChange, group_type_names: GroupTypeNames) -> dict[ExperimentHealthValueKey, str]:
+    match change:
+        case SplitChange():
+            return {
+                ExperimentHealthValueKey.BEFORE: split_value(change.before),
+                ExperimentHealthValueKey.AFTER: split_value(change.after),
+            }
+        case BucketingChange():
+            return {
+                ExperimentHealthValueKey.CHANGED_SETTING: _SETTING_LABELS[change.setting],
+                ExperimentHealthValueKey.BEFORE: _sentence_case(
+                    describe_bucketing_value(change.setting, change.before, group_type_names=group_type_names)
+                ),
+                ExperimentHealthValueKey.AFTER: _sentence_case(
+                    describe_bucketing_value(change.setting, change.after, group_type_names=group_type_names)
+                ),
+            }
+        case ConditionsChange():
+            return {
+                ExperimentHealthValueKey.BEFORE: _describe_conditions(change.before),
+                ExperimentHealthValueKey.AFTER: _describe_conditions(change.after),
+            }
+
+
+def _describe_conditions(conditions: tuple[ReleaseCondition, ...]) -> str:
+    """The release conditions in the flag page's order, one set per line, for example 'Set 1: 100%, filters on plan'."""
+    if not conditions:
+        return "None"
+    sets = []
+    for number, condition in enumerate(conditions, start=1):
+        parts = [f"Set {number}: {condition.rollout:g}%"]
+        if condition.property_keys:
+            parts.append(f"filters on {', '.join(sorted({_filter_name(key) for key in condition.property_keys}))}")
+        if condition.variant:
+            parts.append(f'forces "{condition.variant}"')
+        sets.append(", ".join(parts))
+    return "\n".join(sets)
+
+
+def _sentence_case(text: str) -> str:
+    # The findings use these words mid-sentence, so they start lowercase. A quoted flag key keeps its case.
+    return text[:1].upper() + text[1:]
+
+
+def _filter_name(property_key: str) -> str:
+    # The facade keys a filter as "<type>:<key>", and a cohort filter's key is the cohort id.
+    kind, _, key = property_key.partition(":")
+    return "cohort" if kind == "cohort" else key
 
 
 def _before_exposure(history: FlagHistory | FlagHistoryNotChecked, changed_at: datetime) -> bool | None:
@@ -186,8 +288,9 @@ def change_finding(
             **change_evidence(
                 history, effect, kind_evidence=kind_evidence, exposed_before_change=history.exposed_before_first
             ),
-            # pinned: capped at MIN_EXPOSED_UNITS_TO_WARN, so the cap means "at least". None when unknown.
-            "units_exposed_before_last_change": history.exposed_units_before_last.get(kind),
+            # pinned: a lower bound once the count reaches its cap (`MAX_COUNTED_BEFORE_CHANGE` rows in
+            # `exposure_gate.py`). None when unknown.
+            "min_units_exposed_before_last_change": history.exposed_units_before_last.get(kind),
             # pinned: the start date that MOVE_START_DATE sets, in UTC.
             **(
                 {"suggested_start_date": suggested_start_date.astimezone(UTC).isoformat()}

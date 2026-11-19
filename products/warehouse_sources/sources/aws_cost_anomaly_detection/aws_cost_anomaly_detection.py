@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    flatten_nested,
     make_tracked_session,
 )
 
@@ -72,7 +73,6 @@ ENABLEMENT_MESSAGE = (
     "then try again in up to 24 hours once AWS has prepared the data."
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ce:[A-Za-z0-9]+")
 
@@ -91,11 +91,6 @@ class AwsCostAnomalyDetectionResumeConfig:
 
     date_interval_start: Optional[str] = None
     next_page_token: Optional[str] = None
-
-
-def _snake(name: str) -> str:
-    """`AnomalyStartDate` -> `anomaly_start_date`, `TotalImpactPercentage` -> `total_impact_percentage`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
 def _parse_date(value: Any) -> Any:
@@ -122,24 +117,9 @@ def coerce_date(value: Any) -> Optional[dt.date]:
     return None
 
 
-def _flatten(prefix: str, obj: dict[str, Any], raw_keys: frozenset[str]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if key in raw_keys:
-            flattened[column] = value
-        elif isinstance(value, dict):
-            flattened.update(_flatten(column, value, raw_keys))
-        elif isinstance(value, list):
-            flattened[column] = [_flatten("", item, raw_keys) if isinstance(item, dict) else item for item in value]
-        else:
-            flattened[column] = value
-    return flattened
-
-
 def normalize_row(endpoint_config: AnomalyDetectionEndpointConfig, obj: dict[str, Any]) -> dict[str, Any]:
     """Flatten nested structures into snake_case columns and parse the date members."""
-    row = _flatten("", obj, endpoint_config.raw_keys)
+    row = flatten_nested(obj, keep_raw=endpoint_config.raw_keys, flatten_list_items=True)
     for column in endpoint_config.date_columns:
         if column in row:
             row[column] = _parse_date(row[column])

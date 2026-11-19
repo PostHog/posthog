@@ -43,6 +43,7 @@ from ..dataset.labeling import (
 )
 from ..dataset.templates import TemplateKey as _TemplateKey
 from ..dataset.validation import (
+    AutoresearchValidationErrorCode as _AutoresearchValidationErrorCode,
     ValidationWarningCode as _ValidationWarningCode,
     validate_pipeline_definition as _validate_pipeline_definition,
 )
@@ -230,11 +231,18 @@ def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[Train
     return trend
 
 
+def _task_url(task_id: UUID | None) -> str | None:
+    return f"/tasks/{task_id}" if task_id else None
+
+
 def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
     # The run's own counters land only at completion, so progress comes from the live iteration rows.
     trend = _best_so_far_trend((i.iteration_number, i.holdout_score) for i in iterations)
     return LiveTrainingRun(
         id=run.id,
+        task_id=run.task_id,
+        task_run_id=run.task_run_id,
+        task_url=_task_url(run.task_id),
         iteration_budget=run.iteration_budget,
         experiment_count=len(iterations),
         best_holdout_score=trend[-1].best_holdout_score if trend else None,
@@ -540,7 +548,7 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         pipeline=row.pipeline_id,
         task_id=row.task_id,
         task_run_id=row.task_run_id,
-        task_url=f"/tasks/{row.task_id}" if row.task_id else None,
+        task_url=_task_url(row.task_id),
         status=row.status,
         kickoff_reason=row.kickoff_reason,
         agent_runtime_adapter=row.agent_runtime_adapter,
@@ -1175,6 +1183,7 @@ def validate_definition(
         inference_population_size=result.inference_population_size,
         warnings=[ValidationWarning(code=w.code, message=w.message, severity=w.severity) for w in result.warnings],
         error=result.error,
+        error_code=result.error_code.value if result.error_code else None,
     )
 
 
@@ -2232,6 +2241,7 @@ PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
 TEMPLATE_KEY_CHOICES = _TemplateKey.choices
 # A plain list, not choices: the serializer explains why `code` is not an enum.
 VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
+VALIDATION_ERROR_CODE_CHOICES = _AutoresearchValidationErrorCode.choices
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
 KICKOFF_REASON_CHOICES = AutoresearchTrainingRun.KickoffReason.choices

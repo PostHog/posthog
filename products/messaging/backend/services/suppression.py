@@ -1,9 +1,15 @@
 from django.db import transaction
-from django.db.models import F, QuerySet, Value
+from django.db.models import Case, F, Q, QuerySet, TextField, Value, When
 from django.db.models.functions import Coalesce, Greatest, Least, Now
 from django.utils import timezone
 
-from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_MAX_HOLD, EmailHardBounce
+from posthog.models.scoping.manager import resolve_effective_team_id
+
+from products.messaging.backend.models.email_hard_bounce import (
+    GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC,
+    GLOBAL_HARD_BOUNCE_MAX_HOLD,
+    EmailHardBounce,
+)
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 
@@ -45,6 +51,94 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
     return suppression, created
 
 
+def block_transactional_for_hard_bounces(
+    team_id: int, identifiers: list[str], reason: str, *, rows_locked: bool = False
+) -> None:
+    """Make the team's existing rows for these hard-bounced addresses suppress them and block transactional email.
+
+    `team_id` must be the canonical project id. A row keeps its source, so a spam complaint still needs confirmation
+    to remove. A manual entry or a complaint keeps its reason, like a live hard bounce. A row copied from the global
+    list becomes the team's own bounce, so it stays when the global hold lapses. A row someone removed stays removed.
+    Outside a transaction, as in the bulk API, each statement updates one row, so the import never holds two row locks
+    that a Node bounce write can wait on. A caller that already holds the rows' locks, as the Customer.io import does,
+    passes `rows_locked` and updates them in one statement, which keeps those locks short.
+    """
+    pending = MessageSuppression.objects.for_team(team_id, canonical=True).filter(
+        Q(hard_bounced_at__isnull=True)
+        | Q(source=SuppressionSource.BOUNCE, last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC),
+        deleted=False,
+    )
+    now = timezone.now()
+    marks = {
+        "suppressed": True,
+        "suppressed_at": Case(When(suppressed=False, then=Value(now)), default=F("suppressed_at")),
+        "hard_bounced_at": now,
+        "reason": Case(
+            When(source__in=[SuppressionSource.MANUAL, SuppressionSource.COMPLAINT], then=F("reason")),
+            default=Value(reason),
+            output_field=TextField(),
+        ),
+        "last_bounce_diagnostic": Case(
+            When(last_bounce_diagnostic=GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC, then=Value(None)),
+            default=F("last_bounce_diagnostic"),
+            output_field=TextField(),
+        ),
+        "updated_at": now,
+    }
+    if rows_locked:
+        pending.filter(identifier__in=identifiers).update(**marks)
+        return
+    for row_id in pending.filter(identifier__in=identifiers).values_list("id", flat=True):
+        pending.filter(id=row_id).update(**marks)
+
+
+IMPORTED_SUPPRESSION_REASONS: dict[SuppressionSource, str] = {
+    SuppressionSource.BOUNCE: "Imported (bounced)",
+    SuppressionSource.COMPLAINT: "Imported (spam complaint)",
+    SuppressionSource.MANUAL: "Imported (manually suppressed)",
+}
+
+
+def bulk_add_suppressions(
+    team_id: int, sources_by_identifier: dict[str, SuppressionSource], created_by_id: int | None
+) -> int:
+    """Suppress the identifiers that have no row yet, and return how many rows it added.
+
+    An existing row keeps its source. It can be a manual entry, an address someone removed from the list on purpose,
+    or a row the bounce feedback already manages. A bounce still makes a row nobody removed block transactional email,
+    see `block_transactional_for_hard_bounces`.
+    """
+    # bulk_create skips the save() that moves a child environment's rows to its parent project.
+    team_id = resolve_effective_team_id(team_id)
+    suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
+    existing = set(suppressions.filter(identifier__in=list(sources_by_identifier)).values_list("identifier", flat=True))
+    now = timezone.now()
+    new_rows = [
+        MessageSuppression(
+            team_id=team_id,
+            identifier=identifier,
+            source=source,
+            reason=IMPORTED_SUPPRESSION_REASONS[source],
+            suppressed=True,
+            suppressed_at=now,
+            # A provider lists a bounce only for an address that can't receive mail, so it blocks transactional email.
+            hard_bounced_at=now if source == SuppressionSource.BOUNCE else None,
+            created_by_id=created_by_id,
+        )
+        # Sorted so concurrent imports take the unique-index locks in the same order and can't deadlock.
+        for identifier, source in sorted(sources_by_identifier.items())
+        if identifier not in existing
+    ]
+    # ignore_conflicts skips an address inserted after the read above, and the count by pk leaves it out.
+    suppressions.bulk_create(new_rows, ignore_conflicts=True)
+    block_transactional_for_hard_bounces(
+        team_id,
+        [identifier for identifier, source in sources_by_identifier.items() if source == SuppressionSource.BOUNCE],
+        IMPORTED_SUPPRESSION_REASONS[SuppressionSource.BOUNCE],
+    )
+    return suppressions.filter(pk__in=[row.pk for row in new_rows]).count()
+
+
 class ComplaintConfirmationRequired(Exception):
     def __init__(self, identifiers: list[str]) -> None:
         super().__init__(f"Removing spam complaints needs confirmation: {', '.join(identifiers)}")
@@ -52,7 +146,7 @@ class ComplaintConfirmationRequired(Exception):
 
 
 def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints: bool) -> list[str]:
-    """Remove `identifiers` from the team's list, and return the ones the team had a row for.
+    """Remove `identifiers` from the team's list, and return the ones that were on it.
 
     Raises `ComplaintConfirmationRequired`, and removes nothing, when a spam complaint is among them unconfirmed.
     """
@@ -61,16 +155,12 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
         # The lock stops a complaint that lands during the check from being removed unconfirmed. A row inserted after
         # the lock is not checked, so only the locked rows are removed.
         locked = list(
-            rows.filter(identifier__in=identifiers)
+            rows.filter(identifier__in=identifiers, suppressed=True, deleted=False)
             .order_by("identifier")
             .select_for_update()
-            .values_list("id", "identifier", "source", "suppressed", "deleted")
+            .values_list("id", "identifier", "source")
         )
-        complaints = sorted(
-            identifier
-            for _, identifier, source, suppressed, deleted in locked
-            if source == SuppressionSource.COMPLAINT and suppressed and not deleted
-        )
+        complaints = sorted(identifier for _, identifier, source in locked if source == SuppressionSource.COMPLAINT)
         if complaints and not confirm_complaints:
             raise ComplaintConfirmationRequired(complaints)
         _remove(rows.filter(id__in=[row_id for row_id, *_ in locked]))

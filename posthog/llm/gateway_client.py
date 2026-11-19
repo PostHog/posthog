@@ -309,6 +309,27 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     return AIGatewayConfig(url=url, api_key=api_key)
 
 
+# A plain http URL to these hosts stays on this machine, so local development needs no certificate.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def resolve_https_ai_gateway_config() -> AIGatewayConfig | None:
+    """``resolve_ai_gateway_config``, but None when the URL would send the gateway key in clear to
+    a host off this machine.
+
+    Use it for a client that puts the key in an ``Authorization`` header itself, instead of through
+    an SDK that the caller already pinned to https.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    parsed = urlparse(gateway.url)
+    if parsed.scheme != "https" and parsed.hostname not in _LOOPBACK_HOSTS:
+        logger.warning("ai_gateway_url_not_https")
+        return None
+    return gateway
+
+
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
     """Build the ``X-PostHog-Properties`` header from caller labels, dropping unset ones.
 
@@ -581,6 +602,7 @@ def _ai_gateway_anthropic_client(
     properties: Mapping[str, str] | None,
     distinct_id: str | None,
     team_id: int | None,
+    privacy_mode: bool = False,
 ) -> Anthropic:
     labels = dict(properties or {})
     if team_id is not None:
@@ -593,6 +615,7 @@ def _ai_gateway_anthropic_client(
             trace_id=trace_id or team_trace_id(team_id),
             properties=labels,
             distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
         ),
         http_client=httpx.Client(trust_env=False),
     )
@@ -604,15 +627,17 @@ def build_ai_gateway_anthropic_client(
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
     team_id: int | None = None,
+    privacy_mode: bool = False,
 ) -> Anthropic:
     """:func:`build_anthropic_client` without the Python-gateway fallback, for callers with no route there.
 
-    Raises when the Go ai-gateway pair is unset or malformed.
+    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
+    the request and response out of the generation the gateway captures.
     """
     gateway = resolve_ai_gateway_config()
     if gateway is None:
-        raise ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
-    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id)
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id, privacy_mode)
 
 
 def build_anthropic_client(

@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -92,10 +93,6 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
-def _format_rfc3339(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _as_utc_datetime(value: Any) -> datetime:
     """Resolve an incremental watermark to an aware UTC datetime."""
     if isinstance(value, datetime):
@@ -160,7 +157,7 @@ def _usage_windows(
 def _fetch_usage_window(session: Any, api_key: str, url: str, window: UsageWindow) -> dict[str, Any]:
     response = session.get(
         url,
-        params={"startTime": _format_rfc3339(window.start), "endTime": _format_rfc3339(window.end)},
+        params={"startTime": format_datetime(window.start, "iso_z"), "endTime": format_datetime(window.end, "iso_z")},
         headers=_get_headers(api_key),
         timeout=60,
     )
@@ -314,8 +311,8 @@ def get_status_code(api_key: str, account_id: str, endpoint: str | None = None) 
         # collection endpoints' single row.
         now = datetime.now(UTC)
         params: dict[str, Any] = {
-            "startTime": _format_rfc3339(now - timedelta(days=1)),
-            "endTime": _format_rfc3339(now),
+            "startTime": format_datetime(now - timedelta(days=1), "iso_z"),
+            "endTime": format_datetime(now, "iso_z"),
         }
     else:
         params = {"pageSize": 1}

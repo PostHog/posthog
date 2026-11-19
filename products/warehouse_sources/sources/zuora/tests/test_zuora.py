@@ -86,10 +86,24 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    def test_incremental_passes_updateddate_gt_filter(self):
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("invoices", "/object-query/invoices"),
+            ("amendments", "/object-query/amendments"),
+            ("contacts", "/object-query/contacts"),
+            ("product_rate_plans", "/object-query/product-rate-plans"),
+            ("product_rate_plan_charges", "/object-query/product-rate-plan-charges"),
+            ("rate_plans", "/object-query/rate-plans"),
+            ("rate_plan_charges", "/object-query/rate-plan-charges"),
+            ("invoice_items", "/object-query/invoice-items"),
+            ("order_line_items", "/object-query/order-line-items"),
+        ],
+    )
+    def test_incremental_passes_updateddate_gt_filter(self, endpoint, path):
         result = _driver().run(
-            "invoices",
-            route({"/oauth/token": [_token_response()], "/object-query/invoices": [_page([])]}),
+            endpoint,
+            route({"/oauth/token": [_token_response()], path: [_page([])]}),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
         )

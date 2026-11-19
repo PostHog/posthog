@@ -26,7 +26,12 @@ async function main(): Promise<void> {
         throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not set')
     }
     const args = parseArgs(process.argv.slice(2))
-    const ran = await runMigrations({ databaseUrl: database.url, runtimeRole: database.runtimeRole, ...args })
+    const ran = await runMigrations({
+        databaseUrl: database.url,
+        runtimeRole: database.runtimeRole,
+        partmanOptional: database.partmanOptional,
+        ...args,
+    })
     logger.info('migrate:complete', { direction: args.direction, migrations: ran })
 }
 

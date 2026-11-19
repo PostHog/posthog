@@ -79,8 +79,6 @@ To enable INFO logging for a specific module, add it to `posthog/settings/logs.p
 
 Note: calling `logger.setLevel(logging.INFO)` in your code doesn't work with structlog - you must add the config entry above.
 
-Celery task lifecycle events (`task_started`, `task_succeeded`, etc.) are logged automatically by `django-structlog` at INFO level and are already enabled.
-
 ##### Security
 
 Don’t log sensitive information. Make sure you never log:

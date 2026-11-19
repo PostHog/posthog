@@ -37,9 +37,13 @@ BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
         "vxd", "ws", "wsc", "wsf", "wsh", "xll", "xnk",
     }
 )  # fmt: skip
-MIME_TYPE_WITHOUT_PARAMETERS = re.compile(
-    r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
-)
+_MIME_TYPE = r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
+_TOKEN = r"[!#$%&'*+.0-9A-Z^_`a-z{|}~-]+"
+_QUOTED_STRING = r'"(?:[ !#-\[\]-~]|\\[ -~])*"'
+_PARAMETER = rf" *; *({_TOKEN}) *= *(?:{_TOKEN}|{_QUOTED_STRING})"
+MIME_TYPE_WITH_PARAMETERS = re.compile(rf"{_MIME_TYPE}(?:{_PARAMETER})*")
+MIME_PARAMETER = re.compile(_PARAMETER)
+FILE_NAME_PARAMETERS = frozenset({"name", "filename"})
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
@@ -152,7 +156,9 @@ class EmailAttachmentSerializer(serializers.Serializer):
     content_type = serializers.CharField(
         required=False,
         max_length=SES_ATTACHMENT_HEADER_MAX_LENGTH,
-        help_text="MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.",
+        help_text="MIME type of the file, such as `application/pdf`, with any parameters, such as "
+        "`text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` "
+        "parameter is refused, because the file name comes from `filename`.",
     )
     content_id = serializers.CharField(
         required=False,
@@ -184,8 +190,14 @@ class EmailAttachmentSerializer(serializers.Serializer):
         return filename
 
     def validate_content_type(self, content_type: str) -> str:
-        if not MIME_TYPE_WITHOUT_PARAMETERS.fullmatch(content_type):
-            raise serializers.ValidationError("Enter a MIME type, such as `application/pdf`.", code="not_mime_type")
+        if not MIME_TYPE_WITH_PARAMETERS.fullmatch(content_type) or any(
+            parameter.group(1).lower().split("*")[0] in FILE_NAME_PARAMETERS
+            for parameter in MIME_PARAMETER.finditer(content_type)
+        ):
+            raise serializers.ValidationError(
+                "Enter a MIME type, such as `application/pdf` or `text/calendar; method=REQUEST`.",
+                code="not_mime_type",
+            )
         return content_type
 
     def validate_content_id(self, content_id: str) -> str:
@@ -283,8 +295,10 @@ _REASONS_BY_CODE = {
         fix="Send only the file name, such as `invoice.pdf`.",
     ),
     "not_mime_type": Reason(
-        why="The MIME type goes into the email's headers, so it must be a type and a subtype only.",
-        fix="Send a type such as `application/pdf`, or leave `content_type` out.",
+        why="The MIME type goes into the email's headers, so it must be a type and a subtype, optionally followed "
+        "by `; key=value` parameters, with no line breaks. The file name comes from `filename`, so a `name` or "
+        "`filename` parameter is refused.",
+        fix="Send a type such as `application/pdf` or `text/calendar; method=REQUEST`, or leave `content_type` out.",
     ),
     "unsafe_content_id": Reason(
         why="The Content-ID header wraps the ID in angle brackets, so brackets inside the ID break the `cid:` "

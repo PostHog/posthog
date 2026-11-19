@@ -63,3 +63,42 @@ def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = 
         expr=ast.Call(name="getBotOperator", args=_classification_args(properties_path)),
         isolate_scope=True,
     )
+
+
+# Logs carry the request in OpenTelemetry semantic-convention attributes. A log line without a
+# user agent is application output, not a request, so every field is NULL for it: bot and human
+# filters both leave it out, where the empty-user-agent rule would count it as a bot.
+def _log_attribute(key: str) -> ast.Expr:
+    # A bare read of the type-suffixed backing map touches only the bucket that holds the key.
+    return ast.Call(
+        name="arrayElement", args=[ast.Field(chain=["attributes_map_str"]), ast.Constant(value=f"{key}__str")]
+    )
+
+
+def _log_classification_field(name: str, function_name: str) -> ExpressionField:
+    user_agent = _log_attribute("user_agent.original")
+    return ExpressionField(
+        name=name,
+        expr=ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="empty", args=[user_agent]),
+                ast.Constant(value=None),
+                ast.Call(name=function_name, args=[user_agent, _log_attribute("client.address")]),
+            ],
+        ),
+        isolate_scope=True,
+    )
+
+
+def log_traffic_fields() -> dict[str, ExpressionField]:
+    return {
+        name: _log_classification_field(name, function_name)
+        for name, function_name in [
+            ("$virt_is_bot", "isLikelyBot"),
+            ("$virt_traffic_type", "getTrafficType"),
+            ("$virt_traffic_category", "getTrafficCategory"),
+            ("$virt_bot_name", "getBotName"),
+            ("$virt_bot_operator", "getBotOperator"),
+        ]
+    }

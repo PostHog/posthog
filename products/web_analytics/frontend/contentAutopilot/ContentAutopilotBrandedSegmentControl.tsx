@@ -4,11 +4,12 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { type BrandedSegmentTab, contentAutopilotBrandedLogic } from './contentAutopilotBrandedLogic'
+import type { AiVisibilityFilterTab } from './aiVisibilityFilters'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 
-export const ContentAutopilotBrandedSegmentControl = ({ tab }: { tab: BrandedSegmentTab }): JSX.Element => {
-    const { brandedSegment } = useValues(contentAutopilotBrandedLogic)
-    const { setBrandedSegment } = useActions(contentAutopilotBrandedLogic)
+export const ContentAutopilotBrandedSegmentControl = ({ tab }: { tab: AiVisibilityFilterTab }): JSX.Element => {
+    const { brandedSegment } = useValues(contentAutopilotFiltersLogic)
+    const { setBrandedSegment } = useActions(contentAutopilotFiltersLogic)
 
     return (
         <LemonSegmentedButton

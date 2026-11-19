@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock, patch
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_secret
 
-from products.conversations.backend.api.intercom_import import ORPHANED_PENDING_AFTER
+from products.conversations.backend.api.intercom_import import ORPHANED_PENDING_AFTER, QUIET_RUNNING_AFTER
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, IntercomImportJob
 
 URL = "/api/projects/{team_id}/conversations/intercom_imports/"
@@ -181,6 +182,38 @@ class TestIntercomImportAPI(APIBaseTest):
         job.refresh_from_db()
         self.assertEqual(job.status, IntercomImportJob.Status.PENDING)
         mock_start.assert_not_called()
+
+    @parameterized.expand([("workflow_exists", True, "pending"), ("workflow_missing", False, "failed")])
+    def test_failed_start_keeps_the_reservation_unless_temporal_confirms_no_workflow(
+        self, _mock_validate, mock_start, _mock_flag, _name, workflow_exists, expected_status
+    ):
+        mock_start.side_effect = TimeoutError("deadline exceeded")
+
+        with patch(f"{M}.intercom_import_workflow_exists", new_callable=AsyncMock, return_value=workflow_exists):
+            response = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(IntercomImportJob.objects.unscoped().get(team_id=self.team.id).status, expected_status)
+
+    @parameterized.expand([("workflow_stopped", False, "failed"), ("workflow_running", True, "running")])
+    def test_quiet_running_job_is_failed_only_when_its_workflow_stopped(
+        self, _mock_validate, _mock_start, _mock_flag, _name, workflow_running, expected_status
+    ):
+        job = IntercomImportJob.objects.unscoped().create(
+            team_id=self.team.id, status=IntercomImportJob.Status.RUNNING, job_inputs={"region": "us"}
+        )
+        IntercomImportJob.objects.unscoped().filter(id=job.id).update(
+            updated_at=timezone.now() - QUIET_RUNNING_AFTER - timedelta(minutes=1)
+        )
+
+        with patch(
+            f"{M}.intercom_import_workflow_is_running", new_callable=AsyncMock, return_value=workflow_running
+        ) as is_running:
+            first = self.client.get(f"{self.url}status/")
+            self.client.get(f"{self.url}status/")
+
+        self.assertEqual(first.json()["status"], expected_status)
+        is_running.assert_called_once()
 
     def test_recent_pending_reservation_still_blocks_a_second_import(self, _mock_validate, mock_start, _mock_flag):
         IntercomImportJob.objects.unscoped().create(

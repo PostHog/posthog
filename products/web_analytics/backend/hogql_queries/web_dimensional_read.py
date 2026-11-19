@@ -172,10 +172,6 @@ def _has_inexact_property_filter(runner: Union["WebStatsTableQueryRunner", "WebO
         # The tables hold the session's initial referring domain, not the referrer of each event.
         if key == "$referring_domain" and getattr(prop, "type", None) == "event":
             return True
-        # The overview maps a page filter to the entry page, which counts sessions that started on the
-        # page instead of the visitors and views of it.
-        if key == "$pathname" and runner.query.kind == "WebOverviewQuery":
-            return True
     return False
 
 

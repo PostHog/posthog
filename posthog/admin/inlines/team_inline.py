@@ -59,6 +59,7 @@ class TeamInline(TabularInlinePaginated):
             "email_sending_tier_state",
             "email_sending_tier_actions",
             "events_retention_display",
+            "organization_members",
         )
     ] + ["displayed_name"]
 

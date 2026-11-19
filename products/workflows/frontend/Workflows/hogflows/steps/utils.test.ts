@@ -431,6 +431,11 @@ describe('utils', () => {
             },
             { case: 'an empty property row', properties: [{}], expected: false },
             { case: 'no properties', properties: [], expected: false },
+            {
+                case: 'filter groups',
+                properties: { type: 'OR', values: [{ type: 'AND', values: [{ type: 'person', key: 'plan' }] }] },
+                expected: false,
+            },
         ])('$case -> $expected', ({ properties, expected }) => {
             expect(isCountableCondition({ properties })).toBe(expected)
         })

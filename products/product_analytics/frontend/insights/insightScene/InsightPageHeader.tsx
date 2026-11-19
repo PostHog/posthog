@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconHeart, IconHeartFilled, IconPlusSmall } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -17,7 +18,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isActorsQuery, isBIVisualizationNode, isInsightQueryNode } from '~/queries/schema/node-guards'
+import { isActorsQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
@@ -76,7 +77,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
-    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
@@ -120,6 +120,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <SceneTitleSection
                 name={defaultInsightName || ''}
+                nameAction={<AnalyticsScenePinButton dataAttrKey="insight" />}
                 description={insight?.description || ''}
                 resourceType={{
                     type: getInsightIconTypeFromQuery(query),
@@ -176,6 +177,23 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonButton
                                     type="secondary"
                                     size="small"
+                                    icon={
+                                        insight.favorited ? <IconHeartFilled className="text-danger" /> : <IconHeart />
+                                    }
+                                    tooltip={insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                    aria-label={insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                    loading={insightLoading}
+                                    onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
+                                    data-attr={
+                                        insight.favorited ? 'insight-header-unfavorite' : 'insight-header-favorite'
+                                    }
+                                />
+                            )}
+
+                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
                                     icon={<IconPlusSmall />}
                                     data-attr="insight-add-to-dashboard-prominent-button"
                                     onClick={() => openAddToDashboardModal()}
@@ -216,12 +234,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 filtersOverride,
                                                 variablesOverride
                                             )}
-                                            {...(isBIVisualizationNode(query) && !biEnabled
-                                                ? {
-                                                      disabledReason:
-                                                          'Business intelligence is not enabled for this project',
-                                                  }
-                                                : {})}
                                             data-attr="insight-edit-button"
                                         >
                                             Edit

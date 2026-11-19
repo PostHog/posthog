@@ -199,6 +199,69 @@ class TestPerEpisodeAnalytics:
         assert {r["podcast_id"] for r in result.rows} == {"pod_a"}
 
 
+class TestPodcastBreakdownReports:
+    @parameterized.expand(
+        [
+            ("locations", "/analytics/location", "countries", {"id": 6252001, "name": "United States", "rank": 1}),
+            ("technology_applications", "/analytics/technology/applications", "collection", {"name": "App A"}),
+            ("technology_device_class", "/analytics/technology/device_class", "collection", {"name": "Phone"}),
+            ("technology_web_players", "/analytics/technology/web_players", "collection", {"name": "Player A"}),
+        ]
+    )
+    def test_reads_each_podcast_report_in_one_request(
+        self, endpoint: str, path: str, rows_key: str, row: dict[str, Any]
+    ) -> None:
+        responses = {
+            **_podcasts("pod_a", "pod_b"),
+            _url(f"{path}?podcast=pod_a"): [
+                ScriptedResponse(json={"href": "https://api.simplecast.com/analytics", "total": 9, rows_key: [row]})
+            ],
+            _url(f"{path}?podcast=pod_b"): [
+                ScriptedResponse(json={"href": "https://api.simplecast.com", rows_key: []})
+            ],
+        }
+
+        result = _driver().run(endpoint, _by_url(responses))
+
+        assert result.raised is None
+        assert result.rows == [{**row, "podcast_id": "pod_a"}]
+        # The reports take no page params, so a paginator here would hit an unexpected URL.
+        assert len(result.requests) == 3
+
+
+class TestPodcastChildLists:
+    @parameterized.expand(
+        [
+            ("seasons", "/podcasts/{podcast_id}/seasons", lambda i: {"number": i}),
+            (
+                "podcast_distribution_channels",
+                "/podcasts/{podcast_id}/distribution_channels",
+                lambda i: {"id": f"pdc_{i}", "distribution_channel": {"id": "dc_1", "name": "Platform"}},
+            ),
+        ]
+    )
+    def test_walks_every_page_and_keys_rows_by_podcast(
+        self, endpoint: str, path: str, make_row: Callable[[int], dict[str, Any]]
+    ) -> None:
+        full_page = [make_row(i) for i in range(PAGE_SIZE)]
+        responses = {
+            **_podcasts("pod_a", "pod_b"),
+            _paged(path.format(podcast_id="pod_a")): [_envelope(full_page, total=2, current=1)],
+            _paged(path.format(podcast_id="pod_a"), offset=PAGE_SIZE): [
+                _envelope([make_row(PAGE_SIZE)], total=2, current=2)
+            ],
+            _paged(path.format(podcast_id="pod_b")): [_envelope([make_row(0)])],
+        }
+
+        result = _driver().run(endpoint, _by_url(responses))
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 2
+        keys = [tuple(row[k] for k in SIMPLECAST_ENDPOINTS[endpoint].primary_keys) for row in result.rows]
+        assert len(set(keys)) == len(keys)
+        assert [r["podcast_id"] for r in result.rows] == ["pod_a"] * (PAGE_SIZE + 1) + ["pod_b"]
+
+
 class TestPagination:
     def test_paginates_and_progresses_offset(self) -> None:
         result = _driver().run(

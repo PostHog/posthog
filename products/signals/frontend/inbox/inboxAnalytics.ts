@@ -4,7 +4,10 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    InboxSummaryApi,
+    PaginatedSignalReportListListApiPersonalRankingStatus,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
@@ -18,6 +21,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from './types'
+import type { ReportDecision } from './utils/reportDecisions'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
@@ -46,9 +50,13 @@ export const INBOX_EVENTS = {
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
+    // Sent by the cloud inbox only, because the desktop inbox does not track visible time.
+    REPORT_READ: 'Inbox report read',
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
+    // Cloud-only for now.
+    REPORT_DECISION_CHANGED: 'Inbox report decision changed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
@@ -68,6 +76,8 @@ export const INBOX_EVENTS = {
     SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
+    SOURCE_FILTER_EDITOR_OPENED: 'Signal source filter editor opened',
+    SOURCE_FILTER_EXPRESSION_CHANGED: 'Signal source filter expression changed',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
@@ -77,6 +87,8 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // Cloud-only for now: the server refused a scout chat, or the request failed.
+    SCOUT_CHAT_START_FAILED: 'Scout chat start failed',
     // The per-scout tool picker. Cloud-only for now, like the suggestions strip below.
     SCOUT_TOOLS_PICKER_OPENED: 'Scout tools picker opened',
     SCOUT_TOOLS_SAVED: 'Scout tools saved',
@@ -142,6 +154,7 @@ export const INBOX_REPORT_LINK_SOURCES = [
     'support',
     'task',
     'today',
+    'note_mention',
 ] as const
 
 /** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */
@@ -172,6 +185,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
+ * `select_pull_request` is a pull request line chosen in the Status section of a report with several.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -201,6 +215,7 @@ export type InboxReportActionType =
     | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
+    | 'select_pull_request'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -249,7 +264,7 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
+export type InboxWrite = 'actionability' | 'claim' | 'note' | 'priority' | 'repository' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -349,7 +364,7 @@ interface RankingPillProperties {
     pill_fix: number | null
 }
 
-/** The lifts the person saw on the report's pill. A list without pills, or a stale or unscored report, shows none. */
+/** The lifts the person saw on the report's pill. A list without pills, or an unscored report, shows none. */
 function rankingPillProperties(report: SignalReport, rankingPill: boolean): RankingPillProperties {
     const lifts = rankingPill ? rankingPillLifts(report) : null
     return {
@@ -461,7 +476,15 @@ export function captureInboxViewed(params: {
     /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
     stateFilter?: string[]
     scope: string
+    /** The user's own stored personal ranking. Null when personal ranking is off or no page loaded. */
+    personalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
+    /** Reports in the For you scope across the counted states. Null when the counts describe another scope or a filtered list. */
+    forYouReportCount: number | null
+    /** The sort and ranker of the served list, as on `Inbox reports impressed`. */
+    sortField: string
+    rankerId: string | null
 }): void {
+    const status = params.personalRankingStatus
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
         tab: params.tab,
         report_count: params.reports.length,
@@ -474,6 +497,15 @@ export function captureInboxViewed(params: {
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter ?? [],
         scope: params.scope,
+        personal_list_state: status?.state ?? null,
+        personal_list_size: status?.size ?? null,
+        personal_list_age_minutes: status?.age_minutes ?? null,
+        personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
+        personal_list_fallback_reason: status?.fallback_reason ?? null,
+        personal_list_building: status?.building ?? null,
+        for_you_report_count: params.forYouReportCount,
+        sort_field: params.sortField,
+        ranker_id: params.rankerId,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
     })
@@ -591,6 +623,8 @@ export function captureInboxReportClosed(
     params: {
         report: SignalReport
         timeSpentMs: number
+        /** The part of `timeSpentMs` with the tab visible. A report left open in a background tab adds nothing. */
+        activeTimeMs: number
         closeMethod: InboxReportCloseMethod
     },
     /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
@@ -601,6 +635,7 @@ export function captureInboxReportClosed(
         {
             ...baseReportProperties(params.report),
             time_spent_ms: params.timeSpentMs,
+            active_time_ms: params.activeTimeMs,
             close_method: params.closeMethod,
         },
         options
@@ -623,6 +658,28 @@ export function captureInboxReportScrolled(params: {
         ...baseReportProperties(params.report),
         rank: params.rank,
         list_size: params.listSize,
+        time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
+/**
+ * The person read the open report: they scrolled the detail pane, and the report stayed open with the
+ * tab visible for the read threshold. Fired at most once per open, while the report is still open, so
+ * it does not depend on `Inbox report closed`, which a closed tab can drop. Most opens end without an
+ * action or feedback, so this is the signal that separates a read from a bounce.
+ */
+export function captureInboxReportRead(params: {
+    report: SignalReport
+    rank: number | null
+    listSize: number | null
+    activeTimeMs: number
+    timeSinceOpenMs: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_READ, {
+        ...baseReportProperties(params.report),
+        rank: params.rank,
+        list_size: params.listSize,
+        active_time_ms: params.activeTimeMs,
         time_since_open_ms: params.timeSinceOpenMs,
     })
 }
@@ -677,6 +734,25 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
+    })
+}
+
+/** `previous_set_by` tells a correction of the agent apart from a change to a person's own value. */
+export function captureInboxReportDecisionChanged(params: {
+    report: SignalReport
+    decision: ReportDecision
+    previousValue: string | null
+    newValue: string
+    previousSetBy: 'agent' | 'person' | null
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_DECISION_CHANGED, {
+        ...baseReportProperties(params.report),
+        decision: params.decision,
+        previous_value: params.previousValue,
+        new_value: params.newValue,
+        previous_set_by: params.previousSetBy,
+        surface: params.surface,
     })
 }
 
@@ -970,6 +1046,39 @@ export function captureSignalSourceFiltersChanged(params: {
         filter: params.filter,
         selected_count: params.selectedCount,
         reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
+/** The expression filter editor opened on a source. Pairs with the changed event to show drop-off. */
+export function captureSignalSourceFilterEditorOpened(params: {
+    sourceProduct: string
+    sourceType: string
+    hasFilter: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EDITOR_OPENED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        has_filter: params.hasFilter,
+    })
+}
+
+/**
+ * A source's expression filter was saved or removed. Carries only the length: the expression names
+ * the customer's own projects and labels, so its text never leaves their project.
+ */
+export function captureSignalSourceFilterExpressionChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    action: 'saved' | 'removed'
+    expressionLength: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EXPRESSION_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        action: params.action,
+        expression_length: params.expressionLength,
         success: params.success,
     })
 }
@@ -1349,6 +1458,23 @@ export function captureScoutChatStarted(params: {
         skill_name: params.skillName ?? null,
         has_user_prompt: params.hasUserPrompt ?? false,
         template_id: params.templateId ?? null,
+    })
+}
+
+/** A scout chat kickoff failed. `limited` marks a refusal from the daily cap or a usage limit. */
+export function captureScoutChatStartFailed(params: {
+    chatType: ScoutChatType
+    surface: ScoutSurface
+    status: number | null
+    code: string | null
+    limited: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_CHAT_START_FAILED, {
+        chat_type: params.chatType,
+        surface: params.surface,
+        status: params.status,
+        code: params.code,
+        limited: params.limited,
     })
 }
 

@@ -223,6 +223,20 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
+def _config_from_request(request: request.Request) -> dict:
+    if "config" not in request.data:
+        return {}
+    config = request.data["config"]
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError:
+            raise ValidationError({"config": "Must be a JSON object."})
+    if not isinstance(config, dict):
+        raise ValidationError({"config": "Must be a JSON object."})
+    return config
+
+
 class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
@@ -713,7 +727,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
-        _fix_formdata_config_json(self.context["request"], validated_data)
+        validated_data["config"] = _config_from_request(self.context["request"])
 
         validated_data["web_token"] = generate_random_token()
 

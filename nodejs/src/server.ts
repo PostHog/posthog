@@ -8,14 +8,14 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPService, GeoIPServiceComponent, MmdbMode, resolveCdpMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -27,6 +27,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronDeadLetterWorker } from './cdp/consumers/cdp-cyclotron-dead-letter-worker.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
@@ -36,6 +37,7 @@ import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehou
 import { CdpDlqReplayConsumer } from './cdp/consumers/cdp-dlq-replay.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CdpIntakeConsumer } from './cdp/consumers/cdp-intake.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
@@ -48,13 +50,13 @@ import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
-import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency-keys'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import {
     CyclotronJobQueueRateLimitedPostgresV2,
     sesRateLimitedQueueOptions,
 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createEmailAttachmentsValkeyPool } from './cdp/services/messaging/attachment-uploads'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
@@ -62,7 +64,9 @@ import { createSandboxEmailRuntime } from './cdp/services/messaging/sandbox/sand
 import { sandboxEmailTestRouter } from './cdp/services/messaging/sandbox/sandbox-email-test-route'
 import { sandboxTestSendBucket } from './cdp/services/messaging/sandbox/sandbox-ses-bucket'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
+import { createCrashGuardSettings } from './cdp/services/poison-batch/crash-guard'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import { DEAD_LETTER_QUEUE } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from './cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from './cdp/utils/scoped-service-jwt'
@@ -83,6 +87,7 @@ export class PluginServer implements NodeServer {
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
     private pubsub?: PubSub
+    private stopGeoIPService?: () => Promise<void>
 
     constructor(config: Partial<PluginsServerConfig> = {}) {
         this.config = { ...defaultConfig, ...config }
@@ -110,6 +115,8 @@ export class PluginServer implements NodeServer {
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
             capabilities.cdpSesWebhooks ||
+            capabilities.cdpIntakeTransactionalEmail ||
+            capabilities.cdpIntakeWorkflowWebhook ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -136,10 +143,20 @@ export class PluginServer implements NodeServer {
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
         if (needsCdpProducer) {
-            this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+            this.cdpProducerRegistry = await createCdpProducerRegistry(
+                this.config.KAFKA_CLIENT_RACK,
+                this.config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST
+            ).build(this.config)
         }
         if (needsCdp) {
-            cdpServices = await this.createCdpSharedServices()
+            // Only cdp-api looks up GeoIP: its test invocations run transformations, such as the GeoIP
+            // transformation. Destinations get no `geoipLookup`, and no destination plugin reads `meta.geoip`.
+            // Some cdp-api deployments have no MMDB, so the deployments that mount one set CDP_MMDB_ENABLED=true.
+            const geoipMode = resolveCdpMmdbMode(
+                this.config.CDP_MMDB_ENABLED,
+                capabilities.cdpApi ? 'optional' : 'disabled'
+            )
+            cdpServices = await this.createCdpSharedServices({ geoipMode })
         }
 
         // 3. CDP services (posthog redis, quota limiting)
@@ -163,6 +180,7 @@ export class PluginServer implements NodeServer {
                   cdpProducerRegistry: this.cdpProducerRegistry!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
+                  consistentPersonReader: cdpServices!.consistentPersonReader,
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
@@ -183,6 +201,7 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
+        const crashGuardSettings = capabilities.cdpCyclotronWorker ? createCrashGuardSettings(this.config) : null
         const kafkaQueue = new CyclotronJobQueueKafka(
             this.config.KAFKA_CLIENT_RACK,
             this.config,
@@ -248,6 +267,7 @@ export class PluginServer implements NodeServer {
                 const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
                     ? new CyclotronV2Manager({
                           pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                          backgroundDepthCheck: this.config.CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK,
                           rescheduleFloorSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS,
                           rescheduleWakeRatePerSecond: this.config.CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND,
                           rescheduleMinWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS,
@@ -261,7 +281,7 @@ export class PluginServer implements NodeServer {
                     this.config,
                     {
                         ...cdpDeps!,
-                        idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                        emailAttachmentsValkey: createEmailAttachmentsValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
                             optional: true,
                         }),
@@ -277,7 +297,11 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
+                const deps = { ...cdpDeps!, crashGuardSettings }
+                const worker =
+                    this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND === DEAD_LETTER_QUEUE
+                        ? new CdpCyclotronDeadLetterWorker(this.config, deps, kafkaQueue)
+                        : new CdpCyclotronWorker(this.config, deps, kafkaQueue)
                 await worker.start()
                 return worker.service
             })
@@ -337,6 +361,19 @@ export class PluginServer implements NodeServer {
                 await consumer.start()
                 return consumer.service
             })
+        }
+
+        for (const [enabled, kind] of [
+            [capabilities.cdpIntakeTransactionalEmail, 'transactional-email'],
+            [capabilities.cdpIntakeWorkflowWebhook, 'workflow-webhook'],
+        ] as const) {
+            if (enabled) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpIntakeConsumer(this.config, cdpDeps!, kind)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
         }
 
         if (capabilities.cdpRerunWorker) {
@@ -490,6 +527,7 @@ export class PluginServer implements NodeServer {
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
                     boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+                    releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,
@@ -541,6 +579,7 @@ export class PluginServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
+                await this.stopGeoIPService?.()
                 await this.cdpProducerRegistry?.disconnectAll()
             },
         }
@@ -574,16 +613,20 @@ export class PluginServer implements NodeServer {
         return { teamManager }
     }
 
-    private async createCdpSharedServices(): Promise<{
+    private async createCdpSharedServices({ geoipMode }: { geoipMode: MmdbMode }): Promise<{
         geoipService: GeoIPService
         personRepository: PersonReadRepository
+        consistentPersonReader: ConsistentPersonReader | undefined
         groupRepository: GroupReadRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
+        const { value: geoipService, stop: stopGeoIPService } = await new GeoIPServiceComponent(
+            this.config.MMDB_FILE_LOCATION,
+            geoipMode
+        ).start()
+        this.stopGeoIPService = stopGeoIPService
 
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
@@ -594,6 +637,12 @@ export class PluginServer implements NodeServer {
 
         const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
+        // Its own client name keeps the connection metrics of the two routers apart.
+        const leaderLabel = `${clientLabel}-leader`
+        const personhogLeaderClient = createPersonHogClient(this.config, {
+            addr: this.config.PERSONHOG_LEADER_ADDR,
+            clientName: leaderLabel,
+        })
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(
@@ -605,6 +654,9 @@ export class PluginServer implements NodeServer {
         return {
             geoipService,
             personRepository,
+            consistentPersonReader: personhogLeaderClient
+                ? new PersonHogPersonReadRepository(personhogLeaderClient, leaderLabel)
+                : undefined,
             groupRepository,
             encryptedFields,
             integrationManager,

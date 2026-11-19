@@ -16,6 +16,7 @@
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type ExternalDataDestinationTypeEnumApi =
     (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
@@ -29,6 +30,7 @@ export const ExternalDataDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -70,7 +72,8 @@ export interface ExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -133,7 +136,8 @@ export interface PatchedExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type?: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -211,6 +215,50 @@ export interface AddSourcesResponseApi {
     tables_resyncing: number
     /** Tables whose resync did not start. The sources are still attached. */
     resync_failures: ResyncFailureApi[]
+}
+
+export interface DestinationDeliveryFailureApi {
+    /** ID of the sync run that could not deliver to this destination. */
+    job_id: string
+    /** ID of the source the run belongs to. */
+    source_id: string
+    /** Name of the source: its prefix, if any, and its type. */
+    source_name: string
+    /** Type of the source, for example `Stripe` or `MetaAds`. */
+    source_type: string
+    /**
+     * ID of the table the run synced.
+     * @nullable
+     */
+    schema_id: string | null
+    /**
+     * Name of the table the run synced.
+     * @nullable
+     */
+    schema_name: string | null
+    /** Why the delivery failed, as the destination reported it. Stored credentials of the source and of the destination are masked. */
+    error: string
+    /** Whether the destination's own settings caused the failure, for example a wrong password or a missing permission. Configuration errors do not go away until the settings change. */
+    is_configuration_error: boolean
+    /** When the run started. */
+    created_at: string
+    /**
+     * When the run stopped.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * ID that the run's log lines carry, to find the logs of this run.
+     * @nullable
+     */
+    workflow_run_id: string | null
+}
+
+export interface DestinationDeliveryFailuresResponseApi {
+    /** Sync runs that could not deliver to this destination, newest first. At most 50 runs from the last 14 days, from sources you have access to. */
+    results: DestinationDeliveryFailureApi[]
+    /** How many days back the runs go. */
+    window_days: number
 }
 
 /**
@@ -369,7 +417,6 @@ export const IncrementalFieldTypeEnumApi = {
 } as const
 
 /**
- * * `never` - never
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -384,7 +431,6 @@ export type SettableSyncFrequencyEnumApi =
     (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
 export const SettableSyncFrequencyEnumApi = {
-    Never: 'never',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -494,6 +540,7 @@ export type ExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly access_method?: string
+    readonly direct_query_enabled?: boolean
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
     readonly requires_exact_column_metadata?: boolean
@@ -504,6 +551,7 @@ export type ExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
     /** @nullable */
     readonly file_name?: string | null
+    readonly supports_table_discovery?: boolean
 } | null
 
 /**
@@ -522,6 +570,13 @@ export interface ExternalDataSchemaApi {
      */
     readonly table_id: string | null
     should_sync?: boolean
+    /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+    live_query_enabled?: boolean
+    /**
+     * Why this table can't be made queryable live without syncing it, or null when it can.
+     * @nullable
+     */
+    readonly live_query_unavailable_reason: string | null
     /** @nullable */
     readonly last_synced_at: string | null
     /**
@@ -565,9 +620,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -739,6 +793,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly access_method?: string
+    readonly direct_query_enabled?: boolean
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
     readonly requires_exact_column_metadata?: boolean
@@ -749,6 +804,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
     /** @nullable */
     readonly file_name?: string | null
+    readonly supports_table_discovery?: boolean
 } | null
 
 /**
@@ -767,6 +823,13 @@ export interface PatchedExternalDataSchemaApi {
      */
     readonly table_id?: string | null
     should_sync?: boolean
+    /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+    live_query_enabled?: boolean
+    /**
+     * Why this table can't be made queryable live without syncing it, or null when it can.
+     * @nullable
+     */
+    readonly live_query_unavailable_reason?: string | null
     /** @nullable */
     readonly last_synced_at?: string | null
     /**
@@ -810,9 +873,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -990,8 +1052,15 @@ export const EngineEnumApi = {
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
     enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
     include_invoiceless_charges?: boolean
+}
+
+export interface SourceUpdatePayloadApi {
+    /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+    credential_id: string
 }
 
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -1067,6 +1136,15 @@ export interface ExternalDataSourceSerializersApi {
     readonly webhook_not_registered: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
+    /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
+    readonly supports_adding_tables: boolean
+    /**
+     * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+     * @nullable
+     */
+    readonly table_root: string | null
+    /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+    readonly supports_table_discovery: boolean
     /**
      * The name of the file a file upload source imports. Null for other sources or when it is unknown.
      * @nullable
@@ -1084,6 +1162,8 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -1301,6 +1381,15 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly webhook_not_registered?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
+    /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
+    readonly supports_adding_tables?: boolean
+    /**
+     * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+     * @nullable
+     */
+    readonly table_root?: string | null
+    /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+    readonly supports_table_discovery?: boolean
     /**
      * The name of the file a file upload source imports. Null for other sources or when it is unknown.
      * @nullable
@@ -1318,6 +1407,53 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning?: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
+}
+
+/**
+ * * `infer` - Infer from the file names
+ * * `csv` - CSV with a header row
+ * * `csv_no_header` - CSV without a header row
+ * * `jsonl` - JSON Lines
+ * * `parquet` - Parquet
+ * * `delta` - Delta table
+ */
+export type ObjectStorageTableFileFormatEnumApi =
+    (typeof ObjectStorageTableFileFormatEnumApi)[keyof typeof ObjectStorageTableFileFormatEnumApi]
+
+export const ObjectStorageTableFileFormatEnumApi = {
+    Infer: 'infer',
+    Csv: 'csv',
+    CsvNoHeader: 'csv_no_header',
+    Jsonl: 'jsonl',
+    Parquet: 'parquet',
+    Delta: 'delta',
+} as const
+
+export interface AddTableRequestApi {
+    /**
+     * Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.
+     * @maxLength 128
+     * @pattern ^[a-zA-Z_][a-zA-Z0-9_]*$
+     */
+    name: string
+    /**
+     * Where the table's files are. Use a path inside the folder of the source's files URL, such as `events/`, `events/2026/*.parquet` or `data/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables.
+     * @maxLength 2048
+     */
+    path: string
+    /** The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.
+     *
+     * * `infer` - Infer from the file names
+     * * `csv` - CSV with a header row
+     * * `csv_no_header` - CSV without a header row
+     * * `jsonl` - JSON Lines
+     * * `parquet` - Parquet
+     * * `delta` - Delta table */
+    file_format?: ObjectStorageTableFileFormatEnumApi
+    /** For CSV files: whether a double quote encloses a field. When false, it is an ordinary character. */
+    csv_allow_double_quotes?: boolean
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -1333,6 +1469,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     id: string
     /** Whether the schema should be queryable/synced. */
     should_sync?: boolean
+    /** Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns. */
+    live_query_enabled?: boolean
     /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
      *
      * * `full_refresh` - full_refresh
@@ -1353,7 +1491,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     incremental_field_type?: string | null
     /**
-     * Human-readable sync frequency value.
+     * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      * @nullable
      */
     sync_frequency?: string | null
@@ -1410,12 +1548,12 @@ export interface ExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
- * * `posthog` - posthog
- * * `self_managed` - self_managed
+ * * `posthog` - PostHog
+ * * `self_managed` - Self managed
  */
-export type ManagementModeEnumApi = (typeof ManagementModeEnumApi)[keyof typeof ManagementModeEnumApi]
+export type CdcManagementModeEnumApi = (typeof CdcManagementModeEnumApi)[keyof typeof CdcManagementModeEnumApi]
 
-export const ManagementModeEnumApi = {
+export const CdcManagementModeEnumApi = {
     Posthog: 'posthog',
     SelfManaged: 'self_managed',
 } as const
@@ -1425,9 +1563,9 @@ export interface CdcStatusApi {
     enabled: boolean
     /** Who owns the slot and publication: PostHog or the customer.
      *
-     * * `posthog` - posthog
-     * * `self_managed` - self_managed */
-    management_mode?: ManagementModeEnumApi
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    management_mode?: CdcManagementModeEnumApi
     /** Replication slot PostHog consumes from. Empty when unset. */
     slot_name?: string
     /** Publication PostHog reads changes from. Empty when unset. */
@@ -1488,6 +1626,37 @@ export interface SourceDestinationsApi {
     destination_ids: string[]
 }
 
+export interface CdcDisableResponseApi {
+    /** Whether CDC is now disabled on the source. */
+    success: boolean
+    /** True when CDC was already off, so nothing changed. */
+    already_disabled?: boolean
+}
+
+export interface CdcEnableRequestApi {
+    /** Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.
+     *
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    cdc_management_mode?: CdcManagementModeEnumApi
+    /** Name of the replication slot to use. Defaults to a name derived from the source id. */
+    cdc_slot_name?: string
+    /** Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode. */
+    cdc_publication_name?: string
+    /** Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
 export interface CdcEnableResponseApi {
     /** Whether CDC was enabled on the source. */
     success: boolean
@@ -1546,6 +1715,40 @@ export interface ExternalDataJobSerializersApi {
     readonly billable: boolean | null
     /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
     readonly destination_ids: readonly string[]
+}
+
+export interface CdcResumeResponseApi {
+    /** Whether the extraction schedule was unpaused. */
+    success: boolean
+}
+
+export interface PatchedExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+    enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+    include_invoiceless_charges?: boolean
+}
+
+export interface CdcUpdateSettingsRequestApi {
+    /** Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
+export interface CdcUpdateSettingsResponseApi {
+    /** Whether the request was accepted. */
+    success: boolean
+    /** True when the request held no setting to change, so nothing was written. */
+    unchanged?: boolean
 }
 
 /**
@@ -1942,6 +2145,69 @@ export interface ExternalDataSourceExistsApi {
     exists: boolean
 }
 
+export interface IncrementalFieldCandidateApi {
+    /**
+     * Name of the field as shown in the UI.
+     * @maxLength 4096
+     */
+    label: string
+    /**
+     * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
+     * @maxLength 4096
+     */
+    field: string
+    /**
+     * Type of the field as shown in the UI, such as timestamp.
+     * @maxLength 32
+     */
+    type: string
+    /**
+     * Type of the field in the source, such as timestamp.
+     * @maxLength 32
+     */
+    field_type: string
+    /** Whether the field allows null values. */
+    nullable?: boolean
+    /** Whether the field leads an index or sort key on the source table. */
+    is_indexed?: boolean
+    /** Whether this is the field the source recommends as the incremental cursor. */
+    recommended?: boolean
+    /** Whether the decision model, not the name rules, picked this field. Ignored on input. */
+    picked_by_model?: boolean
+    /**
+     * Trade-offs of picking this field.
+     * @maxItems 16
+     * @items.maxLength 1000
+     */
+    notes?: string[]
+}
+
+export interface IncrementalFieldTableApi {
+    /**
+     * Name of the table, as returned by database_schema.
+     * @maxLength 4096
+     */
+    table: string
+    /**
+     * The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.
+     * @maxItems 16
+     */
+    incremental_fields: IncrementalFieldCandidateApi[]
+}
+
+export interface IncrementalFieldRecommendationsRequestApi {
+    /**
+     * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+     * @maxItems 8
+     */
+    tables: IncrementalFieldTableApi[]
+}
+
+export interface IncrementalFieldRecommendationsResponseApi {
+    /** Only the tables where the decision model picked a field, with that field first and recommended. */
+    tables: IncrementalFieldTableApi[]
+}
+
 /**
  * Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest.
  */
@@ -2009,6 +2275,12 @@ export interface SourceSetupApi {
     description?: string | null
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
+    created_via?: ExternalDataSourceCreateCreatedViaEnumApi
 }
 
 export interface SourceSetupWebhookApi {
@@ -2050,7 +2322,7 @@ export interface SourceCredentialCreateApi {
 }
 
 export interface SourceCredentialApi {
-    /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+    /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
     credential_id: string
     /** The source type the stored credentials are for. */
     source_type: string
@@ -2898,6 +3170,7 @@ export type ExternalDataDestinationsConnectLinkRetrieveParams = {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
@@ -2923,6 +3196,7 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -2935,6 +3209,10 @@ export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
 }
 
 export type ExternalDataSchemasListParams = {
+    /**
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     */
+    compact?: boolean
     /**
      * Number of results to return per page.
      */
@@ -3012,6 +3290,14 @@ export type ExternalDataSchemasResyncCreate400 = {
 
 export type ExternalDataSourcesListParams = {
     /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -3025,6 +3311,17 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesRetrieveParams = {
+    /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean
+}
+
 export type ExternalDataSourcesJobsListParams = {
     /**
      * ISO timestamp — only return jobs created after this date.
@@ -3034,6 +3331,10 @@ export type ExternalDataSourcesJobsListParams = {
      * ISO timestamp — only return jobs created before this date.
      */
     before?: string
+    /**
+     * Maximum number of jobs to return, from 1 to 100 (default 50). Jobs are newest first. To get the next page, pass the `created_at` of the last job as `before`.
+     */
+    limit?: number
     /**
      * Filter jobs by table schema names.
      */
@@ -3047,10 +3348,6 @@ export type ExternalDataSourcesJobsListParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
-}
-
-export type ExternalDataSourcesResumeCdcCreate200 = {
-    success?: boolean
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {

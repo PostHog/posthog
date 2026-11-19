@@ -1,6 +1,7 @@
 import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
+import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -20,6 +21,7 @@ import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/Featu
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -55,15 +57,15 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm 
 
 import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
+import { ConnectAgentSetting } from 'products/business_knowledge/frontend/scenes/settings/ConnectAgentSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
-import { IntercomImportSection } from 'products/conversations/frontend/scenes/settings/IntercomImportSection'
+import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -84,9 +86,8 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
+import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
-import { AiVisibilityBrandsSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityBrandsSetting'
-import { AiVisibilityEnginesSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityEnginesSetting'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
@@ -108,6 +109,7 @@ import { CloudImagesSettings } from './environment/CloudImagesSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DataDeletionRequests } from './environment/DataDeletion/DataDeletionRequests'
 import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
@@ -513,7 +515,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -537,7 +539,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -949,6 +951,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
+            },
+            {
+                id: 'error-tracking-ai-features',
+                title: 'AI features',
+                component: <AIFeaturesSettings />,
+                allowForTeam: (t) => !!t?.available_error_tracking_ai_features?.length,
+                keywords: ['ai', 'llm', 'summary', 'summaries', 'credits'],
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -1443,6 +1452,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
             {
+                id: 'project-events-table',
+                title: 'New events table',
+                component: <ProjectEventsTableSetting />,
+                flag: 'NEW_EVENTS_TABLE_SELF_SERVE',
+                keywords: ['events', 'table', 'storage', 'migration'],
+            },
+            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -1702,14 +1718,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
-                component: (
-                    <>
-                        <ZendeskImportSection />
-                        <IntercomImportSection />
-                    </>
-                ),
+                component: <ImportsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['import', 'zendesk', 'intercom', 'migrate', 'ticket', 'support', 'conversation'],
+                keywords: ['import', 'zendesk', 'intercom', 'pylon', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
                 id: 'conversations-macros',
@@ -1728,6 +1739,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'Products',
         flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
         settings: [
+            {
+                id: 'business-knowledge-connect-agent',
+                title: 'Connect your agent',
+                description:
+                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
+                component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
+                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
+            },
             {
                 id: 'business-knowledge-learn-from-support',
                 title: 'Self-learning',
@@ -1795,7 +1815,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
                 component: <TracingDistinctIdAttributeKeys />,
-                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -1812,7 +1831,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <TracingSessionIdAttributeKeys />,
-                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
             },
             {
@@ -1905,26 +1923,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
             },
-            {
-                id: 'ai-visibility-brands',
-                title: 'AI visibility brands',
-                description:
-                    'Label the companies behind the sites AI answers cite. The competitors you confirm are the ones AI visibility ranks you against.',
-                component: <AiVisibilityBrandsSetting />,
-                // The brands API answers only with the AEO flag on, so the setting needs it as well as the page flag.
-                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
-                keywords: ['competitors', 'brands', 'aeo', 'ai visibility', 'rankings'],
-            },
-            {
-                id: 'ai-visibility-engines',
-                title: 'AI visibility engines',
-                description:
-                    'Choose which AI engines answer your tracked prompts, and how often. Each engine gets its own column in AI visibility.',
-                component: <AiVisibilityEnginesSetting />,
-                // The engines API answers only with the AEO flag on, so the setting needs it as well as the page flag.
-                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
-                keywords: ['engines', 'models', 'no search', 'aeo', 'ai visibility', 'chatgpt', 'claude'],
-            },
         ],
     },
     {
@@ -1937,7 +1935,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-engagement-events',
                 title: 'Engagement events',
                 description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. New projects start with this on. Turn it off to stop capturing them. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
                 docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
                 component: <WorkflowsEngagementEventsSettings />,
                 keywords: [
@@ -2298,6 +2296,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['transfer', 'move', 'organization'],
             },
             {
+                id: 'data-deletion-requests',
+                title: 'Deletion requests',
+                description:
+                    'Delete events that a SQL query selects. PostHog reviews each request before any events are deleted.',
+                component: <DataDeletionRequests />,
+                flag: 'SELF_SERVICE_DATA_DELETION',
+                // A setting has no accessControl field, so hide it here. Without this, a member without
+                // data_deletion access sees the list load and fail with a 403.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.DataDeletion, AccessControlLevel.Editor),
+                keywords: ['delete', 'remove', 'erase', 'gdpr', 'events'],
+            },
+            {
                 id: 'environment-delete',
                 title: 'Delete environment',
                 description: 'Permanently delete this environment and all its data. This action cannot be undone.',
@@ -2590,13 +2600,27 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-oauth-apps',
         title: 'OAuth applications',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
-                description: 'View applications that have been authorized to connect to your organization.',
+                description:
+                    'OAuth applications linked to your organization. Expand one to see its provisioning review or to request verification.',
                 component: <OAuthApps />,
-                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
+                keywords: [
+                    'oauth',
+                    'app',
+                    'client',
+                    'integration',
+                    'api',
+                    'authentication',
+                    'third-party',
+                    'provisioning',
+                    'partner',
+                    'review',
+                    'verification',
+                ],
             },
         ],
     },

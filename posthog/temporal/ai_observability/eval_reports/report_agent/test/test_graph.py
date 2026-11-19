@@ -267,6 +267,12 @@ class TestFallbackContent(SimpleTestCase):
         self.assertIn("custom reason here", content.sections[0].content)
         self.assertIn("fallback", content.sections[0].content.lower())
 
+    def test_boolean_period_with_only_na_results_has_no_pass_rate(self):
+        metrics = EvalReportMetrics(total_runs=4, result_counts={"pass": 0, "fail": 0, "na": 4})
+        content = _fallback_content("X", metrics, "reason")
+        self.assertIn("No applicable results", content.sections[0].content)
+        self.assertNotIn("None%", content.sections[0].content)
+
     def test_citations_empty(self):
         metrics = EvalReportMetrics(total_runs=0)
         content = _fallback_content("X", metrics, "reason")

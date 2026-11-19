@@ -5,7 +5,11 @@ from django.db.models.fields.reverse_related import ForeignObjectRel
 
 from rest_framework import serializers
 
-from products.approvals.backend.coverage import adoption_drops_approval_cover, adoption_skips_enable_review
+from products.approvals.backend.coverage import (
+    adoption_drops_approval_cover,
+    adoption_skips_enable_review,
+    release_drops_approval_cover,
+)
 from products.feature_flags.backend.facade.config import detect_config_format
 
 if TYPE_CHECKING:
@@ -36,8 +40,11 @@ _OWNER_LABELS = {
 # `ProductTour.objects` hides archived tours. An archived tour keeps its `internal_targeting_flag`,
 # so the default manager would report that flag as free while a tour still holds it, and
 # unarchiving the tour would then produce the second owner this module exists to prevent.
+#
+# Experiments need the opposite correction, because `Experiment.objects` keeps soft-deleted rows
+# and a deleted experiment leaves no page where a user could unlink its flag.
 _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
-    ("experiment_set", FLAG_OWNER_EXPERIMENT, None),
+    ("experiment_set", FLAG_OWNER_EXPERIMENT, "live_objects"),
     ("surveys_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_response_sampling_flag", FLAG_OWNER_SURVEY, None),
@@ -64,6 +71,11 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "code_analyses",
     }
 )
+
+
+def flag_owner_label(kind: str) -> str:
+    """The owning product as it is named to a user, such as "an experiment"."""
+    return _OWNER_LABELS[kind]
 
 
 def flag_owner_kind(flag: "FeatureFlag") -> str | None:
@@ -125,6 +137,23 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str, links_a_rule
         raise serializers.ValidationError(
             f"The feature flag {flag.key} is already on, and turning it on for {_OWNER_LABELS[product]} "
             f"needs approval. Turn the flag off first, or make a new one."
+        )
+
+
+def assert_flag_releasable_by(flag: "FeatureFlag", *, product: str) -> None:
+    """Reject letting go of a flag when that would leave it less governed by approval policies.
+
+    The mirror of the cover check in `assert_flag_available_for`. Which policies cover a flag
+    follows its owner, so the release of a flag changes that cover just as an adoption does, and
+    a release needs no second product to take the flag on.
+
+    Call this where a product stops owning a flag, which is where its last owning row goes away.
+    """
+    if release_drops_approval_cover(product, flag.team, flag.team.organization):
+        raise serializers.ValidationError(
+            f"Changes to the feature flag {flag.key} need approval, and a flag that no product owns "
+            f"cannot keep that. Ask an organization admin to add an approval policy for feature flags, "
+            f"or point another product at this flag first."
         )
 
 

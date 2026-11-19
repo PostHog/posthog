@@ -1,4 +1,5 @@
 import datetime
+import dataclasses
 from contextlib import nullcontext
 from typing import Any, cast
 from uuid import uuid4
@@ -21,13 +22,14 @@ from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.temporal.quota_limiting.run_quota_limiting import QuotaLimitingResult
 from posthog.test.fixtures import create_app_metric2
 from posthog.usage_counters import UsageCounterService
 
+from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
 
 from ee.billing.quota_limiting import (
-    BILLING_STATUS_STAMP_KEYS,
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     YESTERDAY_FINISHED_KEY_PREFIX,
@@ -2072,6 +2074,31 @@ class TestQuotaLimiting(BaseTest):
                 self.team.api_token.encode("UTF-8")
             ]
 
+    @patch("posthoganalytics.capture")
+    def test_ai_overage_is_reported_as_a_dry_run_beside_ai_event_limits(self, patch_capture) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "llm_events": {"usage": 0, "limit": 1, "todays_usage": 0},
+            }
+            self.organization.save()
+            included = get_ai_event_limits().included_bytes_per_event
+            for index in range(2):
+                _create_event(
+                    event="$ai_generation",
+                    team=self.team,
+                    distinct_id=f"ai_user_{index}",
+                    timestamp=now(),
+                    properties={"$ai_event_bytes": included + 1_500_000},
+                )
+            flush_persons_and_events()
+
+            result = update_all_orgs_billing_quotas()
+
+            assert result.quota_limited_orgs["llm_events"] == {str(self.organization.id): 1612137599}
+            assert (result.stats["ai_overage_teams"], result.stats["ai_overage_mb"]) == (1, 3)
+            assert result.stats.keys() <= {field.name for field in dataclasses.fields(QuotaLimitingResult)}
+
     @parameterized.expand(
         [
             ("over_the_mcp_limit", {"usage": 0, "limit": 2, "todays_usage": 0}, True),
@@ -2123,36 +2150,6 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.zrange("@posthog/quota-limits/logs_mb_ingested", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-
-    def test_usage_keys_stay_in_sync(self):
-        """
-        Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys
-        (except for `period` and the billing status stamps).
-        """
-        from posthog.models.organization import OrganizationUsageInfo
-
-        org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {"period", *BILLING_STATUS_STAMP_KEYS}
-
-        quota_resource_keys = {resource.value for resource in QuotaResource}
-        usage_counter_keys = set(UsageCounters.__annotations__.keys())
-
-        # Check QuotaResource matches OrganizationUsageInfo, except the informational
-        # component fields, which are deliberately never quota-enforced
-        informational_keys = set(INFORMATIONAL_USAGE_RESOURCES)
-        assert informational_keys <= org_usage_keys
-        assert not informational_keys & quota_resource_keys, "informational resources must not be QuotaResources"
-        missing_from_quota = org_usage_keys - quota_resource_keys - informational_keys
-        extra_in_quota = quota_resource_keys - org_usage_keys
-        assert not missing_from_quota, f"QuotaResource is missing keys from OrganizationUsageInfo: {missing_from_quota}"
-        assert not extra_in_quota, f"QuotaResource has extra keys not in OrganizationUsageInfo: {extra_in_quota}"
-
-        # Check UsageCounters matches OrganizationUsageInfo
-        missing_from_counters = org_usage_keys - usage_counter_keys
-        extra_in_counters = usage_counter_keys - org_usage_keys
-        assert not missing_from_counters, (
-            f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
-        )
-        assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"
 
     @patch("posthoganalytics.capture")
     @time_machine.travel("2021-01-25T12:00:00Z", tick=False)

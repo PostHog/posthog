@@ -12,7 +12,7 @@ import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
-import { track } from '@/lib/analytics'
+import { captureError, track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import { displayTitle } from '@/model/adapters/text'
 import type { SnoozeChoice } from '@/model/types'
@@ -85,31 +85,29 @@ async function snoozeUntil(
     }
     const key = snoozeKey(scope, reportId)
     const previous = useSnoozeStore.getState().take(key)
-    if (previous?.kind === 'until') {
-        await cancelSnoozeReminder(previous.notificationId).catch(() => undefined)
-    }
-    if (!isCurrent()) {
-        return false
-    }
-    const notificationId = await scheduleSnoozeReminder(
-        {
-            reportId,
-            projectId: scope.projectId,
-            title: cachedTitle(queryClient, scope, reportId),
-            until,
-        },
-        isCurrent
-    ).catch(() => undefined)
-    if (!isCurrent()) {
-        await cancelSnoozeReminder(notificationId)
-        return false
-    }
-    useSnoozeStore.getState().put(key, {
-        kind: 'until',
-        until,
-        at: new Date().toISOString(),
-        ...(notificationId ? { notificationId } : {}),
-    })
+    const entry: SnoozeEntry = { kind: 'until', until, at: new Date().toISOString() }
+    useSnoozeStore.getState().put(key, entry)
+    const isPending = (): boolean =>
+        isCurrent() && useSnoozeStore.getState().entries[key] === entry && new Date(until).getTime() > Date.now()
+
+    // The snooze is local state; account preferences only decide whether to attach a reminder.
+    void (async () => {
+        if (previous?.kind === 'until') {
+            await cancelSnoozeReminder(previous.notificationId).catch(captureError)
+        }
+        if (!isPending()) {
+            return
+        }
+        const notificationId = await scheduleSnoozeReminder(
+            { reportId, projectId: scope.projectId, title: cachedTitle(queryClient, scope, reportId), until },
+            isPending
+        )
+        if (!isPending()) {
+            await cancelSnoozeReminder(notificationId)
+        } else if (notificationId) {
+            useSnoozeStore.getState().put(key, { ...entry, notificationId })
+        }
+    })().catch(captureError)
     return true
 }
 

@@ -2,16 +2,19 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useMemo, useState } from 'react'
 
-import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { QuillCardMeta } from 'lib/components/Cards/QuillCardMeta'
+import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRefreshButton'
 import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -70,8 +73,6 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
-import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -82,6 +83,9 @@ import { insightCardCaptureTarget } from './insightCardImageCapture'
 import type { InsightCardMenu } from './insightCardMenu'
 import { InsightCardMoreButtons } from './InsightCardMoreButtons'
 import { InsightDetails } from './InsightDetails'
+import { QuillCompactInfoPopover } from './QuillCompactInfoPopover'
+import { QuillInsightCardMenuItems } from './QuillInsightCardMenuItems'
+import { QuillInsightMetaContent } from './QuillInsightMetaContent'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -223,7 +227,6 @@ function InsightMetaBody({
         })
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
-    const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
@@ -235,6 +238,7 @@ function InsightMetaBody({
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const quillSurface = useQuillSurface()
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
@@ -251,20 +255,6 @@ function InsightMetaBody({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
-    const showsDataRetentionWarning =
-        retentionApplies &&
-        placement !== DashboardPlacement.Public &&
-        placement !== DashboardPlacement.Export &&
-        exceedsRetention({
-            query: insight.query,
-            dateFromOverride: dateOverride.dateFromOverride,
-            resolvedDateFrom: insightData?.resolved_date_range?.date_from,
-            retentionMonths,
-        })
-    const dataRetentionWarning =
-        showsDataRetentionWarning && retentionPeriodLabel
-            ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
-            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -368,8 +358,26 @@ function InsightMetaBody({
         !!insight.id &&
         !!onCreateAnomalyAlert
 
+    const showQuillCard = quillSurface && showCompactTile
+
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
+        if (showQuillCard) {
+            return (
+                <QuillCardMeta
+                    ribbonColor={ribbonColor}
+                    onMouseDown={onDragHandleMouseDown}
+                    content={
+                        <QuillInsightMetaContent
+                            title="Access denied"
+                            fallbackTitle={summary}
+                            loading={loading}
+                            loadingQueued={loadingQueued}
+                        />
+                    }
+                />
+            )
+        }
         return (
             <CardMeta
                 compact={showCompactTile}
@@ -425,15 +433,22 @@ function InsightMetaBody({
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
-    const refreshControl =
-        refresh && showEditingControls && !tileRefreshing ? (
-            <CardMetaRefreshButton
-                onRefresh={() => refresh()}
-                lastRefresh={insight.last_refresh}
-                disabledReason={refreshDisabledReason}
-                dataAttr="insight-card-refresh"
-            />
-        ) : null
+    const showRefreshControl = refresh && showEditingControls && !tileRefreshing
+    const refreshControl = !showRefreshControl ? null : showQuillCard ? (
+        <QuillCardMetaRefreshButton
+            onRefresh={() => refresh()}
+            lastRefresh={insight.last_refresh}
+            disabledReason={refreshDisabledReason}
+            dataAttr="insight-card-refresh"
+        />
+    ) : (
+        <CardMetaRefreshButton
+            onRefresh={() => refresh()}
+            lastRefresh={insight.last_refresh}
+            disabledReason={refreshDisabledReason}
+            dataAttr="insight-card-refresh"
+        />
+    )
 
     // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
     // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
@@ -615,7 +630,6 @@ function InsightMetaBody({
         tags: insight.tags,
         compact: showCompactTile,
         showDescription: tile?.show_description !== false,
-        dataRetentionWarning,
         queryScanTooltip,
         warehouseSyncTooltip,
         queryScanActionable: queryScanHasActionableFinding(scanFindings),
@@ -652,6 +666,29 @@ function InsightMetaBody({
                 deferInitialAlertsLoad
             />
         ) : null
+
+    if (showQuillCard) {
+        return (
+            <>
+                <QuillCardMeta
+                    headerStatus={headerStatus}
+                    ribbonColor={ribbonColor}
+                    onMouseDown={onDragHandleMouseDown}
+                    topHeading={topHeading}
+                    content={
+                        <QuillInsightMetaContent
+                            {...metaContentProps}
+                            infoPopover={<QuillCompactInfoPopover {...infoPopoverProps} />}
+                        />
+                    }
+                    menuItems={showEditingControls ? <QuillInsightCardMenuItems menu={menu} /> : null}
+                    menuTooltip={menuTooltip}
+                    refreshControl={refreshControl}
+                />
+                {manageAlertsModal}
+            </>
+        )
+    }
 
     return (
         <>
@@ -757,7 +794,6 @@ export interface InsightMetaContentProps {
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
-    dataRetentionWarning?: string | null
     queryScanTooltip?: JSX.Element | null
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
@@ -775,16 +811,10 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
-    dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
 }: InsightMetaContentProps): JSX.Element {
-    const dataRetentionIndicator = dataRetentionWarning ? (
-        <Tooltip title={dataRetentionWarning}>
-            <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
-        </Tooltip>
-    ) : null
     const queryScanIndicator = queryScanTooltip ? (
         <Tooltip title={queryScanTooltip}>
             {queryScanActionable ? (
@@ -806,7 +836,7 @@ export function InsightMetaContent({
             </LemonTag>
         </Tooltip>
     ) : null
-    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
+    const hasTitleIndicator = !!(infoPopover || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
             <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
@@ -834,7 +864,6 @@ export function InsightMetaContent({
             ) : (
                 titleContent
             )}
-            {dataRetentionIndicator}
             {queryScanIndicator}
             {warehouseSyncIndicator}
             {infoPopover}

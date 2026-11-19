@@ -156,22 +156,32 @@ export function useInsightsTableModel({
 
     const columns: InsightsTableColumn[] = []
 
-    columns.push({
-        kind: 'label',
-        key: 'label',
-        sorter: (a, b) => {
-            if (isSingleSeriesWithBreakdown) {
-                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
-                    return a.breakdown_value - b.breakdown_value
-                }
-                return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
-            }
+    const showSeriesColumn =
+        indexedResults.length !== 1 ||
+        !isSingleSeriesDefinition ||
+        hasBreakdownFilter(breakdownFilter) ||
+        !!compareFilter?.compare ||
+        isLegend ||
+        isMainInsightView
 
-            const labelA = getResultSeriesName(getResultSeries(querySource, a, actionNames)) || a.label || ''
-            const labelB = getResultSeriesName(getResultSeries(querySource, b, actionNames)) || b.label || ''
-            return labelA.localeCompare(labelB)
-        },
-    })
+    if (showSeriesColumn) {
+        columns.push({
+            kind: 'label',
+            key: 'label',
+            sorter: (a, b) => {
+                if (isSingleSeriesWithBreakdown) {
+                    if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                        return a.breakdown_value - b.breakdown_value
+                    }
+                    return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
+                }
+
+                const labelA = getResultSeriesName(getResultSeries(querySource, a, actionNames)) || a.label || ''
+                const labelB = getResultSeriesName(getResultSeries(querySource, b, actionNames)) || b.label || ''
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
 
     if (hasBreakdownFilter(breakdownFilter) && breakdownFilter.breakdown) {
         if (!isSingleSeriesWithBreakdown) {

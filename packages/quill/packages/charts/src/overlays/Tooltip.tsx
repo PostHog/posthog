@@ -96,7 +96,7 @@ export function Tooltip<Meta = unknown, Ctx extends TooltipContext<Meta> = Toolt
                 // tooltip — it lives outside the chart wrapper via FloatingPortal, so DOM
                 // ancestry can't be used to detect it.
                 data-hog-charts-tooltip=""
-                className={context.isPinned ? 'hog-charts-tooltip--pinned' : undefined}
+                className={context.isPinned ? 'ph-no-capture hog-charts-tooltip--pinned' : 'ph-no-capture'}
                 style={{
                     ...floatingStyles,
                     pointerEvents: context.isPinned ? 'auto' : 'none',

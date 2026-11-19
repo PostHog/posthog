@@ -1,11 +1,14 @@
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal, get_args
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
+
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 
 
 class Contract(BaseModel):
@@ -134,11 +137,13 @@ class TraceToolCallPart(Contract):
     kind: Literal["toolCall"]
     name: str = Field(description="The name of the called tool, or an empty string when the event has none.")
     args: Any = Field(
-        description="The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured."
+        description="The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed "
+        "too. Otherwise the text as captured."
     )
     result: Any | None = Field(
         description="The content of the tool message that answers this call, parsed from JSON text when no number "
-        "loses precision in a browser. Null when no tool message answers the call."
+        "loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message "
+        "answers the call."
     )
 
 
@@ -185,8 +190,8 @@ class TraceMessagesSide(Contract):
 class TraceJsonSide(Contract):
     kind: Literal["json"]
     value: Any = Field(
-        description="The side's value as captured, for a side that is not a conversation or that could not be "
-        "normalized."
+        description="The side's value for a side that is not a conversation, with JSON text in it parsed when no "
+        "number loses precision in a browser. The value as captured when the side could not be normalized."
     )
 
 
@@ -886,3 +891,81 @@ class JudgeModelError(Exception):
 
 class JudgeTestAlreadyRunningError(Exception):
     """This user's previous judge test has not finished."""
+
+
+@frozen
+class EvalSuggestionsPlan:
+    """The teams the weekly eval suggestions run covers, and how many run at once."""
+
+    team_ids: list[int]
+    max_concurrent_teams: int
+
+
+@frozen
+class EvalSuggestionRun:
+    id: UUID
+    trigger: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
+@frozen
+class EvalSuggestion:
+    id: UUID
+    kind: str
+    status: str
+    applies: bool
+    template_key: str
+    headline: str
+    outcome: str
+    reason: str
+    observation: str
+    observation_scope: str
+    draft: Mapping[str, Any]
+    filters: Sequence[Mapping[str, Any]]
+    rollout_percentage: float
+    measured_failure_rate: float | None
+    sample_size: int | None
+    evidence: Sequence[Mapping[str, Any]]
+    estimated_weekly_runs: int | None
+    estimated_weekly_cost_usd: float | None
+    judge_model: str
+    created_evaluation: UUID | None
+    target_evaluation: UUID | None
+    target_evaluation_name: str | None
+    fix_problem: str | None
+    similar_evaluation: UUID | None
+    similar_evaluation_name: str | None
+    dismiss_reason: str | None
+    created_at: datetime
+
+
+@frozen
+class EvalSuggestionList:
+    run: EvalSuggestionRun | None
+    pending: bool
+    results: list[EvalSuggestion]
+
+
+@frozen
+class EvalSuggestionAcceptEstimate:
+    target: str
+    units: int
+    window_start: datetime | None
+    window_end: datetime | None
+    judge_model: str | None
+    estimated_cost_usd: float | None
+
+
+@frozen
+class EvalSuggestionAccepted:
+    suggestion: EvalSuggestion
+    evaluation_id: UUID
+    backfill_id: UUID | None
+    backfill_units: int | None
+    # A repeat returns the evaluation the first accept created, which can have been restricted since.
+    evaluation_access: ObjectAccessRef
+
+
+class EvalSuggestionNotFoundError(Exception):
+    """No suggestion with this id in the team, or it names an evaluation the user cannot read."""

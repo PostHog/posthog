@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 
@@ -55,6 +56,7 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     # Reset to 0 whenever the address successfully delivers. Ignored for manual entries.
     transient_bounce_count = models.IntegerField(default=0)
     last_bounce_at = models.DateTimeField(null=True, blank=True)
+    transient_bounce_event_ids = ArrayField(models.CharField(max_length=128), null=True, blank=True)
     # Last SMTP diagnostic we saw, kept for visibility in the UI (e.g. the "Message expired" text).
     last_bounce_diagnostic = models.TextField(null=True, blank=True)
     # When the address last hard-bounced. Set on every row, manual entries included, and cleared when a

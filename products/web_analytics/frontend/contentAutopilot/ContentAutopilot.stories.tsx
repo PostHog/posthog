@@ -14,12 +14,15 @@ import type {
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
+import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import {
     type ContentAutopilotProposalTab,
     type ContentAutopilotWorkspaceTab,
     contentAutopilotLogic,
 } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
@@ -28,12 +31,16 @@ import {
     EXAMPLE_KEYWORDS,
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
+    EXAMPLE_PROMPT_SET_CITATION_RESPONSE,
     EXAMPLE_PROMPT_SET_OVERVIEW,
     EXAMPLE_PROMPT_SET_RANKINGS,
+    EXAMPLE_PROMPT_SET_SOURCES_RESPONSE,
     EXAMPLE_PROMPT_TOPICS,
     EXAMPLE_COMPETITOR_BRANDS,
+    EXAMPLE_ENGINE_SETTINGS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROMPT_CHECKS,
+    EXAMPLE_PROMPT_CITATIONS,
     EXAMPLE_PROMPT_VERSIONS,
     EXAMPLE_PROMPT_STATS,
     EXAMPLE_PROPOSAL,
@@ -41,6 +48,26 @@ import {
     EXAMPLE_RUN,
     EXAMPLE_SECOND_PROFILE,
 } from './contentAutopilotStoryFixtures'
+
+const echoedFilters = (url: string): { days: number; branded: string; engine: string | null; topic: string | null } => {
+    const params = new URL(url).searchParams
+    return {
+        days: Number(params.get('days') ?? 30),
+        branded: params.get('branded') ?? 'all',
+        engine: params.get('engine'),
+        topic: params.get('topic'),
+    }
+}
+
+// The overview's two tiles run HogQL: the daily citation rate per engine and the most cited sites.
+const queryResponse = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+    const body = await request.json()
+    const sql: string = body?.query?.query ?? ''
+    const response = sql.includes('domain(url)')
+        ? EXAMPLE_PROMPT_SET_SOURCES_RESPONSE
+        : EXAMPLE_PROMPT_SET_CITATION_RESPONSE
+    return [200, { ...response, hogql: sql, is_cached: true, query_status: null }]
+}
 
 const workspaceHandlers = ({
     profiles,
@@ -78,21 +105,37 @@ const workspaceHandlers = ({
                 { count: EXAMPLE_PROMPTS.length, next: null, previous: null, results: EXAMPLE_PROMPTS },
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
-            // The segment control reads the segment back from the response, so the mocks echo the requested one.
+            '/api/projects/:team_id/aeo_prompts/citations/': () => [
+                200,
+                {
+                    count: EXAMPLE_PROMPT_CITATIONS.length,
+                    next: null,
+                    previous: null,
+                    results: EXAMPLE_PROMPT_CITATIONS,
+                },
+            ],
+            // The tabs read the filters back from the response, so the mocks echo the requested ones.
             '/api/projects/:team_id/aeo_prompts/overview/': ({ request }) => [
                 200,
-                { ...EXAMPLE_PROMPT_SET_OVERVIEW, branded: new URL(request.url).searchParams.get('branded') ?? 'all' },
+                { ...EXAMPLE_PROMPT_SET_OVERVIEW, ...echoedFilters(request.url) },
             ],
             '/api/projects/:team_id/aeo_prompts/rankings/': ({ request }) => [
                 200,
-                { ...EXAMPLE_PROMPT_SET_RANKINGS, branded: new URL(request.url).searchParams.get('branded') ?? 'all' },
+                { ...EXAMPLE_PROMPT_SET_RANKINGS, ...echoedFilters(request.url) },
             ],
             '/api/projects/:team_id/aeo_keywords/': () => [200, keywords],
-            '/api/projects/:team_id/aeo_keywords/report/': () => [
+            '/api/projects/:team_id/aeo_keywords/report/': ({ request }) => [
                 200,
-                { ...EXAMPLE_KEYWORD_REPORT, keywords: keywords.length ? EXAMPLE_KEYWORD_REPORT.keywords : [] },
+                {
+                    ...EXAMPLE_KEYWORD_REPORT,
+                    days: echoedFilters(request.url).days,
+                    keywords: keywords.length ? EXAMPLE_KEYWORD_REPORT.keywords : [],
+                },
             ],
-            '/api/projects/:team_id/aeo_keywords/modifiers/': () => [200, EXAMPLE_KEYWORD_MODIFIERS],
+            '/api/projects/:team_id/aeo_keywords/modifiers/': ({ request }) => [
+                200,
+                { ...EXAMPLE_KEYWORD_MODIFIERS, days: echoedFilters(request.url).days },
+            ],
             '/api/projects/:team_id/aeo_brands/': () => [
                 200,
                 {
@@ -102,6 +145,7 @@ const workspaceHandlers = ({
                     results: EXAMPLE_COMPETITOR_BRANDS,
                 },
             ],
+            '/api/projects/:team_id/aeo_engines/': () => [200, EXAMPLE_ENGINE_SETTINGS],
             '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
@@ -115,6 +159,7 @@ const workspaceHandlers = ({
             ],
         },
         post: {
+            '/api/environments/:team_id/query/:query_kind/': queryResponse,
             '/api/projects/:team_id/aeo_prompts/create_dashboard/': () => [
                 201,
                 { id: 1, name: 'AI visibility weekly' },
@@ -155,6 +200,23 @@ const WorkspaceTabStory = ({ tab }: { tab: ContentAutopilotWorkspaceTab }): JSX.
     useEffect(() => {
         setWorkspaceTab(tab)
     }, [setWorkspaceTab, tab])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+// Needs improvement is the prompts tab's own toggle, so the date range and engine filters join the bar.
+const NeedsImprovementStory = (): JSX.Element => {
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { setEngine } = useActions(contentAutopilotFiltersLogic)
+    const { setNeedsImprovement } = useActions(contentAutopilotPromptsLogic)
+    useEffect(() => {
+        setWorkspaceTab('prompts')
+        setEngine('claude-web-search', 'prompts')
+        setNeedsImprovement(true)
+    }, [setWorkspaceTab, setEngine, setNeedsImprovement])
     return (
         <div className="p-6">
             <ContentAutopilot />
@@ -265,9 +327,21 @@ ProposalPreview.decorators = ProposalReview.decorators
 export const PromptsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" />
 PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
 
+export const PromptsTabNeedsImprovement: StoryFn<typeof ContentAutopilot> = () => <NeedsImprovementStory />
+PromptsTabNeedsImprovement.decorators = PromptsTab.decorators
+
 export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+// The visibility chart animates as it draws, so the overview tab stays out of the snapshots.
 OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+// A shared link carries the filters in the URL.
+export const OverviewTabFiltered: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
+OverviewTabFiltered.decorators = OverviewTab.decorators
+OverviewTabFiltered.parameters = {
+    pageUrl: '/web/content-autopilot?days=7&engine=claude-web-search&topic=Product%20analytics',
+    testOptions: { snapshotBrowsers: [] },
+}
 
 // Without the drafting flag there are no Opportunities or Drafts tabs, and no draft buttons.
 export const OverviewTabWithoutDrafting: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
@@ -279,11 +353,9 @@ OverviewTabWithoutDrafting.parameters = {
 
 export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
 RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
-RankingsTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 
 export const KeywordsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" />
 KeywordsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
-KeywordsTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 
 export const KeywordsTabEmpty: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" />
 KeywordsTabEmpty.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], keywords: [] })]
@@ -304,3 +376,54 @@ const PromptPageStory = (): JSX.Element => {
 export const PromptPage: StoryFn<typeof ContentAutopilot> = () => <PromptPageStory />
 PromptPage.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
 PromptPage.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const CitationsStory = ({
+    tab,
+    lookup,
+}: {
+    tab: ContentAutopilotWorkspaceTab
+    lookup: CitationsLookup
+}): JSX.Element => {
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { openCitations } = useActions(contentAutopilotCitationsModalLogic)
+    useEffect(() => {
+        setWorkspaceTab(tab)
+        openCitations(lookup, 'storybook')
+    }, [setWorkspaceTab, openCitations, tab, lookup])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+const CITED_SITE: CitationsLookup = {
+    kind: 'domain',
+    value: 'analytics-review.example.com',
+    days: 30,
+    branded: 'non_branded',
+}
+export const CitationsOfACitedSite: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="overview" lookup={CITED_SITE} />
+)
+CitationsOfACitedSite.decorators = OverviewTab.decorators
+CitationsOfACitedSite.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const OWN_PAGE: CitationsLookup = {
+    kind: 'url',
+    value: 'https://example.com/docs/product-analytics',
+    days: 30,
+    branded: 'non_branded',
+}
+export const CitationsOfYourPage: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="rankings" lookup={OWN_PAGE} />
+)
+CitationsOfYourPage.decorators = OverviewTab.decorators
+CitationsOfYourPage.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const SEARCH: CitationsLookup = { kind: 'search', value: 'open source product analytics', days: 30, branded: 'all' }
+export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
+    <CitationsStory tab="overview" lookup={SEARCH} />
+)
+CitationsOfASearch.decorators = OverviewTab.decorators
+CitationsOfASearch.parameters = { testOptions: { snapshotBrowsers: [] } }

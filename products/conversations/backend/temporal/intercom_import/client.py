@@ -6,14 +6,16 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 import structlog
 from requests import Response
 
-from posthog.security.pinned_requests import pinned_session
-
+from products.conversations.backend.temporal.ticket_import.attachment_download import (
+    AttachmentDownloadError,
+    download_attachment,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 logger = structlog.get_logger(__name__)
@@ -41,40 +43,12 @@ DEFAULT_RATE_LIMIT_SLEEP_SECONDS = 10
 _ID_RE = re.compile(r"^[A-Za-z0-9]+$")
 _CONTACT_LINK_RE = re.compile(r"/contacts/([A-Za-z0-9]+)")
 
-ATTACHMENT_CHUNK_BYTES = 64 * 1024
-MAX_ATTACHMENT_REDIRECTS = 3
-
 
 class IntercomRateLimitError(Exception):
     """Raised when Intercom keeps rate-limiting beyond the in-thread retry budget.
 
     Retryable by default, so Temporal's RetryPolicy reschedules the activity.
     """
-
-
-class IntercomAttachmentTooLargeError(Exception):
-    """Raised when an attachment exceeds the caller's byte cap, so the caller can skip it."""
-
-    def __init__(self, message: str, *, bytes_read: int = 0) -> None:
-        super().__init__(message)
-        self.bytes_read = bytes_read
-
-
-class IntercomAttachmentDownloadError(Exception):
-    """An attachment download failure whose message leaves out the signed URL.
-
-    Attachment links carry their own access signature, so a requests exception message (which
-    embeds the URL) must not reach logs or Temporal failure history.
-    """
-
-    def __init__(self, status_code: int | None) -> None:
-        self.status_code = status_code
-        super().__init__(f"Intercom attachment download failed (status={status_code})")
-
-    @property
-    def retryable(self) -> bool:
-        # A transport error has no status. An expired or deleted link (4xx) won't recover on retry.
-        return self.status_code is None or self.status_code >= 500
 
 
 class IntercomNotFoundError(Exception):
@@ -91,7 +65,7 @@ class IntercomIncompleteConversationError(Exception):
 
 def is_retryable_error(exc: BaseException) -> bool:
     """True for failures a later attempt can fix: rate limits, timeouts, connection errors, 5xx."""
-    if isinstance(exc, IntercomAttachmentDownloadError):
+    if isinstance(exc, AttachmentDownloadError):
         return exc.retryable
     # ChunkedEncodingError and ContentDecodingError are a connection dropping mid-body; they
     # subclass RequestException, not ConnectionError.
@@ -261,54 +235,12 @@ class IntercomImportClient:
         return response.json()
 
     def download_attachment(self, url: str, *, max_bytes: int) -> bytes:
-        """Download an attachment from Intercom's CDN with a byte cap.
+        """Download an attachment from Intercom's CDN. The links are signed, so the token is not sent.
 
-        Intercom attachment URLs are signed links that need no Authorization header, so none is
-        sent: the workspace token must never leave the API host. Messenger uploads expire 30
-        minutes after the conversation was fetched, so callers download right after fetching.
-        Each hop (including redirects) goes through pinned_session, which rejects private and
-        internal addresses (SSRF).
+        Messenger uploads expire 30 minutes after the conversation was fetched, so callers download
+        right after fetching.
         """
-        try:
-            return self._download_attachment(url, max_bytes=max_bytes)
-        except requests.RequestException:
-            raise IntercomAttachmentDownloadError(None) from None
-
-    def _download_attachment(self, url: str, *, max_bytes: int) -> bytes:
-        current = url
-        for _ in range(MAX_ATTACHMENT_REDIRECTS + 1):
-            if urlsplit(current).scheme.lower() != "https":
-                raise ValueError("Refusing to fetch a non-https attachment URL")
-            with pinned_session(current) as session:
-                with session.get(current, timeout=120, stream=True, allow_redirects=False) as response:
-                    if response.is_redirect:
-                        location = response.headers.get("Location")
-                        if not location:
-                            raise ValueError("Attachment redirect without a Location header")
-                        current = urljoin(current, location)
-                        continue
-                    if response.status_code >= 400:
-                        raise IntercomAttachmentDownloadError(response.status_code)
-                    declared = response.headers.get("Content-Length")
-                    if declared is not None:
-                        try:
-                            if int(declared) > max_bytes:
-                                raise IntercomAttachmentTooLargeError(
-                                    f"Attachment exceeds {max_bytes} bytes (Content-Length={declared})"
-                                )
-                        except ValueError:
-                            pass
-                    buffer = bytearray()
-                    for chunk in response.iter_content(chunk_size=ATTACHMENT_CHUNK_BYTES):
-                        if not chunk:
-                            continue
-                        buffer.extend(chunk)
-                        if len(buffer) > max_bytes:
-                            raise IntercomAttachmentTooLargeError(
-                                f"Attachment exceeds {max_bytes} bytes while streaming", bytes_read=len(buffer)
-                            )
-                    return bytes(buffer)
-        raise ValueError("Too many attachment redirects")
+        return download_attachment(url, max_bytes=max_bytes).content
 
 
 def validate_intercom_credentials(credentials: IntercomCredentials) -> bool:

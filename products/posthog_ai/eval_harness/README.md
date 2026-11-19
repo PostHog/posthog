@@ -225,6 +225,19 @@ hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude
 Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
+### PostHog AI surface
+
+`--surface app` runs every case that sets no `interaction_origin` as PostHog AI in the app, with the in-app system prompt.
+`--surface mcp`, the default, keeps the skill-delivery default.
+The app surface needs bundled skill delivery, because the app does not get exec skills, so the CLI rejects `--surface app --skill-delivery exec`:
+
+```bash
+hogli evals eval_governed_metrics --surface app --skill-delivery bundled
+hogli evals eval_governed_metrics --surface mcp --skill-delivery exec
+```
+
+The experiment metadata records `eval_surface`, so both runs can share one experiment name.
+
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
@@ -474,7 +487,12 @@ The final terminal line is the unlabeled absolute path, with no output after it,
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
-Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, `<case>.trial-<id>.summary.txt`, and `<case>.trial-<id>.toolchain.json`.
+The tool chain file lists every tool call in call order, with its turn, MCP server, input and output digests, timestamps, and duration.
+The turn is `null` when the runner cannot split a multi-turn log into turns.
+The case metadata carries a chain summary under `tool_chain`: call counts, distinct tools, servers, errors, and the sequence of the first successful answer query.
+Discovery calls are catalog and schema lookups. Tool lookups, such as `ToolSearch` or a bare `exec` `tools` command, count as neither discovery nor answer.
+Scorers and judges read the same chain through `products.posthog_ai.eval_harness.tool_chain`.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.

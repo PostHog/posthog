@@ -1,12 +1,8 @@
-import { useMemo } from 'react'
-
 import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icons'
 
-import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
-
-import { TodayPeopleRecent, TodayPeopleRecentType, peopleRecentRowKey } from './todayPeople'
-import { TodayExplainerPreview } from './todayPreviewCards'
-import { TodayPreviewTrigger } from './TodayPreviewTrigger'
+import { TodayPeopleRecent, TodayPeopleRecentType } from './todayPeople'
+import { TodayRecentRow } from './TodayRecentRow'
+import { recentRowKey } from './todayRecents'
 
 const RECENT_ICONS: Record<TodayPeopleRecentType, JSX.Element> = {
     person: <IconPerson />,
@@ -24,27 +20,24 @@ const RECENT_DESCRIPTIONS: Record<TodayPeopleRecentType, string> = {
     ticket: 'A support ticket. Open it to read the conversation and reply.',
 }
 
-export function TodayPeopleRecentRow({ recent, active }: { recent: TodayPeopleRecent; active: boolean }): JSX.Element {
-    // The shared card stores the payload, so it must keep its identity between renders.
-    const preview = useMemo<TodayExplainerPreview>(
-        () => ({
-            kind: 'explainer',
-            label: recent.name,
-            icon: RECENT_ICONS[recent.type],
-            description: RECENT_DESCRIPTIONS[recent.type],
-        }),
-        [recent.name, recent.type]
-    )
+export function TodayPeopleRecentRow({
+    recent,
+    active,
+    dataAttr = 'people-sidebar-recent',
+}: {
+    recent: TodayPeopleRecent
+    active: boolean
+    dataAttr?: string
+}): JSX.Element {
     return (
-        <TodayPreviewTrigger payload={preview}>
-            <SidebarRow
-                value={peopleRecentRowKey(recent.href)}
-                label={recent.name}
-                icon={RECENT_ICONS[recent.type]}
-                to={recent.href}
-                active={active}
-                dataAttr="people-sidebar-recent"
-            />
-        </TodayPreviewTrigger>
+        <TodayRecentRow
+            value={recentRowKey(recent.href)}
+            name={recent.name}
+            href={recent.href}
+            icon={RECENT_ICONS[recent.type]}
+            description={RECENT_DESCRIPTIONS[recent.type]}
+            active={active}
+            dataAttr={dataAttr}
+        />
     )
 }

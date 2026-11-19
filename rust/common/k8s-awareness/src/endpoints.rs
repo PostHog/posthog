@@ -27,6 +27,7 @@ use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::api::Api;
 use kube::runtime::watcher::{self, Config as WatcherConfig, Event};
+use kube::runtime::WatchStreamExt;
 use kube::Client;
 use metrics::counter;
 use tokio::sync::watch;
@@ -50,11 +51,31 @@ pub fn watch_service_members(
     service_name: String,
     cancel: CancellationToken,
 ) -> (watch::Receiver<HashSet<IpAddr>>, JoinHandle<()>) {
+    let (members, _synced, handle) =
+        watch_service_members_with_sync(client, namespace, service_name, cancel);
+    (members, handle)
+}
+
+/// [`watch_service_members`], plus a receiver that turns `true` once the
+/// first list completes (`InitDone`). The members channel can't carry that:
+/// an empty first list publishes nothing, so "the Service has no ready
+/// endpoints" looks the same as "not listed yet".
+pub fn watch_service_members_with_sync(
+    client: Client,
+    namespace: String,
+    service_name: String,
+    cancel: CancellationToken,
+) -> (
+    watch::Receiver<HashSet<IpAddr>>,
+    watch::Receiver<bool>,
+    JoinHandle<()>,
+) {
     let (tx, rx) = watch::channel(HashSet::new());
+    let (synced_tx, synced_rx) = watch::channel(false);
     let handle = tokio::spawn(async move {
-        run(client, namespace, service_name, tx, cancel).await;
+        run(client, namespace, service_name, tx, synced_tx, cancel).await;
     });
-    (rx, handle)
+    (rx, synced_rx, handle)
 }
 
 async fn run(
@@ -62,6 +83,7 @@ async fn run(
     namespace: String,
     service_name: String,
     tx: watch::Sender<HashSet<IpAddr>>,
+    synced_tx: watch::Sender<bool>,
     cancel: CancellationToken,
 ) {
     let api: Api<EndpointSlice> = Api::namespaced(client, &namespace);
@@ -83,7 +105,7 @@ async fn run(
     // rather than leaving the membership frozen until the pod restarts.
     loop {
         let config = WatcherConfig::default().labels(&label_selector);
-        let stream = watcher::watcher(api.clone(), config);
+        let stream = watcher::watcher(api.clone(), config).default_backoff();
         tokio::pin!(stream);
 
         loop {
@@ -94,19 +116,7 @@ async fn run(
                 }
                 item = stream.next() => {
                     match item {
-                        Some(Ok(event)) => {
-                            if let Some(desired) = apply_event(event, &mut slices) {
-                                // Don't wake subscribers for no-op reconciles.
-                                tx.send_if_modified(|current| {
-                                    if *current == desired {
-                                        false
-                                    } else {
-                                        *current = desired;
-                                        true
-                                    }
-                                });
-                            }
-                        }
+                        Some(Ok(event)) => publish_event(event, &mut slices, &tx, &synced_tx),
                         Some(Err(e)) => {
                             warn!(error = %e, service = %service_name, "EndpointSlice watcher error, stream will retry");
                             counter!(
@@ -136,6 +146,31 @@ async fn run(
             }
             _ = tokio::time::sleep(WATCHER_RESTART_BACKOFF) => {}
         }
+    }
+}
+
+/// Members go out before the sync flag, so a subscriber woken by the flag
+/// reads the complete first list.
+fn publish_event(
+    event: Event<EndpointSlice>,
+    slices: &mut HashMap<String, HashSet<IpAddr>>,
+    tx: &watch::Sender<HashSet<IpAddr>>,
+    synced_tx: &watch::Sender<bool>,
+) {
+    let list_done = matches!(event, Event::InitDone);
+    if let Some(desired) = apply_event(event, slices) {
+        // Don't wake subscribers for no-op reconciles.
+        tx.send_if_modified(|current| {
+            if *current == desired {
+                false
+            } else {
+                *current = desired;
+                true
+            }
+        });
+    }
+    if list_done {
+        synced_tx.send_if_modified(|synced| !std::mem::replace(synced, true));
     }
 }
 
@@ -170,15 +205,19 @@ fn slice_key(slice: &EndpointSlice) -> String {
 }
 
 /// Apply a watch event to the per-slice state, returning the desired member
-/// set to publish — or `None` when no update is due (the `Init` re-list start,
-/// where the last published set keeps serving until `InitDone`).
+/// set to publish — or `None` while a list is in progress, so the last
+/// published set keeps serving until `InitDone`.
 fn apply_event(
     event: Event<EndpointSlice>,
     slices: &mut HashMap<String, HashSet<IpAddr>>,
 ) -> Option<HashSet<IpAddr>> {
     match event {
-        Event::Apply(slice) | Event::InitApply(slice) => {
+        Event::Apply(slice) => {
             slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+        }
+        Event::InitApply(slice) => {
+            slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+            return None;
         }
         Event::Delete(slice) => {
             slices.remove(&slice_key(&slice));
@@ -288,12 +327,38 @@ mod tests {
         assert!(apply_event(Event::Init, &mut slices).is_none());
         assert!(slices.is_empty());
 
-        // Re-list finds a different pod; InitDone applies the new set.
-        apply_event(
+        // Re-list finds two slices; only InitDone applies the new set.
+        let partial = apply_event(
             Event::InitApply(slice("s1", vec![endpoint(&["10.0.0.9"], Some(true))])),
             &mut slices,
         );
+        assert!(partial.is_none());
+        apply_event(
+            Event::InitApply(slice("s2", vec![endpoint(&["10.0.0.8"], Some(true))])),
+            &mut slices,
+        );
         let desired = apply_event(Event::InitDone, &mut slices).unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.9")]));
+        assert_eq!(desired, HashSet::from([ip("10.0.0.8"), ip("10.0.0.9")]));
+    }
+
+    #[test]
+    fn test_publish_event_syncs_on_an_empty_first_list() {
+        let mut slices = HashMap::new();
+        let (tx, mut members) = watch::channel(HashSet::new());
+        let (synced_tx, mut synced) = watch::channel(false);
+
+        publish_event(Event::Init, &mut slices, &tx, &synced_tx);
+        assert!(!*synced.borrow());
+
+        publish_event(Event::InitDone, &mut slices, &tx, &synced_tx);
+        assert!(!members.has_changed().unwrap());
+        assert!(synced.has_changed().unwrap());
+        assert!(*synced.borrow_and_update());
+
+        publish_event(Event::Init, &mut slices, &tx, &synced_tx);
+        publish_event(Event::InitDone, &mut slices, &tx, &synced_tx);
+        assert!(!synced.has_changed().unwrap());
+        assert!(*synced.borrow());
+        assert!(members.borrow_and_update().is_empty());
     }
 }

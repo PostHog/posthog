@@ -1886,9 +1886,9 @@ export interface TraceToolCallPartApi {
     kind: 'toolCall'
     /** The name of the called tool, or an empty string when the event has none. */
     name: string
-    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+    /** The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed too. Otherwise the text as captured. */
     args: unknown
-    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message answers the call. */
     result: unknown
 }
 
@@ -1933,7 +1933,7 @@ export interface TraceMessagesSideApi {
 
 export interface TraceJsonSideApi {
     kind: 'json'
-    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+    /** The side's value for a side that is not a conversation, with JSON text in it parsed when no number loses precision in a browser. The value as captured when the side could not be normalized. */
     value: unknown
 }
 
@@ -2303,9 +2303,10 @@ export const CodeEnumApi = {
 } as const
 
 /**
- * * `datasets` - datasets
- * * `dataset_items` - dataset_items
- * * `dataset_item_versions` - dataset_item_versions
+ * * `datasets` - Datasets
+ * * `dataset_items` - Dataset Items
+ * * `dataset_item_versions` - Dataset Item Versions
+ * * `project_dataset_item_versions` - Project Dataset Item Versions
  */
 export type DatasetConflictResponseResourceEnumApi =
     (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
@@ -2314,6 +2315,7 @@ export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
+    ProjectDatasetItemVersions: 'project_dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -2341,9 +2343,10 @@ export interface DatasetConflictResponseApi {
     current_item_id?: string | null
     /** Resource whose configured limit was reached.
      *
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions */
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions */
     resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
@@ -2646,6 +2649,300 @@ export interface EvaluationRunResponseApi {
 }
 
 /**
+ * * `scheduled` - Scheduled
+ * * `first_visit` - First visit
+ * * `manual` - Manual
+ */
+export type EvalSuggestionRunTriggerEnumApi =
+    (typeof EvalSuggestionRunTriggerEnumApi)[keyof typeof EvalSuggestionRunTriggerEnumApi]
+
+export const EvalSuggestionRunTriggerEnumApi = {
+    Scheduled: 'scheduled',
+    FirstVisit: 'first_visit',
+    Manual: 'manual',
+} as const
+
+export interface EvalSuggestionRunApi {
+    /** Run identifier. */
+    readonly id: string
+    /** scheduled (weekly), first_visit, or manual.
+     *
+     * * `scheduled` - Scheduled
+     * * `first_visit` - First visit
+     * * `manual` - Manual */
+    readonly trigger: EvalSuggestionRunTriggerEnumApi
+    /** When the run started. */
+    readonly created_at: string
+    /**
+     * When the run published its suggestions.
+     * @nullable
+     */
+    readonly completed_at: string | null
+}
+
+/**
+ * * `new_hog` - New Hog eval
+ * * `new_llm_judge` - New LLM judge
+ * * `fix_eval` - Fix an evaluation
+ * * `fix_prompt` - Fix a prompt
+ */
+export type EvalSuggestionKindEnumApi = (typeof EvalSuggestionKindEnumApi)[keyof typeof EvalSuggestionKindEnumApi]
+
+export const EvalSuggestionKindEnumApi = {
+    NewHog: 'new_hog',
+    NewLlmJudge: 'new_llm_judge',
+    FixEval: 'fix_eval',
+    FixPrompt: 'fix_prompt',
+} as const
+
+/**
+ * * `proposed` - Proposed
+ * * `accepted` - Accepted
+ * * `dismissed` - Dismissed
+ * * `expired` - Expired
+ */
+export type EvalSuggestionStatusEnumApi = (typeof EvalSuggestionStatusEnumApi)[keyof typeof EvalSuggestionStatusEnumApi]
+
+export const EvalSuggestionStatusEnumApi = {
+    Proposed: 'proposed',
+    Accepted: 'accepted',
+    Dismissed: 'dismissed',
+    Expired: 'expired',
+} as const
+
+export interface EvalSuggestionFilterApi {
+    /** Event property the suggested evaluation filters on. */
+    key: string
+    /** Values that match. Any of them matches. */
+    value: string[]
+    /** Property filter operator, such as 'exact'. */
+    operator: string
+    /** Property filter type, such as 'event'. */
+    type: string
+}
+
+export interface EvalSuggestionEvidenceApi {
+    /** Trace that shows the problem. Open it to read the example. */
+    trace_id: string
+    /** One line on what this trace shows. */
+    reason: string
+}
+
+/**
+ * * `no_runs` - No runs
+ * * `one_outcome` - One outcome
+ */
+export type EvalFixProblemEnumApi = (typeof EvalFixProblemEnumApi)[keyof typeof EvalFixProblemEnumApi]
+
+export const EvalFixProblemEnumApi = {
+    NoRuns: 'no_runs',
+    OneOutcome: 'one_outcome',
+} as const
+
+/**
+ * * `not_relevant` - Not relevant
+ * * `already_covered` - Already covered
+ * * `too_noisy` - Too noisy
+ * * `fixed_cause` - Fixed the cause
+ */
+export type EvalSuggestionDismissReasonEnumApi =
+    (typeof EvalSuggestionDismissReasonEnumApi)[keyof typeof EvalSuggestionDismissReasonEnumApi]
+
+export const EvalSuggestionDismissReasonEnumApi = {
+    NotRelevant: 'not_relevant',
+    AlreadyCovered: 'already_covered',
+    TooNoisy: 'too_noisy',
+    FixedCause: 'fixed_cause',
+} as const
+
+/**
+ * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
+ */
+export type EvalSuggestionApiDraft = { [key: string]: unknown }
+
+export interface EvalSuggestionApi {
+    /** Suggestion identifier. */
+    readonly id: string
+    /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an evaluation cannot; it has no evaluation to accept.
+     *
+     * * `new_hog` - New Hog eval
+     * * `new_llm_judge` - New LLM judge
+     * * `fix_eval` - Fix an evaluation
+     * * `fix_prompt` - Fix a prompt */
+    readonly kind: EvalSuggestionKindEnumApi
+    /** proposed until someone accepts or dismisses it.
+     *
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired */
+    readonly status: EvalSuggestionStatusEnumApi
+    /** False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo that change. Always true for other kinds. */
+    readonly applies: boolean
+    /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
+    readonly template_key: string
+    /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+    readonly headline: string
+    /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
+    readonly outcome: string
+    /** Why the issue matters for the project's users, or empty when nothing supports it. */
+    readonly reason: string
+    /** What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured. */
+    readonly observation: string
+    /** Where the observation came from, such as 'Sampled from the last 7 days'. */
+    readonly observation_scope: string
+    /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
+    readonly draft: EvalSuggestionApiDraft
+    /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
+    readonly filters: readonly EvalSuggestionFilterApi[]
+    /** Percentage (0-100) of matching units the evaluation runs on. */
+    readonly rollout_percentage: number
+    /**
+     * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
+     * @nullable
+     */
+    readonly measured_failure_rate: number | null
+    /**
+     * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
+     * @nullable
+     */
+    readonly sample_size: number | null
+    /** Up to 5 example traces, each with a one-line reason. */
+    readonly evidence: readonly EvalSuggestionEvidenceApi[]
+    /**
+     * Runs a week at the suggested rollout, for judges.
+     * @nullable
+     */
+    readonly estimated_weekly_runs: number | null
+    /**
+     * Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown.
+     * @nullable
+     */
+    readonly estimated_weekly_cost_usd: number | null
+    /** Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes. */
+    readonly judge_model: string
+    /**
+     * Evaluation that accepting this suggestion created.
+     * @nullable
+     */
+    readonly created_evaluation: string | null
+    /**
+     * Evaluation a fix_eval suggestion repairs.
+     * @nullable
+     */
+    readonly target_evaluation: string | null
+    /**
+     * Name of the evaluation a fix_eval suggestion repairs.
+     * @nullable
+     */
+    readonly target_evaluation_name: string | null
+    /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+     *
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome */
+    readonly fix_problem: EvalFixProblemEnumApi | null
+    /**
+     * Existing evaluation that may already cover this suggestion.
+     * @nullable
+     */
+    readonly similar_evaluation: string | null
+    /**
+     * Name of an existing evaluation that may already cover this suggestion.
+     * @nullable
+     */
+    readonly similar_evaluation_name: string | null
+    /** Reason given when the suggestion was dismissed, if any.
+     *
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause */
+    readonly dismiss_reason: EvalSuggestionDismissReasonEnumApi | null
+    /** When the run that produced the suggestion published it. */
+    readonly created_at: string
+}
+
+export interface EvalSuggestionListApi {
+    /** The latest completed run, which the suggestions come from. Null before the first one. */
+    run: EvalSuggestionRunApi | null
+    /** True while a run for this project is in progress. */
+    pending: boolean
+    /** Open suggestions of the latest run, best first. At most 3. */
+    results: EvalSuggestionApi[]
+}
+
+export interface EvalSuggestionAcceptApi {
+    /** The accepted suggestion. */
+    suggestion: EvalSuggestionApi
+    /** The evaluation the suggestion created, enabled. */
+    evaluation_id: string
+    /**
+     * Backfill that runs the new evaluation on recent data. Null when recent data holds no matching unit.
+     * @nullable
+     */
+    backfill_id: string | null
+    /**
+     * Units the backfill evaluates: at most 500 for a Hog check and 50 for a judge.
+     * @nullable
+     */
+    backfill_units: number | null
+}
+
+/**
+ * * `generation` - Generation
+ * * `trace` - Trace
+ * * `session` - Session
+ */
+export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
+
+export const EvaluationTargetEnumApi = {
+    Generation: 'generation',
+    Trace: 'trace',
+    Session: 'session',
+} as const
+
+export interface EvalSuggestionEstimateApi {
+    /** What one unit is: a generation, a trace, or a session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target: EvaluationTargetEnumApi
+    /** Units accept would evaluate on recent data. */
+    units: number
+    /**
+     * Start of the recent window accept covers.
+     * @nullable
+     */
+    window_start: string | null
+    /**
+     * End of the recent window accept covers.
+     * @nullable
+     */
+    window_end: string | null
+    /**
+     * Model a judge runs on: the default for the project's active key. Null for Hog checks.
+     * @nullable
+     */
+    judge_model: string | null
+    /**
+     * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+}
+
+export interface EvalSuggestionDismissApi {
+    /** Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.
+     *
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause */
+    reason?: EvalSuggestionDismissReasonEnumApi | null
+}
+
+/**
  * * `active` - Active
  * * `paused` - Paused
  * * `error` - Error
@@ -2745,19 +3042,6 @@ export interface EvaluationConditionApi {
     /** Property filters (event or person) that scope which generations match this condition set. */
     properties?: EvaluationConditionApiPropertiesItem[]
 }
-
-/**
- * * `generation` - Generation
- * * `trace` - Trace
- * * `session` - Session
- */
-export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
-
-export const EvaluationTargetEnumApi = {
-    Generation: 'generation',
-    Trace: 'trace',
-    Session: 'session',
-} as const
 
 /**
  * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
@@ -3081,6 +3365,11 @@ export interface EvaluationBackfillApi {
     readonly conditions: readonly EvaluationBackfillConditionApi[]
     /** Whether units with an existing result are evaluated again. */
     readonly rerun_existing: boolean
+    /**
+     * Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap.
+     * @nullable
+     */
+    readonly max_units: number | null
     /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
@@ -4104,10 +4393,17 @@ export interface EvaluationTestOnSampleRequestApi {
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
 
 export interface ClusteringConfigApi {
+    /** Whether this project has opted in to automated clustering. */
+    enabled: boolean
     /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
     event_filters: ClusteringConfigApiEventFiltersItem[]
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface ClusteringConfigSetEnabledApi {
+    /** Enable or disable automated clustering for this project. */
+    enabled: boolean
 }
 
 export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
@@ -4122,9 +4418,10 @@ export interface ClusteringConfigSetEventFiltersApi {
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringAnalysisLevelEnumApi =
+    (typeof ClusteringAnalysisLevelEnumApi)[keyof typeof ClusteringAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -4136,7 +4433,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4159,7 +4456,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4603,6 +4900,11 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly created_at?: string
 }
 
+export interface EvaluationReportGenerateResponseApi {
+    /** Server time of the request. The new report is the first run created after it. */
+    requested_at: string
+}
+
 export interface EvaluationReportSectionApi {
     /** Agent-generated section heading. */
     title?: string
@@ -4777,7 +5079,7 @@ export interface EvaluationReportMetricsApi {
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
     /**
-     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
+     * Pass percentage excluding N/A. Null when no results passed or failed.
      * @nullable
      */
     pass_rate?: number | null
@@ -4828,6 +5130,28 @@ export const EvaluationReportRunDeliveryStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `slack` - Slack
+ * * `email` - Email
+ */
+export type EvaluationReportRunDestinationTypeEnumApi =
+    (typeof EvaluationReportRunDestinationTypeEnumApi)[keyof typeof EvaluationReportRunDestinationTypeEnumApi]
+
+export const EvaluationReportRunDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Email: 'email',
+} as const
+
+export interface EvaluationReportDestinationApi {
+    /** Destination kind: 'slack' or 'email'.
+     *
+     * * `slack` - Slack
+     * * `email` - Email */
+    type: EvaluationReportRunDestinationTypeEnumApi
+    /** Slack channel name or email address. */
+    name: string
+}
+
 export interface EvaluationReportRunApi {
     /** UUID of this report run. */
     readonly id: string
@@ -4851,6 +5175,8 @@ export interface EvaluationReportRunApi {
     readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
+    /** Slack channels and email addresses this report was addressed to, including any that failed (see delivery_errors). Empty for reports sent before this was recorded. */
+    readonly delivery_destinations: readonly EvaluationReportDestinationApi[]
     /** When this report run was created. */
     readonly created_at: string
 }
@@ -6115,6 +6441,11 @@ export interface TaggerApi {
     readonly updated_at: string
     readonly created_by: UserBasicApi
     deleted?: boolean
+    /**
+     * The evaluation that replaced this tagger when it was migrated. Null until then.
+     * @nullable
+     */
+    readonly migrated_to_evaluation_id: string | null
 }
 
 export interface PaginatedTaggerListApi {
@@ -7483,6 +7814,10 @@ export type TaggersListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Only the tagger that was migrated to this evaluation
+     */
+    migrated_to_evaluation_id?: string
     /**
      * The initial index from which to return the results.
      */

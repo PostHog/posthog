@@ -413,7 +413,7 @@ class TestSignalReportArtefactHelpers(BaseTest):
         report.refresh_from_db()
         assert report.priority_sort_rank == 5
 
-    def test_cached_ranking_score_follows_scores_and_edits(self):
+    def test_cached_ranking_score_follows_scores_and_survives_edits(self):
         report = self._report()
         result = RankingModelResult(
             model_name="report_embeddings",
@@ -443,17 +443,12 @@ class TestSignalReportArtefactHelpers(BaseTest):
         assert report.ranking_fix_score == 0.6
         assert report.ranking_open_lift == 2.0
 
-        edit = SignalReportArtefact.objects.create(
+        SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
             content=json.dumps({"old_title": "t", "new_title": "new"}),
         )
-        report = SignalReport.objects.get(id=report.id)
-        assert report.ranking_scores is None
-        assert report.ranking_open_score is None
-
-        edit.delete()
         report = SignalReport.objects.get(id=report.id)
         assert report.ranking_open_score == 0.8
 
@@ -517,9 +512,8 @@ class TestSignalReportArtefactHelpers(BaseTest):
             stale.refresh_from_db()
             other.refresh_from_db()
             assert report.priority_sort_rank == stale.priority_sort_rank == 1
-            assert report.ranking_action_score == 0.8
-            assert report.ranking_action_lift == 2.0
-            assert stale.ranking_action_score is None
+            assert report.ranking_action_score == stale.ranking_action_score == 0.8
+            assert report.ranking_action_lift == stale.ranking_action_lift == 2.0
             assert other.priority_sort_rank == 5
 
     def test_append_status_rejects_log_content(self):
