@@ -43,8 +43,9 @@ def record_scope_resolution(request: Request, *, flat_route: bool) -> None:
     """
     # Analytics must never fail the request it observes.
     try:
-        # A query token picks the project on a flat route; on an @current route the alias wins over it.
-        token_decides = flat_route and bool(get_token(None, request))
+        # A query token picks the project on a flat route; on an @current route the alias wins over it. get_token can
+        # parse the body, so a request that failed authentication skips it.
+        token_decides = flat_route and request.user.is_authenticated and bool(get_token(None, request))
         setattr(request._request, _SCOPE_RESOLUTION_ATTR, _resolve(request, token_decides=token_decides))
     except Exception:
         logger.warning("scope_resolution_record_failed", exc_info=True)
