@@ -12,7 +12,7 @@ export interface NodeStatsLineProps {
     compact?: boolean
     /** Breaks between stats when the line runs out of room, instead of cutting the end off. */
     wrap?: boolean
-    /** Marks the stats as computed from the trace's earliest steps only. */
+    /** With `wrap`, marks the token counts as computed from the trace's earliest steps only. */
     partial?: boolean
     className?: string
 }
@@ -30,18 +30,16 @@ export function NodeStatsLine({
         return null
     }
     if (!wrap) {
-        return (
-            <PartialTotal partial={partial} className={cn('font-mono text-xs text-secondary truncate', className)}>
-                {parts.join(' · ')}
-            </PartialTotal>
-        )
+        return <span className={cn('font-mono text-xs text-secondary truncate', className)}>{parts.join(' · ')}</span>
     }
+    // The server reads a trace's cost and latency over all of its events, so only the token counts can be partial.
+    const partialParts = new Set(partial ? statParts({ ...stats, costUsd: null, latencyMs: null }) : [])
     return (
         <span className={cn('font-mono text-xs text-secondary', className)}>
             {parts.map((part, index) => (
                 <Fragment key={index}>
                     {index > 0 ? ' · ' : null}
-                    <PartialTotal partial={partial}>{part}</PartialTotal>
+                    <PartialTotal partial={partialParts.has(part)}>{part}</PartialTotal>
                 </Fragment>
             ))}
         </span>

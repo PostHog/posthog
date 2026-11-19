@@ -126267,7 +126267,7 @@ export namespace Schemas {
       totals: TraceNodeStats;
       hasError: boolean;
       errorCount: number;
-      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      /** Whether the token counts, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. Latency and cost always cover the whole trace. */
       totalsPartial: boolean;
       person: TracePerson | null;
       tree: TraceNode[];
@@ -126628,7 +126628,7 @@ export namespace Schemas {
       totals: TraceNodeStats;
       hasError: boolean;
       errorCount: number;
-      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      /** Whether the token counts, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. Latency and cost always cover the whole trace. */
       totalsPartial: boolean;
       /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
       defaultNodeId: string | null;

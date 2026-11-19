@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { urls } from 'scenes/urls'
 
@@ -67,6 +67,27 @@ describe('TraceSummaryBar', () => {
         expect(screen.getByText('ada@example.com').closest('a')?.getAttribute('href')).toContain(
             urls.personByDistinctId('user-1')
         )
+    })
+
+    it.each([
+        ['tokens', '1,840 in', true],
+        ['latency', '2.31s', false],
+        ['cost', '$0.0021', false],
+    ])('on a trace with partial totals, the %s stat (%s) shows the partial hint: %s', async (_stat, text, hinted) => {
+        const trace = makeTraceResource({
+            totals: { ...makeTraceResource().totals, costUsd: 0.0021, inputTokens: 1840, latencyMs: 2310 },
+            totalsPartial: true,
+        })
+        render(<TraceSummaryBar overview={trace} />)
+
+        const value = screen.getByText(text)
+        fireEvent.pointerEnter(value, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(value)
+        fireEvent.pointerMove(value, { pointerType: 'mouse' })
+        fireEvent.mouseMove(value)
+
+        const hint = screen.findByText(/come from its earliest steps only/)
+        await (hinted ? await expect(hint).resolves.toBeTruthy() : await expect(hint).rejects.toThrow())
     })
 
     it('names the thumbs on the feedback chip', () => {

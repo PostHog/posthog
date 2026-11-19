@@ -175,7 +175,7 @@ describe('TraceDrawerHost', () => {
     })
 
     it("shows the row's name, person and partial totals while the trace loads, then the trace's", async () => {
-        const totals = { ...makeTraceResource().totals, latencyMs: 2310 }
+        const totals = { ...makeTraceResource().totals, inputTokens: 1840 }
         const row: TraceListRow = {
             ...makeSeededRow({ id: 'a', name: 'row-a', totals, totalsPartial: true }),
             person: { distinctId: 'row-person', label: 'row-person@example.com' },
@@ -189,7 +189,7 @@ describe('TraceDrawerHost', () => {
         expect(view.getByText('row-person@example.com')).toBeTruthy()
         expect(view.getByLabelText('Loading trace')).toBeTruthy()
         expect(view.container.querySelector('[data-attr="trace-view-search-input"]')).toBeNull()
-        hover(view.getByText('2.31s'))
+        hover(view.getByText('1,840 in'))
         expect(await view.findByText(PARTIAL_HINT)).toBeTruthy()
 
         release()
@@ -197,7 +197,7 @@ describe('TraceDrawerHost', () => {
         expect(view.queryByText('row-a')).toBeNull()
         expect(view.queryByText('row-person@example.com')).toBeNull()
         expect(view.getByText('ada@example.com')).toBeTruthy()
-        hover(view.getByText('2.31s'))
+        hover(view.getByText('1,840 in'))
         // Longer than the tooltip's open delay, so a marker that survived the answer would show its hint again.
         await expect(view.findByText(PARTIAL_HINT)).rejects.toThrow()
     })

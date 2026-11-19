@@ -39,7 +39,7 @@ function valueOf<T>(load: TraceCellLoad<T | null> | undefined): T | null {
     return load?.status === 'ready' ? load.value : null
 }
 
-function TotalValue({ value, partial }: { value: string | null; partial: boolean }): JSX.Element {
+function TotalValue({ value, partial = false }: { value: string | null; partial?: boolean }): JSX.Element {
     if (value === null) {
         return <TraceCellValue>{null}</TraceCellValue>
     }
@@ -103,11 +103,8 @@ export function tracesTableColumns({
             title: 'Latency',
             key: 'latency',
             align: 'right',
-            render: (_, { totals, totalsPartial }) => (
-                <TotalValue
-                    value={totals.latencyMs !== null ? formatLatencyMs(totals.latencyMs) : null}
-                    partial={totalsPartial}
-                />
+            render: (_, { totals }) => (
+                <TotalValue value={totals.latencyMs !== null ? formatLatencyMs(totals.latencyMs) : null} />
             ),
         },
         {
@@ -125,11 +122,8 @@ export function tracesTableColumns({
             title: 'Cost',
             key: 'cost',
             align: 'right',
-            render: (_, { totals, totalsPartial }) => (
-                <TotalValue
-                    value={totals.costUsd !== null ? formatCostUsd(totals.costUsd) : null}
-                    partial={totalsPartial}
-                />
+            render: (_, { totals }) => (
+                <TotalValue value={totals.costUsd !== null ? formatCostUsd(totals.costUsd) : null} />
             ),
         },
         {

@@ -9,11 +9,10 @@ from .node_labels import number_repeated_names
 from .person import person_label
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
+from .trace_expression_queries import BILLED_EVENT_NAMES
 from .trace_queries import PersonRow, TraceEventRow
 from .tree import TreeNode, build_tree
 from .usage import Usage, sum_known
-
-BILLED_EVENTS = frozenset({"$ai_generation", "$ai_embedding"})
 
 
 class Trace:
@@ -41,7 +40,7 @@ class Trace:
 
     @property
     def session_id(self) -> str | None:
-        return next((event.row.session_id for event in self.events if event.row.session_id), None)
+        return next((event.row.trace_session_id for event in self.events), None)
 
     @cached_property
     def name(self) -> str | None:
@@ -82,11 +81,11 @@ class Trace:
 
     @cached_property
     def totals(self) -> Usage:
-        billed = [event.row for event in self.events if event.row.event in BILLED_EVENTS]
-        cost = sum_known(row.total_cost_usd for row in billed)
+        billed = [event.row for event in self.events if event.row.event in BILLED_EVENT_NAMES]
+        cost = next((event.row.trace_cost_usd for event in self.events), None)
         return Usage(
             cost_usd=round(cost, 10) if cost is not None else None,
-            latency_s=self._total_latency_s(),
+            latency_s=next((event.row.trace_latency_s for event in self.events), None),
             input_tokens=sum_known(row.input_tokens for row in billed),
             output_tokens=sum_known(row.output_tokens for row in billed),
             cache_read_tokens=sum_known(row.cache_read_input_tokens for row in billed),
@@ -121,23 +120,6 @@ class Trace:
         if self.person is None or not self.person.distinct_id:
             return None
         return person_label(self.person)
-
-    def _total_latency_s(self) -> float:
-        # The root $ai_trace event reports the whole trace's wall clock, so its children are already inside it.
-        root_latencies = [
-            event.row.latency
-            for event in self.events
-            if event.is_trace_event and event.row.latency is not None and event.row.latency > 0
-        ]
-        if root_latencies:
-            return round(max(root_latencies), 2)
-        timed = [event for event in self.events if (event.row.latency or 0) > 0]
-        if timed and all(event.kind == "generation" for event in timed):
-            return round(sum(event.row.latency or 0 for event in timed), 2)
-        return round(
-            sum(event.row.latency or 0 for event in self.events if event.row.parent_id in (None, self.id)),
-            2,
-        )
 
 
 def _in_tree_order(nodes: Sequence[TreeNode]) -> Iterator[TreeNode]:

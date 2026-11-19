@@ -77,8 +77,8 @@ class TraceOverview(Contract):
     has_error: bool
     error_count: int
     totals_partial: bool = Field(
-        description="Whether the totals, error count and tools were computed from the trace's earliest events only, "
-        "because the trace has more events than were read."
+        description="Whether the token counts, error count and tools were computed from the trace's earliest events "
+        "only, because the trace has more events than were read. Latency and cost always cover the whole trace."
     )
 
 

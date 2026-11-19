@@ -34,11 +34,19 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 
 from .error_text import error_text, is_truthy_json, parse_json
 from .events_fallback import FallbackWindow, events_filter, fallback_window, unhinted_window
-from .person import trace_distinct_id
 from .tool_calls import called_tool_names
+from .trace_expression_queries import (
+    AI_EVENTS_COLUMNS,
+    NODE_EVENT_NAMES,
+    TRACE_EVENT_NAMES,
+    grouped,
+    over_trace,
+    trace_cost,
+    trace_latency,
+    trace_person_id,
+    trace_session_id,
+)
 
-NODE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding")
-TRACE_EVENT_NAMES = ("$ai_trace", *NODE_EVENT_NAMES)
 _HEAVY_COLUMNS = ("input", "output", "output_choices", "input_state", "output_state", "tools")
 NODE_COLUMNS = ("uuid", "event", "timestamp", "properties", *_HEAVY_COLUMNS)
 # The largest result HogQL returns; without an explicit limit it returns 100 rows.
@@ -60,7 +68,6 @@ class TraceEventRow:
     event: str
     timestamp: datetime
     distinct_id: str
-    session_id: str | None
     parent_id: str | None
     span_id: str | None
     generation_id: str | None
@@ -83,6 +90,10 @@ class TraceEventRow:
     error_text: str | None
     tools_called: tuple[str, ...]
     is_support: bool
+    trace_latency_s: float | None
+    trace_cost_usd: float | None
+    trace_distinct_id: str | None
+    trace_session_id: str | None
 
 
 @frozen
@@ -206,9 +217,54 @@ def _trace_rows_query(columns: Sequence[str] = tuple(_SELECTED)) -> ast.SelectQu
         select=_select({column: _SELECTED[column] for column in columns}),
         select_from=ai_events(),
         where=ast.And(exprs=[event_in(TRACE_EVENT_NAMES), filter_conditions()]),
-        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+        order_by=[
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
+            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
+        ],
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=MAX_TRACE_EVENTS),
+    )
+
+
+def _column_name(expr: ast.Expr) -> str:
+    if isinstance(expr, ast.Alias):
+        return expr.alias
+    assert isinstance(expr, ast.Field)
+    return str(expr.chain[-1])
+
+
+_TRACE_TOTALS = {
+    "trace_latency_s": trace_latency,
+    "trace_cost_usd": trace_cost,
+    "trace_distinct_id": trace_person_id,
+    "trace_session_id": trace_session_id,
+}
+
+
+def _trace_total_columns() -> list[ast.Alias]:
+    over = over_trace(ast.Field(chain=["trace_id"]))
+    return [ast.Alias(alias=alias, expr=build(AI_EVENTS_COLUMNS, over)) for alias, build in _TRACE_TOTALS.items()]
+
+
+def with_trace_totals(rows: ast.SelectQuery, *, limit: int | None, extra: Sequence[ast.Alias] = ()) -> ast.SelectQuery:
+    """Wraps deduplicated rows so each carries its trace's latency, cost, person and session, computed over every row
+    of the trace before `limit` cuts the read. The `extra` columns come after the totals."""
+    columns = [_column_name(expr) for expr in rows.select]
+    trace_id = ast.Field(chain=["trace_id"])
+    inner_select = [*rows.select, *extra] if "trace_id" in columns else [*rows.select, *extra, trace_id]
+    inner = replace(rows, select=inner_select, order_by=None, limit=None)
+    return ast.SelectQuery(
+        select=[
+            *(ast.Field(chain=[column]) for column in columns),
+            *_trace_total_columns(),
+            *(ast.Field(chain=[column.alias]) for column in extra),
+        ],
+        select_from=ast.JoinExpr(table=inner),
+        order_by=[
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
+            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
+        ],
+        limit=ast.Constant(value=limit) if limit is not None else None,
     )
 
 
@@ -428,14 +484,13 @@ def _token_count(native: Any, raw: Any) -> int | None:
 
 
 def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
-    raw = dict(zip(_SELECTED, values))
+    raw = dict(zip([*_SELECTED, *_TRACE_TOTALS], values))
     tokens = {column: _token_count(raw[column], raw[f"{column}_raw"]) for column in TOKEN_PROPERTIES}
     return TraceEventRow(
         uuid=str(raw["uuid"]),
         event=str(raw["event"]),
         timestamp=raw["timestamp"],
         distinct_id=str(raw["distinct_id"]),
-        session_id=read_text(raw["session_id"]),
         parent_id=read_text(raw["parent_id"]),
         span_id=read_text(raw["span_id"]),
         generation_id=read_text(raw["generation_id"]),
@@ -455,6 +510,10 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
         error_text=error_text(raw["error_raw"]),
         tools_called=called_tool_names(raw["event"], raw["tools_called"]),
         is_support=read_flag(raw["is_support"]),
+        trace_latency_s=read_number(raw["trace_latency_s"]),
+        trace_cost_usd=read_number(raw["trace_cost_usd"]),
+        trace_distinct_id=str(raw["trace_distinct_id"]) if raw["trace_distinct_id"] else None,
+        trace_session_id=read_text(raw["trace_session_id"]),
     )
 
 
@@ -639,7 +698,7 @@ def load_trace(
         _trace_event_row(values)
         for values in read_trace(
             "ai_trace_rows",
-            _trace_rows_query,
+            lambda: with_trace_totals(_trace_rows_query(), limit=MAX_TRACE_EVENTS),
             team,
             user,
             trace_id,
@@ -648,7 +707,7 @@ def load_trace(
             workload=workload,
         )
     )
-    distinct_id = trace_distinct_id(rows)
+    distinct_id = rows[0].trace_distinct_id if rows else None
     person = (
         load_people(team, user, [distinct_id], name=_TRACE_PERSON_QUERY_NAME, workload=workload)[distinct_id]
         if distinct_id
@@ -689,7 +748,11 @@ def _page_rows_query(trace_count: int, cap: int) -> ast.SelectQuery:
         trace_rows, select=[*trace_rows.select, ast.Field(chain=["trace_id"])], order_by=None, limit=None
     )
     return ast.SelectQuery(
-        select=[ast.Field(chain=[column]) for column in (*_SELECTED, "trace_id")],
+        select=[
+            *(ast.Field(chain=[column]) for column in _SELECTED),
+            *_trace_total_columns(),
+            ast.Field(chain=["trace_id"]),
+        ],
         select_from=ast.JoinExpr(table=deduplicated),
         order_by=[
             ast.OrderExpr(expr=equals("event", "$ai_trace"), order="DESC"),
@@ -706,9 +769,9 @@ def _page_rows_settings() -> HogQLGlobalSettings:
 
 
 def _page_trace_rows(read: _PageRead, cap: int) -> dict[str, PageTraceRows]:
-    grouped: dict[str, list[TraceEventRow]] = {}
+    by_trace: dict[str, list[TraceEventRow]] = {}
     for *values, trace_id in read.rows:
-        grouped.setdefault(str(trace_id), []).append(_trace_event_row(values))
+        by_trace.setdefault(str(trace_id), []).append(_trace_event_row(values))
     # The read orders each trace's rows trace event first, then by time and uuid, so the cut keeps the earliest rows
     # and keeps the same rows on every read.
     return {
@@ -717,7 +780,7 @@ def _page_trace_rows(read: _PageRead, cap: int) -> dict[str, PageTraceRows]:
             truncated=len(rows) > cap,
             from_shared_table=trace_id in read.shared_table_trace_ids,
         )
-        for trace_id, rows in grouped.items()
+        for trace_id, rows in by_trace.items()
     }
 
 
@@ -772,37 +835,16 @@ def load_traces_rows(
 
 
 TRACE_USERS_QUERY_NAME = "ai_traces_users"
-_TRACE_USER_COLUMNS = ("event", "timestamp", "distinct_id", "trace_id")
-
-
-@frozen
-class _TraceUserRow:
-    event: str
-    timestamp: datetime
-    distinct_id: str
 
 
 def _trace_users_query(trace_count: int) -> ast.SelectQuery:
-    # The earliest identified event of each kind is enough for trace_distinct_id to choose from, so a trace reads at
-    # most one row per event name however long it is.
+    trace_id = ast.Field(chain=["trace_id"])
     return ast.SelectQuery(
-        select=[ast.Field(chain=[column]) for column in _TRACE_USER_COLUMNS],
+        select=[ast.Alias(alias="person_distinct_id", expr=trace_person_id(AI_EVENTS_COLUMNS, grouped)), trace_id],
         select_from=ai_events(),
-        where=ast.And(
-            exprs=[
-                event_in(TRACE_EVENT_NAMES),
-                ast.Call(name="notEmpty", args=[ast.Field(chain=["distinct_id"])]),
-                filter_conditions(),
-            ]
-        ),
-        order_by=[
-            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
-            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
-        ],
-        limit_by=ast.LimitByExpr(
-            n=ast.Constant(value=1), exprs=[ast.Field(chain=["trace_id"]), ast.Field(chain=["event"])]
-        ),
-        limit=ast.Constant(value=trace_count * len(TRACE_EVENT_NAMES)),
+        where=ast.And(exprs=[event_in(TRACE_EVENT_NAMES), filter_conditions()]),
+        group_by=[trace_id],
+        limit=ast.Constant(value=trace_count),
     )
 
 
@@ -812,14 +854,8 @@ def load_trace_distinct_ids(
     requested = list(dict.fromkeys(trace_ids))
     if not requested:
         return {}
-    grouped: dict[str, list[_TraceUserRow]] = {}
-    for event, timestamp, distinct_id, trace_id in _read_page(
-        TRACE_USERS_QUERY_NAME, _trace_users_query, team, user, requested, window
-    ).rows:
-        grouped.setdefault(str(trace_id), []).append(
-            _TraceUserRow(event=str(event), timestamp=timestamp, distinct_id=str(distinct_id))
-        )
-    return {trace_id: distinct_id for trace_id, rows in grouped.items() if (distinct_id := trace_distinct_id(rows))}
+    read = _read_page(TRACE_USERS_QUERY_NAME, _trace_users_query, team, user, requested, window)
+    return {str(trace_id): str(distinct_id) for distinct_id, trace_id in read.rows if distinct_id}
 
 
 def canonical_uuid(value: str) -> str | None:
@@ -1053,8 +1089,9 @@ def _trace_search_query(needles: SearchNeedles) -> ast.SelectQuery:
         *(_occurrences(column, needles.text) for column in _TEXT_SEARCHED),
     ]
     match_count = reduce(lambda left, right: ast.Call(name="plus", args=[left, right]), counts)
-    query = _trace_rows_query()
-    return replace(query, select=[*query.select, ast.Alias(alias="match_count", expr=match_count)])
+    return with_trace_totals(
+        _trace_rows_query(), limit=MAX_TRACE_EVENTS, extra=[ast.Alias(alias="match_count", expr=match_count)]
+    )
 
 
 def load_trace_search(
