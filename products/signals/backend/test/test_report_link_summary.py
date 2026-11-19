@@ -106,6 +106,19 @@ class TestChooseLinkSummary(SimpleTestCase):
         assert summary.kind == LinkStripKind.PLAN
         assert summary.report is None
 
+    def test_a_plan_inside_a_larger_plan_shows_its_own_steps(self) -> None:
+        summary = choose_link_summary(
+            report_id="inner",
+            edges=[ReportEdge(source_id="inner", kind=ReportLinkKind.PART_OF, target_id="outer")],
+            references={report_id: _ref(report_id) for report_id in ("inner", "outer", "leaf")},
+            plans={"inner": _plan("inner", "leaf"), "outer": _plan("outer", "inner")},
+        )
+
+        assert summary is not None
+        assert summary.kind == LinkStripKind.PLAN
+        assert summary.plan is not None and [step.id for step in summary.plan.steps] == ["leaf"]
+        assert [(link.kind, link.report.id) for link in summary.other_links] == [(ReportLinkKind.PART_OF, "outer")]
+
     def test_a_report_with_no_live_link_gets_no_strip(self) -> None:
         assert choose_link_summary(report_id="lonely", edges=[], references={}, plans={}) is None
 

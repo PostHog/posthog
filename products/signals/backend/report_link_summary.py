@@ -141,16 +141,18 @@ def choose_link_summary(
     plan: LinkPlanSummary | None = None
     hidden: set[tuple[ReportLinkKind, str]] = set()
 
-    if part_of is not None:
+    # A report with steps of its own shows them even when it is a step of a larger plan, as the
+    # report detail does (`report_plan`). Its link to the larger plan stays in `other_links`.
+    if report_id in plans:
+        kind = LinkStripKind.PLAN
+        plan = plans[report_id]
+    elif part_of is not None:
         kind = LinkStripKind.PART_OF
         report = references[part_of.target_id]
         plan = plans[part_of.target_id]
         hidden.add((ReportLinkKind.PART_OF, part_of.target_id))
         # Dependencies between the steps of one plan are what the step buttons show.
         hidden.update((ReportLinkKind.DEPENDS_ON, step.id) for step in plan.steps)
-    elif report_id in plans:
-        kind = LinkStripKind.PLAN
-        plan = plans[report_id]
     else:
         edge = next((edge for strip_kind in _STRIP_ORDER for edge in live_edges if edge.kind == strip_kind), None)
         if edge is None:
