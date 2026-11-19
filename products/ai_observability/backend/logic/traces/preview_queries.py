@@ -104,14 +104,47 @@ def _per_tail_item(expr: ast.Expr, tail: int) -> ast.Expr:
     return _call("arrayMap", ast.Lambda(args=["item"], expr=expr), _tail_items(tail))
 
 
-def _input_tail_over_caps(tail: int) -> ast.Expr:
-    return _per_tail_item(_over_cap(_field("item")), tail)
-
-
-def _input_tail(tail: int) -> ast.Expr:
-    # An oversized item is replaced rather than dropped, so the positions stay aligned with its over-cap flags.
+def _unreadable_tail_items(tail: int, budget: int | None) -> ast.Expr:
+    """One flag per tail item: over the cap, or older than the newest items that fit in `budget` bytes in total."""
+    if budget is None:
+        return _per_tail_item(_over_cap(_field("item")), tail)
     item = _field("item")
-    kept_items = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value="null"), item), tail)
+    sizes = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value=4), _call("length", item)), tail)
+    sizes_from_here_to_the_end = _call("arrayReverse", _call("arrayCumSum", _call("arrayReverse", sizes)))
+    return _call(
+        "arrayMap",
+        ast.Lambda(
+            args=["item", "size_to_end"],
+            expr=_call(
+                "or",
+                _over_cap(item),
+                _compare(ast.CompareOperationOp.Gt, _field("size_to_end"), ast.Constant(value=budget)),
+            ),
+        ),
+        _tail_items(tail),
+        sizes_from_here_to_the_end,
+    )
+
+
+def _input_tail_over_caps(tail: int, budget: int | None) -> ast.Expr:
+    return _unreadable_tail_items(tail, budget)
+
+
+def _input_tail(tail: int, budget: int | None) -> ast.Expr:
+    # An unreadable item is replaced rather than dropped, so the positions stay aligned with its flags.
+    item = _field("item")
+    if budget is None:
+        kept_items = _per_tail_item(_call("if", _over_cap(item), ast.Constant(value="null"), item), tail)
+    else:
+        kept_items = _call(
+            "arrayMap",
+            ast.Lambda(
+                args=["item", "unreadable"],
+                expr=_call("if", _field("unreadable"), ast.Constant(value="null"), item),
+            ),
+            _tail_items(tail),
+            _unreadable_tail_items(tail, budget),
+        )
     joined = _call(
         "concat",
         ast.Constant(value="["),
@@ -138,18 +171,18 @@ def _read_for(reads: PreviewReads) -> dict[str, Sequence[str]]:
     }
 
 
-def _values_select(reads: PreviewReads, tail: int) -> list[ast.Expr]:
+def _values_select(reads: PreviewReads, tail: int, budget: int | None) -> list[ast.Expr]:
     read_for = _read_for(reads)
     selected: list[ast.Expr] = [
         _field("uuid"),
         _field("event"),
         ast.Alias(
             alias="input_item_over_caps",
-            expr=_for(read_for[_TAIL_PROPERTY], _input_tail_over_caps(tail), ast.Array(exprs=[])),
+            expr=_for(read_for[_TAIL_PROPERTY], _input_tail_over_caps(tail, budget), ast.Array(exprs=[])),
         ),
     ]
     for name, column in _COLUMNS.items():
-        value = _input_tail(tail) if name == _TAIL_PROPERTY else _capped(_field(column))
+        value = _input_tail(tail, budget) if name == _TAIL_PROPERTY else _capped(_field(column))
         # An alias named like its column would shadow the column in the over-cap check.
         selected += [
             ast.Alias(alias=f"{column}_value", expr=_for(read_for[name], value, ast.Constant(value=None))),
@@ -197,9 +230,9 @@ def _picks_query(trace_ids: Sequence[str], where: ast.Expr, has_state: ast.Expr)
     )
 
 
-def _values_query(reads: PreviewReads, tail: int, where: ast.Expr) -> ast.SelectQuery:
+def _values_query(reads: PreviewReads, tail: int, budget: int | None, where: ast.Expr) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=_values_select(reads, tail),
+        select=_values_select(reads, tail, budget),
         select_from=ai_events(),
         where=where,
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[_field("uuid")]),
@@ -276,10 +309,11 @@ def load_preview_values(
     window: FallbackWindow | None = None,
     name: str = PREVIEWS_QUERY_NAME,
     tail: int = TURN_INPUT_TAIL,
+    tail_max_bytes: int | None = None,
 ) -> dict[str, PreviewEventValues]:
     if not reads.event_ids:
         return {}
-    results = _read(name, _values_query(reads, tail, _values_where(reads, window)), team, user, window)
+    results = _read(name, _values_query(reads, tail, tail_max_bytes, _values_where(reads, window)), team, user, window)
     rows = (
         PreviewEventValues(
             uuid=str(uuid),
