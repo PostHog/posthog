@@ -1,0 +1,51 @@
+base summary: the stored summary hoglint-summary-p6-1a14996449eb43e698a4a2249f72bf81 lacks the group edges compare lists, so the full base scan ran
+findings and new pairs are against base code under the base policy
+findings resolved (0)
+findings new (2)
+  public-surface	products.event_definitions.backend.models.event_definition.EventDefinition	products.visual_review.backend.logic.shadow_probe	import
+  public-surface	products.event_definitions.backend.models.property_definition.PropertyDefinition	products.visual_review.backend.logic.shadow_probe	import
+ledger lines added (0)
+ledger lines removed (0)
+zero-net swaps (0)
+existing debt in touched modules (advisory) (0)
+policy entries changed (0)
+new group edges (pair, kind, context) (2)
+  visual_review event_definitions import prod
+  visual_review event_definitions reference function_local+prod
+files that stop being watched (advisory: a change to one no longer runs the full suite) (0)
+code growth (fails) (2)
+  public-surface products.event_definitions.backend.models.event_definition.EventDefinition import visual_review: 0 -> 1
+  public-surface products.event_definitions.backend.models.property_definition.PropertyDefinition import visual_review: 0 -> 1
+admitted moves (review) (0)
+code growth a new exception allows (needs a person's review) (0)
+rule growth (passes) (0)
+debt the new scanner, policy or environment no longer sees (review) (0)
+incomplete, introduced (blocks) (0)
+incomplete, ambiguous replacement (blocks) (0)
+incomplete, inherited (reported) (137)
+  dynamic-imports: dynamic-import '' did not resolve
+  dynamic-imports: dynamic-import '' did not resolve
+hoglint: this commit is blocked: 2 new findings.
+New findings by rule:
+     2  public-surface
+Fix each finding, or stop and tell the person. Do not edit hoglint.ledger, hoglint.exceptions.toml, hoglint.toml or a preset to make this check pass.
+new findings (2)
+  public-surface: products.visual_review.backend.logic.shadow_probe names products.event_definitions.backend.models.event_definition.EventDefinition, which is not exported to it
+    at products/visual_review/backend/logic/shadow_probe.py:1  [team-devex]
+    why: Code outside a product must use the product only through its facade. A name from inside the product makes a coupling that the owners of the product cannot see.
+    fix (safe): If the facade of the product exports the same object, import it from the facade.
+    fix (needs care): If the code belongs to the product, move it into the product.
+    needs a person: If the facade must export a new name, stop and tell the person. The owners of the product decide what its facade exports.
+    see: hoglint explain public-surface
+  public-surface: products.visual_review.backend.logic.shadow_probe names products.event_definitions.backend.models.property_definition.PropertyDefinition, which is not exported to it
+    at products/visual_review/backend/logic/shadow_probe.py:2  [team-devex]
+advisory rows (898)
+  request-path: ee.settings reaches products.actions.backend.facade.api.find_action_team_id: ee.settings -> posthog.middleware.AuthenticationMiddleware -> products.actions.backend.facade.api.find_action_team_id
+    at ee/settings.py:64
+unknowns (137)
+  get-model [inherited, not-modelled] posthog/admin/console/organization_deletion_panels.py:64: model-label 'apps.get_model' did not resolve
+  get-model [inherited, not-modelled] posthog/api/file_system/access_levels.py:134: model-label 'apps.get_model' did not resolve
+unknowns attributed against the base: 0 introduced, 0 ambiguous, 137 inherited
+level isolated: 25 pass, 74 fail
+10145 findings accepted by the ledger
+What the hook checks and what to do: hoglint help hook.
