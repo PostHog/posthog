@@ -22,6 +22,10 @@ rules:
       owners: team-devex
     - match: '/email.py'
       owners: team-workflows
+    - match:
+          - '/entitlements/'
+          - '/models/organization_entitlement_applied_state.py'
+      owners: team-billing
     - match: '/heatmaps/'
       owners: team-web-analytics
     - match: '/hogql/'
