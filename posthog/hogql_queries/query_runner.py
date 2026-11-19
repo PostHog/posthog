@@ -170,6 +170,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
     QueryLane,
+    QueueWait,
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
@@ -297,6 +298,7 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
+DASHBOARD_V2_FLAG = "dashboard-v2"
 
 API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     "posthog_api_queries_budget_limited_total",
@@ -2536,6 +2538,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Which per-organization app limits this run takes its slots from."""
         return QueryLane.ANALYTICS
 
+    def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
+        """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
+        if dashboard_id is None or is_api_key_access or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG):
+            return None
+        return QueueWait()
+
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
 
@@ -2580,6 +2588,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             team_id=self.team.id,
                             is_api=is_api_key_access,
                         )
+                    )
+                elif queue_wait := self._dashboard_queue_wait(dashboard_id, is_api_key_access=is_api_key_access):
+                    # The dashboard slot comes first here, so a tile waiting for it holds no organization slot.
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                            queue_wait=queue_wait,
+                        )
+                    )
+                    limiter_stack.enter_context(
+                        app_org_concurrency_slot(self.team, task_id=self.query_id, queue_wait=queue_wait)
                     )
                 else:
                     limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
