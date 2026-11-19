@@ -26,7 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
@@ -205,6 +205,13 @@ def set_check_status(configuration_id: UUID, check_status: str) -> None:
     """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
+
+
+def set_owner(configuration_id: UUID, owner: PlatformAlertOwner) -> None:
+    """Hand a configuration to an owner without touching its source's row, as a handback that lands
+    after a request read the row leaves it. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(owner=owner)
 
 
 def set_check_interval_minutes(configuration_id: UUID, minutes: int) -> None:

@@ -383,7 +383,8 @@ note, and drops its oldest fire when full. Every other rejection (pause, enrolme
 missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
 hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
 allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
+queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 
@@ -585,12 +586,15 @@ Claim content stores a server-generated `display_name`: a phase label for intern
 Unknown clients use "Alex's agent". The label is fixed at claim time and does not participate in ownership checks; older claims can omit it.
 
 **Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
-The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
+The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another person's claim or a task claim requires explicit `takeover=true`.
+A person's claim, direct or through an external agent, covers all of their actors: the person, each of their agents, and tasks they started. Any of them resumes it without takeover, adds work to it, and can release it.
+On an API request the `X-PostHog-Task-Id` header is caller-supplied, so a task counts as its creator only when the creator authenticates the request, even when the task is already associated with the claim.
 The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
 Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
 When a person holds the claim and starts an implementation task themselves, the task works under that claim instead of replacing it, so the person stays the owner while the agent writes the PR.
+The task id header is caller-supplied, so a task counts as its creator only on requests the creator authenticates.
 A task started by anyone else is refused while a person holds the claim.
-That task can resume the person's claim and add pull requests and notes to it, but only the person can release it.
+An explicit takeover by another actor of the same person still moves the claim, for example when a person turns their agent's claim into their own.
 A takeover can name the claim it expects to replace in `takeover_claim_id`, and the server refuses it when a different claim is active.
 In the Inbox, a suggested reviewer claims a report from their own row, and the report shows who works on it under the title. Agent and task claims are not shown there, because a person still has to review the agent's work.
 Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
