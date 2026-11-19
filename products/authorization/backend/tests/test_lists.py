@@ -30,6 +30,7 @@ from products.authorization.backend.logic import session
 from products.authorization.backend.presentation.querysets import (
     can_filter_queryset,
     filter_file_system_queryset,
+    filter_projects,
     filter_queryset,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -281,6 +282,12 @@ class TestListsMatchCurrentRules(BaseTest):
         )
         assert not result.excluded
         assert result.ids == {str(team_id) for team_id in expected.values_list("id", flat=True)}
+        projects = filter_projects(
+            Team.objects.filter(organization=self.organization),
+            organization_id=self.organization.id,
+            subject=Subject(user_id=self.user.id),
+        )
+        assert set(projects.values_list("id", flat=True)) == set(expected.values_list("id", flat=True))
 
     def test_list_over_the_limit_allows_nothing(self) -> None:
         self._rule("dashboard", "none")

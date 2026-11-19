@@ -131,7 +131,10 @@ def _list_access(session: Session, resource: Resource, principal: Any) -> UserAc
 
 
 def _organization_access(session: Session, user: User, organization_id: str) -> UserAccessControl:
-    access = session.access.get(_principal_key(user))
+    key = _principal_key(user)
+    if (organization_access := session.organization_access.get((key, organization_id))) is not None:
+        return organization_access
+    access = session.access.get(key)
     # A project list reads the organization's rules, which an instance for any of its teams already holds.
     if access is not None and access.team is not None and str(access.team.organization_id) == organization_id:
         return access
