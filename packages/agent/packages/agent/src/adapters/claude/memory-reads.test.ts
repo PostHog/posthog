@@ -54,12 +54,6 @@ describe("createMemoryReadHook", () => {
       expected: [runner],
     },
     {
-      name: "an MCP tool naming the file",
-      tool: "mcp__files__read",
-      input: () => ({ name: "feedback_test_runner.md" }),
-      expected: [runner],
-    },
-    {
       name: "Grep on the memory directory, from the response",
       tool: "Grep",
       input: () => ({ pattern: "zebra", path: memoryDir("-tmp-workspace") }),
@@ -93,9 +87,9 @@ describe("createMemoryReadHook", () => {
       expected: [],
     },
     {
-      name: "a subagent launch whose prompt names the file",
-      tool: "Agent",
-      input: () => ({ prompt: "Read memory/feedback_test_runner.md" }),
+      name: "a tool that cannot read files",
+      tool: "mcp__posthog-code-tools__task_summary_update",
+      input: () => ({ summary: "The bird is in feedback_test_runner.md" }),
       expected: [],
     },
     {

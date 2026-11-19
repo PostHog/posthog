@@ -17,14 +17,7 @@ export interface MemoryRead extends MemoryFile {
 export type OnMemoryRead = (read: MemoryRead) => void;
 
 const INDEX_FILE = "MEMORY.md";
-const NON_READ_TOOLS = new Set([
-  "Write",
-  "Edit",
-  "MultiEdit",
-  "NotebookEdit",
-  "Agent",
-  "Task",
-]);
+const READ_TOOLS = new Set(["Read", "Grep", "Bash"]);
 const MEMORY_FILE_PATH = /\/projects\/([^/]+)\/memory\/([^/]+\.md)$/;
 
 function claudeProjectsDir(): string {
@@ -84,7 +77,7 @@ export const createMemoryReadHook =
   async (input: HookInput) => {
     if (
       input.hook_event_name !== "PostToolUse" ||
-      NON_READ_TOOLS.has(input.tool_name)
+      !READ_TOOLS.has(input.tool_name)
     ) {
       return { continue: true };
     }
