@@ -18,7 +18,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.api.capture import CaptureInternalError
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.ph_client import SYNC_SEND_MAX_RETRIES
+from posthog.ph_client import SYNC_SEND_MAX_RETRIES, SYNC_SEND_TIMEOUT_SECONDS
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_event_io import (
@@ -393,6 +393,7 @@ def capture_evaluation_run_usage(
     ph_client = get_ph_client(
         sync_mode=True,
         max_retries=SYNC_SEND_MAX_RETRIES,
+        timeout=SYNC_SEND_TIMEOUT_SECONDS,
         disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)),
     )
     ph_client.capture(

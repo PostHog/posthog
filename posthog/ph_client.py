@@ -23,9 +23,10 @@ PH_US_HOST = "https://us.i.posthog.com"
 PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
-# A `sync_mode` client retries a failed send in the calling thread. One attempt keeps a task or a
-# request from waiting through those retries when capture is slow or down.
-SYNC_SEND_MAX_RETRIES = 0
+# A `sync_mode` client sends, and retries, in the calling thread. One retry recovers a send whose
+# connection dropped, and the short timeout keeps both tries under the SDK's default wait for one.
+SYNC_SEND_MAX_RETRIES = 1
+SYNC_SEND_TIMEOUT_SECONDS = 5
 
 logger = structlog.get_logger(__name__)
 
