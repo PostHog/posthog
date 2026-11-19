@@ -44,7 +44,7 @@ from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
@@ -74,8 +74,14 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+    UserOrEmailRateThrottle,
+)
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
@@ -207,14 +213,24 @@ class PersonsWebSustainedThrottle(UserOrEmailRateThrottle):
     rate = "1200/hour"
 
 
-class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
+class PersonsDeleteBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "persons_delete_burst"
     rate = "480/minute"
 
 
-class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
+class PersonsDeleteSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "persons_delete_sustained"
     rate = "4800/hour"
+
+
+class PersonsDeleteTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "persons_delete_burst"
+    rate = PersonsDeleteBurstThrottle.rate
+
+
+class PersonsDeleteTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "persons_delete_sustained"
+    rate = PersonsDeleteSustainedThrottle.rate
 
 
 class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
@@ -721,6 +737,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "person"
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["bulk_delete"]
     renderer_classes = cast(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
@@ -731,6 +749,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonLimitOffsetPagination
 
     def get_throttles(self):
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return [
+                PersonsDeleteBurstThrottle(),
+                PersonsDeleteSustainedThrottle(),
+                PersonsDeleteTeamBurstThrottle(),
+                PersonsDeleteTeamSustainedThrottle(),
+            ]
         # API is commonly used for data deletion, so we want to throttle that less aggressively
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if self.action in ("destroy", "bulk_delete", "delete_events", "delete_recordings"):
@@ -1162,6 +1187,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
+        if is_authenticated_via_project_secret_api_key(request):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=None,
+                item_id=None,
+                scope="Person",
+                activity="bulk_delete_requested",
+                detail=Detail(),
+                was_impersonated=False,
+            )
+
         if allow_queued and settings.PERSON_BULK_DELETE_ASYNC:
             return self._queue_bulk_delete_persons(
                 request,
@@ -1172,6 +1209,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 keep_person=keep_person,
             )
 
+        actor = None if is_authenticated_via_project_secret_api_key(request) else cast(User, request.user)
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
         if not keep_person or delete_recordings:
             queue_person_training_deletion(
@@ -1186,7 +1224,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             result = delete_persons_profile(
                 self.team_id,
                 persons,
-                actor=cast(User, request.user),
+                actor=actor,
                 request=request,
                 organization_id=self.organization.id,
                 queue_ai_training_deletion=False,
@@ -1200,11 +1238,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
 
         if delete_events:
-            queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
+            queue_person_event_deletion(self.team_id, persons, actor=actor)
         if delete_recordings:
-            queue_person_recording_deletion(
-                self.team_id, persons, actor=cast(User, request.user), queue_ai_training_deletion=False
-            )
+            queue_person_recording_deletion(self.team_id, persons, actor=actor, queue_ai_training_deletion=False)
 
         return {
             "persons_found": len(persons),
@@ -1226,7 +1262,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         keep_person: bool,
     ) -> dict[str, Any]:
         """Resolve persons without their distinct IDs and hand every distinct-ID-dependent step to Celery."""
-        actor = cast(User, request.user)
+        actor = None if is_authenticated_via_project_secret_api_key(request) else cast(User, request.user)
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
         # A requested distinct ID with no person row can still own replay sessions. The task covers
         # every distinct ID of each resolved person, so only those unmatched IDs are handed over.

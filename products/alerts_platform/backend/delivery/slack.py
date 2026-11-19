@@ -204,6 +204,10 @@ _MISCONFIGURED_ERRORS: Final = {
         "The Slack connection is no longer active.",
         "Reconnect Slack in the project's integrations, or pick another destination for the alert.",
     ),
+    "is_archived": (
+        "This channel is archived.",
+        "Unarchive the channel in Slack, or pick another channel for the alert.",
+    ),
 }
 
 

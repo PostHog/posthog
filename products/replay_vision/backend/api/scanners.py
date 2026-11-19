@@ -3431,6 +3431,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             cap = org_credit_cap(self.team.organization_id)
             # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
             monthly_credit_budget = free_credits_ceiling(cap)
+            if monthly_credit_budget is None:
+                raise ValidationError(
+                    {
+                        "free_only": "Every credit is free for your organization, so set a monthly credit budget "
+                        "to size this scanner."
+                    }
+                )
             # A free-only draft saved after the free credits run out turns off before its first scan.
             if free_credits_used_up(self.team.organization_id, cap):
                 raise ValidationError(

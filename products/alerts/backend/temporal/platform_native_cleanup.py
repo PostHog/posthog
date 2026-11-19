@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime as dt
+from collections.abc import Callable
 from itertools import batched
 
 from temporalio import activity, workflow
@@ -96,4 +97,7 @@ class InsightAlertNativeCleanupWorkflow(PostHogWorkflow):
 
 
 NATIVE_CLEANUP_WORKFLOWS = [InsightAlertNativeCleanupWorkflow]
-NATIVE_CLEANUP_ACTIVITIES = [list_native_insight_alerts_activity, delete_native_insight_alert_activity]
+NATIVE_CLEANUP_ACTIVITIES: list[Callable[..., object]] = [
+    list_native_insight_alerts_activity,
+    delete_native_insight_alert_activity,
+]

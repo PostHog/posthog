@@ -52,6 +52,9 @@ class TestEndpointTimeSpentAPI(ClickhouseTestMixin, APIBaseTest):
         # Another endpoint of the same service, and the same endpoint in staging, stay out of the breakdown.
         w.span("checkout", name="GET /health", env="prod", trace=10, ms=500)
         w.span("checkout", name="POST /orders", env="staging", trace=11, ms=900)
+        # A bare-method span is found by its "<METHOD> <route>" label, not by the shared method name.
+        w.span("checkout", name="GET", env="prod", trace=20, ms=40, attributes={"http.route": "/carts/:id"})
+        w.span("checkout", name="GET", env="prod", trace=21, ms=80, attributes={"http.route": "/users/:id"})
         w.insert()
 
     def _get(self, **params) -> dict:
@@ -84,6 +87,12 @@ class TestEndpointTimeSpentAPI(ClickhouseTestMixin, APIBaseTest):
                 ("postgresql", "inferred", 20, 0.2),
             ],
         )
+
+    def test_finds_a_bare_method_endpoint_by_its_route_label(self) -> None:
+        data = self._get(endpoint="GET /carts/:id")
+
+        self.assertEqual(data["request_count"], 1)
+        self.assertAlmostEqual(data["avg_duration_ms"], 40)
 
     def test_requires_service_and_endpoint(self) -> None:
         with patch(FLAG_PATCH, return_value=True):

@@ -68,7 +68,9 @@ describe('releaseMergeLogic', () => {
         mockedMerge.mockReset()
         mockedMerge.mockResolvedValue(release('r1', 'Checkout v2') as never)
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         releaseLogic.mount()
         logic = releaseMergeLogic()
         logic.mount()

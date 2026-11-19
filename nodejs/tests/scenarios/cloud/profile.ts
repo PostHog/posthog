@@ -10,6 +10,7 @@ import { RunCard } from './card'
 export const CAP_USD = 200
 export const TTL_HOURS = 6
 export const REGION = 'us-east-1'
+export const PRODUCTION_READER_MONITORING_INTERVAL_SECONDS = 60
 
 const Usd = z.number().nonnegative()
 const Name = z.string().min(1)
@@ -69,6 +70,9 @@ export const CloudProfile = z
         engineVersion: Name,
         writerClass: Name,
         readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
+        readerMonitoringIntervalSeconds: z
+            .literal([1, 5, 10, 15, 30, 60])
+            .default(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),
         host: z
             .object({
                 class: Name,

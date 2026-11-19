@@ -8,13 +8,26 @@ import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 import { convertTableValue } from './dataVisualizationLogic'
 import { ColumnScalar } from './types'
 
+const invalidFormattingRules = new WeakSet<ConditionalFormattingRule>()
+
+function reportInvalidFormattingRule(rule: ConditionalFormattingRule, captureExceptions: boolean): void {
+    if (invalidFormattingRules.has(rule)) {
+        return
+    }
+    invalidFormattingRules.add(rule)
+    if (captureExceptions) {
+        posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'))
+    }
+}
+
 export function conditionalFormattingColor(
     rules: ConditionalFormattingRule[],
     execute: typeof execHog | undefined,
     columnName: string,
     columnType: ColumnScalar,
     value: unknown,
-    isDarkModeOn: boolean
+    isDarkModeOn: boolean,
+    captureExceptions = true
 ): string | undefined {
     if (!execute) {
         return undefined
@@ -22,26 +35,36 @@ export function conditionalFormattingColor(
     const conditionalFormattingMatches = rules
         .filter((n) => n.columnName === columnName)
         .filter((n) => {
+            if (invalidFormattingRules.has(n)) {
+                return false
+            }
             const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
             if (!isValidHog) {
-                posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                    formatRule: n,
-                })
+                reportInvalidFormattingRule(n, captureExceptions)
             }
 
             return isValidHog
         })
-        .map((n) => ({
-            rule: n,
-            result: execute(n.bytecode, {
-                globals: {
-                    value: typeof value === 'string' ? convertTableValue(value, columnType) : value,
-                    input: convertTableValue(n.input, columnType),
-                },
-                functions: {},
-                maxAsyncSteps: 0,
-            }).result,
-        }))
+        .map((n) => {
+            try {
+                const result = execute(n.bytecode, {
+                    globals: {
+                        value: typeof value === 'string' ? convertTableValue(value, columnType) : value,
+                        input: convertTableValue(n.input, columnType),
+                    },
+                    functions: {},
+                    maxAsyncSteps: 0,
+                    timeout: 5,
+                })
+                if (result.error) {
+                    throw result.error
+                }
+                return { rule: n, result: result.result }
+            } catch {
+                reportInvalidFormattingRule(n, captureExceptions)
+                return { rule: n, result: false }
+            }
+        })
         .find((n) => Boolean(n.result))
 
     if (!conditionalFormattingMatches) {

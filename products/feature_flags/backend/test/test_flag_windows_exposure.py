@@ -69,6 +69,8 @@ EVERYONE = WatchedCondition(position=0, properties=())
 
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
+# (bucket start in minutes after START, then the in_bucket with_flag, exposed, unexposed and by_variant)
+ExpectedBucket = tuple[int, int, int, int, dict[str, int]]
 
 
 def _text_compared_with_a_number(team: Team) -> dict[str, Any]:
@@ -106,7 +108,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-2", 3, {"$feature/new-checkout": False}),
                     ("person-3", 4, {"$feature/other-flag": True}),
                 ],
-                [(0, 2, 1, {})],
+                [(0, 2, 1, 1, {})],
             ),
             (
                 "multivariate_flag_counts_any_variant_and_each_variant",
@@ -119,7 +121,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     # A split under 100% serves true to a person who matches but draws no variant.
                     ("person-5", 5, {"$feature/pricing-test": True}),
                 ],
-                [(0, 5, 4, {"control": 1, "test": 2})],
+                [(0, 5, 4, 1, {"control": 1, "test": 2})],
             ),
             (
                 "a_variant_named_false_counts_apart_from_a_flag_that_evaluated_to_false",
@@ -130,7 +132,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-3", 3, {"$feature/pricing-test": False}),
                     ("person-4", 4, {"$feature/pricing-test": True}),
                 ],
-                [(0, 4, 3, {"control": 1, "false": 1})],
+                [(0, 4, 3, 1, {"control": 1, "false": 1})],
             ),
             (
                 "group_flag_counts_groups_not_people",
@@ -141,7 +143,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-3", 3, {"$feature/org-beta": False, "$group_0": "org-b"}),
                     ("person-4", 4, {"$feature/org-beta": True}),
                 ],
-                [(0, 2, 1, {})],
+                [(0, 2, 1, 1, {})],
             ),
             (
                 "enabling_edit_counts_people_that_loaded_flags",
@@ -155,7 +157,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     # Server SDKs send the flag without `$active_feature_flags`.
                     ("person-5", 5, {"$feature/new-checkout": True}),
                 ],
-                [(0, 4, 2, {})],
+                [(0, 4, 2, 2, {})],
             ),
             (
                 "each_bucket_counts_its_own_events_and_a_bucket_without_the_flag_has_no_entry",
@@ -166,7 +168,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-1", 21, {"$feature/new-checkout": True}),
                     ("person-3", 15, {}),
                 ],
-                [(0, 2, 0, {}), (20, 1, 1, {})],
+                [(0, 2, 0, 2, {}), (20, 1, 1, 0, {})],
             ),
             (
                 "buckets_start_at_the_window_start_so_the_last_bucket_is_kept",
@@ -177,7 +179,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-1", 24, {"$feature/new-checkout": False}),
                     ("person-2", 34, {"$feature/new-checkout": True}),
                 ],
-                [(3, 1, 0, {}), (13, 1, 0, {}), (23, 1, 0, {}), (33, 1, 1, {})],
+                [(3, 1, 0, 1, {}), (13, 1, 0, 1, {}), (23, 1, 0, 1, {}), (33, 1, 1, 0, {})],
                 (3, 35),
             ),
         ]
@@ -187,7 +189,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         _name: str,
         edit: WatchedEdit,
         events: list[Event],
-        expected: list[tuple[int, int, int, dict[str, int]]],
+        expected: list[ExpectedBucket],
         window: tuple[int, int] = (0, 30),
     ) -> None:
         self._send(events)
@@ -205,14 +207,16 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 edit.id: [
                     (
                         START + timedelta(minutes=minutes),
-                        ExposureCounts(with_flag=with_flag, exposed=exposed, by_variant=by_variant),
+                        ExposureCounts(
+                            with_flag=with_flag, exposed=exposed, unexposed=unexposed, by_variant=by_variant
+                        ),
                     )
-                    for minutes, with_flag, exposed, by_variant in expected
+                    for minutes, with_flag, exposed, unexposed, by_variant in expected
                 ]
             },
         )
 
-    def test_counts_since_the_edit_hold_each_person_once_and_skip_events_before_it(self) -> None:
+    def test_counts_since_the_edit_hold_each_person_once_under_each_value_and_skip_events_before_it(self) -> None:
         self._send(
             [
                 ("person-1", 5, {"$feature/new-checkout": True}),
@@ -220,6 +224,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-2", 15, {"$feature/new-checkout": False}),
                 ("person-1", 22, {"$feature/new-checkout": True}),
                 ("person-3", 25, {"$feature/new-checkout": True}),
+                ("person-2", 27, {"$feature/new-checkout": True}),
             ]
         )
         edit = dataclasses.replace(BOOLEAN, edited_at=START + timedelta(minutes=10))
@@ -232,13 +237,13 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 edit.id: [
                     ExposureBucket(
                         start=START + timedelta(minutes=10),
-                        in_bucket=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
-                        since_edit=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
+                        in_bucket=ExposureCounts(with_flag=2, exposed=1, unexposed=1, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=2, exposed=1, unexposed=1, by_variant={}),
                     ),
                     ExposureBucket(
                         start=START + timedelta(minutes=20),
-                        in_bucket=ExposureCounts(with_flag=2, exposed=2, by_variant={}),
-                        since_edit=ExposureCounts(with_flag=3, exposed=2, by_variant={}),
+                        in_bucket=ExposureCounts(with_flag=3, exposed=3, unexposed=0, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=3, exposed=3, unexposed=1, by_variant={}),
                     ),
                 ]
             },
@@ -251,6 +256,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         self._send(
             [
                 ("person-1", 1, called("Matched condition set 2", True)),
+                ("person-1", 9, called("Matched condition set 2", False)),
                 ("person-2", 2, called("Out of rollout bound", False)),
                 ("person-3", 3, called("Matched condition set 1", True)),
                 ("person-4", 4, called("Evaluated locally", True)),
@@ -315,12 +321,12 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             {edit_id: buckets[-1].since_edit.in_condition for edit_id, buckets in exposure.items()},
             {
                 "boolean": {
-                    ConditionMatch.REASON: ConditionExposure(with_flag=3, exposed=2),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=4, exposed=3),
+                    ConditionMatch.REASON: ConditionExposure(with_flag=3, exposed=2, unexposed=2),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=4, exposed=3, unexposed=2),
                 },
                 "other": {
-                    ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=3),
+                    ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1, unexposed=0),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=3, unexposed=0),
                 },
             },
         )
@@ -351,7 +357,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(
             exposure[edit.id][0].in_bucket.in_condition[ConditionMatch.PROPERTIES],
-            ConditionExposure(with_flag=1, exposed=1),
+            ConditionExposure(with_flag=1, exposed=1, unexposed=0),
         )
 
     @parameterized.expand(
@@ -409,15 +415,19 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
 
         exposure = exposure_by_bucket(self.team, [broken, healthy], START, START + BUCKET, BUCKET)
 
-        by_reason = {ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1)}
-        by_reason_and_properties = {**by_reason, ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1)}
+        by_reason = {ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1, unexposed=0)}
+        by_reason_and_properties = {
+            **by_reason,
+            ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1, unexposed=0),
+        }
         self.assertEqual(
             {edit_id: buckets[0].in_bucket for edit_id, buckets in exposure.items()},
             {
-                "boolean": ExposureCounts(with_flag=1, exposed=1, by_variant={}, in_condition=by_reason),
+                "boolean": ExposureCounts(with_flag=1, exposed=1, unexposed=0, by_variant={}, in_condition=by_reason),
                 "healthy": ExposureCounts(
                     with_flag=1,
                     exposed=1,
+                    unexposed=0,
                     by_variant={},
                     in_condition=by_reason_and_properties if healthy_keeps_properties else by_reason,
                 ),
@@ -474,8 +484,8 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         exposure = exposure_by_bucket(self.team, [group_edit, person_edit], START, START + BUCKET, BUCKET)
 
         in_condition = {
-            ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
-            ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
+            ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1, unexposed=0),
+            ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1, unexposed=0),
         }
         self.assertEqual(
             {edit_id: buckets[0].in_bucket for edit_id, buckets in exposure.items()},
@@ -483,13 +493,16 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 "group": ExposureCounts(
                     with_flag=3,
                     exposed=2,
+                    unexposed=1,
                     by_variant={"control": 1, "test": 1},
                     in_condition={
-                        ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
-                        ConditionMatch.PROPERTIES: ConditionExposure(with_flag=2, exposed=1),
+                        ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1, unexposed=1),
+                        ConditionMatch.PROPERTIES: ConditionExposure(with_flag=2, exposed=1, unexposed=1),
                     },
                 ),
-                "boolean": ExposureCounts(with_flag=1, exposed=1, by_variant={}, in_condition=in_condition),
+                "boolean": ExposureCounts(
+                    with_flag=1, exposed=1, unexposed=0, by_variant={}, in_condition=in_condition
+                ),
             },
         )
 
@@ -537,7 +550,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(
             exposure[edit.id][0].in_bucket.in_condition[ConditionMatch.REASON],
-            ConditionExposure(with_flag=1, exposed=1),
+            ConditionExposure(with_flag=1, exposed=1, unexposed=0),
         )
 
     def test_one_query_keeps_the_counts_of_each_edit_apart(self) -> None:
@@ -561,15 +574,19 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 "boolean": [
                     ExposureBucket(
                         start=START + timedelta(minutes=10),
-                        in_bucket=ExposureCounts(with_flag=1, exposed=1, by_variant={}),
-                        since_edit=ExposureCounts(with_flag=1, exposed=1, by_variant={}),
+                        in_bucket=ExposureCounts(with_flag=1, exposed=1, unexposed=0, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=1, exposed=1, unexposed=0, by_variant={}),
                     ),
                 ],
                 "multivariate": [
                     ExposureBucket(
                         start=START,
-                        in_bucket=ExposureCounts(with_flag=2, exposed=2, by_variant={"control": 1, "test": 1}),
-                        since_edit=ExposureCounts(with_flag=2, exposed=2, by_variant={"control": 1, "test": 1}),
+                        in_bucket=ExposureCounts(
+                            with_flag=2, exposed=2, unexposed=0, by_variant={"control": 1, "test": 1}
+                        ),
+                        since_edit=ExposureCounts(
+                            with_flag=2, exposed=2, unexposed=0, by_variant={"control": 1, "test": 1}
+                        ),
                     )
                 ],
             },

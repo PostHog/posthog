@@ -1,9 +1,14 @@
 import re
 import json
+import heapq
 import hashlib
 import logging
+import itertools
+import dataclasses
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from functools import cached_property
+from operator import attrgetter
 from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
@@ -33,7 +38,9 @@ from posthog.models.activity_logging.retention import get_activity_log_lookback_
 from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.paging import CursorPageRequest
 from posthog.permissions import PremiumFeaturePermission
+from posthog.queryset_paging import select_cursor_rows
 from posthog.tasks import exporter
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -109,6 +116,61 @@ def apply_organization_scoped_filter(
         return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
     else:
         return queryset.filter(team_id=team_id)
+
+
+def merge_ordered_rows(row_lists: Sequence[list[ActivityLog]], ordering: Sequence[str]) -> list[ActivityLog]:
+    return list(
+        heapq.merge(
+            *row_lists,
+            key=attrgetter(*(term.lstrip("-") for term in ordering)),
+            reverse=ordering[0].startswith("-"),
+        )
+    )
+
+
+def select_merged_cursor_rows(querysets: Sequence[QuerySet[ActivityLog]], page: CursorPageRequest) -> list[ActivityLog]:
+    window = dataclasses.replace(page, offset=0, limit=page.offset + page.limit)
+    rows = merge_ordered_rows([select_cursor_rows(queryset, window) for queryset in querysets], page.ordering)
+    return rows[page.offset : page.offset + page.limit]
+
+
+POSITION_CHUNK_SIZE = 1000
+
+
+class MergedActivityLogQuerysets:
+    def __init__(self, querysets: Sequence[QuerySet[ActivityLog]], ordering: Sequence[str]) -> None:
+        self.querysets = querysets
+        self.ordering = ordering
+
+    def count(self) -> int:
+        return sum(queryset.count() for queryset in self.querysets)
+
+    def _iter_positions(self, queryset: QuerySet[ActivityLog]) -> Iterator[tuple[Any, ...]]:
+        positions = queryset.values_list(*(term.lstrip("-") for term in self.ordering))
+        after: tuple[str | None, ...] = ()
+        while True:
+            chunk = cast(
+                list[tuple[Any, ...]],
+                select_cursor_rows(
+                    positions,
+                    CursorPageRequest(ordering=tuple(self.ordering), after=after, offset=0, limit=POSITION_CHUNK_SIZE),
+                ),
+            )
+            yield from chunk
+            if len(chunk) < POSITION_CHUNK_SIZE:
+                return
+            after = tuple(None if value is None else str(value) for value in chunk[-1])
+
+    def __getitem__(self, window: slice) -> list[ActivityLog]:
+        merged = heapq.merge(
+            *(self._iter_positions(queryset) for queryset in self.querysets),
+            reverse=self.ordering[0].startswith("-"),
+        )
+        page_ids = [position[-1] for position in itertools.islice(merged, window.start, window.stop)]
+        rows_by_id: dict[Any, ActivityLog] = {}
+        for queryset in self.querysets:
+            rows_by_id.update((row.id, row) for row in queryset.filter(id__in=page_ids))
+        return [rows_by_id[row_id] for row_id in page_ids if row_id in rows_by_id]
 
 
 def visible_detail(instance: ActivityLog, context: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -253,11 +315,17 @@ class ActivityLogPagination(TailFollowingCursorPagination):
 
     def paginate_queryset(self, queryset, request, view=None):
         self.request = request
+        list_scope_querysets = getattr(view, "list_scope_querysets", None)
+        scope_querysets = list_scope_querysets() if list_scope_querysets else None
         if request.query_params.get("page"):
+            if scope_querysets:
+                queryset = MergedActivityLogQuerysets(scope_querysets, activity_log_ordering(request))
             return self.page_number_pagination.paginate_queryset(queryset, request, view)
         self.ordering = activity_log_ordering(request)
         self.follow = request.query_params.get("follow") == "true"
-        return super().paginate_queryset(queryset, request, view)
+        if not scope_querysets:
+            return super().paginate_queryset(queryset, request, view)
+        return self._read_page(lambda page: select_merged_cursor_rows(scope_querysets, page), queryset, request, view)
 
     def get_paginated_response(self, data):
         if self.request and self.request.query_params.get("page"):
@@ -620,6 +688,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         super().__init__(*args, **kwargs)
         self._filter_manager = None
         self._field_discovery = None
+        self._scope_filter: Optional[Q] = None
 
     @property
     def filter_manager(self) -> AdvancedActivityLogFilterManager:
@@ -661,12 +730,15 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def safely_get_queryset(self, queryset) -> QuerySet:
         queryset = queryset.select_related("user")
 
-        queryset = apply_organization_scoped_filter(
-            queryset,
-            bool(self.team.receive_org_level_activity_logs),
-            self.team_id,
-            self.organization.id,
-        )
+        if self._scope_filter is not None:
+            queryset = queryset.filter(self._scope_filter)
+        else:
+            queryset = apply_organization_scoped_filter(
+                queryset,
+                bool(self.team.receive_org_level_activity_logs),
+                self.team_id,
+                self.organization.id,
+            )
 
         # Apply lookback restriction based on feature limits
         lookback_date = get_activity_log_lookback_restriction(self.organization)
@@ -720,13 +792,27 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             return queryset
         return queryset.exclude(hidden)
 
+    def _get_filtered_queryset(self, scope_filter: Optional[Q] = None) -> QuerySet[ActivityLog]:
+        filters = self._validated_query_params()
+        self._scope_filter = scope_filter
+        try:
+            queryset = self.get_queryset()
+        finally:
+            self._scope_filter = None
+        queryset = self.filter_manager.apply_filters(queryset, filters)
+        return self._exclude_hidden_group_values_from_value_filters(queryset, filters)
+
+    def list_scope_querysets(self) -> Optional[list[QuerySet[ActivityLog]]]:
+        if not self.team.receive_org_level_activity_logs:
+            return None
+        return [
+            self._get_filtered_queryset(Q(team_id=self.team_id)),
+            self._get_filtered_queryset(Q(team_id__isnull=True, organization_id=self.organization.id)),
+        ]
+
     @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):
-        filters = self._validated_query_params()
-
-        queryset = self.get_queryset()
-        queryset = self.filter_manager.apply_filters(queryset, filters)
-        queryset = self._exclude_hidden_group_values_from_value_filters(queryset, filters)
+        queryset = self._get_filtered_queryset()
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -836,7 +922,7 @@ class OrganizationActivityLogPermission(BasePermission):
         except OrganizationMembership.DoesNotExist:
             return False
 
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return membership.effective_level >= OrganizationMembership.Level.ADMIN
 
 
 @extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
@@ -876,6 +962,9 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
     ) -> QuerySet[ActivityLog]:
         # Only organization admins reach this endpoint, and property access control does not apply to them.
         return queryset
+
+    def list_scope_querysets(self) -> Optional[list[QuerySet[ActivityLog]]]:
+        return None
 
     @action(detail=False, methods=["POST"])
     def export(self, request, **kwargs):  # type: ignore[override]

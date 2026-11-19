@@ -229,11 +229,19 @@ fn make_test_client_collecting_warnings(
 const ENDPOINT: &str = "/i/v0/ai/otel";
 
 async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest) -> u16 {
+    send_request_to(sink, ENDPOINT, request).await
+}
+
+async fn send_request_to(
+    sink: &CapturingSink,
+    path: &str,
+    request: &ExportTraceServiceRequest,
+) -> u16 {
     let client = make_test_client(sink);
     let body = request.encode_to_vec();
 
     let resp = client
-        .post(ENDPOINT)
+        .post(path)
         .header("Content-Type", "application/x-protobuf")
         .header("Authorization", format!("Bearer {}", TOKEN))
         .body(body)
@@ -407,12 +415,18 @@ async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestri
     service
 }
 
+/// `/v1/traces` is where OTLP exporters send traces when configured with the
+/// generic `OTEL_EXPORTER_OTLP_ENDPOINT`, which appends the signal path.
+#[rstest::rstest]
+#[case::base(ENDPOINT)]
+#[case::trailing_slash("/i/v0/ai/otel/")]
+#[case::generic_endpoint_signal_path("/i/v0/ai/otel/v1/traces")]
 #[tokio::test]
-async fn test_single_span_produces_one_event() {
+async fn test_single_span_produces_one_event(#[case] path: &str) {
     let sink = CapturingSink::new();
     let request = make_single_span_request();
 
-    let status = send_request(&sink, &request).await;
+    let status = send_request_to(&sink, path, &request).await;
     assert_eq!(status, 200);
 
     let events = sink.get_events().await;

@@ -52,6 +52,10 @@ export interface DependenciesResponseApi {
     edges: DependencyEdgeApi[]
     /** True when more edges matched than the response holds. */
     truncated: boolean
+    /** True when the window held more traces than the sample reads, so the counts cover only the sampled traces. */
+    sampled: boolean
+    /** How many whole traces the edges were computed from. */
+    trace_count: number
     /**
      * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
      * @nullable
@@ -62,6 +66,78 @@ export interface DependenciesResponseApi {
      * @nullable
      */
     service: string | null
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
+export interface DeploymentVersionApi {
+    /** The version, read from the attribute named by version_source. */
+    version: string
+    /** First span of this version in the window. */
+    first_seen: string
+    /** Last span of this version in the window. */
+    last_seen: string
+    /** Requests counted in the window. */
+    requests: number
+    /** Requests with an error status. */
+    error_count: number
+    /**
+     * Share of requests with an error status, 0 to 1.
+     * @nullable
+     */
+    error_rate: number | null
+    /**
+     * 95th percentile request duration in milliseconds.
+     * @nullable
+     */
+    p95_ms: number | null
+    /**
+     * The version first seen just before this one. Null for the oldest.
+     * @nullable
+     */
+    previous_version: string | null
+    /**
+     * Error rate minus the previous version's, as a fraction.
+     * @nullable
+     */
+    error_rate_change: number | null
+    /**
+     * Change in p95 from the previous version, in percent.
+     * @nullable
+     */
+    p95_change_pct: number | null
+    /** True for the version first seen most recently. */
+    active: boolean
+}
+
+/**
+ * * `service.version` - Service Version
+ * * `k8s.replicaset.name` - K8S Replicaset Name
+ */
+export type VersionSourceEnumApi = (typeof VersionSourceEnumApi)[keyof typeof VersionSourceEnumApi]
+
+export const VersionSourceEnumApi = {
+    Serviceversion: 'service.version',
+    K8sreplicasetname: 'k8s.replicaset.name',
+} as const
+
+export interface DeploymentsResponseApi {
+    /** One row per version, oldest first. */
+    results: DeploymentVersionApi[]
+    /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
+     *
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name */
+    version_source: VersionSourceEnumApi | null
+    /** The service the versions belong to. */
+    service: string
+    /**
+     * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
     /** Start of the window used. */
     date_from: string
     /** End of the window used. */
@@ -159,13 +235,30 @@ export interface HealthRowApi {
     span_count: number
     /** Requests with an error status in the window. */
     error_count: number
+    /**
+     * Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.
+     * @nullable
+     */
+    apdex: number | null
 }
 
 export interface EndpointHealthApi {
     /** The service.name resource attribute. */
     service_name: string
-    /** The entry span name, for example the HTTP route or the job name. */
+    /** The endpoint label: the entry span name, or "<METHOD> <route>" when the span name is only an HTTP method and the span carries a route. */
     endpoint: string
+    /** The raw entry span name the row counts, for tracing filters. */
+    span_name: string
+    /**
+     * The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.
+     * @nullable
+     */
+    route_attribute: string | null
+    /**
+     * The route appended to the span name, or null.
+     * @nullable
+     */
+    route: string | null
     /**
      * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
      * @nullable
@@ -346,6 +439,28 @@ export type ApmDependenciesListParams = {
     service?: string
 }
 
+export type ApmDeploymentsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string
+    /**
+     * The service to list versions for.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string
+}
+
 export type ApmEndpointTimeSpentListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -356,7 +471,7 @@ export type ApmEndpointTimeSpentListParams = {
      */
     date_to?: string
     /**
-     * The endpoint's entry span name, as listed by apm/endpoints.
+     * The endpoint label, as listed by apm/endpoints.
      * @minLength 1
      * @maxLength 2000
      */
