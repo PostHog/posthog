@@ -6,7 +6,7 @@
 #
 # The export dir holds code/frontend/dist, as the `frontend-dist` stage writes it. Afterwards it also
 # holds the files the Dockerfile reads from that stage: /tmp/.sourcemaps-status says "uploaded", so the
-# image build strips any remaining .map files, and /tmp/.sourcemaps-processed.
+# image build strips the .map files after collectstatic, and /tmp/.sourcemaps-processed.
 #
 # The upload runs in the CI job rather than in the image build, so the job's credentials never enter
 # a build. Any failure exits non-zero, and the workflow then builds the image without this context,
@@ -56,9 +56,8 @@ if [ -n "$stable" ]; then
         --release-mode event <<<"$stable" | check
 fi
 
-# The image build strips them anyway once the status says "uploaded". Deleting them here keeps the
-# gigabytes of maps out of the build context.
-find frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete
+# The .map files stay: collectstatic resolves each bundle's sourceMappingURL and fails on a missing
+# map, so the image build strips them only after it.
 rm posthog.json
 mkdir -p "$out/tmp"
 echo uploaded >"$out/tmp/.sourcemaps-status"
