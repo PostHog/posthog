@@ -218,7 +218,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe(
-            'When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now.'
+            'When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.'
         ),
     sensitive: zod
         .boolean()

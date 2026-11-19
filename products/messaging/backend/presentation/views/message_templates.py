@@ -821,7 +821,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
         "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and "
         "rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out "
-        "or send null to send now.",
+        "or send null to send now. Scheduling is on only in some projects so far, and a project without it refuses "
+        "a time with a 400.",
     )
     sensitive = OmittableBooleanField(
         required=False,
@@ -1874,8 +1875,9 @@ def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:
     if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
         raise serializers.ValidationError(
             {
-                "scheduled_at": "Scheduled sends aren't on for this project, so PostHog didn't send the email. Leave "
-                "out `scheduled_at` to send it now."
+                "scheduled_at": "Scheduled sends are off for this project, so PostHog didn't send this request's "
+                "email. An email PostHog already scheduled still goes out at its time. To send this one now, leave out "
+                "`scheduled_at`."
             }
         )
     if scheduled_at - timezone.now() > SCHEDULED_SEND_MAX_LEAD:
