@@ -2864,7 +2864,7 @@ describe('EmailService', () => {
             pinDate(Date.parse(statusTriggerTime) + 60 * 60 * 1000)
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
-            service['emailStatusService'] = emailStatusService
+            service = createService({}, {}, { emailStatusService })
             invocation.id = id
             invocation.state.globals.event.event = triggerEvent
             invocation.state.globals.event.timestamp = statusTriggerTime
