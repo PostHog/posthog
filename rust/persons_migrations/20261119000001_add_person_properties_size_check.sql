@@ -1,27 +1,6 @@
 -- no-transaction
---
--- Restore the person properties size limit on posthog_person.
---
--- The partitioned table was created with LIKE ... INCLUDING DEFAULTS, which does not copy CHECK
--- constraints, so check_properties_size stayed on posthog_person_old. Node ingestion matches the
--- exact name check_properties_size, and the personhog writer matches a name that contains it.
---
--- The constraint goes on each partition, not on the parent. ADD CONSTRAINT on the parent takes
--- ACCESS EXCLUSIVE on the parent and all 64 partitions in one transaction, and holds every lock
--- until commit. Each wait for the next partition would block all reads and writes to the
--- partitions that are already locked, on the primary and on the replicas that replay the locks.
--- A CHECK on every partition enforces the same limit, because every row is in a partition.
---
--- SAFE: each partition commits in its own transaction, so a partition is locked only for its own
--- brief catalog change. NOT VALID skips the scan of existing rows. lock_timeout bounds each wait,
--- and a timed-out partition is retried after a pause. If the retries run out, the migration
--- fails with no record in _sqlx_migrations, and the next run skips the partitions that are done.
---
--- Hobby keeps posthog_person unpartitioned with the constraint from the initial schema, so the
--- existence check makes this file a no-op there.
---
--- Do not VALIDATE this constraint. Rows written while the table had no limit can exceed it, and
--- VALIDATE fails on the first such row. New inserts and updates are checked without it.
+-- One transaction per partition: ADD CONSTRAINT on the parent would hold ACCESS EXCLUSIVE on all partitions at once.
+-- Not validated, since existing rows can exceed the limit.
 
 DO $$
 DECLARE
