@@ -1595,6 +1595,10 @@ class TestPromptBuilder(BaseTest):
         # because a merge leaves the survivor's title and summary as they were.
         assert "inbox-reports-merge" in prompt
         assert "rewrite its `title` / `summary` to cover both" in prompt
+        # The ownership rule and the survivor rewrite must agree, or a scout that didn't author the
+        # survivor stops short of the rewrite (or of the merge) because the two rules conflict.
+        assert "one exception to rewriting only reports you own" in prompt
+        assert "or on the survivor of a merge you just made" in prompt
         # Report authors need the metric semantics the generated tool shape cannot express on its own:
         # distinct people, a live bounded query, and whole-window rather than summed-bucket totals.
         assert "Measuring report impact" in prompt
@@ -1839,6 +1843,8 @@ class TestPromptBuilder(BaseTest):
         assert "record the rationale in your own words" in prompt
         # The edit-only section is a separate constant, so it can lose the merge guidance on its own.
         assert "inbox-reports-merge" in prompt
+        assert "one exception to rewriting only reports you own" in prompt
+        assert "The survivor of a merge you just made is the one exception" in prompt
 
     @parameterized.expand(
         [
