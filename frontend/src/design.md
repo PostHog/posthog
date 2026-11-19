@@ -7,7 +7,7 @@ description: Use when building or changing UI in PostHog Desktop, MCP apps, or w
 
 ## 0. Before you start
 
-- Web app scope (`frontend/src/`, `products/*/frontend/`): the `today-rail-nav` feature flag gates a Quill redesign of the whole web app UI, built alongside the current UI and kept behind the flag for months before it reaches users. This guide governs all UI on that flag path. The current, flag-off UI stays on LemonUI: never add Quill to it or convert it in place.
+- Web app scope (`frontend/src/`, `products/*/frontend/`): the `today-rail-nav` feature flag gates a Quill redesign of the whole web app UI, built alongside the current UI and kept behind the flag for months before it reaches users. This guide governs all UI on that flag path. The current, flag-off UI stays on LemonUI: never add Quill to it or convert it in place. The one exception is the data modeling and data catalog scenes, which show their Quill UI to classic-nav users too, gated by `data-catalog-restructure` alone.
 - Read [`platform-ux.md`](./platform-ux.md) first. It decides what the surface shows and when; this file decides how it looks
 - Identify surface: web app | PostHog Desktop (Electron) | MCP app → apply matching section in §7
 - Use Quill (`@posthog/quill`). Never add a parallel component or token layer; the only exceptions are listed in §2.
