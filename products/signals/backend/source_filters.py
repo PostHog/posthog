@@ -15,6 +15,7 @@ from pydantic import JsonValue
 from posthog.hogql.database.models import DatabaseField
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.ph_client import feature_enabled_or_false
 
 from products.signals.backend.filter_catalog_schema import CatalogBundle
@@ -183,6 +184,12 @@ class FilterStateKey:
             source_product=self.source_product, source_type=self.source_type, schema_id=self.schema_id
         )
 
+    def canonical_team_id(self) -> int:
+        # `rows()` scopes a child environment to its root team, and every row is saved under that team,
+        # so a lookup by the child's own id would never find the row and the next create would hit the
+        # unique constraint.
+        return resolve_effective_team_id(self.team_id)
+
 
 @frozen
 class PendingWindow:
@@ -217,7 +224,7 @@ def record_fetch_failure(
             key.rows()
             .select_for_update()
             .get_or_create(
-                team_id=key.team_id,
+                team_id=key.canonical_team_id(),
                 source_product=key.source_product,
                 source_type=key.source_type,
                 schema_id=key.schema_id,
@@ -229,6 +236,10 @@ def record_fetch_failure(
         state.last_error_code = code[:64]
         state.last_error_message = message[:500]
         state.last_error_at = timezone.now()
+        # The success fields describe the filter that succeeded, so a failure under a new filter clears them.
+        if state.filter_fingerprint != filter_fingerprint:
+            state.last_success_at = None
+            state.last_malformed_count = 0
         state.filter_fingerprint = filter_fingerprint
         state.save()
 
@@ -249,7 +260,7 @@ def record_window_processed(
     """
     now = timezone.now()
     state, created = key.rows().get_or_create(
-        team_id=key.team_id,
+        team_id=key.canonical_team_id(),
         source_product=key.source_product,
         source_type=key.source_type,
         schema_id=key.schema_id,
