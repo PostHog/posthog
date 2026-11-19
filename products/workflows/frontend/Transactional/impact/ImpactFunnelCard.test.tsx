@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -54,6 +58,33 @@ describe('ImpactFunnelCard', () => {
             </Provider>
         )
     }
+
+    it.each([
+        [
+            'off',
+            false,
+            'Needs link tagging',
+            expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/),
+        ],
+        ['on', true, 'Not measured yet', undefined],
+    ])(
+        "links the session step to the project's link tagging switch only while it is %s",
+        async (_, enabled, label, href) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                workflows_config: {
+                    capture_workflows_engagement_events: true,
+                    email_workflow_run_link_tag_enabled: enabled,
+                },
+            })
+            answer = [200, IMPACT]
+            renderCard()
+
+            const step = await screen.findByText(label)
+            expect(step.closest('a')?.getAttribute('href')).toEqual(href)
+        }
+    )
 
     it('keeps the untracked note under an empty period', async () => {
         answer = [200, { ...IMPACT, sent: 0, delivered: 0, opened: 0, clicked: 0, not_clicked: 0, untracked: 3 }]

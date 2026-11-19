@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
@@ -41,6 +41,15 @@ function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }
 function StepValue({ step }: { step: ImpactStep }): JSX.Element {
     if (step.value !== null) {
         return <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
+    }
+    if (step.missingTo) {
+        return (
+            <Tooltip title={step.missingDetail}>
+                <Link to={step.missingTo} className="text-xs" data-attr="email-impact-link-tagging-settings-link">
+                    {step.missing}
+                </Link>
+            </Tooltip>
+        )
     }
     return (
         <Explained detail={step.missingDetail} className="text-xs text-secondary">

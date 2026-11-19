@@ -89,7 +89,11 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        steps: (impact: TransactionalEmailImpactApi | null, event: string | null) => ImpactStep[] | null
+        steps: (
+            impact: TransactionalEmailImpactApi | null,
+            event: string | null,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => ImpactStep[] | null
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
         followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
         untrackedNote: (impact: TransactionalEmailImpactApi | null) => string | null
@@ -206,9 +210,19 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         steps: [
-            (s) => [s.impact, s.event],
-            (impact: TransactionalEmailImpactApi | null, event: string | null): ImpactStep[] | null =>
-                impact ? impactSteps(impact, event) : null,
+            (s) => [s.impact, s.event, s.currentTeam],
+            (
+                impact: TransactionalEmailImpactApi | null,
+                event: string | null,
+                currentTeam: TeamPublicType | TeamType | null
+            ): ImpactStep[] | null =>
+                impact
+                    ? impactSteps(
+                          impact,
+                          event,
+                          currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true
+                      )
+                    : null,
         ],
         lift: [
             (s) => [s.impact],
