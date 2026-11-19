@@ -54,6 +54,9 @@ SCHEDULE_RRULE_ERROR = (
 )
 VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
 REPORT_NOT_SUPPORTED_ERROR = "Reports are not supported for this evaluation."
+AI_DATA_PROCESSING_NOT_APPROVED_ERROR = (
+    "Evaluation reports need AI data processing to be approved in organization settings."
+)
 
 
 def default_schedule_anchor() -> dt.datetime:
@@ -293,6 +296,11 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+        # A new config is enabled unless the request says otherwise.
+        if attrs.get("enabled", self.instance is None) and not (
+            self.context["get_team"]().organization.is_ai_data_processing_approved
+        ):
+            raise serializers.ValidationError({"enabled": AI_DATA_PROCESSING_NOT_APPROVED_ERROR})
         # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
         # by the field-level min_value / max_value validators. This block only handles the
         # cross-field "required" rules that the field validators can't express on their own.
@@ -827,6 +835,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             report.evaluation.output_type, report.evaluation.target, report.evaluation.output_config
         ):
             raise serializers.ValidationError({"evaluation": REPORT_NOT_SUPPORTED_ERROR})
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(AI_DATA_PROCESSING_NOT_APPROVED_ERROR)
 
         try:
             from posthog.temporal.ai_observability.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME

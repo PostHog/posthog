@@ -10,7 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { reportText } from '../create/evaluationSummary'
+import { AI_DATA_PROCESSING_REQUIRED_REASON, reportText } from '../create/evaluationSummary'
 import { REPORT_RUN_PARAM, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { draftFromReport, evaluationReportLogic } from '../evaluationReportLogic'
 import { evaluationReportRunsLogic } from '../evaluationReportRunsLogic'
@@ -67,6 +67,7 @@ export function EvaluationReportsTab({
         shownDestinations,
         editingDestinations,
         destinationsError,
+        dataProcessingAccepted,
     } = useValues(logic)
     const {
         reportRuns,
@@ -173,7 +174,10 @@ export function EvaluationReportsTab({
                                 size="small"
                                 onClick={() => generateReport(activeReport.id)}
                                 loading={isWriting}
-                                disabledReason={generationDisabledReason}
+                                disabledReason={
+                                    generationDisabledReason ??
+                                    (!dataProcessingAccepted ? AI_DATA_PROCESSING_REQUIRED_REASON : undefined)
+                                }
                                 data-attr="llma-evaluation-report-generate"
                             >
                                 Generate now

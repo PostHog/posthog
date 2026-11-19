@@ -167,6 +167,13 @@ class TestEvaluationReportDeletionCascade(BaseTest):
         self.assertNotIn(disabled.id, deliverable_ids)
         self.assertNotIn(deleted.id, deliverable_ids)
 
+    def test_deliverable_excludes_reports_without_ai_data_processing_approval(self):
+        report = self._report_for(self._create_evaluation())
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        self.assertNotIn(report.id, set(EvaluationReport.objects.deliverable().values_list("id", flat=True)))
+
     def test_deleting_evaluation_retires_its_report(self):
         evaluation = self._create_evaluation()
         report = self._report_for(evaluation)
