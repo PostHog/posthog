@@ -113,14 +113,18 @@ export function mergeReportRows(
 
 /**
  * The plan a row collapses into: the plan it is a layer of, or its own id when it is the plan. A plan
- * with its own pull request in flight keeps its own card, because hiding it would hide that review.
+ * keeps its own card when a layer's card would hide something it carries: its own pull request in
+ * flight, or a link outside the plan, such as the earlier report a recurrence came back after. Its
+ * layers do not inherit those links.
  */
 function planKey(report: SignalReport): string | null {
     const summary = report.link_summary
     if (!summary?.plan || (summary.kind !== 'part_of' && summary.kind !== 'plan')) {
         return null
     }
-    if (summary.kind === 'plan' && hasActiveReportPullRequest(report)) {
+    const carriesOwnWork =
+        hasActiveReportPullRequest(report) || summary.other_links.some((link) => link.kind !== 'part_of')
+    if (summary.kind === 'plan' && carriesOwnWork) {
         return null
     }
     return summary.plan.id

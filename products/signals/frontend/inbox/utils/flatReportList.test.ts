@@ -71,7 +71,13 @@ describe('mergeReportRows', () => {
         steps: ['layer-1', 'layer-2', 'layer-3'].map((id) => ({ id, title: id, state: 'waiting' as const })),
         lead_step_id: lead,
     })
-    const planRow = (id: string, key: number, lead: string, overrides: Partial<SignalReport> = {}): SignalReport =>
+    const planRow = (
+        id: string,
+        key: number,
+        lead: string,
+        overrides: Partial<SignalReport> = {},
+        otherLinks: NonNullable<SignalReport['link_summary']>['other_links'] = []
+    ): SignalReport =>
         report(id, {
             ...overrides,
             inbox_merge_key: key,
@@ -79,7 +85,7 @@ describe('mergeReportRows', () => {
                 kind: id === 'plan' ? 'plan' : 'part_of',
                 report: null,
                 plan: plan(lead),
-                other_links: [],
+                other_links: otherLinks,
             },
         })
 
@@ -125,6 +131,28 @@ describe('mergeReportRows', () => {
             expected: [
                 ['plan', [], null],
                 ['layer-1', ['layer-2'], null],
+            ],
+        },
+        {
+            name: 'a plan that came back after an earlier report keeps its card',
+            rows: [
+                planRow('plan', 1, 'layer-1', {}, [
+                    {
+                        kind: 'recurrence_of',
+                        report: {
+                            id: 'old',
+                            title: 'old',
+                            status: 'resolved',
+                            implementation_pr_url: null,
+                            implementation_pr_state: null,
+                        },
+                    },
+                ]),
+                planRow('layer-1', 2, 'layer-1'),
+            ],
+            expected: [
+                ['plan', [], null],
+                ['layer-1', [], null],
             ],
         },
         {
