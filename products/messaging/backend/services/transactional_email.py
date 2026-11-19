@@ -469,9 +469,11 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
     # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
     if not _workflow_exists(team_id, template.transactional_hog_flow_id):
         return
+    if fields.get("type", template.type) != template.type:
+        raise TemplateNotSendable("A transactional template can't change between email and push.")
     check_sendable(
         team_id,
-        template_type=fields.get("type", template.type),
+        template_type=template.type,
         content=fields.get("content", template.content),
         message_category_id=fields.get("message_category", template.message_category_id),
     )
@@ -532,6 +534,8 @@ class TransactionalTemplate(Protocol):
 
 
 def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
+    if template.type != "email":
+        raise TemplateNotSendable("The template isn't an email template. Send it with the push API instead.")
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
