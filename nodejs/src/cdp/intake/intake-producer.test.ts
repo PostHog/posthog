@@ -142,25 +142,28 @@ describe('IntakeProducer', () => {
         expect(drained).toBe('fulfilled')
     })
 
-    it("settles a handle without waiting on another handle's publish", async () => {
+    it("settles each handle on its own publishes, without waiting on another handle's", async () => {
         jest.useFakeTimers()
         const held: (() => void)[] = []
         produce = () => new Promise<void>((ack) => held.push(ack))
         const producer = new IntakeProducer(outputs())
-        const [waiting, done] = [new PublishSettlement(), new PublishSettlement()]
-        let drained: 'pending' | 'fulfilled' = 'pending'
+        const [first, second] = [new PublishSettlement(), new PublishSettlement()]
+        const settled = [false, false]
 
-        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', waiting)
-        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', done)
+        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', first)
+        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', second)
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
-        void publishesSettled(waiting).then(() => (drained = 'fulfilled'))
-        held[1]()
+        ;[first, second].forEach((settlement, i) => void publishesSettled(settlement).then(() => (settled[i] = true)))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(settled).toEqual([false, false])
 
-        await expect(publishesSettled(done)).resolves.toBeUndefined()
-        expect(drained).toBe('pending')
+        held[1]()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(settled).toEqual([false, true])
+
         held[0]()
         await jest.advanceTimersByTimeAsync(0)
-        expect(drained).toBe('fulfilled')
+        expect(settled).toEqual([true, true])
     })
 
     const everyTrapThrows: ProxyHandler<PublishSettlement> = {

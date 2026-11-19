@@ -48,9 +48,8 @@ export const intakeModeOf = (
 }
 
 // A produce outlives its ack deadline. A caller that bounds its work in flight passes a settlement to its produces and,
-// after they return, waits on `publishesSettled()` with the same handle before it frees that work's share. A wait on any
-// other handle sees none of these publishes. The unread private field makes the type nominal, so neither a plain object
-// nor a spread copy type-checks as a settlement.
+// after they return, waits on `publishesSettled()` with the same handle before it frees that work's share. The unread
+// private field makes the type nominal, so neither a plain object nor a spread copy type-checks as a settlement.
 export class PublishSettlement {
     readonly #brand = true
 }
