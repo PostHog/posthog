@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.easypost.settings import EASYPOST_ENDPOI
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -58,11 +59,6 @@ def _parse_datetime(value: Any) -> datetime | None:
         except ValueError:
             return None
     return None
-
-
-def _format_datetime(value: datetime) -> str:
-    """Format a datetime for EasyPost's ``start_datetime`` filter (ISO-8601, UTC, ``Z`` suffix)."""
-    return _ensure_utc(value).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @retry_with_deadline(
@@ -125,9 +121,9 @@ class _DateWindow:
         if self.start is None or self.end is None:
             return {}
         return {
-            "start_datetime": _format_datetime(self.start),
+            "start_datetime": format_datetime(self.start, "iso_z"),
             # Padded so a record at `end` comes back whether EasyPost treats the bound as inclusive or not.
-            "end_datetime": _format_datetime(self.end + timedelta(seconds=1)),
+            "end_datetime": format_datetime(self.end + timedelta(seconds=1), "iso_z"),
         }
 
     def is_after_end(self, created: datetime | None) -> bool:
@@ -232,7 +228,7 @@ def get_rows(
                         EasypostResumeConfig(
                             **cursor_fields,
                             path_value=path_value,
-                            window_end=_format_datetime(window.end) if window.end is not None else None,
+                            window_end=format_datetime(window.end, "iso_z") if window.end is not None else None,
                         )
                     )
 
@@ -245,7 +241,7 @@ def get_rows(
             if window.start is not None and window.end is not None:
                 # Most old windows are empty, so mark each finished window as a point the run can stop at.
                 resumable_source_manager.save_state(
-                    EasypostResumeConfig(path_value=path_value, window_end=_format_datetime(window.start))
+                    EasypostResumeConfig(path_value=path_value, window_end=format_datetime(window.start, "iso_z"))
                 )
                 resumable_source_manager.safe_point()
 

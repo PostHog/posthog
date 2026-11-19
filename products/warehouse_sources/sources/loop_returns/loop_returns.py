@@ -27,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rename_parent_fields,
     rest_api_resource,
@@ -53,13 +54,6 @@ START_DATE_TOO_OLD_ERROR = (
 
 def base_url(api_version: str) -> str:
     return f"{API_HOST}/api/{api_version}"
-
-
-def _format_datetime(value: datetime) -> str:
-    """Loop's documented format is `2022-01-01T00:00:00.000Z`; millisecond precision keeps window
-    boundaries exact so a watermark-derived start doesn't truncate backwards."""
-    utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def parse_datetime(value: Any) -> datetime:
@@ -213,8 +207,8 @@ class LoopReturnsPaginator(BasePaginator):
 
         if self._config.windowed:
             start, end = self.current_window
-            params["from"] = _format_datetime(start)
-            params["to"] = _format_datetime(end)
+            params["from"] = format_datetime(start, "iso_z_millis")
+            params["to"] = format_datetime(end, "iso_z_millis")
             if self._config.supports_filter_param and self._filter_field:
                 params["filter"] = self._filter_field
 
@@ -267,7 +261,7 @@ class LoopReturnsPaginator(BasePaginator):
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         return {
-            "window_start": _format_datetime(self._current_start),
+            "window_start": format_datetime(self._current_start, "iso_z_millis"),
             "state_index": self._state_index,
             "cursor": self._cursor,
         }
@@ -417,8 +411,8 @@ def probe_endpoint(api_key: str, api_version: str, endpoint: str) -> tuple[bool,
     params: dict[str, Any] = {}
     if probe_config.windowed:
         end = datetime.now(UTC)
-        params["from"] = _format_datetime(end - timedelta(hours=1))
-        params["to"] = _format_datetime(end)
+        params["from"] = format_datetime(end - timedelta(hours=1), "iso_z_millis")
+        params["to"] = format_datetime(end, "iso_z_millis")
     if probe_config.paginate:
         params["paginate"] = "true"
         params["pageSize"] = 1

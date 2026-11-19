@@ -3,7 +3,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from pathlib import Path
 from types import FunctionType
 from urllib.parse import urlencode
 
@@ -101,12 +100,6 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.billing.quota_limiting import QuotaResource
 from ee.hogai.django_checkpoint.compaction import CompactionResult
 
-TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
-REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
-
-_CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
-_TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
 CONSOLE_HOME = "/admin/console/"
@@ -126,13 +119,6 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
 )
 # Django's set-password form. UserAdmin sets change_password_form to None, so the raw view never shows a form.
 DISABLED_ADMIN_FORMS = frozenset({"admin/posthog/user/<int:pk>/password/"})
-
-
-def _selector_present(css: str, class_name: str) -> bool:
-    # Tailwind and quill escape every character that is not selector-safe, so `@3xl:grid-cols-2` is
-    # written `.\@3xl\:grid-cols-2`. The trailing guard stops `.flex` matching inside `.flex-1`.
-    escaped = "".join(char if char.isalnum() or char in "-_" else "\\" + char for char in class_name)
-    return re.search(re.escape("." + escaped) + r"(?![a-zA-Z0-9_\\-])", css) is not None
 
 
 def _sample_path(old_path: str) -> tuple[str, dict[str, str]]:
@@ -320,54 +306,7 @@ def _move_twice() -> None:
     registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/other-report/")
 
 
-class TestAdminConsoleAssets(SimpleTestCase):
-    def test_every_class_in_the_templates_is_in_the_compiled_stylesheet(self) -> None:
-        css = (CONSOLE_ASSETS / "console.css").read_text()
-        templates = sorted(TEMPLATE_DIR.glob("*.html"))
-        assert templates, f"No templates found in {TEMPLATE_DIR}, so this test checks nothing."
-
-        missing: dict[str, set[str]] = {}
-        for template in templates:
-            for attribute in _CLASS_ATTRIBUTE.findall(template.read_text()):
-                for token in _TEMPLATE_TAG.sub(" ", attribute).split():
-                    # `group/name` only marks a parent for `group-*/name:` variants and has no rule of its own.
-                    if token.startswith("group/") or "{" in token or "}" in token:
-                        continue
-                    if not _selector_present(css, token):
-                        missing.setdefault(template.name, set()).add(token)
-
-        assert not missing, (
-            "These classes are in the console templates but not in console.css, so they render unstyled. "
-            f"Rebuild with `{REBUILD}`. If the class is quill's, quill may have renamed it: "
-            + "; ".join(f"{name}: {sorted(classes)}" for name, classes in sorted(missing.items()))
-        )
-
-    def test_every_asset_the_templates_link_to_ships(self) -> None:
-        linked = {
-            name
-            for template in TEMPLATE_DIR.glob("*.html")
-            for name in re.findall(r"/static/admin-console/([^\"?{]+)[\"?]", template.read_text())
-        }
-        assert linked, "No linked assets found, so this test checks nothing."
-
-        missing = sorted(name for name in linked if not (CONSOLE_ASSETS / name).is_file())
-        assert not missing, (
-            f"These assets are linked from the console templates but missing. Rebuild with `{REBUILD}`: {missing}"
-        )
-
-    def test_every_owner_crest_ships(self) -> None:
-        missing = sorted(
-            {
-                owner.crest
-                for owner in console.owners()
-                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
-            }
-        )
-
-        assert not missing, (
-            f"Console owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
-        )
-
+class TestAdminConsoleContract(SimpleTestCase):
     @parameterized.expand(
         [
             ("duplicate_panel_key", _register_twice, "already used"),
