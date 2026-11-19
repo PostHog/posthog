@@ -181,9 +181,11 @@ pub async fn export_metrics_http(
     }
 
     let source = Source::otlp();
-    let detector = &service.label_cardinality;
-    detector.observe(token, &rows, &source);
     let records_bytes = sum_kafka_metric_row_bytes(&rows);
+    let detector = &service.label_cardinality;
+    detector.strip_reserved(&mut rows, &source);
+    detector.observe(token, &rows, &source);
+    detector.apply(token, &mut rows, &source);
     let gate = &service.series_label_gate;
     let labelled = gate.classify(token, &rows);
     detector.note_new_series(token, &rows, labelled.new_series_rows(), &source);
