@@ -113,7 +113,9 @@ export function edgesToDraw(
 
 // Changes only when the drawn nodes or edges change, so the map fits again then but keeps the zoom on a refresh.
 export function graphKey(graph: DependencyGraph): string {
-    return [...graph.nodes.map((node) => node.id), ...graph.edges.map((edge) => edge.id)].join('\n')
+    const nodeIds = graph.nodes.map((node) => node.id).sort()
+    const edgeIds = graph.edges.map((edge) => edge.id).sort()
+    return [...nodeIds, ...edgeIds].join('\n')
 }
 
 export function splitDependencies(edges: DependencyEdgeApi[], service: string): DependencySplit {

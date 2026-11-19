@@ -38,8 +38,8 @@ export interface dependenciesLogicValues {
     dependenciesLoadError: boolean
     dependenciesLoading: boolean
     dependencyLayout: DependencyGraph | null
-    dependencyLayoutKey: string
     dependencyLayoutError: boolean
+    dependencyLayoutKey: string
     dependencyLayoutLoading: boolean
     dependencyService: string | null
     drawableEdges: DrawnDependencyEdge[]
