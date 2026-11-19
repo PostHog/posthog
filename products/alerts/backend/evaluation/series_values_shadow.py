@@ -7,6 +7,7 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
+from temporalio.exceptions import CancelledError
 
 from posthog.schema import TrendsQuery
 
@@ -66,7 +67,7 @@ def is_series_values_precompute_enabled(team: Team) -> bool:
                 },
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
+                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
                 },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
@@ -86,11 +87,9 @@ def effective_trends_runner(
     return runner
 
 
-def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, live: Any) -> ShadowComparison:
+def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, live: list[Any]) -> ShadowComparison:
     if isinstance(closed, SeriesValuesUnavailable):
         return ShadowComparison(outcome="unavailable", reason=closed.reason)
-    if not live:
-        return ShadowComparison(outcome="unavailable", reason="no_live_result", freshly_built=closed.freshly_built)
     series = live[0]
     live_by_bucket = {datetime.fromisoformat(day): value for day, value in zip(series["days"], series["data"])}
     differences = [
@@ -123,9 +122,15 @@ def compare_series_values_shadow(
     try:
         if not is_series_values_precompute_enabled(alert.team):
             return
-        runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-        closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
-        comparison = compare_closed_values(closed, calculation_result.result)
+        live = calculation_result.result
+        if not live:
+            comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
+        else:
+            runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
+            closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
+            comparison = compare_closed_values(closed, live)
+    except CancelledError:
+        raise
     except Exception as err:
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
