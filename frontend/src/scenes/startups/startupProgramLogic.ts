@@ -215,10 +215,7 @@ export interface startupProgramLogicMeta {
             isYC: boolean,
             wasPreviouslyOnStartupPlan: boolean
         ) => boolean
-        eligibilityError: (
-            startupProgram: StartupProgramFormValues,
-            startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
-        ) => string | null
+        eligibilityError: (startupProgram: StartupProgramFormValues, isYC: boolean) => string | null
     }
 }
 
@@ -346,7 +343,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions, props, cache }) => ({
         startupProgram: {
             defaults: {
                 type: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
@@ -439,6 +436,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     // Billing-service validation errors can arrive as an object under error.detail
                     const detail = typeof error.detail === 'string' ? error.detail : error.detail?.detail
                     lemonToast.error(detail || 'Failed to submit application')
+                    cache.applicationRequestFailed = true
                     throw error
                 }
             },
@@ -446,26 +444,21 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     })),
     selectors({
         // Shown as soon as an answer rules the company out, instead of only after a submit attempt
+        // Checked apart from form validation, which reports only the missing paid plan until one is added
         eligibilityError: [
-            (s) => [s.startupProgram, s.startupProgramValidationErrors],
-            (
-                startupProgram: StartupProgramFormValues,
-                startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
-            ): string | null => {
-                if (startupProgram.raised && startupProgramValidationErrors.raised) {
-                    return startupProgramValidationErrors.raised as string
-                }
-                if (startupProgram.incorporation_date && startupProgramValidationErrors.incorporation_date) {
-                    return startupProgramValidationErrors.incorporation_date as string
-                }
-                return null
-            },
+            (s) => [s.startupProgram, s.isYC],
+            (startupProgram: StartupProgramFormValues, isYC: boolean): string | null =>
+                (startupProgram.raised && validateFunding(startupProgram.raised, isYC)) ||
+                (startupProgram.incorporation_date &&
+                    validateIncorporationDate(startupProgram.incorporation_date, isYC)) ||
+                null,
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, cache }) => ({
         submitStartupProgramFailure: () => {
-            // A failed API call leaves no validation errors behind, and its toast already explains it
-            if (!values.startupProgramHasErrors) {
+            // The form values can change while the request is in flight, so they can't tell the two failures apart
+            if (cache.applicationRequestFailed) {
+                cache.applicationRequestFailed = false
                 return
             }
             posthog.capture('startup program application blocked', {

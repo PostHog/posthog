@@ -223,13 +223,22 @@ describe('startupProgramLogic', () => {
                 'Company must be less than 2 years old to be eligible',
             ],
             ['the answers are eligible', { raised: '4999999', incorporation_date: dayjs().subtract(1, 'year') }, null],
-        ])('shows the eligibility error before submit when %s', async (_, formValues, expectedError) => {
-            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+            [
+                'funding is $5M or more and there is no paid plan yet',
+                { raised: '5000000' },
+                'Companies that have raised $5M or more are not eligible for the startup program',
+                { has_active_subscription: false },
+            ],
+        ])(
+            'shows the eligibility error before submit when %s',
+            async (_, formValues, expectedError, billing: Partial<BillingType> = {}) => {
+                const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', billing })
 
-            logic.actions.setStartupProgramValues(formValues)
+                logic.actions.setStartupProgramValues(formValues)
 
-            expect(logic.values.eligibilityError).toEqual(expectedError)
-        })
+                expect(logic.values.eligibilityError).toEqual(expectedError)
+            }
+        )
 
         it('captures a blocked event when validation stops the submit', async () => {
             const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
@@ -260,7 +269,11 @@ describe('startupProgramLogic', () => {
                 referrer: 'A friend',
             })
 
-            await expectLogic(logic, () => logic.actions.submitStartupProgram()).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.submitStartupProgram()
+                // An answer changed while the request is in flight must not turn the API failure into a validation block
+                logic.actions.setStartupProgramValues({ raised: '5000000' })
+            }).toFinishAllListeners()
 
             expect(logic.values.formSubmitted).toBe(false)
             expect(blockedEvents()).toHaveLength(0)
