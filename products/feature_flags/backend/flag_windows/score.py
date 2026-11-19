@@ -112,9 +112,11 @@ class _Split:
 
 @frozen
 class _Excess:
-    """`rate` is the error rate of the hour minus the mean rate of the same hour in earlier weeks."""
+    """`rate` is the error rate of the hour minus the mean rate of the same hour in earlier weeks, and `spread` is its
+    standard deviation."""
 
     rate: float
+    spread: float
     z: float
 
 
@@ -216,15 +218,19 @@ def _strength(hour_excess: _Excess, parameters: ScoreParameters) -> float:
 
 def _error_rises(excess: Mapping[datetime, _Excess], rise_z: float) -> dict[datetime, _Excess]:
     """A run of consecutive hours at least `rise_z` over the baseline is one error rise. It starts in the first hour of
-    the run, so errors that rose before an exposure step stay before it, and it has the excess of the strongest hour."""
+    the run, so errors that rose before an exposure step stay before it, and it has the excess of the strongest hour.
+    An hour whose excess tops the highest of the run by `rise_z` of its spread starts a new rise, so errors that rise
+    again at a later exposure step still count from there."""
     runs: list[list[datetime]] = []
     for start, hour_excess in excess.items():
         if hour_excess.z < rise_z:
             continue
         if runs and start - runs[-1][-1] == HOUR:
-            runs[-1].append(start)
-        else:
-            runs.append([start])
+            highest = max(excess[hour].rate for hour in runs[-1])
+            if hour_excess.rate - highest < rise_z * hour_excess.spread:
+                runs[-1].append(start)
+                continue
+        runs.append([start])
     return {run[0]: max((excess[start] for start in run), key=lambda hour_excess: hour_excess.z) for run in runs}
 
 
@@ -331,7 +337,7 @@ def _excess_by_hour(
         excess_rate = rate - statistics.fmean(rates)
         spread = math.hypot(statistics.stdev(rates), math.sqrt(rate * (1 - rate) / counts.active))
         z = excess_rate / spread if spread else (math.inf if excess_rate > 0 else 0.0)
-        excess[start] = _Excess(rate=excess_rate, z=z)
+        excess[start] = _Excess(rate=excess_rate, spread=spread, z=z)
     return excess
 
 

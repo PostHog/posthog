@@ -323,22 +323,37 @@ class TestScoreWindow(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "level_2",
+                "level_2_with_a_later_spike",
                 [0.5] * 4,
                 [0.027, BASELINE_RATE, BASELINE_RATE, RISE_RATE],
                 ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
                 0.72,
             ),
             (
-                "level_4",
+                "level_4_with_a_later_spike",
                 [0.2, 0.5, 0.8, 0.8, 0.8, 0.8],
                 [0.015, 0.021, 0.027, BASELINE_RATE, BASELINE_RATE, RISE_RATE],
                 None,
                 0.7,
             ),
+            ("level_4_with_errors_already_up", [0.0, 0.0, 0.3, 0.6], [0.08, 0.08, 0.11, 0.14], None, 0.7),
+            (
+                "errors_already_up_move_by_noise_at_a_step",
+                [0.0, 0.0, 0.0, 1.0],
+                [BASELINE_RATE, BASELINE_RATE, 0.08, 0.09],
+                None,
+                0.0,
+            ),
+            (
+                "errors_already_up_dip_and_come_back_at_a_step",
+                [0.0, 0.0, 0.0, 0.0, 1.0],
+                [BASELINE_RATE, BASELINE_RATE, 0.12, 0.08, 0.12],
+                None,
+                0.0,
+            ),
         ]
     )
-    def test_a_later_error_spike_doesnt_weaken_a_level_with_an_error_rise_at_an_exposure_step(
+    def test_the_score_weighs_levels_by_the_error_rise_at_an_exposure_step(
         self, _name: str, shares: list[float], rates: list[float], by_last_value: ErrorsByLastValue | None, score: float
     ) -> None:
         result = _score(_exposure(shares), _errors(40, 40, by_last_value), rates)
