@@ -2050,16 +2050,32 @@ class TestTransactionalEmail(APIBaseTest):
                 {"scheduled_at": "2026-11-20T09:00:00Z"},
                 (400, "validation_error", "scheduled_at", []),
             ),
+            (
+                "template_route_without_its_flag",
+                "template_route",
+                {EMAIL_FROM_CODE_FLAG},
+                {},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "template_route_with_a_time_without_its_flag",
+                "template_route",
+                {EMAIL_FROM_CODE_FLAG},
+                {"scheduled_at": "2026-11-20T09:00:00Z"},
+                (400, "validation_error", "scheduled_at", []),
+            ),
         ]
     )
     def test_each_form_of_a_send_answers_only_while_its_flag_is_on(
         self, mock_post, flag, _capture, _name, form, enabled_flags, extra, expected
     ):
         flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
-        body = {**(self._code_send() if form == "code" else self._flat(self.body)), **extra}
-
         with FakeCdpApi().serving(mock_post) as cdp:
-            response = self.client.post(self.send_email_url, body, format="json")
+            if form == "template_route":
+                response = self._send(self.client, "template", {**self.body, **extra})
+            else:
+                body = {**(self._code_send() if form == "code" else self._flat(self.body)), **extra}
+                response = self.client.post(self.send_email_url, body, format="json")
 
         reply = response.json()
         answer = (
