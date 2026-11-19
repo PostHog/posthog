@@ -48,14 +48,24 @@ describe('aiFirstHomepageLogic', () => {
     // full-scene chat, not stack a redundant Max side panel on top of it. Without interception the
     // side panel opens (via sidePanelStateLogic's `*` handler) and the prompt never reaches the
     // homepage composer.
-    it('consumes #panel=max:<prompt> into the full-scene chat instead of the side panel', async () => {
+    // With the Today rail on, /home renders TodayHome, so this logic must leave the side panel open: closing it
+    // made the PostHog AI side panel close as soon as it opened on /home.
+    it.each([
+        ['consumes it into the full-scene chat', false, 'ai', false],
+        ['leaves the side panel open when the Today rail renders /home', true, 'idle', true],
+    ])('#panel=max:<prompt> %s', async (_case, todayRailOn, expectedMode, expectedPanelOpen) => {
+        if (todayRailOn) {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+        }
         // The one navigation drives both logics: sidePanelStateLogic opens the Max panel, then the
         // homepage handler closes it again and enters AI mode with the prompt prefilled.
         router.actions.push(urls.projectHomepage(), {}, { panel: 'max:what is my dau' })
-        await expectLogic(logic).delay(1).toMatchValues({ mode: 'ai' })
+        await expectLogic(logic).delay(1).toMatchValues({ mode: expectedMode })
 
         expect(maxLogic({ panelId: HOMEPAGE_TAB_ID }).values.question).toEqual('what is my dau')
-        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(expectedPanelOpen)
     })
 
     // The homepage chat only drives the legacy runtime. Without the handoff, a prompt submitted by a

@@ -14,6 +14,7 @@ import ssl as ssl_module
 import socket
 import datetime as dt
 import urllib.parse as urlparse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Final, Literal, Optional
 
@@ -23,9 +24,11 @@ import structlog
 import dns.resolver
 import dns.exception
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.proxy_service.cloudflare import (
@@ -139,6 +142,17 @@ CHECK_TIMEOUT_S = 3.0
 DNS_QUERY_TIMEOUT_S = 1.0
 CERT_EXPIRY_WARN_DAYS = 14
 
+# The probe sends only an Authorization header, so capture v1 answers with this `error` code, and
+# only when that header reaches it. Our proxy guides forward only `phc_`, `phs_` and `phx_` tokens.
+CAPTURE_V1_PROBE_HEADERS: Final[dict[str, str]] = {"Authorization": "Bearer phc_probe"}
+CAPTURE_V1_MISSING_REQUIRED_HEADERS = "missing_required_headers"
+# Capture v1 routes, each with the events SDKs send there. `captureAi` has its own route, so a
+# proxy can forward one and not the other.
+CAPTURE_V1_ROUTES: Final[tuple[tuple[str, str], ...]] = (
+    ("/i/v1/analytics/events", "events"),
+    ("/i/v1/ai/events", "AI events"),
+)
+
 
 @dataclass
 class DnsRecord:
@@ -221,6 +235,26 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
             ran_at=dt.datetime.now(dt.UTC), summary=_build_summary(domain_checks), checks=domain_checks
         )
 
+    # One check covers the CNAME and CAA lookups below, because the live-event probe already
+    # refuses the name through pinned_request.
+    if is_cloud() and (oob_domain := matched_oob_domain(record.domain)) is not None:
+        log.warning("Proxy diagnostics refused a domain on the out-of-band list", oob_domain=oob_domain)
+        refused_checks: list[CheckResult] = [
+            CheckResult(
+                id="domain",
+                name="Domain name",
+                status="failed",
+                detail=OOB_DOMAIN_REFUSAL,
+                remediation=Remediation(
+                    type="config",
+                    summary="Delete this proxy and create it again on a domain you control.",
+                ),
+            )
+        ]
+        return DiagnosticReport(
+            ran_at=dt.datetime.now(dt.UTC), summary=_build_summary(refused_checks), checks=refused_checks
+        )
+
     is_cloudflare = is_cloudflare_proxy_by_cname(record.target_cname)
 
     cname_check = _check_cname(record)
@@ -242,8 +276,9 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
     checks.append(live_check)
 
     if live_check.status == "passed":
-        # Healthy — the endpoint works. The only remaining concern is renewal, read from the
-        # certificate the proxy is actually serving.
+        # Healthy — the endpoint works. What remains is whether the newer capture routes are
+        # forwarded too, and renewal, read from the certificate the proxy is actually serving.
+        checks.append(_check_capture_v1(record))
         checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
     elif is_cloudflare and cname_check.status == "passed":
         # Not serving, DNS resolves, and provisioned on the Cloudflare path — the custom hostname
@@ -306,12 +341,15 @@ def _build_summary(checks: list[CheckResult]) -> ReportSummary:
         cert = by_id.get("cert_expiry")
         if cert is not None and cert.status == "failed":
             return ReportSummary(status="warn", primary_issue="cert_expiry", next_action=cert.detail)
+        capture_v1 = by_id.get("capture_v1")
+        if capture_v1 is not None and capture_v1.status == "warned":
+            return ReportSummary(status="warn", primary_issue="capture_v1", next_action=capture_v1.detail)
         return ReportSummary(status="healthy", primary_issue=None, next_action=None)
 
     # Walk in priority order: things the customer can act on first, then fallthrough.
     # Every check id must appear here. An id missing from this tuple is never matched, so
     # the walk falls through and reports a failing check as an overall healthy proxy.
-    priority = ("domain", "cname", "caa", "http_challenge", "cloudflare", "live_event", "cert_expiry")
+    priority = ("domain", "cname", "caa", "http_challenge", "cloudflare", "live_event", "capture_v1", "cert_expiry")
     for check_id in priority:
         c = by_id.get(check_id)
         if c is None or c.status not in ("failed", "warned"):
@@ -721,6 +759,56 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
         status="passed",
         detail=f"Sent a test event to `{record.domain}` successfully.",
     )
+
+
+def _check_capture_v1(record: ProxyRecord) -> CheckResult:
+    """Check the proxy forwards the capture v1 routes, not only the legacy ones.
+
+    Web SDKs still use the legacy routes, so a miss here is a warning: the proxy works for them,
+    but mobile and server SDKs that send to capture v1 lose their events. Managed proxies forward
+    these routes, so a miss is ours to fix, not the customer's.
+    """
+    with ThreadPoolExecutor(max_workers=len(CAPTURE_V1_ROUTES)) as pool:
+        reaches_capture = list(pool.map(lambda route: _reaches_capture_v1(record.domain, route[0]), CAPTURE_V1_ROUTES))
+    missing = [route for route, ok in zip(CAPTURE_V1_ROUTES, reaches_capture) if not ok]
+    if missing:
+        lost = " ".join(
+            f"`{record.domain}` doesn't forward `{path}`, so {events} sent there by SDKs that use capture v1 are lost."
+            for path, events in missing
+        )
+        return CheckResult(
+            id="capture_v1",
+            name="Capture v1 routes",
+            status="warned",
+            detail=f"{lost} Contact support.",
+        )
+    return CheckResult(
+        id="capture_v1",
+        name="Capture v1 routes",
+        status="passed",
+        detail=f"`{record.domain}` forwards the capture v1 routes.",
+    )
+
+
+def _reaches_capture_v1(domain: str, path: str) -> bool:
+    """Whether a request to `path` reaches capture v1.
+
+    The probe sends an Authorization header and none of the other PostHog headers. Capture v1
+    checks Authorization first and the other headers next (rust/capture/src/v1/context.rs), so it
+    answers with a JSON `error` of `missing_required_headers` and ingests nothing. That code proves
+    the request reached capture with its Authorization header: a bare 4xx can come from whatever
+    sits in front of capture, and a proxy that drops the header gets `missing_authorization`.
+    Goes through pinned_request for the same SSRF reasons as the live event probe.
+    """
+    try:
+        response = pinned_request(
+            "POST", _probe_url(domain, path), headers=CAPTURE_V1_PROBE_HEADERS, json={}, timeout=CHECK_TIMEOUT_S
+        )
+        body = response.json()
+    # The domain owner controls this body, and a deeply nested one raises RecursionError.
+    except (SSRFBlockedError, requests.exceptions.RequestException, ValueError, RecursionError):
+        return False
+    return isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS
 
 
 def _check_cert_expiry(record: ProxyRecord, *, is_cloudflare: bool) -> CheckResult:

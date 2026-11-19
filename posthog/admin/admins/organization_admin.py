@@ -1,20 +1,22 @@
 from datetime import UTC
 
+from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.organization_deletion import data_tool_url
+from posthog.admin.console.organization_deletion_panels import data_tool_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
+from posthog.admin.inlines.organization_ip_restrictions_inline import OrganizationIPRestrictionsInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.proxy_record_inline import ProxyRecordInline
@@ -23,8 +25,36 @@ from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 
 
+class DatalistTextInput(forms.TextInput):
+    """A text input that suggests values from a list, and still takes any text."""
+
+    def __init__(self, suggestions: list[str], attrs: dict[str, str] | None = None) -> None:
+        super().__init__(attrs)
+        self.suggestions = suggestions
+
+    def render(self, name, value, attrs=None, renderer=None):
+        list_id = f"{(attrs or {}).get('id', name)}_suggestions"
+        text_input = super().render(name, value, {**(attrs or {}), "list": list_id}, renderer)
+        options = format_html_join(
+            "", '<option value="{}"></option>', ((suggestion,) for suggestion in self.suggestions)
+        )
+        return format_html('{}<datalist id="{}">{}</datalist>', text_input, list_id, options)
+
+
+class OrganizationAdminForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = "__all__"
+        widgets = {
+            "is_not_active_reason": DatalistTextInput(
+                suggestions=list(Organization.DeactivationReason.values), attrs={"size": "60"}
+            )
+        }
+
+
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
+    form = OrganizationAdminForm
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     fields = [
@@ -59,6 +89,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationMemberInline,
         OrganizationInviteInline,
         OrganizationDomainInline,
+        OrganizationIPRestrictionsInline,
         ProxyRecordInline,
         OrganizationEventsRetentionConfigInline,
     ]
@@ -95,13 +126,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Inlines other apps registered for Organization, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
         return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
-
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        extra_context = {
-            **(extra_context or {}),
-            "deactivation_reason_presets": list(Organization.DeactivationReason.values),
-        }
-        return super().changeform_view(request, object_id, form_url, extra_context)
 
     def members_count(self, organization: Organization):
         return organization.members.count()
@@ -153,8 +177,6 @@ class OrganizationAdmin(admin.ModelAdmin):
             else:
                 info["usage_quota_limited_until_formatted"] = "-"
 
-        # Access request stored during change_view
-        request = getattr(self, "_current_request", None)
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
@@ -166,7 +188,6 @@ class OrganizationAdmin(admin.ModelAdmin):
                         "organization", organization, "billing", "Limit and unlimit"
                     ),
                 },
-                request=request,
             )
         )
 
@@ -213,14 +234,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "limit_raw": data.get("limit"),
             }
 
-        # Access request stored during change_view
-        request = getattr(self, "_current_request", None)
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/organization/usage_display.html",
                 {"usage_data": formatted_data, "period_info": period_info},
-                request=request,
             )
         )
 
@@ -254,9 +272,3 @@ class OrganizationAdmin(admin.ModelAdmin):
         if not organization.pk:
             return "-"
         return MovedToConsole.action("organization", organization, "deletion", "Trigger deletion")
-
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        extra_context = extra_context or {}
-        # Store request for access in display methods (needed for CSRF tokens in templates)
-        self._current_request = request
-        return super().change_view(request, object_id, form_url, extra_context=extra_context)

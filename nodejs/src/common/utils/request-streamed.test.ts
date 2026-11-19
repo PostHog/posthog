@@ -11,7 +11,7 @@ jest.mock('undici', () => ({
 
 const requestMock = request as jest.MockedFunction<typeof request>
 
-function respond(chunks: Buffer[], headers: Record<string, string> | string[] = {}): void {
+function respond(chunks: Iterable<Buffer>, headers: Record<string, string> | string[] = {}): void {
     requestMock.mockResolvedValue({
         statusCode: 200,
         headers,
@@ -73,6 +73,37 @@ describe('fetchStreamed', () => {
 
         expect(overLimit).toBe(false)
         expect(bytes.toString()).toBe('abcde')
+    })
+
+    const REST = Array<string>(40).fill('rest')
+
+    it.each([
+        ['refuses them in the first chunk', ['<html>', ...REST], { refused: true, body: '', asked: '<htm' }],
+        ['refuses them across chunks', ['<h', 'tml>', ...REST], { refused: true, body: '', asked: '<htm' }],
+        ['refuses a body shorter than them', ['<h'], { refused: true, body: '', asked: '<h' }],
+        ['accepts them', ['PNG!', 'rest'], { refused: undefined, body: 'PNG!rest', asked: 'PNG!' }],
+    ])('checks the first bytes once, and stops reading when the caller %s', async (_name, chunks, expected) => {
+        let pulled = 0
+        function* body(): Generator<Buffer> {
+            for (const chunk of chunks) {
+                pulled++
+                yield Buffer.from(chunk)
+            }
+        }
+        respond(body())
+        const accept = jest.fn((head: Buffer) => head.toString().startsWith('PNG'))
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        const { bytes, overLimit, refused } = await response.read(1000, false, { bytes: 4, accept })
+
+        expect({ refused, body: bytes.toString(), overLimit }).toEqual({
+            refused: expected.refused,
+            body: expected.body,
+            overLimit: false,
+        })
+        expect(accept.mock.calls.map(([head]) => head.toString())).toEqual([expected.asked])
+        // The stream reads a chunk or two ahead of its consumer.
+        expect(pulled).toBeLessThanOrEqual(Math.min(chunks.length, 5))
     })
 
     it('reads no body after the response was discarded', async () => {

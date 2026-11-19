@@ -654,14 +654,6 @@ def _is_connect_error_retryable(err: Exception) -> bool:
     return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
 
 
-# These columns hold `$set` and `$set_once` and can include any text sent by a client. PARSE_JSON
-# fails the whole COPY on one malformed value, and unfortunately COPY transformations do not support
-# TRY_PARSE_JSON (at least according to the Snowflake docs), so we use CHECK_JSON as a guard
-# instead. Other JSON columns do not use this guard: we currently accept duplicate keys in JSON
-# objects and CHECK_JSON has no option to support this like PARSE_JSON does with the 'd' option.
-COLUMNS_WITH_UNVALIDATED_JSON = frozenset({"people_set", "people_set_once"})
-
-
 def _quote_snowflake_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
@@ -672,9 +664,10 @@ def _build_copy_select_expression(field: Field) -> str:
     name = field.name.lower()
     if field.data_type != JsonType() or name == "elements":
         return column
-    if name in COLUMNS_WITH_UNVALIDATED_JSON:
-        return f"IFF(CHECK_JSON({column}) IS NULL, PARSE_JSON({column}, 'd'), NULL)"
-    return f"PARSE_JSON({column}, 'd')"
+    # PARSE_JSON fails the whole COPY on one malformed value, and every retry fails the same way.
+    # Snowflake support confirmed that COPY transformations support TRY_PARSE_JSON, although the
+    # list of supported functions in the Snowflake docs leaves it out.
+    return f"TRY_PARSE_JSON({column}, 'd')"
 
 
 class SnowflakeClient:

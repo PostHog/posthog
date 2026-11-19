@@ -89,11 +89,6 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/{{ person.id }}">x</a>',
         },
         {
-            case: 'an unquoted href',
-            html: '<a href=https://example.com/pricing>x</a>',
-            expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
-        },
-        {
             case: 'an unquoted href with a query',
             html: '<a href=https://example.com/pricing?plan=pro>x</a>',
             expected: `<a href="https://example.com/pricing?plan=pro&amp;${QUERY}">x</a>`,
@@ -235,19 +230,20 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',
         },
         {
-            case: 'tags an unquoted href',
-            html: '<a href=https://example.com/p>x</a>',
-            expected: '<a href="https://example.com/p?ph_workflow_run=run-1">x</a>',
-        },
-        {
             case: 'tags a link that only opts out of UTM tags',
             html: '<a data-ph-no-utm href="https://example.com/">x</a>',
             expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=run-1">x</a>',
         },
-    ])('$case', ({ html, expected, sender }) => {
+        {
+            case: 'only removes run ids of earlier sends for a team that turned the tag off',
+            runId: null,
+            html: '<a href="https://example.com/?a=1&amp;ph_workflow_run=old">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
+            expected: '<a href="https://example.com/?a=1">x</a><a href="https://other.com/?ph_workflow_run=old">y</a>',
+        },
+    ])('$case', ({ html, expected, sender, runId }) => {
         expect(
             addWorkflowRunTagToEmail(html, {
-                runId: 'run-1',
+                runId: runId === undefined ? 'run-1' : runId,
                 senderEmail: sender ?? 'hi@mail.example.com',
                 siteUrl: SITE_URL,
             })

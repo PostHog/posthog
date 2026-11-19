@@ -16,7 +16,7 @@ import type { ResizeNeighbors } from 'products/dashboards/frontend/dashboardResi
 type InteractionKind = 'drag' | 'resize'
 
 interface UseDashboardLayoutInteractionProps {
-    layoutEditMode: boolean
+    enabled: boolean
     layoutCompaction?: DashboardGridCompaction
     updateLayouts: (layouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
 }
@@ -26,21 +26,28 @@ interface DashboardLayoutInteraction {
     handleLayoutChange: (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
     interactionInProgress: MutableRefObject<boolean>
     startInteraction: (layout: Layout, item: LayoutItem, kind: InteractionKind) => void
-    finishInteraction: () => void
+    /** `discardLayout` drops the gesture's layout, for a tile that left its grid. */
+    finishInteraction: (options?: { discardLayout?: boolean }) => void
+    /** Makes the grid settle the current gesture on the layout it had before the gesture. */
+    cancelInteraction: () => void
 }
 
 export function useDashboardLayoutInteraction({
-    layoutEditMode,
+    enabled,
     layoutCompaction,
     updateLayouts,
 }: UseDashboardLayoutInteractionProps): DashboardLayoutInteraction {
     const interactionInProgress = useRef(false)
+    // The grid also reports layouts it works out itself (on mount, or as tiles stream in). Only a layout from
+    // a drag or resize is the viewer's change, and the grid reports that one right after the gesture stops.
+    const acceptingGestureLayout = useRef(false)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const baselineLayout = useRef<Layout | null>(null)
     const baselineById = useRef<Map<string, LayoutItem>>(new Map())
     const resizeNeighbors = useRef<ResizeNeighbors>({})
     const activeItemId = useRef<string | null>(null)
     const interactionKind = useRef<InteractionKind | null>(null)
+    const interactionCanceled = useRef(false)
 
     const gridCompactor = useMemo<Compactor>(() => {
         const compactor = getDashboardGridCompactor(layoutCompaction ?? DashboardGridCompaction.Vertical)
@@ -52,6 +59,11 @@ export function useDashboardLayoutInteraction({
                 const activeTileId = activeItemId.current
                 if (!baseline || !activeTileId) {
                     return compactor.compact(layout, cols)
+                }
+                // react-grid-layout ends a resize with the layout from its last render, which can still hold the
+                // carried size when the pointer moved back in the same task. The baseline does not depend on renders.
+                if (interactionCanceled.current && layout.some((layoutItem) => layoutItem.i === activeTileId)) {
+                    return baseline.map((layoutItem) => cloneLayoutItem(layoutItem))
                 }
 
                 const restoredLayout = restoreUnmovedItemPositions(
@@ -78,16 +90,18 @@ export function useDashboardLayoutInteraction({
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (!layoutEditMode) {
+            if (!enabled) {
                 return
             }
             if (interactionInProgress.current) {
                 pendingLayouts.current = newLayouts
                 return
             }
-            updateLayouts(newLayouts)
+            if (acceptingGestureLayout.current) {
+                updateLayouts(newLayouts)
+            }
         },
-        [layoutEditMode, updateLayouts]
+        [enabled, updateLayouts]
     )
 
     const startInteraction = useCallback((layout: Layout, item: LayoutItem, kind: InteractionKind): void => {
@@ -99,18 +113,39 @@ export function useDashboardLayoutInteraction({
         resizeNeighbors.current = kind === 'resize' ? getResizeNeighbors(baselineLayout.current, item, item.i) : {}
     }, [])
 
-    const finishInteraction = useCallback((): void => {
-        interactionInProgress.current = false
-        if (pendingLayouts.current) {
-            updateLayouts(pendingLayouts.current)
+    const finishInteraction = useCallback(
+        ({ discardLayout = false }: { discardLayout?: boolean } = {}): void => {
+            interactionInProgress.current = false
+            if (!discardLayout) {
+                acceptingGestureLayout.current = true
+                setTimeout(() => {
+                    acceptingGestureLayout.current = false
+                }, 0)
+                if (pendingLayouts.current) {
+                    updateLayouts(pendingLayouts.current)
+                }
+            }
             pendingLayouts.current = null
-        }
-        baselineLayout.current = null
-        baselineById.current = new Map()
-        resizeNeighbors.current = {}
-        activeItemId.current = null
-        interactionKind.current = null
-    }, [updateLayouts])
+            baselineLayout.current = null
+            baselineById.current = new Map()
+            resizeNeighbors.current = {}
+            activeItemId.current = null
+            interactionKind.current = null
+            interactionCanceled.current = false
+        },
+        [updateLayouts]
+    )
 
-    return { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction }
+    const cancelInteraction = useCallback((): void => {
+        interactionCanceled.current = true
+    }, [])
+
+    return {
+        gridCompactor,
+        handleLayoutChange,
+        interactionInProgress,
+        startInteraction,
+        finishInteraction,
+        cancelInteraction,
+    }
 }

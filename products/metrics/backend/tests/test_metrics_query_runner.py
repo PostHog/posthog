@@ -23,8 +23,17 @@ from posthog.schema import (
     MetricsQueryFilter,
     MetricsQueryGroupBy,
     MetricsYAxisSettings,
+    QueryStatus,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    get_app_dashboard_queries_rate_limiter,
+    get_app_org_rate_limiter,
+)
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
@@ -129,6 +138,94 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert events.index("budget") < events.index("options") < events.index("slot")
+
+    @parameterized.expand(
+        [
+            ("flag_on_tile_skips_full_dashboard_lane", True, 1, "dashboard", False),
+            ("flag_on_tile_skips_full_org_lane", True, 1, "org", False),
+            ("flag_off_tile_rejected_by_dashboard_lane", False, 1, "dashboard", True),
+            ("flag_off_tile_rejected_by_org_lane", False, 1, "org", True),
+            ("flag_on_outside_a_dashboard_rejected_by_org_lane", True, None, "org", True),
+            (
+                "flag_on_derived_metric_tile_rejected_by_org_lane",
+                True,
+                1,
+                "org",
+                True,
+                "posthog.derived.spans.requests",
+            ),
+            ("flag_on_all_time_tile_rejected_by_org_lane", True, 1, "org", True, None, "all"),
+        ]
+    )
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_dashboard_v2_metrics_tiles_do_not_take_analytics_slots(
+        self,
+        _name: str,
+        flag_on: bool,
+        dashboard_id: int | None,
+        full_lane: str,
+        rejected: bool,
+        metric_name: str | None = None,
+        date_from: str | None = None,
+    ) -> None:
+        limiter = get_app_org_rate_limiter() if full_lane == "org" else get_app_dashboard_queries_rate_limiter()
+        for i in range(limiter.max_concurrency):
+            slot = limiter.use(org_id=self.organization.id, dashboard_id=1, team_id=self.team.pk, task_id=f"held-{i}")
+            assert slot is not None
+            self.addCleanup(limiter.release, slot)
+        clauses = [MetricsQueryClause(name="a", metricName=metric_name, aggregation="sum")] if metric_name else []
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(
+                clauses=clauses,
+                language="sql",
+                sql="SELECT 1",
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+            ),
+            team=self.team,
+        )
+
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=flag_on,
+            ),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+        ):
+            if rejected:
+                with pytest.raises(ConcurrencyLimitExceeded):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
+            else:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=dashboard_id)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_dashboard_v2_tile_resolves_all_range_once_and_keeps_validation_errors(self) -> None:
+        def run(date_from: str) -> None:
+            runner = MetricsQueryRunner(
+                query=MetricsQuery(
+                    clauses=[],
+                    language="sql",
+                    sql="SELECT 1",
+                    dateRange=DateRange(date_from=date_from),
+                ),
+                team=self.team,
+            )
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
+
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+            patch(
+                "posthog.hogql_queries.utils.timestamp_utils.get_earliest_timestamp_unfiltered",
+                return_value=dt.datetime(2020, 1, 1, tzinfo=dt.UTC),
+            ) as earliest,
+        ):
+            run("all")
+            assert earliest.call_count == 1
+            with pytest.raises(ExposedHogQLError):
+                run("-10000y")
 
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
@@ -294,11 +391,18 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (["query:read"], 403),
-            (["query:read", "metrics:read"], 200),
+            (["query:read"], "queue_depth", 403),
+            (["query:read", "metrics:read"], "queue_depth", 200),
+            # A derived metric reads spans or logs, so the token also needs that source's scope.
+            (["query:read", "metrics:read"], "posthog.derived.spans.requests", 403),
+            (["query:read", "metrics:read", "tracing:read"], "posthog.derived.spans.requests", 200),
+            (["query:read", "metrics:read"], "posthog.derived.logs.records", 403),
+            (["query:read", "metrics:read", "logs:read"], "posthog.derived.logs.records", 200),
         ]
     )
-    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+    def test_query_endpoint_scope_parity_for_api_keys(
+        self, scopes: list[str], metric_name: str, expected_status: int
+    ) -> None:
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
 
@@ -307,13 +411,55 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "query": {
                     "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "clauses": [{"name": "a", "metricName": metric_name, "aggregation": "sum"}],
                 }
             },
             HTTP_AUTHORIZATION=f"Bearer {value}",
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("token_without_tracing_scope", ["query:read", "metrics:read"], True, 403),
+            ("token_with_tracing_scope", ["query:read", "metrics:read", "tracing:read"], True, 200),
+            ("user_without_tracing_access", None, False, 403),
+        ]
+    )
+    def test_async_derived_results_need_access_to_the_source(
+        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
+    ) -> None:
+        query = MetricsQuery(
+            clauses=[MetricsQueryClause(name="a", metricName="posthog.derived.spans.requests", aggregation="sum")]
+        )
+        query_id = "derived-async-query"
+        QueryStatusManager(query_id, self.team.pk).store_query_status(
+            QueryStatus(
+                id=query_id,
+                team_id=self.team.pk,
+                complete=True,
+                labels=self._runner(query).query_status_labels(),
+                results=["derived result"],
+            )
+        )
+        headers = {}
+        if scopes is not None:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        if not has_source_access:
+            AccessControl.objects.create(team=self.team, resource="tracing", access_level="none")
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/query/{query_id}/", headers=headers)
+
+        assert response.status_code == expected_status, response.content
+        assert ("derived result" in response.content.decode()) == (expected_status == 200)
 
     def test_dashboard_date_filters_override_query_date_range(self) -> None:
         query = MetricsQuery(

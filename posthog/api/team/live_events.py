@@ -14,7 +14,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import Team, User
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.utils import get_safe_cache, safe_cache_set
 
 _default_theme_id_cache: int | None = None

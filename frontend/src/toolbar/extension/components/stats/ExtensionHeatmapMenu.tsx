@@ -14,6 +14,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { HeatmapVariantPicker } from '~/toolbar/shared/elements/HeatmapVariantPicker'
 import { urls } from '~/toolbar/shared/urls'
 
 import { capturePageToolUsed } from '../../browser/extensionTelemetry'
@@ -149,6 +150,16 @@ export function ExtensionHeatmapMenu(): JSX.Element {
                         })
                     }
                     dateOptions={heatmapDateOptions}
+                />
+                <HeatmapVariantPicker
+                    variantFilter={heatmap.variantFilter}
+                    variantFlags={heatmap.variantFlags}
+                    variantFilterGate={heatmap.variantFilterGate}
+                    onChange={(variantFilter) => {
+                        capturePageToolUsed('heatmap-variant-filter', { enabled: !!variantFilter })
+                        sendHeatmapCommand({ type: 'set-variant-filter', variantFilter })
+                    }}
+                    data-attr="toolbar-extension-heatmap-variant-filter"
                 />
                 <LemonButton
                     size="small"

@@ -1,8 +1,8 @@
 import re
 import json
 import time
-import socket
 import urllib.parse
+from collections.abc import Callable
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
@@ -16,7 +16,6 @@ from django.http import HttpRequest
 
 import structlog
 from drf_spectacular.utils import empty
-from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
 from rest_framework import request, serializers, status
@@ -367,30 +366,28 @@ def is_insight_actors_options_query(query: dict) -> bool:
     return False
 
 
+MAX_LISTED_IDS = 200
+
+
+def parse_id_list[T](
+    raw: str | None, *, name: str, parse: Callable[[str], T], max_ids: int = MAX_LISTED_IDS
+) -> list[T] | None:
+    """Parse a comma-separated id filter from a query param. None when the param is absent."""
+    if raw is None:
+        return None
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(parts) > max_ids:
+        raise ValidationError({name: f"Pass at most {max_ids} IDs."})
+    try:
+        return [parse(part) for part in parts]
+    except (TypeError, ValueError):
+        raise ValidationError({name: "Pass IDs separated by commas."})
+
+
 def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
     return False
-
-
-def raise_if_user_provided_url_unsafe(url: str):
-    """Raise if the provided URL seems unsafe, otherwise do nothing.
-
-    Equivalent of plugin server raiseIfUserProvidedUrlUnsafe.
-    """
-    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)  # urlparse never raises errors
-    if not parsed_url.hostname:
-        raise ValueError("No hostname")
-    if parsed_url.scheme not in ("http", "https"):
-        raise ValueError("Scheme must be either HTTP or HTTPS")
-    # Disallow if hostname resolves to a private (internal) IP address
-    try:
-        addrinfo = socket.getaddrinfo(parsed_url.hostname, None)
-    except socket.gaierror:
-        raise ValueError("Invalid hostname")
-    for _, _, _, _, sockaddr in addrinfo:
-        if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
-            raise ValueError("Internal hostname")
 
 
 def raise_if_connected_to_private_ip(conn):
@@ -424,7 +421,7 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
     Due to the lack of a hook after DNS resolution, we override the connection pool classes
     to check the remote IP after we connect to it, but before we send the request.
 
-    Intended as a second line of defense after raise_if_user_provided_url_unsafe.
+    Intended as a second line of defense after the URL has been validated.
     """
 
     def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
@@ -679,7 +676,8 @@ class ServerTimingsGathered:
         return all_timings
 
     def to_header_string(self, hogql_timings: list[QueryTiming] | None = None) -> str:
-        timings = self.generate_timings(hogql_timings).items()
+        slowest_hogql_timings = sorted(hogql_timings or [], key=lambda timing: timing.t, reverse=True)[:20]
+        timings = self.generate_timings(slowest_hogql_timings).items()
         result: list[str] = []
         current_length = 0
 
@@ -698,9 +696,11 @@ class ServerTimingsGathered:
                 The timings header is a debug signal we don't rely on for functionality
                 so not receiving all timings is not the worse thing in the world
                 """
-                capture_exception(
-                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
+                logger.info(
+                    "server_timing_header_truncated",
+                    timing_count=len(timings),
+                    included_timing_count=len(result),
+                    header_length=current_length,
                 )
                 break
 

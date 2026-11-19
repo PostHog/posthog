@@ -37,13 +37,15 @@ export function triageLabel(count: number | null, countIsCapped: boolean, compac
 export function InboxTriageButton({ compact = false }: { compact?: boolean }): JSX.Element {
     const { count, countIsCapped } = useValues(reportListLogic(sectionListLogicProps(INBOX_PRIMARY_REPORT_SECTION_KEY)))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    // Experiment: does a neutral button change how often people open triage mode?
+    const neutralStyle = useFeatureFlag('INBOX_TRIAGE_BUTTON_COLOR', 'test')
     const disabledReason = count === 0 ? NOTHING_TO_TRIAGE : undefined
     const label = triageLabel(count, countIsCapped, compact)
 
     if (todayRailNav) {
         return (
             <Button
-                variant="primary"
+                variant={neutralStyle ? 'outline' : 'primary'}
                 render={<LinkPrimitive to={urls.inboxTriage()} />}
                 tooltip={TRIAGE_TOOLTIP}
                 disabledReason={disabledReason}
@@ -56,7 +58,7 @@ export function InboxTriageButton({ compact = false }: { compact?: boolean }): J
     }
     return (
         <LemonButton
-            type="primary"
+            type={neutralStyle ? 'secondary' : 'primary'}
             size="small"
             to={urls.inboxTriage()}
             sideIcon={compact ? undefined : <KeyboardShortcut t />}

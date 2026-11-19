@@ -3,7 +3,9 @@ import { type ComponentType, type LazyExoticComponent } from 'react'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
+import type { DashboardFilter } from '~/queries/schema/schema-general'
+
+import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardTopHeading'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
@@ -46,6 +48,11 @@ const NotebookDashboardWidget = lazyWithRetry(() =>
 const NotebookDashboardWidgetMenu = lazyWithRetry(() =>
     import('products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidgetMenu').then((m) => ({
         default: m.NotebookDashboardWidgetMenu,
+    }))
+)
+const QuillNotebookDashboardWidgetMenu = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/QuillNotebookDashboardWidgetMenu').then((m) => ({
+        default: m.QuillNotebookDashboardWidgetMenu,
     }))
 )
 const EditNotebookWidgetModal = lazyWithRetry(() =>
@@ -204,6 +211,7 @@ export type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<Comp
 export type DashboardWidgetDefinition = {
     Component: DashboardWidgetSlot<DashboardWidgetComponentProps>
     MenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    QuillMenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
     bodyPadding?: boolean
     TileFilters?: DashboardWidgetSlot<DashboardWidgetTileFiltersProps>
     EditModal?: DashboardWidgetSlot<DashboardWidgetEditModalProps>
@@ -221,6 +229,9 @@ export type DashboardWidgetComponentProps = {
     result: unknown
     loading: boolean
     error?: string | null
+    /** The date range and interval the dashboard forces on its insight tiles. Widget queries ignore them,
+     * but a widget that opens charts of its own uses them so the charts line up with the dashboard. */
+    dashboardFilters?: Pick<DashboardFilter, 'date_from' | 'date_to' | 'interval'>
     onRefresh?: () => void
     /** Debounced run_widgets refresh after tile data changes (filters). */
     onRefreshData?: () => void
@@ -262,6 +273,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
     notebook_widget: {
         Component: NotebookDashboardWidget,
         MenuItems: NotebookDashboardWidgetMenu,
+        QuillMenuItems: QuillNotebookDashboardWidgetMenu,
         bodyPadding: false,
         EditModal: EditNotebookWidgetModal,
         parseConfigApiError: () => null,

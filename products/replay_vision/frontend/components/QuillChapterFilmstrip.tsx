@@ -8,7 +8,8 @@ import { cn } from 'lib/utils/css-classes'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { MIN_INACTIVE_ROW_MS, currentRowIndex } from '../utils/recordingTimeline'
+import { MIN_INACTIVE_ROW_MS, currentRowIndex, rowStartMs } from '../utils/recordingTimeline'
+import { QuillFilmstripRail } from './QuillFilmstripRail'
 import { QuillObservationThumbnail } from './QuillObservationThumbnail'
 import { QuillRecordingTimelineProps, QuillSummaryNotice } from './QuillRecordingTimeline'
 
@@ -50,6 +51,16 @@ export function QuillChapterFilmstrip(props: QuillRecordingTimelineProps): JSX.E
         strip?.scrollBy({ left: direction * strip.clientWidth * 0.8, behavior: 'smooth' })
     }
 
+    const cardIndexes = rows.flatMap((row, index) => (row.kind === 'boundary' ? [] : [index]))
+    const railFor = (index: number): { passedBefore: boolean; passedAfter: boolean; first: boolean; last: boolean } => {
+        return {
+            passedBefore: rowStartMs(rows[index]) <= currentTimeMs,
+            passedAfter: index < currentIndex,
+            first: index === cardIndexes[0],
+            last: index === cardIndexes[cardIndexes.length - 1],
+        }
+    }
+
     return (
         <div className="flex flex-col" data-attr="vision-chapter-filmstrip">
             {rows.length > 0 && (
@@ -77,11 +88,14 @@ export function QuillChapterFilmstrip(props: QuillRecordingTimelineProps): JSX.E
                                 return (
                                     <span
                                         key={`inactive-${row.startMs}`}
-                                        className="flex w-11 shrink-0 flex-col items-center justify-center border-x border-dashed border-border text-center text-xxs text-muted-foreground"
+                                        className="flex w-11 shrink-0 flex-col px-1 py-1 text-center text-xxs text-muted-foreground"
                                         data-attr="vision-filmstrip-inactive"
                                     >
-                                        <span>{formatSpan(row.endMs - row.startMs)}</span>
-                                        <span>idle</span>
+                                        <QuillFilmstripRail dot={false} isCurrent={false} dashed {...railFor(index)} />
+                                        <span className="flex flex-1 flex-col items-center justify-center border-x border-dashed border-border">
+                                            <span>{formatSpan(row.endMs - row.startMs)}</span>
+                                            <span>idle</span>
+                                        </span>
                                     </span>
                                 )
                             }
@@ -117,6 +131,7 @@ export function QuillChapterFilmstrip(props: QuillRecordingTimelineProps): JSX.E
                                     )}
                                     data-attr="vision-filmstrip-chapter"
                                 >
+                                    <QuillFilmstripRail dot isCurrent={isCurrent} {...railFor(index)} />
                                     {chapter.hasFrame ? (
                                         <Tooltip>
                                             <TooltipTrigger render={<span className="flex w-full" />}>

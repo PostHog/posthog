@@ -224,6 +224,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user,
     clone.assert_called_once_with(
         GitRepositoryCloneRequest(
             sandbox_id=worker.sandbox_id,
+            team_id=team.id,
             github_integration_id=456,
             repository="posthog/posthog",
             branch=branch,
@@ -352,6 +353,7 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
     ):
         get_run.return_value.program.command = ()
         get_run.return_value.program.wizard_version = "2.60.0"
+        get_run.return_value.program.context_mill_version = None
         async_to_sync(_run_traced_execute_wizard)(workspace)
 
     provider.shutdown()

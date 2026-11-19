@@ -7,20 +7,21 @@ export interface UsageRecordBatchConfig {
     isTeamEnabled: ValueMatcher<number>
 }
 
-interface PendingRecord {
+export interface UsageRecord {
     teamId: number
     usageKey: string
     recordId: string
-    quantity: number
+    quantity?: number
     unit?: string
     timestampMs?: number
 }
 
+type PendingRecord = UsageRecord & { quantity: number }
+
 /**
  * Collects one usage record per billed thing, identified by a record ID the
- * producer can reproduce. Every record carries quantity 1, so a second `add` of
- * the same identity is the same thing seen twice and is discarded rather than
- * added — the aggregate lives in ClickHouse, keyed the same way.
+ * producer can reproduce. A second `add` of the same identity is discarded, so the
+ * first quantity stands; the aggregate lives in ClickHouse, keyed the same way.
  *
  * Keyed by (team, usage key, record ID) to match the ingest contract's identity.
  * Keying on the record ID alone would merge two teams that share an ID and bill
@@ -59,22 +60,17 @@ export class UsageRecordBatch {
      * succeeded. The flush side effect waits for these acknowledgements, so it
      * is safe to schedule both production and usage reporting in the background.
      */
-    addAfterAcknowledgements(
-        acknowledgements: Promise<unknown | null>[],
-        teamId: number,
-        usageKey: string,
-        recordId: string,
-        timestampMs?: number
-    ): void {
+    addAfterAcknowledgements(acknowledgements: Promise<unknown | null>[], record: UsageRecord): void {
         // A record that would be dropped must not put the flush behind its Kafka writes.
-        if (!this.accepts(teamId)) {
+        if (!this.accepts(record.teamId)) {
             return
         }
+        const { teamId, usageKey, recordId, quantity, unit, timestampMs } = record
         this.pendingAcknowledgements.push(
             Promise.all(acknowledgements)
                 .then((results) => {
                     if (results.every((result) => result !== null)) {
-                        this.add(teamId, usageKey, recordId, 1, undefined, timestampMs)
+                        this.add(teamId, usageKey, recordId, quantity, unit, timestampMs)
                     }
                 })
                 // Kafka errors are handled by the producer side effect. They must

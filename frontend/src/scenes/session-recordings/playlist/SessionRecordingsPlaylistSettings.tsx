@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCheck, IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { dayjs } from 'lib/dayjs'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
@@ -40,11 +40,7 @@ const SortingKeyToLabel = {
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
     recording_ttl: 'Expiration',
-    surfacing_score: 'Relevance',
 }
-
-const RELEVANCE_SORT_EXPLANATION =
-    'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
 export function getSortChangedEvent(
     filters: RecordingUniversalFilters,
@@ -61,15 +57,11 @@ export function getSortChangedEvent(
     }
 }
 
-export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingUniversalFilters> {
-    return { recommended_only: enabled }
-}
-
 function useSortMenuItems(
     filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): LemonMenuItem[] {
-    const { canSortByRelevance: showRelevanceSort, listSort } = useValues(sessionRecordingsPlaylistLogic)
+    const { listSort } = useValues(sessionRecordingsPlaylistLogic)
     filters = { ...filters, ...listSort }
 
     const changeSort = (sort: RecordingSort): void => {
@@ -82,17 +74,6 @@ function useSortMenuItems(
     }
 
     return [
-        ...(showRelevanceSort
-            ? [
-                  {
-                      label: SortingKeyToLabel['surfacing_score'],
-                      tooltip: RELEVANCE_SORT_EXPLANATION,
-                      onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
-                      'data-attr': 'list-sort-surfacing-score',
-                      active: filters.order === 'surfacing_score',
-                  },
-              ]
-            : []),
         {
             label: 'Start time',
             items: [
@@ -177,36 +158,6 @@ function useSortMenuItems(
     ]
 }
 
-function useRecommendedOnlyToggle(
-    filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-): { enabled: boolean; checked: boolean; toggle: (checked: boolean) => void } {
-    const { canFilterByRelevance: enabled } = useValues(sessionRecordingsPlaylistLogic)
-    const checked = !!filters.recommended_only
-    const toggle = (checked: boolean): void => {
-        posthog.capture('session recording recommended filter changed', { enabled: checked })
-        setFilters(getRecommendedFilterChange(checked))
-    }
-    return { enabled, checked, toggle }
-}
-
-function useRecommendedOnlyMenuItem(
-    filters: RecordingUniversalFilters,
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-): LemonMenuItem | null {
-    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
-    if (!enabled) {
-        return null
-    }
-    return {
-        label: 'High relevance only',
-        icon: checked ? <IconCheck /> : <IconBlank />,
-        active: checked,
-        onClick: () => toggle(!checked),
-        'data-attr': 'session-recordings-recommended-only',
-    }
-}
-
 function ListViewMenu({
     filters,
     setFilters,
@@ -217,14 +168,13 @@ function ListViewMenu({
     disabledReason?: string
 }): JSX.Element {
     const sortItems = useSortMenuItems(filters, setFilters)
-    const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
     const hideItems = useHideRecordingsMenuItems()
     const timestampItems = useTimestampFormatMenuItems()
     const layoutItems = useLayoutMenuItems()
 
     const items: LemonMenuItems = [
         { title: 'Sort by', items: sortItems },
-        { title: 'Show', items: [recommendedItem, ...hideItems] },
+        { title: 'Show', items: hideItems },
         { title: 'Timestamps', items: timestampItems },
         ...(layoutItems.length ? [{ title: 'Layout', items: layoutItems }] : []),
     ]
@@ -527,6 +477,7 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { isHobby } = useValues(preflightLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
@@ -568,11 +519,13 @@ export function SessionRecordingsPlaylistTopSettings({
         })
 
         // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-        menuItems.push({
-            key: 'bulk-scan-recordings',
-            label: () => <BulkScanMenuItem />,
-            custom: true,
-        })
+        if (!isHobby) {
+            menuItems.push({
+                key: 'bulk-scan-recordings',
+                label: () => <BulkScanMenuItem />,
+                custom: true,
+            })
+        }
 
         menuItems.push({
             label: 'Delete',

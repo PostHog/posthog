@@ -13,7 +13,6 @@ from enum import StrEnum
 import structlog
 from temporalio import workflow
 
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.open_telemetry import initialize_otel
 
 with workflow.unsafe.imports_passed_through():
@@ -49,23 +48,23 @@ from posthog.temporal.billing_active_sync import (
     ACTIVITIES as BILLING_ACTIVE_SYNC_ACTIVITIES,
     WORKFLOWS as BILLING_ACTIVE_SYNC_WORKFLOWS,
 )
+from posthog.temporal.cimd_provisioning_review import (
+    CIMD_PROVISIONING_REVIEW_ACTIVITIES,
+    CIMD_PROVISIONING_REVIEW_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
 )
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
+from posthog.temporal.common.internal_logs import InternalLogsSink
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
-from posthog.temporal.data_modeling import (
-    ACTIVITIES as DATA_MODELING_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_WORKFLOWS,
-    WORKFLOWS as DATA_MODELING_WORKFLOWS,
-)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
@@ -81,10 +80,6 @@ from posthog.temporal.dlq_replay import (
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
-)
-from posthog.temporal.experiments import (
-    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
-    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
 )
 from posthog.temporal.exports import (
     ACTIVITIES as EXPORT_ACTIVITIES,
@@ -131,14 +126,6 @@ from posthog.temporal.session_replay.rasterize_recording import (
 from posthog.temporal.session_replay.replay_count_metrics import (
     REPLAY_COUNT_METRICS_ACTIVITIES,
     REPLAY_COUNT_METRICS_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_score_export_sweep import (
-    SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
-    SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep import (
-    SURFACING_SCORING_SWEEP_ACTIVITIES,
-    SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import (
@@ -220,6 +207,12 @@ from products.data_catalog.backend.facade.temporal import (
     ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
     WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
 )
+from products.data_modeling.backend.facade.temporal import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
+)
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
     WORKFLOWS as DATA_QUALITY_WORKFLOWS,
@@ -236,7 +229,7 @@ from products.error_tracking.backend.facade.temporal import (
     LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
-from products.experiments.backend.temporal import (
+from products.experiments.backend.facade.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
@@ -245,6 +238,8 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+    TIMESERIES_ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    TIMESERIES_WORKFLOWS as EXPERIMENTS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
@@ -304,10 +299,6 @@ from products.replay_vision.backend.temporal import (
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.facade.temporal import (
-    ACTIVITIES as REVIEW_HOG_ACTIVITIES,
-    WORKFLOWS as REVIEW_HOG_WORKFLOWS,
-)
 from products.security.backend.facade.temporal import (
     ACTIVITIES as SECURITY_ACTIVITIES,
     WORKFLOWS as SECURITY_WORKFLOWS,
@@ -339,6 +330,10 @@ from products.tasks.backend.facade.temporal import (
 from products.today.backend.facade.temporal import (
     ACTIVITIES as TODAY_ACTIVITIES,
     WORKFLOWS as TODAY_WORKFLOWS,
+)
+from products.tracing.backend.facade.temporal import (
+    TRACES_ALERT_EVALUATION_ACTIVITIES,
+    TRACES_ALERT_EVALUATION_WORKFLOWS,
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
@@ -432,6 +427,7 @@ _task_queue_specs = [
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
+        + CIMD_PROVISIONING_REVIEW_WORKFLOWS
         + JOB_LOGS_WORKFLOWS
         + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
@@ -460,6 +456,7 @@ _task_queue_specs = [
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
+        + CIMD_PROVISIONING_REVIEW_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
         + CONTEXT_LAYER_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
@@ -506,6 +503,16 @@ _task_queue_specs = [
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE,
         [],
         EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
@@ -571,15 +578,13 @@ _task_queue_specs = [
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
         + CUSTOMER_ANALYTICS_WORKFLOWS
-        + KNOWLEDGE_WRITER_WORKFLOWS
-        + REVIEW_HOG_WORKFLOWS,
+        + KNOWLEDGE_WRITER_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
         + CUSTOMER_ANALYTICS_ACTIVITIES
-        + KNOWLEDGE_WRITER_ACTIVITIES
-        + REVIEW_HOG_ACTIVITIES,
+        + KNOWLEDGE_WRITER_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -588,17 +593,13 @@ _task_queue_specs = [
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
-        + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
-        + SURFACING_SCORING_SWEEP_WORKFLOWS,
+        + REPLAY_COUNT_METRICS_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
-        + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
-        + SURFACING_SCORING_SWEEP_ACTIVITIES,
+        + REPLAY_COUNT_METRICS_ACTIVITIES,
     ),
     (
         settings.REPLAY_VISION_TASK_QUEUE,
@@ -614,10 +615,14 @@ _task_queue_specs = [
         WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
-        # AEO brand sentiment rides this queue because its image is the one that carries the ONNX sentiment model.
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS + AEO_BRAND_SENTIMENT_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES + AEO_BRAND_SENTIMENT_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    ),
+    (
+        settings.AEO_TASK_QUEUE,
+        AEO_BRAND_SENTIMENT_WORKFLOWS,
+        AEO_BRAND_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,
@@ -692,13 +697,15 @@ _task_queue_specs = [
         + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS
         + BILLING_PLATFORM_EVALUATION_WORKFLOWS
         + WAREHOUSE_ALERT_EVALUATION_WORKFLOWS
-        + METRICS_ALERT_EVALUATION_WORKFLOWS,
+        + METRICS_ALERT_EVALUATION_WORKFLOWS
+        + TRACES_ALERT_EVALUATION_WORKFLOWS,
         ALERTS_PLATFORM_EVALUATION_ACTIVITIES
         + LOGS_SOURCE_EVALUATION_ACTIVITIES
         + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES
         + BILLING_PLATFORM_EVALUATION_ACTIVITIES
         + WAREHOUSE_ALERT_EVALUATION_ACTIVITIES
-        + METRICS_ALERT_EVALUATION_ACTIVITIES,
+        + METRICS_ALERT_EVALUATION_ACTIVITIES
+        + TRACES_ALERT_EVALUATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
@@ -712,11 +719,15 @@ _task_queue_specs = [
 # the same queue. We aggregate with defaultdict(set) so all workflows/activities
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
-_workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
+_workflows: defaultdict[str, set[type]] = defaultdict(set)
 _activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
     _workflows[task_queue_name].update(workflows_for_queue)
     _activities[task_queue_name].update(activities_for_queue)
+# A product that declares `TEMPORAL` in its facade binds its code to queues there, not in the list above.
+for binding in combined_registration().queues:
+    _workflows[binding.task_queue].update(binding.workflows)
+    _activities[binding.task_queue].update(binding.activities)
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
@@ -945,7 +956,13 @@ class Command(BaseCommand):
         # TEMPORAL_OTEL_PLUGIN_ENABLED.
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
+            or task_queue
+            in (
+                settings.MAX_AI_TASK_QUEUE,
+                settings.TASKS_TASK_QUEUE,
+                settings.WIZARD_TASK_QUEUE,
+                settings.DATA_MODELING_TASK_QUEUE,
+            )
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
@@ -1015,7 +1032,13 @@ class Command(BaseCommand):
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
-            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
+            internal_logs = InternalLogsSink.from_settings()
+            stop_log_producer = configure_logger(
+                loop=loop,
+                otel_log_mirror=otel_log_mirror,
+                internal_logs=internal_logs,
+                log_sources=combined_registration().log_sources,
+            )
 
             logger = LOGGER.bind(
                 host=temporal_host,
@@ -1036,15 +1059,6 @@ class Command(BaseCommand):
                 zombie_exit_grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
             )
             logger.info("Starting Temporal Worker")
-
-            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
-                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
-
-                # Best-effort: surfacing shares this queue with the rest of the
-                # session-replay worker, so a model problem must not crash the
-                # pod. It logs and continues; scoring activities retry until the
-                # model is fixed.
-                warmup_best_effort()
 
             worker = runner.run(
                 create_worker(
@@ -1126,6 +1140,11 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+                # The logger's own shutdown hook waits on an activity context, which this loop never has.
+                # Only workers that send internal logs run this, so other workers shut down as before.
+                if internal_logs is not None and stop_log_producer is not None:
+                    runner.run(stop_log_producer())
 
                 logger.info("Listing active threads at shutdown:")
                 for t in threading.enumerate():

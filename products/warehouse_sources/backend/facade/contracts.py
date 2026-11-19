@@ -25,6 +25,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationUsage
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
@@ -40,6 +41,8 @@ CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
 # A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
 UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+# The `IntegrationUsage.type` of a warehouse destination that writes through an integration row.
+WAREHOUSE_DESTINATION_USAGE_TYPE = "warehouse_destination"
 
 
 class SharedCredentialsError(Exception):
@@ -70,6 +73,21 @@ class SharedCredentialsEdit(StrEnum):
     REFUSE = "refuse"
     # The person confirmed the edit: write the shared row.
     CONFIRMED = "confirmed"
+
+
+class LegacyHistoryTableError(Exception):
+    """An incremental schema's history table uses the legacy `_cdc` naming.
+
+    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
+    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
+    """
+
+
+class AddedTableLocationError(ValueError):
+    """The path of a table to add is outside the source's bucket or folder, holds no importable files, or can't be read.
+
+    The message tells the user what to change.
+    """
 
 
 class UnsupportedSyncTypeError(ValueError):
@@ -649,3 +667,194 @@ class SourceReferencingIntegration:
     prefix: str | None
     # The inputs did not decode, so the source may point at the row. The search counts it as a user.
     unreadable: bool = False
+
+
+@frozen
+class StaffSchemaPartitioning:
+    enabled: bool | None
+    mode: str | None
+    format: str | None
+    size: int | None
+    count: int | None
+    # Pinned by staff. Applied on the next reset.
+    count_override: int | None
+    size_override: int | None
+    mode_override: str | None
+    keys_override: tuple[str, ...] | None
+    keys: tuple[str, ...] | None
+
+
+@frozen
+class StaffSchemaSummary:
+    """One schema as staff see it in PostHog Admin."""
+
+    id: UUID
+    name: str
+    team_id: int
+    team_name: str
+    source_id: UUID
+    source_type: str
+    is_cdc: bool
+    supports_scheduled_sync: bool
+    partitioning: StaffSchemaPartitioning
+    available_columns: tuple[str, ...] | None
+    should_sync: bool
+    deleted: bool
+    # When PostHog stopped syncing the schema itself. None while it syncs, or when the user turned it off.
+    auto_disabled_at: datetime | None
+
+
+@frozen
+class StaffJobRow:
+    id: UUID
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    rows_synced: int | None
+    workflow_id: str | None
+    workflow_run_id: str | None
+    latest_error: str | None
+
+
+@frozen
+class StaffJobsPage:
+    rows: tuple[StaffJobRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class StaffSourceSummary:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    team_id: int
+    team_name: str
+
+
+@frozen
+class StaffSchemaRow:
+    id: UUID
+    name: str
+    deleted: bool
+    status: str | None
+    should_sync: bool
+    sync_type: str | None
+    sync_frequency_interval: timedelta | None
+    last_synced_at: datetime | None
+    table_id: UUID | None
+    table_name: str | None
+    table_row_count: int | None
+    latest_error: str | None
+
+
+@frozen
+class StaffSchemasPage:
+    rows: tuple[StaffSchemaRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class RepartitionRequest:
+    """Partition settings staff chose. A value left empty keeps the schema's current one where that is allowed."""
+
+    partition_mode: str | None
+    partitioning_keys: tuple[str, ...]
+    partition_format: str | None
+    partition_count: int | None
+    partition_size: int | None
+
+
+@frozen
+class StaffActionResult:
+    ok: bool
+    message: str
+
+
+@frozen
+class AutoDisabledSchemaFilter:
+    """Schemas PostHog stopped syncing in the last `days` days, narrowed by the optional fields."""
+
+    days: int
+    source_type: str | None = None
+    # A case-insensitive substring of the schema's latest error.
+    error: str | None = None
+    team_id: int | None = None
+
+
+@frozen
+class AutoDisabledSchemaRow:
+    id: UUID
+    name: str
+    team_id: int
+    source_id: UUID
+    source_type: str
+    auto_disabled_at: datetime
+    latest_error: str | None
+
+
+@frozen
+class AutoDisabledErrorGroup:
+    """Auto-disabled schemas of one source type whose errors start the same way."""
+
+    source_type: str
+    # The start of the error that the group shares. It is also a substring that finds every schema of the group.
+    # Empty when the schemas have no error recorded.
+    error: str
+    count: int
+    newest_at: datetime
+    oldest_at: datetime
+
+
+@frozen
+class AutoDisabledSchemasSummary:
+    total: int
+    team_count: int
+    source_count: int
+    groups: tuple[AutoDisabledErrorGroup, ...]
+    # How many of the newest schemas the groups cover. Less than `total` when there were too many to group.
+    grouped_count: int
+
+
+@frozen
+class AutoDisabledSchemasPage:
+    rows: tuple[AutoDisabledSchemaRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class AutoDisabledSchemaSelection:
+    """The newest matching schemas, up to the cap of one run, and how many match in total."""
+
+    rows: tuple[AutoDisabledSchemaRow, ...]
+    total: int
+
+
+@frozen
+class SchemaReenableTarget:
+    """A schema to turn syncing on for, with the stop time staff saw. A schema with a different stop time is skipped."""
+
+    schema_id: UUID
+    team_id: int
+    auto_disabled_at: datetime | None
+
+
+@frozen
+class SchemaReenableResult:
+    reenabled: tuple[UUID, ...]
+    # Turned on, deleted, or stopped again since staff saw them.
+    skipped: tuple[UUID, ...]
+    failed: tuple[UUID, ...]
+    # Not started because the run reached its time budget. They are unchanged.
+    not_attempted: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True)
+class DestinationReferencingIntegration:
+    id: UUID
+    name: str

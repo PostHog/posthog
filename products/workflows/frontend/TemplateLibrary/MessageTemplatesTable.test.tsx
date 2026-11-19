@@ -19,7 +19,6 @@ describe('MessageTemplatesTable', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': { results: [TEMPLATE] },
-                '/api/projects/:team_id/tags': [],
             },
         })
     })

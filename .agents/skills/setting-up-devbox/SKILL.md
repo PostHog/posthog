@@ -155,11 +155,14 @@ https://app--<workspace>--<coder-user>.<coder-host>
 ```
 
 `<coder-host>` is the host of `Coder URL` in `hogli devbox:doctor`, and `hogli devbox:list` shows the workspace name.
+`hogli devbox:status` prints this URL on the `App:` line, with the app's health check status, for a box the user owns.
 For example, `devbox-jane-d` owned by `jane-d` on `coder.dev.posthog.dev` is `https://app--devbox-jane-d--jane-d.coder.dev.posthog.dev`.
 The user must be on the tailnet, and the browser goes through Coder sign-in first.
+Each box has its own URL, so prefer it over forwarding when the user runs several boxes.
 
 Verify the link before handing it over.
-Coder runs the template's health check against the app, so read that status instead of sending a request with the user's session token:
+Coder runs the template's health check against the app, so read that status instead of sending a request with the user's session token.
+`hogli devbox:status` shows it, or read it directly:
 
 ```bash
 ~/.hogli/bin/coder list --output json | jq -r '.[] | select(.name=="<workspace>") | .latest_build.resources[]?.agents[]?.apps[]? | select(.slug=="app") | .health'
@@ -169,8 +172,11 @@ Coder runs the template's health check against the app, so read that status inst
 `initializing` means the check hasn't passed yet, and `unhealthy` means it keeps failing.
 
 `hogli devbox:forward` is the alternative when the user wants `localhost`.
-It tunnels box port 8010 to `localhost:8010` and holds the terminal until stopped.
-Pass `--port 8011` when a local stack already uses 8010.
+It tunnels box port 8010 to a local port and holds the terminal until stopped.
+The default box gets `localhost:8010` while that port is free.
+Every other box, and the default box when 8010 is taken, gets a port in 18000-18999 derived from the box name, so the same box gets the same port on each run.
+When that port is taken, the next free one is used.
+Pass `--port <port>` to choose the port yourself; the command then fails if that port is in use.
 
 ## One devbox per worktree
 
@@ -204,7 +210,8 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 - Pass `--provider hogland` with `--auto` to save Hogland as the default, which automatic boxes then use. `hogli devbox:config:rm worktree-provider` goes back to Coder.
 - `worktrees:clean --stop-boxes` hibernates the box, and `--delete-boxes` deletes it.
 - A worktree that still has a box on the other provider is refused until that box is removed.
-- `--clone-from` and `--start-app` are Coder-only.
+- `--clone-from <label>` clones the running Hogland devbox `wt-<label>`, or `default` for the devbox named `default`. It runs `hogland devbox clone`, so it needs a `hogland` CLI that has that command; an older one fails with the upgrade command. The clone copies the whole box, including secrets, so it asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `--start-app` saves the setting on a new box as the file `~/.config/hogli/start-app`. Every later `devbox:worktree` run on that box then waits for the mirror to catch up and runs `hogli up -d`. A clone keeps the source's setting. On an existing box the flag is ignored, so delete or create that file on the box to change it.
 
 ### Provision a box for every new worktree
 

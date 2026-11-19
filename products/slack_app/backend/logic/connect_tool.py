@@ -16,6 +16,7 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SlackIntegration
+from posthog.models.user import User
 from posthog.utils import absolute_uri
 
 from products.mcp_store.backend.facade.api import team_tools_not_connected
@@ -53,7 +54,8 @@ def offer_tool_connections(
     workflow_id: str,
 ) -> bool:
     """Returns whether the offer went out, so the workflow knows to wait."""
-    if not is_slack_app_connect_tool_from_chat_enabled(integration):
+    distinct_id = User.objects.filter(id=user_id).values_list("distinct_id", flat=True).first()
+    if not is_slack_app_connect_tool_from_chat_enabled(integration, distinct_id):
         return False
     # One tool at a time: the first connection resumes the task, and its sandbox mounts its tools when it starts.
     tool = next(

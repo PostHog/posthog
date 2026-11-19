@@ -32,6 +32,7 @@ from products.managed_warehouse.backend.facade.access import (
     enable_customer_warehouse_access,
     is_internal_warehouse,
 )
+from products.managed_warehouse.backend.facade.contracts import ControlPlaneStorage
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
 
@@ -79,6 +80,9 @@ class PresentedTrinoStatus(TypedDict):
     state: TrinoStatusState
     ready_at: str | None
     connection: PresentedTrinoConnection | None
+    # The Trino catalog is a hoglake catalog that hoglake has created. Only then do hoglake
+    # credentials reach anything: a DuckLake catalog has no hoglake behind it.
+    hoglake: bool
 
 
 _TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
@@ -1210,12 +1214,12 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
     The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
     time, and the connection target leave this function.
     """
-    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None, hoglake=False)
     resp = _request("GET", organization_id, "/trino", timeout=10)
     if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
         return unavailable
     if resp.data.get("enabled") is not True:
-        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None)
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None, hoglake=False)
 
     trino_status = resp.data.get("status")
     if not isinstance(trino_status, dict):
@@ -1240,10 +1244,12 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
         logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
         return unavailable
     ready_at = trino_status.get("ready_at")
+    backend = resp.data.get("backend") or trino_status.get("backend")
     return PresentedTrinoStatus(
         state=state,
         ready_at=ready_at if isinstance(ready_at, str) else None,
         connection=_present_trino_connection(trino_status) if state == "ready" else None,
+        hoglake=backend == "hoglake" and resp.data.get("hoglake_initialized") is True,
     )
 
 
@@ -1303,6 +1309,11 @@ def _cp_status_body(organization_id: UUID | str) -> dict | None:
     return resp.data
 
 
+def cp_trino_status_for(organization_id: UUID | str) -> Response:
+    """The control plane's Trino status for backend callers, which have no user-facing feature flag to pass."""
+    return _request("GET", organization_id, "/trino", timeout=10, require_enabled=False)
+
+
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
     """Authoritative S3 bucket for the org's duckling, straight from the control plane.
 
@@ -1323,6 +1334,14 @@ def cp_bucket_for(organization_id: UUID | str) -> str | None:
     return body.get("bucket") or None
 
 
+def _storage_from_status(body: dict) -> ControlPlaneStorage | None:
+    if not body.get("bucket"):
+        return None
+    prefix = str(body.get("bucket_prefix") or "").strip("/")
+    root = f"s3://{body['bucket']}/"
+    return ControlPlaneStorage(bucket=str(body["bucket"]), data_path=f"{root}{prefix}/" if prefix else root)
+
+
 def cp_data_path_for(organization_id: UUID | str) -> str | None:
     """S3 URI of the org's DuckLake data path, as `s3://<bucket>/` or `s3://<bucket>/<prefix>/`.
 
@@ -1330,11 +1349,21 @@ def cp_data_path_for(organization_id: UUID | str) -> str | None:
     relative to this root, so files must land under it. None when the control plane names no bucket.
     """
     body = _cp_status_body(organization_id)
-    if body is None or not body.get("bucket"):
+    storage = _storage_from_status(body) if body is not None else None
+    return storage.data_path if storage is not None else None
+
+
+def cp_storage_for(organization_id: UUID | str) -> ControlPlaneStorage | None:
+    """The org's bucket and data path from one control-plane status, with the same org-id check as `cp_bucket_for`.
+
+    A caller that checks the data path against the bucket must read both from one status, because a second request
+    that fails would hide the prefix. Also reconciles the stored `DuckgresServer` row, as `cp_bucket_for` does.
+    """
+    body = _cp_status_body(organization_id)
+    if body is None:
         return None
-    prefix = str(body.get("bucket_prefix") or "").strip("/")
-    root = f"s3://{body['bucket']}/"
-    return f"{root}{prefix}/" if prefix else root
+    _reconcile_bucket_from_status(organization_id, body)
+    return _storage_from_status(body)
 
 
 def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:

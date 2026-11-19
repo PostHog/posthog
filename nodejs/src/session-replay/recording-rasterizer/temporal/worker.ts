@@ -158,12 +158,11 @@ async function main(): Promise<void> {
             },
         },
         dataConverter: { payloadCodecs: [payloadCodec] },
-        // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
-        // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
-        // (30s → 24s), which means capture-phase frame progress never reaches the
-        // parent workflow on short recordings. 2s matches the summary polling cadence.
-        defaultHeartbeatThrottleInterval: '2s',
-        maxHeartbeatThrottleInterval: '5s',
+        // Throttle heartbeat *server flushes* (not heartbeat() calls) to 10s. Each flush is a billed
+        // Temporal action, and frame progress is only a UI hint. Without this override the SDK throttles
+        // to 80% of the 30s heartbeat_timeout (24s), so short recordings would show no frame progress.
+        defaultHeartbeatThrottleInterval: '10s',
+        maxHeartbeatThrottleInterval: '10s',
         // Let in-flight renders finish after shutdown() instead of cancelling them right away (SDK default 0).
         shutdownGraceTime: config.shutdownGraceTimeMs,
     })

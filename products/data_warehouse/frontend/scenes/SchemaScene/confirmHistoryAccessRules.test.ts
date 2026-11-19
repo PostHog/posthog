@@ -78,13 +78,19 @@ describe('confirmHistoryAccessRules', () => {
         expect(save).not.toHaveBeenCalled()
     })
 
-    it.each<[string, ExternalDataSourceSchema['sync_type'], Mode, Mode, boolean]>([
-        ['consolidated to both', 'cdc', 'consolidated', 'both', true],
-        ['consolidated to cdc_only', 'cdc', 'consolidated', 'cdc_only', true],
-        ['incremental to cdc with history', 'incremental', undefined, 'both', true],
-        ['cdc_only to both', 'cdc', 'cdc_only', 'both', false],
-        ['both to consolidated', 'cdc', 'both', 'consolidated', false],
-    ])('turnsHistoryOn: %s', (_name, savedSyncType, savedMode, newMode, expected) => {
-        expect(turnsHistoryOn({ sync_type: savedSyncType, cdc_table_mode: savedMode }, 'cdc', newMode)).toBe(expected)
+    type SyncType = ExternalDataSourceSchema['sync_type']
+    it.each<[string, SyncType, Mode, SyncType, Mode, boolean]>([
+        ['consolidated to both', 'cdc', 'consolidated', 'cdc', 'both', true],
+        ['consolidated to cdc_only', 'cdc', 'consolidated', 'cdc', 'cdc_only', true],
+        ['incremental to cdc with history', 'incremental', undefined, 'cdc', 'both', true],
+        ['cdc_only to both', 'cdc', 'cdc_only', 'cdc', 'both', false],
+        ['both to consolidated', 'cdc', 'both', 'cdc', 'consolidated', false],
+        ['incremental turning history on', 'incremental', 'consolidated', 'incremental', 'both', true],
+        ['incremental keeping history', 'incremental', 'both', 'incremental', 'cdc_only', false],
+        ['cdc with history to incremental with history', 'cdc', 'both', 'incremental', 'both', false],
+    ])('turnsHistoryOn: %s', (_name, savedSyncType, savedMode, newSyncType, newMode, expected) => {
+        expect(turnsHistoryOn({ sync_type: savedSyncType, cdc_table_mode: savedMode }, newSyncType, newMode)).toBe(
+            expected
+        )
     })
 })

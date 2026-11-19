@@ -45,13 +45,13 @@ const fileToBase64 = (file?: File): Promise<string> => {
 export function HogFunctionIconEditable({
     size = 'medium',
     ...props
-}: HogFunctionIconLogicProps & { size?: 'small' | 'medium' | 'large' }): JSX.Element {
+}: HogFunctionIconLogicProps & { size?: 'xsmall' | 'small' | 'medium' | 'large' }): JSX.Element {
     const { possibleIconsLoading, showPopover, possibleIcons, searchTerm } = useValues(hogFunctionIconLogic(props))
     const { setShowPopover, setSearchTerm } = useActions(hogFunctionIconLogic(props))
 
     const content = (
         <span
-            className="-m-1 rounded-lg transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
+            className="flex rounded transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
             onClick={() => setShowPopover(!showPopover)}
         >
             <HogFunctionIcon size={size} src={props.src} />
@@ -135,7 +135,7 @@ export function HogFunctionIcon({
     className,
 }: {
     src?: string
-    size?: 'small' | 'medium' | 'large'
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
     className?: string
 }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
@@ -148,6 +148,7 @@ export function HogFunctionIcon({
             className={clsx(
                 'relative flex items-center justify-center',
                 {
+                    'size-5 text-base': size === 'xsmall',
                     'w-[30px] h-[30px] text-2xl': size === 'small',
                     'w-10 h-10 text-4xl': size === 'medium',
                     'w-12 h-12 text-6xl': size === 'large',

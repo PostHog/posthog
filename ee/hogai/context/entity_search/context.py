@@ -23,13 +23,13 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.facade.api import search_insight_alerts
 from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.facade import api as customer_analytics_facade
 from products.customer_analytics.backend.facade.api import build_account_deeplink
 from products.customer_analytics.backend.facade.contracts import AccountRef
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.dashboards.backend.facade.api import search_dashboards
+from products.experiments.backend.facade.search import search_experiments
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
@@ -81,18 +81,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description", "query_metadata", "query"],
         "filters": {"deleted": False, "saved": True},
     },
-    "dashboard": {
-        "klass": Dashboard,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
-    "experiment": {
-        "klass": Experiment,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
     "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "cohort": {
         "klass": Cohort,
@@ -105,12 +93,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
         "filters": {"archived": False},
-    },
-    "alert_configuration": {
-        "klass": AlertConfiguration,
-        "search_fields": {"name": "A"},
-        "extra_fields": ["name", "enabled", "state", "calculation_interval"],
-        "filters": {},
     },
     "notebook": {
         "klass": Notebook,
@@ -126,15 +108,38 @@ The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C 
 """
 
 
-# Actions are searched through the actions facade rather than unioned by model class, so they are not in ENTITY_MAP.
+def _search_live_experiments(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+    return search_experiments(include_deleted=False, **kwargs)
+
+
+# Actions, dashboards, experiments and alerts are searched through their products' facades rather than unioned by
+# model class, so they are not in ENTITY_MAP. Alerts go through a facade because an alert the alerts platform holds
+# has no row, or a row that does not follow its settings.
 ACTION_ENTITY = "action"
-FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: search_live_actions}
+ALERT_ENTITY = "alert_configuration"
+DASHBOARD_ENTITY = "dashboard"
+EXPERIMENT_ENTITY = "experiment"
+FACADE_SEARCHES: dict[str, FacadeSearch] = {
+    EXPERIMENT_ENTITY: _search_live_experiments,
+    ACTION_ENTITY: search_live_actions,
+    DASHBOARD_ENTITY: search_dashboards,
+    ALERT_ENTITY: search_insight_alerts,
+}
+# Dashboards and experiments keep their place after insights, actions theirs before cohorts, and alerts theirs
+# before notebooks, in the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
-# Actions keep their place between feature flags and cohorts in the counts.
+_DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
+_ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
+_ALERT_SLOT = _UNION_ENTITY_NAMES.index("notebook")
 COUNTED_ENTITIES = [
-    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("cohort")],
+    *_UNION_ENTITY_NAMES[:_DASHBOARD_SLOT],
+    DASHBOARD_ENTITY,
+    EXPERIMENT_ENTITY,
+    *_UNION_ENTITY_NAMES[_DASHBOARD_SLOT:_ACTION_SLOT],
     ACTION_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+    *_UNION_ENTITY_NAMES[_ACTION_SLOT:_ALERT_SLOT],
+    ALERT_ENTITY,
+    *_UNION_ENTITY_NAMES[_ALERT_SLOT:],
 ]
 
 EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
@@ -179,7 +184,7 @@ class EntitySearchContext:
             Tuple of (results list, counts dict)
         """
         if entity_types == "all":
-            entity_types = {*ENTITY_MAP, ACTION_ENTITY, "hog_flow"}
+            entity_types = {*ENTITY_MAP, *FACADE_SEARCHES, "hog_flow"}
 
         results: list[dict] = []
         counts: dict[str, int | None] = {}

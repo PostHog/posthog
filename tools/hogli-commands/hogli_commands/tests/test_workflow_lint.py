@@ -57,6 +57,18 @@ def _write(dir_: Path, name: str, content: str) -> Path:
     return path
 
 
+def _sparse_out(repo_root: Path, *paths: str) -> None:
+    """Track every file in ``repo_root``, then leave ``paths`` out of the worktree the way a sparse checkout does."""
+    for command in (("init",), ("add", "-A"), ("update-index", "--skip-worktree", *paths)):
+        subprocess.run(["git", *command], cwd=repo_root, check=True, capture_output=True)
+    for path in paths:
+        (repo_root / path).unlink()
+        for parent in (repo_root / path).parents:
+            if parent == repo_root or any(parent.iterdir()):
+                break
+            parent.rmdir()
+
+
 def _read_all(dir_: Path) -> list[Workflow]:
     return list(read_workflows(dir_))
 
@@ -985,6 +997,16 @@ class TestSemgrepServicesCoverageCheck:
                   - run: echo ok
             """,
         )
+        [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert "services/worker/" in issue.message
+
+    def test_judges_services_a_sparse_checkout_left_out(self, tmp_path: Path) -> None:
+        repo_root = tmp_path
+        _write_file(repo_root / "services" / "worker" / "main.py", "x = 1\n")
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(workflows_dir, "ci-security.yaml", "name: Security\non: [pull_request]\njobs: {}\n")
+        _sparse_out(repo_root, "services/worker/main.py")
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert "services/worker/" in issue.message
 
@@ -2026,6 +2048,15 @@ class TestMcpFilterCoverageCheck:
         messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
         assert bool(messages) is reported
         assert not reported or "compilerOptions.paths" in messages[0]
+
+    def test_walks_files_a_sparse_checkout_left_out(self, tmp_path: Path) -> None:
+        # CI lints from a sparse checkout. A tsconfig or imported module it left out
+        # is still tracked, so the walk must read it rather than stop short.
+        patterns = ["services/mcp/**", "packages/quill/**"]
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=patterns, ui_apps_patterns=patterns)
+        _sparse_out(tmp_path, "services/mcp/tsconfig.json", f"{_INSIGHTS_TRENDS}/transforms.ts")
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert sorted(message.split("'")[1] for message in messages) == [_INSIGHTS_SHARED, _INSIGHTS_TRENDS]
 
     def test_a_relative_import_out_of_the_mcp_tree_needs_coverage(self, tmp_path: Path) -> None:
         # The MCP tests reach the frontend insight fixtures this way, so a relative

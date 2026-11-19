@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 
 WAREHOUSE_MULTI_DESTINATION_FLAG = "warehouse-multi-destination"
 
+# Destination types a team can only create while the type's own flag is on, on top of the
+# feature's flag. A type stays here until its writer has run against the real service.
+DESTINATION_TYPE_FLAGS: dict[str, str] = {
+    str(ExternalDataDestination.Type.MOTHERDUCK): "warehouse-destination-motherduck",
+}
+
 NO_ACTIVE_DESTINATIONS_MESSAGE = (
     "Every destination this table syncs to is paused, so this sync did not run. "
     "Fix the destination, then edit it to turn it back on."
@@ -68,6 +74,31 @@ def is_multi_destination_enabled(team_id: int, source_type: str) -> bool:
         return False
 
 
+def is_destination_type_enabled(team: Team, destination_type: str) -> bool:
+    """Whether this team may create destinations of this type."""
+    flag = DESTINATION_TYPE_FLAGS.get(destination_type)
+    if flag is None:
+        return True
+
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                flag,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 def destination_ids_for_run(schema: ExternalDataSchema) -> list[str]:
     """Every destination id this run writes to, the PostHog warehouse included, in a stable order.
 
@@ -86,6 +117,17 @@ def destination_ids_for_run(schema: ExternalDataSchema) -> list[str]:
         raise NoActiveDestinationsError(NO_ACTIVE_DESTINATIONS_MESSAGE)
 
     return sorted(str(destination.id) for destination in destinations)
+
+
+def includes_the_warehouse(team_id: int, destination_ids: Sequence[str]) -> bool:
+    """Whether a run that lists these destinations writes to the PostHog warehouse. An empty list means only there."""
+    if not destination_ids:
+        return True
+    return (
+        ExternalDataDestination.objects.for_team(team_id, canonical=True)
+        .filter(id__in=list(destination_ids), type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, deleted=False)
+        .exists()
+    )
 
 
 def external_destination_ids_for(team_id: int, destination_ids: Sequence[str]) -> list[str]:

@@ -100,11 +100,7 @@ class SessionRecording(UUIDTModel):
         # loads at django.setup() in every process.
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents  # noqa: PLC0415
 
-        metadata = SessionReplayEvents().get_metadata(
-            team=self.team,
-            session_id=self.session_id,
-            recording_start_time=self.start_time,
-        )
+        metadata = SessionReplayEvents().get_metadata(team=self.team, session_id=self.session_id)
 
         if not metadata:
             return False

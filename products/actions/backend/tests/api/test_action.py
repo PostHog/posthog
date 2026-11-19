@@ -17,11 +17,14 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event import MAX_SELECTOR_LENGTH
+from posthog.models.organization import OrganizationMembership
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.actions.backend.models.action import Action
 from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -30,6 +33,8 @@ from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
+
+from ee.api.test.base import APILicensedTest
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -344,7 +349,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "updated_by_creator": False,
                 "deleted": False,
                 "pinned": True,
-                "pinned_at": "2021-12-12T00:00:00+00:00",
+                "pinned_at": datetime(2021, 12, 12, tzinfo=UTC),
             },
             team=ANY,
             request=ANY,
@@ -1051,6 +1056,44 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+
+class TestActionBulkUpdateTags(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def test_only_actions_the_user_may_edit_change(self):
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "")
+        base = datetime(2021, 1, 1, tzinfo=UTC)
+        editable = Action.objects.create(team=self.team, name="editable", created_by=other, last_calculated_at=base)
+        read_only = Action.objects.create(
+            team=self.team, name="read only", created_by=other, last_calculated_at=base - timedelta(minutes=1)
+        )
+        create_access_control(
+            team_id=self.team.id, resource="action", resource_id=str(read_only.id), access_level="viewer"
+        )
+        missing_id = read_only.id + 1000
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/bulk_update_tags/",
+            {"ids": [missing_id, read_only.id, editable.id], "action": "add", "tags": ["Billing"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "updated": [{"id": editable.id, "tags": ["billing"]}],
+            "skipped": [
+                {"id": read_only.id, "reason": "Not found or no edit access"},
+                {"id": missing_id, "reason": "Not found or no edit access"},
+            ],
+        }
+        assert list(read_only.tagged_items.all()) == []
 
 
 class TestActionStepRegexValidation(SimpleTestCase):

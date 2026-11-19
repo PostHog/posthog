@@ -1,11 +1,12 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
-from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
+from posthog.models.ai.pg_embeddings import PG_EMBEDDINGS_DATA_TABLE
 
 
 class PgEmbeddingRow(BaseModel):
@@ -16,6 +17,7 @@ class PgEmbeddingRow(BaseModel):
     text: str
     properties: dict[str, Any] | None = Field(default=None)
     is_deleted: bool | None = Field(default=False)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 def bulk_create_pg_embeddings(
@@ -34,7 +36,8 @@ def bulk_create_pg_embeddings(
                 %(vector_{idx})s,
                 %(text_{idx})s,
                 %(properties_{idx})s,
-                %(is_deleted_{idx})s
+                %(is_deleted_{idx})s,
+                %(timestamp_{idx})s
             )
             """.format(idx=idx)
         )
@@ -56,7 +59,13 @@ def bulk_create_pg_embeddings(
                 f"text_{idx}": vector_row.text,
                 f"properties_{idx}": json.dumps(props),
                 f"is_deleted_{idx}": vector_row.is_deleted,
+                f"timestamp_{idx}": vector_row.timestamp,
             }
         )
 
-    sync_execute(INSERT_BULK_PG_EMBEDDINGS_SQL + ", ".join(inserts), params, flush=False)
+    sync_execute(
+        f"INSERT INTO {PG_EMBEDDINGS_DATA_TABLE()} "
+        "(domain, team_id, id, vector, text, properties, is_deleted, timestamp) VALUES " + ", ".join(inserts),
+        params,
+        flush=False,
+    )

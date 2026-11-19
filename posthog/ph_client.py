@@ -11,6 +11,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from posthoganalytics.contexts import get_tags
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud, is_hobby
@@ -37,14 +38,57 @@ def drop_exception_capture(message: dict[str, Any]) -> dict[str, Any] | None:
     return message
 
 
+def suppress_last_seen_updates(message: dict[str, Any]) -> dict[str, Any]:
+    event = message.get("event", "")
+    if event == "$exception" or event.startswith("$ai_") or get_tags().get("$update_person_last_seen_at") is False:
+        message.setdefault("properties", {})["$update_person_last_seen_at"] = False
+    return message
+
+
 BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
+
+
+def _query_without_sql_filters(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _query_without_sql_filters(item)
+            for key, item in value.items()
+            if not (value.get("kind") == "HogQLQuery" and key == "filters")
+        }
+    if isinstance(value, list):
+        return [_query_without_sql_filters(item) for item in value]
+    return value
+
+
+def has_filtered_sql_query(value: Any) -> bool:
+    if isinstance(value, dict):
+        return (value.get("kind") == "HogQLQuery" and bool(value.get("filters"))) or any(
+            has_filtered_sql_query(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(has_filtered_sql_query(item) for item in value)
+    return False
+
+
+def filter_sql_query_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    properties = message.get("properties", {})
+    has_filtered_sql = has_filtered_sql_query(properties)
+    # Exception chains and stack context can include expanded SQL beyond the query metadata.
+    if message.get("event") == "$exception" and (has_filtered_sql or has_filtered_sql_query(get_query_tags().query)):
+        return None
+    if has_filtered_sql:
+        properties = _query_without_sql_filters(properties)
+    if properties.get("query_type") == "HogQLQuery":
+        # ClickHouse errors can embed the compiled SQL with filter values substituted.
+        properties = {key: value for key, value in properties.items() if key != "error_message"}
+    return {**message, "properties": properties}
 
 
 def self_hosted_capture_reaches_posthog() -> bool:
     return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
 
-def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend | None:
+def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend:
     # A self-hosted install captures to the PostHog US project by default. Its exceptions carry
     # that install's own stack traces and data, so they must not reach our error tracking.
     hooks: list[BeforeSend] = []
@@ -52,10 +96,8 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         hooks.append(filter_scout_experiment_capture)
     if self_hosted:
         hooks.append(drop_exception_capture)
-    if not hooks:
-        return None
-    if len(hooks) == 1:
-        return hooks[0]
+    hooks.append(filter_sql_query_capture)
+    hooks.append(suppress_last_seen_updates)
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
         for hook in hooks:
@@ -267,14 +309,20 @@ def get_client(region: str = "US", **kwargs: Any):
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
     before_send = kwargs.get("before_send")
+    private_scout_capture = settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE
 
     def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
-        if filter_scout_experiment_capture(message) is None:
+        if private_scout_capture and filter_scout_experiment_capture(message) is None:
             return None
-        return before_send(message) if before_send is not None else message
+        if before_send is not None:
+            next_message = before_send(message)
+            if next_message is None:
+                return None
+            message = next_message
+        filtered_message = filter_sql_query_capture(message)
+        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
 
-    if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
-        kwargs["before_send"] = capture_filter
+    kwargs["before_send"] = capture_filter
 
     return Posthog(
         api_key,

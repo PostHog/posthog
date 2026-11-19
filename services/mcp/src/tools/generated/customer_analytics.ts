@@ -286,6 +286,39 @@ const accountsCustomPropertyValuesCreate = (): ToolBase<
     },
 })
 
+const AccountsCustomPropertyValuesHistorySchema = () => {
+    const AccountsCustomPropertyValuesHistoryRetrieveParams =
+        orvalSchemas.AccountsCustomPropertyValuesHistoryRetrieveParams()
+    const AccountsCustomPropertyValuesHistoryRetrieveQueryParams =
+        orvalSchemas.AccountsCustomPropertyValuesHistoryRetrieveQueryParams()
+    return AccountsCustomPropertyValuesHistoryRetrieveParams.omit({ project_id: true }).extend(
+        AccountsCustomPropertyValuesHistoryRetrieveQueryParams.shape
+    )
+}
+
+const accountsCustomPropertyValuesHistory = (): ToolBase<
+    ReturnType<typeof AccountsCustomPropertyValuesHistorySchema>,
+    WithPostHogUrl<Schemas.CustomPropertyValueHistoryEntry[]>
+> => ({
+    name: 'accounts-custom-property-values-history',
+    schema: AccountsCustomPropertyValuesHistorySchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof AccountsCustomPropertyValuesHistorySchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertyValueHistoryEntry[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/history/`,
+            query: {
+                definition: params.definition,
+                since: params.since,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
 const AccountsCustomPropertyValuesListSchema = () => {
     const AccountsCustomPropertyValuesListParams = orvalSchemas.AccountsCustomPropertyValuesListParams()
     return AccountsCustomPropertyValuesListParams.omit({ project_id: true })
@@ -756,6 +789,7 @@ const announcementsCreatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             actionLabel: 'send announcement',
             messageTemplate:
                 "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
@@ -775,8 +809,8 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof AnnouncementsCreateSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'announcements-create',
+            inputSchema: AnnouncementsCreateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -2376,6 +2410,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'account-relationship-definitions-retrieve': accountRelationshipDefinitionsRetrieve,
     'accounts-create': accountsCreate,
     'accounts-custom-property-values-create': accountsCustomPropertyValuesCreate,
+    'accounts-custom-property-values-history': accountsCustomPropertyValuesHistory,
     'accounts-custom-property-values-list': accountsCustomPropertyValuesList,
     'accounts-destroy': accountsDestroy,
     'accounts-list': accountsList,
