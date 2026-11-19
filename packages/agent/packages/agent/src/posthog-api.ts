@@ -479,12 +479,14 @@ export class PostHogAPIClient {
 
   /**
    * Fetch logs for a task run via the logs API endpoint
-   * @param taskRun - The task run to fetch logs for
    * @returns Array of stored entries, or empty array if no logs available
    */
-  async fetchTaskRunLogs(taskRun: TaskRun): Promise<StoredEntry[]> {
+  async fetchTaskRunLogs(
+    taskId: string,
+    runId: string,
+  ): Promise<StoredEntry[]> {
     const teamId = this.getTeamId();
-    const endpoint = `/api/projects/${teamId}/tasks/${taskRun.task}/runs/${taskRun.id}/logs`;
+    const endpoint = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/logs`;
 
     try {
       const response = await this.performRequestWithRetry(endpoint, {

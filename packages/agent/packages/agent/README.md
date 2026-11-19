@@ -228,7 +228,7 @@ Logs serve two purposes: real-time observability and session resume. Every ACP m
 
 ### Writing logs
 
-`SessionLogWriter` (`src/session-log-writer.ts`) is a per-session multiplexer that buffers raw ndJson lines. On flush (auto-scheduled 500ms after writes, or explicit), it POSTs batched `StoredNotification` entries to the Django API via `PostHogAPIClient.appendTaskRunLog()`; the API stores them in S3 as the task run's `log_url`. This S3 log is the source of truth for the full transcript and for session resume.
+`SessionLogWriter` (`src/session-log-writer.ts`) is a per-session multiplexer that buffers raw ndJson lines. On flush (auto-scheduled 500ms after writes, or explicit), it POSTs batched `StoredNotification` entries to the Django API via `PostHogAPIClient.appendTaskRunLog()`; the API stores them in S3. This S3 log is the source of truth for the full transcript and for session resume.
 
 Independently of that flush cycle, the writer tees every parsed non-chunk entry to optional `SessionLogSink`s at append time. In cloud, `OtelRunTelemetry` (`src/otel-telemetry.ts`) is wired as a sink and exports an allowlisted metadata subset (run/turn/tool lifecycle, usage, error provenance — never message content, tool arguments, or raw error text) to PostHog Logs, plus an APM trace per run when configured. See "Optional run telemetry" above for the env vars and behavior. Sink failures can never break S3 log persistence.
 
@@ -237,9 +237,8 @@ Independently of that flush cycle, the writer tees every parsed non-chunk entry 
 When a session needs to recover from a crash, `resumeFromLog()` in `src/resume.ts` reconstructs the agent's state from the persisted log. This is implemented as a `ResumeSaga` (`src/sagas/resume-saga.ts`) with the following steps:
 
 ```text
-1. fetch_task_run      → GET /api/.../runs/{runId}/ to find the log_url
-2. fetch_logs          → Download all StoredNotification entries
-3. rebuild_conversation → Walk log entries to reconstruct conversation turns
+1. fetch_logs          → GET /api/.../runs/{runId}/logs for all StoredNotification entries
+2. rebuild_conversation → Walk log entries to reconstruct conversation turns
 ```
 
 The conversation rebuild (`rebuildConversation`) walks the log entries and reassembles turns from ACP `session/update` notifications:

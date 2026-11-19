@@ -73,10 +73,7 @@ describe("PostHogAPIClient", () => {
           ),
       });
 
-    const logs = await client.fetchTaskRunLogs({
-      id: "run-1",
-      task: "task-1",
-    } as never);
+    const logs = await client.fetchTaskRunLogs("task-1", "run-1");
 
     expect(logs).toHaveLength(1);
     expect(getApiKey).toHaveBeenCalledTimes(1);
@@ -243,8 +240,7 @@ describe("PostHogAPIClient", () => {
     ],
     [
       "fetchTaskRunLogs",
-      (client: PostHogAPIClient) =>
-        client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never),
+      (client: PostHogAPIClient) => client.fetchTaskRunLogs("task-1", "run-1"),
     ],
   ])("gives %s the download timeout", async (_method, call) => {
     const timeout = vi.spyOn(AbortSignal, "timeout");

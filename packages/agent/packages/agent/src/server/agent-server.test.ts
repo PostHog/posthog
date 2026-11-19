@@ -7305,9 +7305,6 @@ describe("AgentServer HTTP Mode", () => {
         };
 
         const posthogAPI = createMockApiClient();
-        (posthogAPI.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
-          createTaskRun({ id: "previous-run", log_url: "s3://logs" }),
-        );
         (
           posthogAPI.fetchTaskRunLogs as ReturnType<typeof vi.fn>
         ).mockResolvedValue([
@@ -7345,7 +7342,10 @@ describe("AgentServer HTTP Mode", () => {
         );
 
         expect(result).toEqual({ sessionId: "prior-session", warm: false });
-        expect(posthogAPI.fetchTaskRunLogs).toHaveBeenCalledTimes(1);
+        expect(posthogAPI.fetchTaskRunLogs).toHaveBeenCalledExactlyOnceWith(
+          "test-task-id",
+          "previous-run",
+        );
 
         const jsonl = await readFile(
           getSessionJsonlPath("prior-session", repo.path),

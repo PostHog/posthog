@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import type { SagaLogger } from "@posthog/agent-contracts";
 import { vi } from "vitest";
 import type { PostHogAPIClient } from "../posthog-api";
-import type { StoredNotification, TaskRun } from "../types";
+import type { StoredNotification } from "../types";
 
 const execFileAsync = promisify(execFile);
 
@@ -82,30 +82,9 @@ export function createMockApiClient(
       .fn()
       .mockResolvedValue([{ storage_path: "gs://bucket/artifacts/test.pack" }]),
     downloadArtifact: vi.fn(),
-    getTaskRun: vi.fn(),
     fetchTaskRunLogs: vi.fn(),
     ...overrides,
   } as unknown as PostHogAPIClient;
-}
-
-export function createTaskRun(overrides: Partial<TaskRun> = {}): TaskRun {
-  return {
-    id: "run-1",
-    task: "task-1",
-    team: 1,
-    branch: null,
-    stage: null,
-    environment: "local",
-    status: "in_progress",
-    log_url: "https://logs.example.com/run-1",
-    error_message: null,
-    output: null,
-    state: {},
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    completed_at: null,
-    ...overrides,
-  };
 }
 
 export function createNotification(
