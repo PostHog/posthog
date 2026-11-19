@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -39,4 +39,9 @@ export function useTransactionalChannel(): {
     }
 
     return { hasPush, channel, setChannel }
+}
+
+/** Keeps push selected when moving between the Log and Metrics tabs. */
+export function withTransactionalChannel(url: string, channel: TransactionalChannel): string {
+    return channel === 'push' ? combineUrl(url, { [CHANNEL_PARAM]: 'push' }).url : url
 }

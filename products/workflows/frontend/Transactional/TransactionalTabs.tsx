@@ -14,6 +14,7 @@ import { TransactionalLog } from './log/TransactionalLog'
 import { TransactionalMetrics } from './metrics/TransactionalMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
+import { useTransactionalChannel, withTransactionalChannel } from './useTransactionalChannel'
 import { TransactionalWebhooks } from './webhooks/TransactionalWebhooks'
 
 export function TransactionalTabs({
@@ -26,6 +27,7 @@ export function TransactionalTabs({
     const smtpInterestLogic = comingSoonInterestLogic(useComingSoonInterestSurvey(SMTP_INTEREST_SURVEY))
     const { hasRecordedInterest } = useValues(smtpInterestLogic)
     const { registerInterest } = useActions(smtpInterestLogic)
+    const { channel } = useTransactionalChannel()
     const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
 
     return (
@@ -52,13 +54,13 @@ export function TransactionalTabs({
                     {
                         label: 'Log',
                         key: 'log',
-                        link: urls.transactionalLog(),
+                        link: withTransactionalChannel(urls.transactionalLog(), channel),
                         content: <TransactionalLog />,
                     },
                     {
                         label: 'Metrics',
                         key: 'metrics',
-                        link: urls.transactionalMetrics(),
+                        link: withTransactionalChannel(urls.transactionalMetrics(), channel),
                         content: <TransactionalMetrics />,
                     },
                     {
