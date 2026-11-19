@@ -87,7 +87,7 @@ OLD_DENY_PATTERN_DEFS = {
         "paths": [
             "k8s",
             "dockerfile",
-            "docker-compose",
+            "docker-compose(?!\\.(dev-full|playwright|sandbox)\\.yml$)",
             "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
@@ -104,6 +104,15 @@ OLD_DENY_PATTERN_DEFS = {
             "\\.depot/workflows",
         ]
     },
+    "dev_stack": {"paths": ["docker-compose\\.(dev-full|playwright|sandbox)\\.yml$"]},
+    "request_boundaries": {
+        "paths": [
+            "^posthog/egress/(limiter|observability|transport)/",
+            "^posthog/ingress/(dispatch|observability|verify)/",
+            "^posthog/ingress/views\\.py$",
+        ]
+    },
+    "ownership_files": {"paths": ["(?:^|/)product\\.yaml$"], "edit_paths": ["(?:^|/)owners\\.yaml$"]},
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
     "deps_toolchain": {
@@ -133,9 +142,6 @@ OLD_DENY_PATTERN_DEFS = {
             "^\\.semgrep/rules/security/prefer-codegen-api\\.",
             "^frontend/src/lib/api-ratchet-baseline\\.txt$",
             "^posthog/(egress|ingress)/agents\\.md$",
-            "^posthog/egress/(limiter|observability|transport)/",
-            "^posthog/ingress/(dispatch|observability|verify)/",
-            "^posthog/ingress/views\\.py$",
             "^posthog/management/migration_analysis/",
             "^posthog/migration_helpers/",
             "^posthog/product_urls\\.py$",
