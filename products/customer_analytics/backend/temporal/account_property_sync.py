@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
+from collections.abc import Callable
 from typing import Literal
 
 from temporalio import activity, workflow
@@ -839,7 +840,7 @@ ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [
     SyncWarehouseAccountPropertiesWorkflow,
     SyncWarehouseAccountPropertiesFanoutWorkflow,
 ]
-ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [
+ACCOUNT_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., object]] = [
     start_warehouse_account_property_runs_activity,
     finalize_warehouse_account_property_runs_activity,
     stage_warehouse_account_property_files_activity,

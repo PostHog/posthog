@@ -170,6 +170,14 @@ export interface Player {
 // WebKit can leave the replay iframe document without a <head> while rrweb rebuilds a full
 // snapshot. rrweb then throws synchronously ("null is not an object") when it sets an attribute
 // on the missing head. Detect that state so a seek can re-init the replayer instead of failing.
+// A gap keeps showing the last page of the window it falls in, or of the loaded window when it falls between windows.
+function windowDrawnAt(segment: RecordingSegment | null, replayerWindowId: number | undefined): number | undefined {
+    if (segment?.kind === 'window') {
+        return segment.windowId
+    }
+    return segment?.kind === 'gap' ? (segment.windowId ?? replayerWindowId) : undefined
+}
+
 function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean {
     return !!replayer && !replayer.iframe?.contentDocument?.head
 }
@@ -366,6 +374,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+    // The opener must pass playerRef too, because it mounts the logic before SessionRecordingPlayer renders.
+    keepFullScreenAcrossRecordings?: boolean
     skipToFirstMatchingEvent?: boolean
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
@@ -379,8 +389,9 @@ export type MatchingEventSkipTarget = 'filtered-event' | 'experiment-exposure'
 // Positions less than this far before the next FullSnapshot are treated as
 // renderable: recordings routinely start a few ms before their first
 // FullSnapshot (the recording start is min(event start, snapshot start)) and
-// rrweb handles that fine — clamping would only add telemetry noise and an
-// extra seek on nearly every playback.
+// rrweb handles that during playback, while pausedRenderTimestamp covers paused
+// seeks — clamping would only add telemetry noise and an extra seek on nearly
+// every playback.
 const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 
 // a leading unplayable region longer than this is worth surfacing to the user (banner + scrubber
@@ -791,6 +802,7 @@ export interface sessionRecordingPlayerLogicValues {
     maskingWindow: boolean
     matchingEventSkipTarget: MatchingEventSkipTarget
     pauseForced: boolean
+    pausedRenderTimestamp: (timestamp: number) => number
     playNextAnimationInterrupted: boolean
     playNextRecording: ((automatic: boolean) => void) | undefined
     player: Player | null
@@ -804,6 +816,7 @@ export interface sessionRecordingPlayerLogicValues {
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
     quickEmojiIsOpen: boolean
+    replayerWindowId: number | undefined
     reportedReplayerErrors: Set<string>
     resolution: {
         height: number
@@ -1301,10 +1314,18 @@ export interface sessionRecordingPlayerLogicMeta {
         dataBufferedUntilTimestamp: (sessionPlayerData: SessionPlayerData) => number | null
         currentPlayerTime: (currentTimestamp: number | undefined, sessionPlayerData: SessionPlayerData) => number
         currentPlayerTimeSeconds: (currentPlayerTime: number) => number
+        replayerWindowId: (
+            player: Player | null,
+            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
+        ) => number | undefined
         toRRWebPlayerTime: (
             sessionPlayerData: SessionPlayerData,
-            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
+            replayerWindowId: number | undefined
         ) => (timestamp: number) => number | undefined
+        pausedRenderTimestamp: (
+            sessionPlayerData: SessionPlayerData,
+            replayerWindowId: number | undefined
+        ) => (timestamp: number) => number
         fromRRWebPlayerTime: (
             sessionPlayerData: SessionPlayerData,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
@@ -1325,6 +1346,7 @@ export interface sessionRecordingPlayerLogicMeta {
             snapshotStore: SnapshotStore,
             allSourcesLoaded: boolean,
             sessionPlayerData: SessionPlayerData,
+            replayerWindowId: number | undefined,
             storeVersion: number
         ) => (timestamp: number) => SeekRenderability
         leadingRecoveryTimestamp: (
@@ -1995,21 +2017,47 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
+        // rrweb offsets only mean something relative to the window loaded in the replayer, and a gap between windows has no window of its own.
+        replayerWindowId: [
+            (s) => [s.player, s.currentSegment],
+            (player: Player | null, currentSegment: RecordingSegment | null): number | undefined =>
+                player?.windowId ?? currentSegment?.windowId,
+        ],
+
         toRRWebPlayerTime: [
-            (s) => [s.sessionPlayerData, s.currentSegment],
-            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
+            (s) => [s.sessionPlayerData, s.replayerWindowId],
+            (sessionPlayerData: SessionPlayerData, windowId: number | undefined) => {
                 return (timestamp: number): number | undefined => {
-                    if (!currentSegment || !currentSegment.windowId) {
+                    if (!windowId) {
                         return
                     }
 
-                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    const snapshots = sessionPlayerData.snapshotsByWindowId[windowId]
                     if (!snapshots?.length) {
                         return
                     }
 
                     return Math.max(0, timestamp - snapshots[0].timestamp)
                 }
+            },
+        ],
+
+        // A paused rrweb seek draws only a FullSnapshot at or before its target, so a target just before the window's first one would leave the previous page on screen.
+        pausedRenderTimestamp: [
+            (s) => [s.sessionPlayerData, s.replayerWindowId],
+            (sessionPlayerData: SessionPlayerData, windowId: number | undefined) => {
+                const firstFullSnapshot =
+                    windowId === undefined
+                        ? undefined
+                        : sessionPlayerData.snapshotsByWindowId[windowId]?.find(
+                              (snapshot) => snapshot.type === EventType.FullSnapshot
+                          )?.timestamp
+                return (timestamp: number): number =>
+                    firstFullSnapshot !== undefined &&
+                    timestamp < firstFullSnapshot &&
+                    firstFullSnapshot - timestamp < MIN_CLAMPABLE_DEAD_ZONE_MS
+                        ? firstFullSnapshot
+                        : timestamp
             },
         ],
 
@@ -2069,12 +2117,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seekRenderability: [
             // storeVersion is what makes store mutations visible here (#53893): `snapshotStore` is a
             // reference-stable mutable object and cannot drive re-evaluation on its own.
-            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData, s.storeVersion],
+            (s) => [
+                s.segmentForTimestamp,
+                s.snapshotStore,
+                s.allSourcesLoaded,
+                s.sessionPlayerData,
+                s.replayerWindowId,
+                s.storeVersion,
+            ],
             (
                 segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
                 snapshotStore: SnapshotStore,
                 allSourcesLoaded: boolean,
                 sessionPlayerData: SessionPlayerData,
+                replayerWindowId: number | undefined,
                 _storeVersion: number
             ) => {
                 // Whether any segment containing the FullSnapshot's timestamp belongs to its window; boundary timestamps are shared with the preceding (micro-)gap, whose inferred windowId must not veto a usable recovery point.
@@ -2093,9 +2149,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     const segment = segmentForTimestamp(timestamp)
                     if (segment?.kind !== 'window' || segment.windowId === undefined) {
                         // Gap and buffer positions render once their underlying source has loaded; until then they are still waiting on data.
-                        return snapshotStore.isRangeLoaded(timestamp, timestamp) === false
-                            ? { kind: 'waitingForData' }
-                            : { kind: 'renderable' }
+                        if (snapshotStore.isRangeLoaded(timestamp, timestamp) === false) {
+                            return { kind: 'waitingForData' }
+                        }
+                        // A gap shows the last DOM of the window it draws, so an unloaded source since that window's last loaded FullSnapshot may hold a newer page than rrweb would draw.
+                        const gapWindowId = windowDrawnAt(segment, replayerWindowId)
+                        const gapIndex = snapshotStore.getSourceIndexForTimestamp(timestamp)
+                        if (
+                            gapWindowId !== undefined &&
+                            gapIndex !== null &&
+                            snapshotStore.getUnloadedIndicesInRange(
+                                snapshotStore.findNearestFullSnapshot(timestamp, gapWindowId)?.sourceIndex ?? 0,
+                                gapIndex
+                            ).length > 0
+                        ) {
+                            return { kind: 'waitingForData' }
+                        }
+                        return { kind: 'renderable' }
                     }
                     const targetIndex = snapshotStore.getSourceIndexForTimestamp(timestamp)
                     if (targetIndex === null) {
@@ -2857,7 +2927,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
                 if (values.playingState === SessionPlayerState.PAUSE && values.currentTimestamp !== undefined) {
-                    values.player?.replayer?.pause(values.toRRWebPlayerTime(values.currentTimestamp))
+                    values.player?.replayer?.pause(
+                        values.toRRWebPlayerTime(values.pausedRenderTimestamp(values.currentTimestamp))
+                    )
                 }
             }
         },
@@ -2959,13 +3031,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.clearPlayerError()
-                // Re-target the (window-blind) loader with the segment's windowId, or it may consider a seek satisfied by another window's FullSnapshot and never load what this position needs.
-                if (
-                    renderability.kind === 'waitingForData' &&
-                    segment?.kind === 'window' &&
-                    segment.windowId !== undefined
-                ) {
-                    actions.setTargetTimestamp(timestamp, segment.windowId)
+                // Re-target the (window-blind) loader with the window this position draws, or it may consider a seek satisfied by another window's FullSnapshot and never load what this position needs.
+                const drawnWindowId = windowDrawnAt(segment, values.replayerWindowId)
+                if (renderability.kind === 'waitingForData' && drawnWindowId !== undefined) {
+                    actions.setTargetTimestamp(timestamp, drawnWindowId)
                 }
                 // Also the only revival path for a loading chain killed by repeated fetch failures.
                 actions.loadNextSnapshotSource()
@@ -3003,7 +3072,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // NOTE: when we show a preview pane, this branch runs
                     // in very large recordings this call to pause
                     // can consume 100% CPU and freeze the entire page
-                    values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
+                    values.player?.replayer?.pause(values.toRRWebPlayerTime(values.pausedRenderTimestamp(timestamp)))
                 } else {
                     values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
                     actions.updateAnimation()
@@ -3080,8 +3149,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            if (values.currentSegment?.windowId !== undefined) {
-                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
+            if (values.replayerWindowId !== undefined) {
+                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.replayerWindowId] ?? []
                 // NOTE: not `push(...array)` — spreading an unbounded snapshot array into a call
                 // blows the argument stack (RangeError) on very large recordings
                 for (const event of findNewEvents(allSnapshots, currentEvents)) {
@@ -3112,6 +3181,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         breakpoint()
                         lastYield = performance.now()
                     }
+                }
+                if (eventsToAdd.length > 0) {
+                    // rrweb's addEvent queues each event in a microtask, so a re-sync before they land redraws a paused frame without them.
+                    await Promise.resolve()
+                    breakpoint()
                 }
             }
 
@@ -3804,6 +3878,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         setIsFullScreen: async ({ isFullScreen }) => {
             if (isFullScreen) {
+                const playerElement = props.playerRef?.current
+                if (playerElement && document.fullscreenElement === playerElement) {
+                    // The browser refuses a request without a user gesture even for the element it already shows in
+                    // fullscreen, and auto-advance to the next recording has no gesture.
+                    return
+                }
                 try {
                     await props.playerRef?.current?.requestFullscreen()
                 } catch (e) {
@@ -3982,6 +4062,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+        // The browser sends no fullscreenchange event for an element that stays in fullscreen, so a new logic for
+        // the next recording reads the state once. Comparing with the player's own element keeps a page that is
+        // in fullscreen for another reason, such as a fullscreen dashboard, from turning the player fullscreen.
+        if (
+            props.keepFullScreenAcrossRecordings &&
+            props.playerRef?.current &&
+            document.fullscreenElement === props.playerRef.current
+        ) {
+            actions.setIsFullScreen(true)
+        }
 
         // Safety net: re-evaluate the buffering verdict at least this often. A recording stuck
         // buffering on a still-ingesting position (waitingForIngestion) flips to the terminal

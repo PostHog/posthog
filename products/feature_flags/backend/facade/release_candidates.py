@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
@@ -86,11 +87,21 @@ def list_release_import_flags(
 
 
 @dataclass(frozen=True)
+class ReleaseCatalogUser:
+    id: int
+    uuid: UUID
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
 class ReleaseCatalogFlag:
     id: int
     key: str
     active: bool
     created_at: datetime
+    created_by: ReleaseCatalogUser | None
 
 
 def list_release_catalog_flags(
@@ -99,6 +110,8 @@ def list_release_catalog_flags(
     project_id: int,
     access_control: UserAccessControl | None,
     search: str = "",
+    created_by_ids: list[int] | None = None,
+    oldest_first: bool = False,
     limit: int,
     offset: int = 0,
 ) -> tuple[list[ReleaseCatalogFlag], bool]:
@@ -119,15 +132,66 @@ def list_release_catalog_flags(
     )
     if search:
         flags = flags.filter(Q(key__icontains=search) | Q(name__icontains=search))
+    if created_by_ids:
+        flags = flags.filter(created_by_id__in=created_by_ids)
+    order = ("created_at", "id") if oldest_first else ("-created_at", "-id")
     rows = list(
         _visible(flags, access_control, "feature_flag")
-        .order_by("-created_at", "-id")
-        .values_list("id", "key", "active", "created_at")[offset : offset + limit + 1]
+        .order_by(*order)
+        .values_list(
+            "id",
+            "key",
+            "active",
+            "created_at",
+            "created_by_id",
+            "created_by__uuid",
+            "created_by__first_name",
+            "created_by__last_name",
+            "created_by__email",
+        )[offset : offset + limit + 1]
     )
     return [
-        ReleaseCatalogFlag(id=flag_id, key=key, active=active, created_at=created_at)
-        for flag_id, key, active, created_at in rows[:limit]
+        ReleaseCatalogFlag(
+            id=flag_id,
+            key=key,
+            active=active,
+            created_at=created_at,
+            created_by=ReleaseCatalogUser(
+                id=user_id, uuid=user_uuid, first_name=first_name, last_name=last_name, email=email
+            )
+            if user_id
+            else None,
+        )
+        for flag_id, key, active, created_at, user_id, user_uuid, first_name, last_name, email in rows[:limit]
     ], len(rows) > limit
+
+
+@dataclass(frozen=True)
+class ReleaseFlagLabel:
+    id: int
+    key: str
+    name: str
+
+
+def release_flag_labels(*, team_id: int, flag_ids: list[int]) -> dict[int, ReleaseFlagLabel]:
+    if not flag_ids:
+        return {}
+    rows = FeatureFlag.objects.filter(team_id=team_id, id__in=flag_ids, deleted=False).values_list("id", "key", "name")
+    return {flag_id: ReleaseFlagLabel(id=flag_id, key=key, name=name or "") for flag_id, key, name in rows}
+
+
+def release_flag_ids_matching(*, team_id: int, terms: list[str], limit: int) -> list[int]:
+    if not terms:
+        return []
+    query = Q()
+    for term in terms:
+        query |= Q(key__icontains=term) | Q(name__icontains=term)
+    return list(
+        FeatureFlag.objects.filter(team_id=team_id, deleted=False)
+        .filter(query)
+        .order_by("-created_at", "-id")
+        .values_list("id", flat=True)[:limit]
+    )
 
 
 def on_active_flag_saved(handler: Callable[[int, int], None]) -> None:

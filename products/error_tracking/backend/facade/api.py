@@ -12,8 +12,11 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -202,22 +205,30 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
     )
 
 
-def get_issue(issue_id: UUID, team_id: int, *, with_tags: bool = False) -> contracts.ErrorTrackingIssue:
+def get_issue(issue_id: UUID, team_id: int, *, with_tags_for: User | None = None) -> contracts.ErrorTrackingIssue:
+    """The issue, with the tags that `with_tags_for` can see when it is given."""
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    definitions = issue_tag_enabled.enabled_issue_tag_definitions(team_id) if with_tags else ()
+    definitions = (
+        issue_tag_enabled.enabled_issue_tag_definitions(team_id, with_tags_for) if with_tags_for is not None else ()
+    )
     if not definitions:
         return _to_issue(issue)
     tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
     return _to_issue(issue, tags=tags)
 
 
-def list_issue_tag_definitions(team_id: int) -> list[contracts.ErrorTrackingIssueTagDefinition]:
+def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagDefinition]:
     return [
         contracts.ErrorTrackingIssueTagDefinition(
             key=definition.key, label=definition.label, description=definition.description
         )
-        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id)
+        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id, user)
     ]
+
+
+def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
+    """The issue tag keys whose rows a member with these property restrictions may read, or None for every key."""
+    return issue_tag_enabled.readable_issue_tag_keys(team_id, restrictions)
 
 
 def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
@@ -261,6 +272,7 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ai_issue_summaries_enabled=settings.ai_issue_summaries_enabled,
         ingestion_enabled=ingestion_enabled,
     )
 
@@ -722,6 +734,13 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
     return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
+
+
+def list_issue_external_references(team_id: int, issue_id: UUID) -> list[contracts.ErrorTrackingExternalReference]:
+    return _to_external_references(
+        team_id,
+        external_references.list_external_references(team_id=team_id).filter(issue_id=issue_id).order_by("created_at"),
+    )
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:

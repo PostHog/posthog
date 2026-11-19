@@ -66,4 +66,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "version": "Application version label for the deploy.",
         },
     },
+    "activities": {
+        "description": "Activity log per project: actions people took in Airbrake, such as resolving an error group.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "projectId": "Identifier of the project the activity belongs to.",
+            "userId": "Identifier of the user who did the activity.",
+            "userName": "Name of the user who did the activity.",
+            "userGravatarId": "Gravatar hash of the user who did the activity.",
+            "activity": "Type of the activity, for example group.resolved.",
+            "trackableId": "Identifier of the object the activity applies to.",
+            "trackableType": "Type of the object the activity applies to, for example Group.",
+            "createdAt": "Timestamp when the activity was recorded.",
+            "updatedAt": "Timestamp when the activity was last updated.",
+        },
+    },
+    "project_stats": {
+        "description": "Daily error volume per project. One row for each project and day.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "projectId": "Identifier of the project (added by PostHog from the request).",
+            "time": "Start of the daily bucket, in UTC.",
+            "accepted": "Number of notices Airbrake accepted in the bucket.",
+            "limited": "Number of notices Airbrake rate-limited in the bucket.",
+            "overQuota": "Number of notices Airbrake rejected because the account was over quota in the bucket.",
+        },
+    },
+    "group_stats": {
+        "description": "Hourly error volume per error group. One row for each group and hour.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "projectId": "Identifier of the project the group belongs to (added by PostHog from the request).",
+            "groupId": "Identifier of the error group (added by PostHog from the request).",
+            "time": "Start of the hourly bucket, in UTC.",
+            "accepted": "Number of the group's notices Airbrake accepted in the bucket.",
+            "limited": "Number of the group's notices Airbrake rate-limited in the bucket.",
+        },
+    },
 }

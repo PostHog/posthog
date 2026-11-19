@@ -83,7 +83,7 @@ export function EvaluationTargetPanel(): JSX.Element | null {
                                     header: (
                                         <span className="flex min-w-0 items-center gap-2 text-left">
                                             <span className="shrink-0 text-sm font-medium">Advanced</span>
-                                            <span className="min-w-0 truncate text-xs text-secondary">{summary}</span>
+                                            <span className="min-w-0 text-xs text-secondary">{summary}</span>
                                         </span>
                                     ),
                                     content: (

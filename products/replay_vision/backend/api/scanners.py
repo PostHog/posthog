@@ -186,6 +186,7 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,
@@ -1238,9 +1239,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if cached is not None:
             return cached
         page_ids = {
-            scope["experiment_id"]
+            experiment_id
             for scanner in self._page_scanners() or ()
-            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+            if (experiment_id := experiment_id_of(scanner)) is not None
         }
         accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
         page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
@@ -2562,7 +2563,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             ):
                 experiment_targeting = None
         if source.scanner_type == ScannerType.EXPERIMENT:
-            scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
+            scope_experiment_id = experiment_id_of(source)
             if scope_experiment_id is None or not is_experiment_accessible(
                 self.user_access_control, self.team_id, scope_experiment_id
             ):
@@ -3430,6 +3431,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             cap = org_credit_cap(self.team.organization_id)
             # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
             monthly_credit_budget = free_credits_ceiling(cap)
+            if monthly_credit_budget is None:
+                raise ValidationError(
+                    {
+                        "free_only": "Every credit is free for your organization, so set a monthly credit budget "
+                        "to size this scanner."
+                    }
+                )
             # A free-only draft saved after the free credits run out turns off before its first scan.
             if free_credits_used_up(self.team.organization_id, cap):
                 raise ValidationError(

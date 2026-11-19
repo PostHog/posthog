@@ -13,6 +13,7 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PersonHogClient } from '~/common/personhog/client'
+import { GetOrCreateCoalescer } from '~/common/personhog/get-or-create-coalescer'
 import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
@@ -398,10 +399,19 @@ export class IngestionApiServer implements NodeServer {
                 { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
             )
             this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
+            const createCoalescer = this.config.PERSONHOG_BATCH_CREATE_ENABLED
+                ? new GetOrCreateCoalescer(identityClients.identity, {
+                      windowMs: this.config.PERSONHOG_BATCH_CREATE_WINDOW_MS,
+                      maxBatchSize: this.config.PERSONHOG_BATCH_CREATE_MAX_SIZE,
+                      maxBatchBytes: this.config.PERSONHOG_BATCH_CREATE_MAX_BYTES,
+                      clientLabel: 'ingestion-persons-store',
+                  })
+                : undefined
             const writeRepository = new PersonHogPersonWriteRepository(
                 routerClient,
                 identityClients.identity,
-                'ingestion-persons-store'
+                'ingestion-persons-store',
+                createCoalescer
             )
             const personhogStore = new PersonhogPersonsStore(writeRepository, {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,

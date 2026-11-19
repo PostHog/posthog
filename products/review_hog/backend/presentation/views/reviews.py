@@ -11,17 +11,15 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.pagination import PageLinksSerializer, offset_page_links
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.facade.api import (
     get_review_detail,
@@ -62,6 +60,10 @@ from products.review_hog.backend.facade.enums import (
     UrgencyThreshold,
 )
 from products.review_hog.backend.facade.reviews import get_pr_review_status, request_pr_review_by_url
+from products.review_hog.backend.presentation.views.repositories import (
+    EffectiveTeamMemberPermission,
+    ReviewHogProjectViewSetMixin,
+)
 
 DEFAULT_REVIEWS_LIMIT = 5
 DEFAULT_REVIEWS_TABLE_LIMIT = 25
@@ -465,14 +467,14 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     )
     report_id = serializers.UUIDField(
         allow_null=True,
-        help_text="Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull "
+        help_text="Id of the pull request's existing review, for `code-review-reviews-get`. Null on the pull "
         "request's first run, which creates the review later.",
     )
     requested_at = serializers.DateTimeField(help_text="Server time when the request was accepted.")
     resolve_will_run = serializers.BooleanField(
         help_text="Whether this request plans to run the resolution stage, which can push fix commits to the pull "
         "request. It is the plan at request time: a request queued behind a running turn on the same head can be "
-        "skipped as already published. `review-hog-reviews-pr-status` reports what actually ran."
+        "skipped as already published. `code-review-reviews-pr-status` reports what actually ran."
     )
     resolve_skip_reason = serializers.ChoiceField(
         choices=ResolveSkipReason.choices,
@@ -517,14 +519,14 @@ class ReviewPRStatusParamsSerializer(serializers.Serializer):
 
 
 class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="The review's id, for `review-hog-reviews-get`.")
+    id = serializers.UUIDField(help_text="The review's id, for `code-review-reviews-get`.")
     review_mode = serializers.ChoiceField(
         choices=ReviewTriggerReviewMode.choices,
         allow_null=True,
         help_text="What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.",
     )
     head_sha = serializers.CharField(allow_null=True, help_text="The PR head commit the turn reviewed.")
-    run_index = serializers.IntegerField(help_text="The turn's index, for `review-hog-reviews-get`.")
+    run_index = serializers.IntegerField(help_text="The turn's index, for `code-review-reviews-get`.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When the turn completed.")
     must_fix_count = serializers.IntegerField(help_text="The turn's valid findings at must_fix priority.")
     should_fix_count = serializers.IntegerField(help_text="The turn's valid findings at should_fix priority.")
@@ -552,11 +554,11 @@ class ReviewPRStatusRequestOutcomeSerializer(serializers.Serializer):
         "'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.",
     )
     review_id = serializers.UUIDField(
-        allow_null=True, help_text="The review to read with `review-hog-reviews-get`; null before the PR has one."
+        allow_null=True, help_text="The review to read with `code-review-reviews-get`; null before the PR has one."
     )
     run_index = serializers.IntegerField(
         allow_null=True,
-        help_text="The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for "
+        help_text="The review turn that answered or failed the request, for `code-review-reviews-get`. Null for "
         "'resolve_only' and while pending.",
     )
 
@@ -565,7 +567,7 @@ class ReviewPRStatusSerializer(serializers.Serializer):
     repository = serializers.CharField(help_text="The pull request's repository as 'owner/repo'.")
     pr_number = serializers.IntegerField(help_text="The pull request number.")
     report_id = serializers.UUIDField(
-        allow_null=True, help_text="The PR's review id, for `review-hog-reviews-get`; null before its first run."
+        allow_null=True, help_text="The PR's review id, for `code-review-reviews-get`; null before its first run."
     )
     state = serializers.ChoiceField(
         choices=ReviewPRState.choices,
@@ -887,20 +889,7 @@ _INVALID_PR_URL_ERROR = (
 )
 
 
-class EffectiveTeamScopedKeyPermission(BasePermission):
-    """Reviews live on the root project, and the API scope check covers only the URL project.
-
-    So a key scoped to an environment must not reach its parent project through an environment URL.
-    """
-
-    message = "This key is not scoped to the project that holds the reviews."
-
-    def has_permission(self, request: Request, view: Any) -> bool:
-        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
-        return scoped_teams is None or resolve_effective_team_id(view.team_id) in scoped_teams
-
-
-class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class ReviewRecentReviewsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """Recent code reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
@@ -914,11 +903,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     be opened.
     """
 
-    # `review_hog` rather than INTERNAL so the reads and trigger the Code review UI drives are also
+    # `code_review` rather than INTERNAL so the reads and trigger the Code review UI drives are also
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
-    # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
-    scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
+    # UI access is unchanged; this only adds token access, gated by code_review:read / code_review:write.
+    scope_object = "code_review"
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
@@ -970,7 +959,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "under every filter except `status`. By default only the requesting user's reviews; "
         "`scope=everyone` lists every review on the project.",
     )
-    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    @action(methods=["GET"], detail=False, required_scopes=["code_review:read"])
     def table(self, request: Request, **kwargs) -> Response:
         params = ReviewsTableParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -1008,7 +997,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "with `scope=everyone`, the user's own last Deep reviews with `scope=own_deep` — and how many of those "
         "the validator kept vs dismissed.",
     )
-    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    @action(methods=["GET"], detail=False, required_scopes=["code_review:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -1031,7 +1020,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The review-hog feature flag is off for this project.",
+                description="PostHog Review is not enabled for this project.",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
@@ -1058,7 +1047,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and "
         "whether resolution will run, while the run executes in the worker.",
     )
-    @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
+    @action(methods=["POST"], detail=False, required_scopes=["code_review:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = self._root_team_id()
         serializer = ReviewTriggerRequestSerializer(data=request.data)
@@ -1115,7 +1104,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called "
         "with, to get `request_outcome`, which says when that request is done.",
     )
-    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    @action(methods=["GET"], detail=False, required_scopes=["code_review:read"])
     def pr_status(self, request: Request, **kwargs) -> Response:
         team_id = self._root_team_id()
         params = ReviewPRStatusParamsSerializer(data=request.query_params)

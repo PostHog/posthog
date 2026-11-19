@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync } from 'fs'
+import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
@@ -11,6 +11,7 @@ import { internalFetch } from '~/common/utils/request'
 import { TEST_IDS_BELOW } from '~/tests/helpers/sql'
 import { PluginsServerConfig } from '~/types'
 
+import { signal as sendSignal } from './processes'
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
@@ -30,48 +31,96 @@ export const STACK = {
 
 export type Hogli = { command: string; cwd: string }
 
+const HOGLI_STOP_GRACE_MS = 5000
+
 async function hogliExit(
     hogli: Hogli,
     args: string[],
     logFile: string,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
 ): Promise<number | null> {
+    signal.throwIfAborted()
     const log = openSync(logFile, 'a')
-    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log] })
+    const child = spawn(hogli.command, args, { cwd: hogli.cwd, env, stdio: ['ignore', log, log], detached: true })
     closeSync(log)
-    return await new Promise<number | null>((resolve, reject) => {
-        child.once('error', reject)
-        child.once('exit', resolve)
-    })
+    const stopGroup = (sig: NodeJS.Signals): void => {
+        if (child.pid !== undefined) {
+            sendSignal(-child.pid, sig)
+        }
+    }
+    let kill: NodeJS.Timeout | undefined
+    const abort = (): void => {
+        stopGroup('SIGTERM')
+        kill = setTimeout(() => stopGroup('SIGKILL'), HOGLI_STOP_GRACE_MS)
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+        const code = await new Promise<number | null>((resolve, reject) => {
+            child.once('error', reject)
+            child.once('exit', resolve)
+        })
+        if (signal.aborted) {
+            stopGroup('SIGKILL')
+            signal.throwIfAborted()
+        }
+        return code
+    } finally {
+        signal.removeEventListener('abort', abort)
+        clearTimeout(kill)
+    }
 }
 
-async function runHogli(hogli: Hogli, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
-    const code = await hogliExit(hogli, args, logFile, env)
+async function runHogli(
+    hogli: Hogli,
+    args: string[],
+    logFile: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    const code = await hogliExit(hogli, args, logFile, env, signal)
     if (code !== 0) {
         throw new Error(`hogli ${args.join(' ')} exited with ${code}; see ${logFile}`)
     }
 }
 
 const NOT_REACHABLE = 3
+const FIRST_START_TIMEOUT_S = 3600
 
-export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+const STACK_UNITS = {
+    intents: ['product_analytics', 'workflows'],
+    exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
+}
+
+export async function startStack(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv)
+    const waited = await hogliExit(hogli, ['wait'], logFile, hogliEnv, signal)
     if (waited === 0) {
         return
     }
     if (waited !== NOT_REACHABLE) {
         throw new Error(`hogli wait exited with ${waited}; see ${logFile}`)
     }
-    await runHogli(hogli, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
-    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv)
-    await runHogli(hogli, ['wait'], logFile, hogliEnv)
+    writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
+    await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
+    await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
 }
 
-export async function syncTemplates(hogli: Hogli, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
-    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
+export async function syncTemplates(
+    hogli: Hogli,
+    stateDir: string,
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal
+): Promise<void> {
+    await runHogli(hogli, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env, signal)
 }
 
 export async function withPostgres<T>(
@@ -146,16 +195,19 @@ export function membersOf(rpkDescribe: string): number | null {
     return members ? Number(members[1]) : null
 }
 
-async function rpk(docker: string, args: string[]): Promise<string> {
-    try {
-        const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
-            timeout: 10_000,
-        })
-        return stdout
-    } catch (error) {
+export async function rpkOrThrow(docker: string, args: string[], signal?: AbortSignal): Promise<string> {
+    const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+        timeout: 10_000,
+        signal,
+    })
+    return stdout
+}
+
+export function rpk(docker: string, args: string[]): Promise<string> {
+    return rpkOrThrow(docker, args).catch((error: unknown) => {
         const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string }
         return `${stdout}${stderr}` || String(error)
-    }
+    })
 }
 
 export async function groupMembers(group: string, docker: string): Promise<number> {

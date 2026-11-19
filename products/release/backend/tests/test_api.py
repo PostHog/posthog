@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -11,6 +13,7 @@ from posthog.utils import generate_short_id
 
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 from products.release.backend.facade import api
+from products.release.backend.facade.api import releases_enabled
 from products.release.backend.facade.contracts import ImportFlag
 from products.release.backend.models import Release, ReleaseImportState
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -129,6 +132,8 @@ class TestReleaseAPI(APIBaseTest):
             ("update", "patch", "00000000-0000-0000-0000-000000000000/"),
             ("import_all", "post", "import_all/"),
             ("merge", "post", "00000000-0000-0000-0000-000000000000/merge/"),
+            ("retrieve", "get", "00000000-0000-0000-0000-000000000000/"),
+            ("flag_suggestions", "get", "flag_suggestions/?feature_flag_id=1"),
         ]
     )
     def test_every_action_is_closed_without_the_flag(self, _name: str, method: str, suffix: str) -> None:
@@ -136,6 +141,19 @@ class TestReleaseAPI(APIBaseTest):
             response = getattr(self.client, method)(self._url(suffix), {"name": "Dark mode"}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_area_and_object_catalogs_have_independent_flags(self, area: bool, objects: bool) -> None:
+        enabled = {"releases-area": area, "release-objects": objects}
+        with (
+            patch(FLAG_PATCH, side_effect=releases_enabled),
+            patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: enabled[key]),
+        ):
+            flags = self.client.get(self._url("catalog_flags/"))
+            releases = self.client.get(self._url("catalog_releases/"))
+
+        assert flags.status_code == (status.HTTP_200_OK if area else status.HTTP_403_FORBIDDEN)
+        assert releases.status_code == (status.HTTP_200_OK if objects else status.HTTP_403_FORBIDDEN)
 
     def _restrict_as_admin(self, resource_path: str, endpoint: str = "access_controls", **extra: str) -> None:
         self.organization.available_product_features = [
@@ -248,6 +266,102 @@ class TestReleaseAPI(APIBaseTest):
         assert field in guessed_unknown.json()["attr"]
         assert [str(item) for item in stored] == [str(hidden_id)]
 
+    def test_metrics_keep_their_order_and_a_hidden_metric_survives_an_update(self) -> None:
+        primary, _ = self._linked_object("insight", "Weekly checkouts")
+        secondary, _ = self._linked_object("insight", "Checkout errors")
+        hidden, hidden_path = self._linked_object("insight", "Revenue")
+        release_id = self.client.post(
+            self._url(), {"name": "Checkout", "metric_insight_ids": [primary, hidden, secondary]}, format="json"
+        ).json()["id"]
+        extra = [self._linked_object("insight", f"Metric {index}")[0] for index in range(3)]
+        self._restrict_as_admin(hidden_path)
+        self.client.force_login(self._create_user("member@example.com"))
+
+        member_view = self.client.get(self._url()).json()["results"][0]
+        self.client.patch(self._url(f"{release_id}/"), {"metric_insight_ids": [secondary, primary]}, format="json")
+        over_cap = self.client.patch(
+            self._url(f"{release_id}/"), {"metric_insight_ids": [secondary, primary, *extra]}, format="json"
+        )
+        stored = Release.objects.unscoped().get(id=release_id).metric_insight_ids
+
+        assert member_view["metric_insight_ids"] == [primary, secondary]
+        assert over_cap.status_code == status.HTTP_400_BAD_REQUEST
+        assert "metric_insight_ids" in over_cap.json()["attr"]
+        assert stored == [secondary, primary, hidden]
+
+    @parameterized.expand(
+        [
+            ("too_many", lambda ids: ids * 2),
+            ("duplicate", lambda ids: [ids[0], ids[0]]),
+            ("unknown", lambda ids: [999999]),
+        ]
+    )
+    def test_metrics_reject_bad_lists(self, _name: str, build) -> None:
+        ids = [self._linked_object("insight", f"Metric {index}")[0] for index in range(3)]
+
+        response = self.client.post(self._url(), {"name": "Checkout", "metric_insight_ids": build(ids)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "metric_insight_ids" in response.json()["attr"]
+
+    def test_metric_goals_follow_their_metrics_and_a_hidden_metric_s_goal_survives(self) -> None:
+        primary, _ = self._linked_object("insight", "Weekly checkouts")
+        secondary, _ = self._linked_object("insight", "Checkout errors")
+        hidden, hidden_path = self._linked_object("insight", "Revenue")
+        release_id = self.client.post(
+            self._url(),
+            {
+                "name": "Checkout",
+                "metric_insight_ids": [primary, secondary, hidden],
+                "metric_goals": [
+                    {"insight_id": primary, "direction": "at_least", "value": 100},
+                    {"insight_id": hidden, "direction": "at_least", "value": 5000},
+                ],
+            },
+            format="json",
+        ).json()["id"]
+        self._restrict_as_admin(hidden_path)
+        self.client.force_login(self._create_user("member@example.com"))
+
+        member_view = self.client.get(self._url()).json()["results"][0]
+        updated = self.client.patch(
+            self._url(f"{release_id}/"),
+            {"metric_goals": [{"insight_id": secondary, "direction": "at_most", "value": 2.5}]},
+            format="json",
+        ).json()
+        not_a_metric = self.client.patch(
+            self._url(f"{release_id}/"),
+            {"metric_goals": [{"insight_id": 999999, "direction": "at_least", "value": 1}]},
+            format="json",
+        )
+        on_hidden = self.client.patch(
+            self._url(f"{release_id}/"),
+            {"metric_goals": [{"insight_id": hidden, "direction": "at_least", "value": 1}]},
+            format="json",
+        )
+        self.client.patch(self._url(f"{release_id}/"), {"metric_insight_ids": [primary]}, format="json")
+        stored = Release.objects.unscoped().get(id=release_id).metric_goals
+
+        assert member_view["metric_goals"] == [{"insight_id": primary, "direction": "at_least", "value": 100}]
+        assert updated["metric_goals"] == [{"insight_id": secondary, "direction": "at_most", "value": 2.5}]
+        assert not_a_metric.status_code == on_hidden.status_code == status.HTTP_400_BAD_REQUEST
+        assert "metric_goals" in on_hidden.json()["attr"]
+        assert stored == [{"insight_id": hidden, "direction": "at_least", "value": 5000}]
+
+    def test_merge_keeps_the_kept_release_s_primary_metric_and_caps_the_list(self) -> None:
+        ids = [self._linked_object("insight", f"Metric {index}")[0] for index in range(6)]
+        kept = self.client.post(self._url(), {"name": "Checkout", "metric_insight_ids": ids[:3]}, format="json").json()[
+            "id"
+        ]
+        other = self.client.post(
+            self._url(), {"name": "Payments", "metric_insight_ids": [ids[2], *ids[3:]]}, format="json"
+        ).json()["id"]
+
+        merged = self.client.post(self._url(f"{kept}/merge/"), {"release_ids": [other]}, format="json")
+
+        assert merged.status_code == status.HTTP_200_OK, merged.json()
+        assert merged.json()["metric_insight_ids"] == ids[:5]
+
     @parameterized.expand(
         [
             (f"{kind}_{name}", kind, scopes, shown)
@@ -333,6 +447,8 @@ class TestReleaseAPI(APIBaseTest):
         flag_id = self._flag("secret-launch")
         self.client.post(self._url("import_all/"))
         release_id = self.client.get(self._url()).json()["results"][0]["id"]
+        visible_id = self._flag("launch-copy")
+        self.client.patch(self._url(f"{release_id}/"), {"feature_flag_ids": [flag_id, visible_id]}, format="json")
         if renamed:
             self.client.patch(self._url(f"{release_id}/"), {"name": "Checkout"}, format="json")
         self._restrict_as_admin(f"feature_flags/{flag_id}")
@@ -343,6 +459,77 @@ class TestReleaseAPI(APIBaseTest):
             expected
         ]
         assert self.client.get(self._url("catalog_releases/?search=secret")).json()["results"] == []
+        assert self.client.get(self._url(f"{release_id}/")).json()["name"] == expected
+        assert self.client.get(self._url(f"catalog_releases/?feature_flag_id={flag_id}")).json()["results"] == []
+        assert self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).status_code == 404
+        current = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={visible_id}")).json()["current"]
+        assert [release["name"] for release in current if release["id"] == release_id] == [expected]
+
+    def test_retrieve_and_catalog_filter_find_a_release_by_its_flag(self) -> None:
+        flag_id = self._flag("checkout-button")
+        linked = self.client.post(
+            self._url(), {"name": "Checkout", "feature_flag_ids": [flag_id]}, format="json"
+        ).json()
+        self.client.post(self._url(), {"name": "Billing"}, format="json")
+
+        assert self.client.get(self._url(f"{linked['id']}/")).json()["feature_flag_ids"] == [flag_id]
+        assert self.client.get(self._url(f"{uuid4()}/")).status_code == status.HTTP_404_NOT_FOUND
+        assert [
+            release["name"]
+            for release in self.client.get(self._url(f"catalog_releases/?feature_flag_id={flag_id}")).json()["results"]
+        ] == ["Checkout"]
+
+    def test_flag_suggestions_rank_related_releases_and_list_the_ones_it_is_in(self) -> None:
+        flag_id = self._flag("checkout-redesign-button")
+        copy_flag = self._flag("checkout-copy")
+        self.client.post(self._url(), {"name": "Checkout"}, format="json")
+        self.client.post(self._url(), {"name": "Payments", "feature_flag_ids": [copy_flag]}, format="json")
+        self.client.post(self._url(), {"name": "Pricing page"}, format="json")
+        self.client.post(self._url(), {"name": "Button styles", "feature_flag_ids": [flag_id]}, format="json")
+
+        response = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [release["name"] for release in body["current"]] == ["Button styles"]
+        assert body["auto_release"] is False
+        assert [(release["name"], release["matched_terms"]) for release in body["suggestions"]] == [
+            ("Checkout", ["checkout"]),
+            ("Payments", ["checkout"]),
+        ]
+
+    def test_flag_suggestions_never_match_through_flags_the_caller_cannot_see(self) -> None:
+        flag_id = self._flag("checkout-redesign")
+        secret = self._flag("checkout-secret")
+        self.client.post(self._url("import_all/"))
+        self.client.post(self._url(), {"name": "Redesign", "feature_flag_ids": [secret]}, format="json")
+        self._restrict_as_admin(f"feature_flags/{secret}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        body = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).json()
+
+        assert [(release["name"], release["matched_terms"]) for release in body["suggestions"]] == [
+            ("Redesign", ["redesign"])
+        ]
+
+    @parameterized.expand([("active", True, True), ("inactive", False, False)])
+    def test_flag_suggestions_say_whether_the_flag_gets_its_own_release(
+        self, _name: str, active: bool, expected: bool
+    ) -> None:
+        self.client.post(self._url("import_all/"))
+        flag_id = self._flag("checkout-express", active=active)
+
+        body = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}")).json()
+
+        assert body["auto_release"] is expected
+
+    def test_flag_suggestions_return_404_for_an_unknown_or_deleted_flag(self) -> None:
+        deleted = self._flag("checkout-old")
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{deleted}/", {"deleted": True}, format="json")
+
+        for flag_id in (999999, deleted):
+            response = self.client.get(self._url(f"flag_suggestions/?feature_flag_id={flag_id}"))
+            assert response.status_code == status.HTTP_404_NOT_FOUND, flag_id
 
     def test_catalog_releases_search_gives_no_hint_of_restricted_generated_names(self) -> None:
         hidden = [self._flag(key) for key in ("secret-launch", "secret-pricing")]
@@ -438,10 +625,19 @@ class TestReleaseAPI(APIBaseTest):
         assert first["has_more"] is True
         assert [flag["id"] for flag in second["results"]] == [older]
         assert second["has_more"] is False
+        assert first["results"][0]["created_by"]["id"] == self.user.id
+
+        oldest = self.client.get(self._url("catalog_flags/?search=checkout&order=created_at")).json()
+        assert [flag["id"] for flag in oldest["results"]] == [older, newer]
+
+        other = self._create_user("someone@example.com")
+        assert self.client.get(self._url(f"catalog_flags/?created_by={other.id}")).json()["results"] == []
+        assert self.client.get(self._url("catalog_flags/?created_by=nope")).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_catalog_releases_lists_newest_first_with_search_and_paging(self) -> None:
+        other = self._create_user("someone@example.com")
         for name in ("Checkout older", "Billing", "Checkout newer"):
-            Release.objects.unscoped().create(team=self.team, name=name)
+            Release.objects.unscoped().create(team=self.team, name=name, owner=other if name == "Billing" else None)
 
         first = self.client.get(self._url("catalog_releases/?search=checkout&limit=1")).json()
         second = self.client.get(
@@ -452,6 +648,15 @@ class TestReleaseAPI(APIBaseTest):
         assert [release["name"] for release in second["results"]] == ["Checkout older"]
         assert second["next_cursor"] is None
         assert self.client.get(self._url("catalog_releases/?cursor=bad")).status_code == status.HTTP_400_BAD_REQUEST
+
+        oldest = self.client.get(self._url("catalog_releases/?order=created_at&limit=1")).json()
+        after = self.client.get(
+            self._url("catalog_releases/"), {"order": "created_at", "limit": "1", "cursor": oldest["next_cursor"]}
+        ).json()
+        assert [release["name"] for release in oldest["results"] + after["results"]] == ["Checkout older", "Billing"]
+
+        owned = self.client.get(self._url(f"catalog_releases/?owner={other.id}")).json()["results"]
+        assert [(release["name"], release["owner"]["id"]) for release in owned] == [("Billing", other.id)]
 
     def test_catalog_flags_hides_flags_the_caller_cannot_see(self) -> None:
         visible = self._flag("checkout-visible")

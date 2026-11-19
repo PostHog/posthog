@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.subscriptions.backend.temporal.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -25,7 +27,7 @@ WORKFLOWS = [
     ProcessAISubscriptionWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     fetch_due_subscriptions_activity,
     validate_subscription_for_delivery,
     create_export_assets,

@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -600,6 +600,19 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([("plain_run", {}), ("full_refresh", {"full_refresh": True})])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_running_the_view_is_denied_when_the_query_reads_a_denied_table(self, _name, body, mock_sync_connect):
+        dag = DAG.objects.create(team=self.team, name="dag")
+        Node.objects.create(team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW)
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(f"{self._base()}/run/", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        mock_client.start_workflow.assert_not_called()
 
     def test_materializing_the_node_is_denied_when_the_query_reads_a_denied_table(self):
         # The single-node endpoint dispatches the same materialization workflow as `run`, so it is

@@ -29,7 +29,7 @@ const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 const ISSUE_RATES_TOOLTIP =
-    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, a frequency-capped send, or a send blocked by the sandbox sender is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped). The sandbox sender blocks a send that fails one of its checks, such as a recipient who is not a member of your organization.'
+    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, a frequency-capped send, or a send blocked by the PostHog test sender is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped). The PostHog test sender blocks a send that fails one of its checks, such as a recipient who is not a member of your organization.'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
 // should be read against, plus the rate over that denominator. A step with no tracked sends shows a
@@ -193,7 +193,7 @@ export function WorkflowMetricsSummary({
                             metric: 'message_frequency_capped',
                         },
                         {
-                            label: 'blocked by sandbox sender',
+                            label: 'blocked by PostHog test sender',
                             value: row.sandboxBlocked,
                             total: attempted,
                             type: 'warning',

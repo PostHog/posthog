@@ -107,12 +107,14 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
+    ClonePhases,
     ExecutionResult,
     SandboxConfig,
     SandboxDirEntry,
     SandboxTemplate,
     SandboxWorkload,
     health_check_timeout_seconds,
+    parse_clone_phases,
 )
 from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 
@@ -769,6 +771,25 @@ class TestModalSandboxAgentServer:
         marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
         process = command.index("exec /usr/bin/python3 -I /opt/posthog/task-filesystem.py enter -- env", marker)
         assert barrier < marker < process
+        assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
+
+    def test_start_agent_server_launches_before_repository_when_supported(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            repo_ready_file="/tmp/workspace/.repo-ready",
+            wait_for_health=False,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "while [ ! -f" not in command
+        assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N) &&" in command
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
@@ -1500,14 +1521,20 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,blobless,expected_in_command,not_expected_in_command",
+        "shallow,blobless,baked_repo_clone,expected_in_command,not_expected_in_command",
         [
-            (True, False, "--depth 1", "--filter=blob:"),
-            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
-            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "--depth 1", "--filter=blob:"),
+            (False, False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, False, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "git checkout -q -f", "/posthog/posthog/.git ]"),
+            (True, False, False, "git checkout -q -f", "checkout.workers"),
+            (True, False, True, "git -c checkout.workers=0 checkout -q -f;", None),
+            (False, False, True, "--filter=blob:limit=128k", "/posthog/posthog/.git ]"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(
+        self, shallow, blobless, baked_repo_clone, expected_in_command, not_expected_in_command
+    ):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -1516,13 +1543,34 @@ class TestModalSandboxCommandEscaping:
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
                 sandbox.clone_repository(
-                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                    "PostHog/posthog",
+                    github_token="test-token",
+                    shallow=shallow,
+                    blobless=blobless,
+                    baked_repo_clone=baked_repo_clone,
                 )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "stdout,expected",
+        [
+            (
+                "clone_phases_ms mode=baked fetch=6012 checkout=640\n",
+                ClonePhases(mode="baked", fetch_ms=6012, checkout_ms=640),
+            ),
+            (
+                "Cloning into 'posthog'...\nclone_phases_ms mode=fallback fetch=9100 checkout=1500",
+                ClonePhases(mode="fallback", fetch_ms=9100, checkout_ms=1500),
+            ),
+            ("", None),
+        ],
+    )
+    def test_parse_clone_phases(self, stdout, expected):
+        assert parse_clone_phases(stdout) == expected
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
@@ -1934,19 +1982,55 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    @pytest.mark.parametrize("probe", [False, True])
-    def test_create_sets_vm_runtime_experimental_option(self, probe: bool) -> None:
-        config = SandboxConfig(name="t", vm_runtime=True, template=SandboxTemplate.SLIM_BASE, agent_egress_probe=probe)
+    @pytest.mark.parametrize("probe,observation", [(False, False), (True, False), (False, True)])
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool) -> None:
+        config = SandboxConfig(
+            name="t",
+            vm_runtime=True,
+            template=SandboxTemplate.SLIM_BASE,
+            agent_egress_probe=probe,
+            agent_egress_observation=observation,
+        )
 
         mock_create = self._create_with_config(config)
 
-        expected = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024} if probe else {"vm_runtime": True}
+        expected = (
+            {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if probe or observation
+            else {"vm_runtime": True}
+        )
         assert mock_create.call_args.kwargs["experimental_options"] == expected
         if probe:
+            assert mock_create.call_args.kwargs["name"] == "t"
             assert mock_create.call_args.kwargs["outbound_cidr_allowlist"] == []
             assert "secrets" not in mock_create.call_args.kwargs
         else:
+            assert mock_create.call_args.kwargs["name"].startswith("t-")
             assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"vm_runtime": False},
+            {"agent_egress_probe": True},
+            {"outbound_domain_allowlist": []},
+            {"block_network": True},
+            {"memory_gb": 1},
+            {"snapshot_external_id": "im-example"},
+            {"resume_snapshot_external_id": "im-example"},
+            {"require_snapshot": True},
+        ],
+    )
+    def test_observation_rejects_incompatible_profiles(self, override: dict[str, object]) -> None:
+        values = {
+            "name": "observation",
+            "template": SandboxTemplate.SLIM_BASE,
+            "vm_runtime": True,
+            "agent_egress_observation": True,
+            **override,
+        }
+        with pytest.raises(ValueError):
+            SandboxConfig.model_validate(values)
 
     @pytest.mark.parametrize(
         "override",
@@ -1975,9 +2059,16 @@ class TestModalSandboxCreateAllowlist:
             SandboxConfig(**(values | override))
 
     @override_settings(DEBUG=False, TEST=False)
-    def test_probe_rejects_production_launch(self) -> None:
-        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
-            SandboxConfig(name="probe", template=SandboxTemplate.SLIM_BASE, vm_runtime=True, agent_egress_probe=True)
+    @pytest.mark.parametrize("observation", [False, True])
+    def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
+        with pytest.raises(ValueError, match="development VM"):
+            SandboxConfig(
+                name="probe",
+                template=SandboxTemplate.SLIM_BASE,
+                vm_runtime=True,
+                agent_egress_probe=not observation,
+                agent_egress_observation=observation,
+            )
 
     def test_create_attaches_an_exec_readiness_probe_and_waits_on_it(self):
         # Modal raises on wait_until_ready when no probe was attached, so the two must stay paired.
