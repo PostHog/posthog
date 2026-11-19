@@ -785,9 +785,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         ]
 
         with patch(
-            "products.alerts_platform.backend.delivery.slack.post_message",
+            "slack_sdk.WebClient.chat_postMessage",
             return_value={"ok": True, "channel": "C123", "ts": "1.0"},
-        ) as post_message:
+        ) as chat_post_message:
             tested = self.client.post(f"{alert_url}/test-delivery/")
 
         assert listed["hears_firing"] is True
@@ -797,7 +797,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             status.HTTP_202_ACCEPTED,
             {"destination_count": 1, "email_recipient_count": 0, "failed_delivery_channels": []},
         )
-        assert (post_message.call_count, mock_trigger.call_count) == (native_sends, hog_function_triggers)
+        assert (chat_post_message.call_count, mock_trigger.call_count) == (native_sends, hog_function_triggers)
 
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:

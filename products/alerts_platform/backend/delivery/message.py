@@ -131,6 +131,7 @@ def transition_delivery_key(message: AlertMessage) -> str:
 
 
 DELIVERY_TEST_NOTE: Final = "Test alert from PostHog. No action is needed."
+DELIVERY_TEST_LABEL: Final = "posthog_delivery_test"
 
 
 def build_delivery_test_message(
@@ -153,8 +154,10 @@ def build_delivery_test_message(
         alert_name=name,
         source=source,
         alert_url=alert_url,
+        # Its own group, so a receiver that keys incidents by group never folds a test into a real firing.
+        labels={DELIVERY_TEST_LABEL: "true"},
         transition=AnnouncedTransition(
-            grouping_key="",
+            grouping_key=f"delivery-test:{occurred_at.isoformat()}",
             kind=AlertEventKind.FIRING,
             episode_started_at=occurred_at,
             value=None,

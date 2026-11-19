@@ -127,7 +127,7 @@ class TestDeliveryTestSend(APIBaseTest):
         assert (len(reached), outcome) == (sends, DeliveryTestOutcome(sent=sends, failed=0))
         assert reached == ({row.id} if sends else frozenset())
         assert [
-            (channel, message.headline, message.context, message.alert_url)
+            (channel, message.headline, message.context, message.alert_url, message.labels)
             for channel, message in RecordingTransport.sends
         ] == [
             (
@@ -135,8 +135,11 @@ class TestDeliveryTestSend(APIBaseTest):
                 "Insight alert '[TEST] Signups dropped' is firing",
                 ("Test alert from PostHog. No action is needed.",),
                 "https://app.example.com/alert",
+                {"posthog_delivery_test": "true"},
             )
         ] * sends
+        # A firing of an ungrouped alert has an empty group, which a test must not share.
+        assert all(message.transition.grouping_key for _, message in RecordingTransport.sends)
 
     def test_a_destination_that_refuses_the_test_does_not_stop_the_others(self) -> None:
         alert_id = self._alert()

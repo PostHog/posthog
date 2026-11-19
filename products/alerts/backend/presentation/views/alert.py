@@ -157,6 +157,7 @@ from products.alerts.backend.facade.platform import (
     native_insight_alert_views,
     platform_subscriber_ids,
     platform_takes_new_alert_with,
+    queue_delivery_test,
     set_native_subscribers,
     subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
@@ -178,7 +179,6 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
     Threshold,
 )
-from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts_platform.backend.facade.api import (
     delete_source_destination_rows,
     list_source_destinations,
@@ -195,16 +195,14 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
-    DeliveryTestOutcome,
     DestinationType,
     InvalidPlatformAlertEdit,
     NativeConfigurationMatch,
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertCreateRefused,
-    SourceKind,
 )
-from products.alerts_platform.backend.facade.delivery import delivery_test_destination_ids, send_delivery_test
+from products.alerts_platform.backend.facade.delivery import delivery_test_destination_ids
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -2673,22 +2671,21 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             failed_delivery_channels.append("destination")
         if row_count:
             try:
-                outcome = send_delivery_test(
+                queue_delivery_test(
                     team_id=alert.team_id,
-                    public_id=alert.id,
-                    source=SourceKind.INSIGHT,
+                    alert_id=alert.id,
                     alert_name=alert.name or "",
-                    source_alert_url=insight_alert_url(alert.team_id, alert.insight.short_id, str(alert.id)),
+                    insight_short_id=alert.insight.short_id,
                 )
             except Exception as error:
                 capture_exception(
                     error,
                     additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "destination"},
                 )
-                outcome = DeliveryTestOutcome(sent=0, failed=row_count)
-            successful_destination_count += outcome.sent
-            if outcome.failed and "destination" not in failed_delivery_channels:
-                failed_delivery_channels.append("destination")
+                if "destination" not in failed_delivery_channels:
+                    failed_delivery_channels.append("destination")
+            else:
+                successful_destination_count += row_count
 
         if successful_email_count == 0 and successful_destination_count == 0:
             detail = (
