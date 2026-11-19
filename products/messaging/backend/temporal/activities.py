@@ -43,7 +43,11 @@ def finish_provider_import_run_activity(inputs: ProviderImportRunInputs) -> None
 def import_contact_chunk_activity(inputs: ContactChunkInputs) -> ContactChunkResult:
     with HeartbeaterSync():
         outcome = import_contact_chunk(
-            inputs.team_id, inputs.storage_prefix, inputs.chunk, send_events=inputs.send_events
+            inputs.team_id,
+            inputs.storage_prefix,
+            inputs.chunk,
+            send_events=inputs.send_events,
+            created_by_id=inputs.created_by_id,
         )
     return ContactChunkResult(people=outcome.people, found=outcome.found, attempt=activity.info().attempt)
 
@@ -53,7 +57,9 @@ def import_contact_chunk_activity(inputs: ContactChunkInputs) -> ContactChunkRes
 def fill_contacts_cohort_activity(inputs: ContactsCohortInputs) -> int:
     """Returns how many people left the cohort."""
     with HeartbeaterSync():
-        return fill_contacts_cohort(inputs.team_id, inputs.cohort_id, inputs.storage_prefix, inputs.chunks).removed
+        return fill_contacts_cohort(
+            inputs.team_id, inputs.cohort_id, inputs.storage_prefix, inputs.chunks, created_by_id=inputs.created_by_id
+        ).removed
 
 
 @activity.defn(name="messaging-provider-import.fail_contacts_cohort")

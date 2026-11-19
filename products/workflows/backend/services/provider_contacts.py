@@ -22,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     ContactsCaptureFailed,
     ContactsCleanupFailed,
     ContactsCohortFilled,
+    ContactsImportAccessLost,
     PeopleImportInvalid,
     ProviderContactsResult,
 )
@@ -168,6 +169,13 @@ class _Creator:
     access: UserAccessControl
 
 
+def _require_creator(team_id: int, user_id: int | None) -> None:
+    # The parts are written minutes or hours after the list was staged, so access is checked again for each.
+    creator = _check_creator(team_id, user_id)
+    if isinstance(creator, ProviderContactsResult):
+        raise ContactsImportAccessLost(" ".join(creator.notes))
+
+
 def _check_creator(team_id: int, user_id: int | None) -> _Creator | ProviderContactsResult:
     """The person who started the import, or a failed result when they can't edit persons in the project anymore."""
     team = Team.objects.get(id=team_id)
@@ -187,11 +195,14 @@ def _check_creator(team_id: int, user_id: int | None) -> _Creator | ProviderCont
     return _Creator(team=team, user=user, access=access)
 
 
-def import_contact_chunk(team_id: int, storage_prefix: str, chunk: int, *, send_events: bool) -> ContactChunkOutcome:
+def import_contact_chunk(
+    team_id: int, storage_prefix: str, chunk: int, *, send_events: bool, created_by_id: int | None
+) -> ContactChunkOutcome:
     """Send one stored part's events, then wait until ingestion has created its people.
 
     Running it again is safe: an event sets the same properties again, and people are keyed by distinct ID.
     """
+    _require_creator(team_id, created_by_id)
     key = _chunk_key(storage_prefix, chunk)
     people = read_people(key)
     if send_events and people:
@@ -230,8 +241,11 @@ def _send(team: Team, people: list[StagedPerson], key: str) -> None:
         raise ContactsCaptureFailed(f"Capture didn't acknowledge {len(events)} events.")
 
 
-def fill_contacts_cohort(team_id: int, cohort_id: int, storage_prefix: str, chunks: int) -> ContactsCohortFilled:
+def fill_contacts_cohort(
+    team_id: int, cohort_id: int, storage_prefix: str, chunks: int, *, created_by_id: int | None
+) -> ContactsCohortFilled:
     """Set the cohort's members to the list's people, once every part is in. Anyone else in the cohort leaves it."""
+    _require_creator(team_id, created_by_id)
     members = [
         person["distinct_id"]
         for chunk in range(chunks)

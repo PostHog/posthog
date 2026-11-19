@@ -15,7 +15,7 @@ class PeopleImportRecorder:
 
     def __init__(self, test: TestCase) -> None:
         self.stored: dict[str, str] = {}
-        storage = MagicMock()
+        storage = self.storage = MagicMock()
         storage.write.side_effect = self.stored.__setitem__
         storage.read.side_effect = lambda key, missing_ok=False: self.stored.get(key)
         storage.iter_keys.side_effect = lambda prefix: [key for key in list(self.stored) if key.startswith(prefix)]

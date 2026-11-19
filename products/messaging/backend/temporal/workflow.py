@@ -60,6 +60,7 @@ CHUNK_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
+    non_retryable_error_types=["ContactsImportAccessLost"],
 )
 
 
@@ -131,7 +132,11 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
         people = found = removed = failed_lists = retried_chunks = 0
         for plan in inputs.people_imports:
             cohort = ContactsCohortInputs(
-                team_id=inputs.team_id, cohort_id=plan.cohort_id, storage_prefix=plan.storage_prefix, chunks=plan.chunks
+                team_id=inputs.team_id,
+                cohort_id=plan.cohort_id,
+                storage_prefix=plan.storage_prefix,
+                chunks=plan.chunks,
+                created_by_id=plan.created_by_id,
             )
             try:
                 for chunk in range(plan.chunks):
@@ -142,6 +147,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                             storage_prefix=plan.storage_prefix,
                             chunk=chunk,
                             send_events=plan.send_events,
+                            created_by_id=plan.created_by_id,
                         ),
                         start_to_close_timeout=CHUNK_TIMEOUT,
                         heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,

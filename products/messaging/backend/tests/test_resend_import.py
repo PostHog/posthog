@@ -693,7 +693,11 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             created_at=timezone.now() - runs.STALE_RUN_AGE * 2
         )
 
-        assert runs.close_stale_runs() == 1
+        # Storage fails during the first sweep, and the next hourly sweep deletes the contacts.
+        with patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")):
+            assert runs.close_stale_runs() == 1
+        assert self.people.stored != {}
+        runs.close_stale_runs()
 
         run.refresh_from_db()
         [plan] = run.progress["contacts"]["people_imports"]

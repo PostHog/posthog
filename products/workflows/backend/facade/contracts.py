@@ -343,6 +343,10 @@ class ContactsCaptureFailed(Exception):
     """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
 
 
+class ContactsImportAccessLost(Exception):
+    """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
+
+
 class ContactsCleanupFailed(Exception):
     """Object storage kept some of the parts an import stored."""
 

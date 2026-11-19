@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 # A run still active after the workflow's execution timeout has no workflow left to finish it.
 STALE_RUN_AGE = RUN_EXECUTION_TIMEOUT + timedelta(hours=1)
+CLEANUP_RETRY_WINDOW = timedelta(days=2)
 MAX_STEP_WARNINGS = 50
 MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
@@ -220,6 +221,17 @@ def close_stale_runs() -> int:
     )
     for team_id, run_id in stale:
         _close_stale_run(team_id, run_id)
+    # A cleanup that failed while closing a run is tried again here every hour for a while.
+    ended = (
+        ProviderImportRun.objects.unscoped()
+        .filter(finished_at__gte=timezone.now() - CLEANUP_RETRY_WINDOW)
+        .values_list("team_id", "id")
+    )
+    for team_id, run_id in ended:
+        try:
+            discard_staged_contacts(team_id, str(run_id))
+        except Exception:
+            logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": str(run_id)})
     return len(stale)
 
 
@@ -297,12 +309,12 @@ def _close_run(team_id: int, run_id: UUID) -> None:
         run = _runs(team_id).select_for_update().get(id=run_id)
         if run.status not in ACTIVE_IMPORT_STATUSES:
             return
-        unfinished_cohorts: list[int] = []
         for step in run.steps:
             progress = run.progress.setdefault(step, _new_step_progress())
             if progress.get("people_imports") and "people_import" not in progress:
                 # The workflow ended before it sent the step's contacts, so their cohorts can't finish.
-                unfinished_cohorts += [plan["cohort_id"] for plan in progress["people_imports"]]
+                for plan in progress["people_imports"]:
+                    fail_contacts_cohort(team_id, plan["cohort_id"])
                 progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
             if progress["status"] != ImportStepStatus.COMPLETED:
                 progress["status"] = ImportStepStatus.FAILED
@@ -312,8 +324,6 @@ def _close_run(team_id: int, run_id: UUID) -> None:
         run.temporary_api_key = None
         run.save(update_fields=["progress", "status", "finished_at", "temporary_api_key"])
 
-    for cohort_id in unfinished_cohorts:
-        fail_contacts_cohort(team_id, cohort_id)
     _report_finished(run)
 
 
@@ -346,7 +356,7 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
         _add_items(progress, saved.items)
         if saved.people_imports:
             progress["people_imports"] = progress.get("people_imports", []) + [
-                asdict(plan) for plan in saved.people_imports
+                asdict(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
             ]
         progress["checkpoint"] = page.checkpoint
         if page.checkpoint is None:

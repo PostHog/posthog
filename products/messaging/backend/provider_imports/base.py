@@ -107,6 +107,8 @@ class PeopleImportPlan:
     chunks: int
     # False for a list whose people another list of the same page sends, so it only sets its cohort.
     send_events: bool
+    # Set by the runner. The workflow checks this person can still edit persons before each write.
+    created_by_id: int | None = None
 
 
 @frozen

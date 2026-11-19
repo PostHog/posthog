@@ -25,6 +25,7 @@ from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import (
     ContactChunkOutcome,
     ContactsCohortFilled,
+    ContactsImportAccessLost,
     PeopleImportInvalid,
     ProviderContactsResult,
 )
@@ -304,10 +305,10 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
                 self.assertRaises(ConnectionError),
             ):
                 provider_contacts.fill_contacts_cohort(
-                    self.team.id, first.cohort_id, again.storage_prefix, again.chunks
+                    self.team.id, first.cohort_id, again.storage_prefix, again.chunks, created_by_id=self.user.id
                 )
         filled = provider_contacts.fill_contacts_cohort(
-            self.team.id, first.cohort_id, again.storage_prefix, again.chunks
+            self.team.id, first.cohort_id, again.storage_prefix, again.chunks, created_by_id=self.user.id
         )
 
         in_clickhouse = sync_execute(
@@ -317,6 +318,18 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
         assert {row[0] for row in in_clickhouse} == {people[name].uuid for name in members}
         assert Cohort.objects.get(id=first.cohort_id).count == len(members)
         assert filled == ContactsCohortFilled(members=len(members), removed=3 - len(members))
+
+    @patch.object(provider_contacts, "capture_batch_internal")
+    def test_a_part_stops_when_the_creator_lost_access_after_staging(self, capture: MagicMock) -> None:
+        staged = self._stage(["ada@example.com"])
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        with self.assertRaises(ContactsImportAccessLost):
+            provider_contacts.import_contact_chunk(
+                self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
+            )
+        capture.assert_not_called()
 
     @patch.object(provider_contacts, "capture_batch_internal")
     def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:
@@ -335,9 +348,13 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
 
         capture.side_effect = acknowledge_all_but_the_last
         with self.assertRaises(provider_contacts.ContactsCaptureFailed):
-            provider_contacts.import_contact_chunk(self.team.id, staged.storage_prefix, 0, send_events=True)
+            provider_contacts.import_contact_chunk(
+                self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
+            )
         # Temporal's retry of the part sends only what capture never acknowledged.
-        outcome = provider_contacts.import_contact_chunk(self.team.id, staged.storage_prefix, 0, send_events=True)
+        outcome = provider_contacts.import_contact_chunk(
+            self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
+        )
 
         assert sent == [["user-ada", "user-bea"], ["user-bea"], ["user-bea"], ["user-bea"]]
         assert outcome == ContactChunkOutcome(people=2, found=2)

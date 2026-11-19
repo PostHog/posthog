@@ -41,6 +41,7 @@ class ContactChunkInputs:
     storage_prefix: str
     chunk: int
     send_events: bool
+    created_by_id: int | None = None
 
 
 @frozen
@@ -57,6 +58,7 @@ class ContactsCohortInputs:
     cohort_id: int
     storage_prefix: str
     chunks: int
+    created_by_id: int | None = None
 
 
 @frozen

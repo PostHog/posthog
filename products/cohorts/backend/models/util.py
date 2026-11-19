@@ -856,7 +856,9 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     remove_people_from_static_cohort([person_uuid], cohort_id, team_id=team_id)
 
 
-def remove_people_from_static_cohort(person_uuids: Sequence[uuid.UUID], cohort_id: int, *, team_id: int):
+def remove_people_from_static_cohort(
+    person_uuids: Sequence[uuid.UUID], cohort_id: int, *, team_id: int, wait_for_local_replica: bool = False
+):
     """Remove people from a static cohort in ClickHouse, in one mutation. A delete per person can pass the table's
     limit on unfinished mutations.
 
@@ -878,6 +880,12 @@ def remove_people_from_static_cohort(person_uuids: Sequence[uuid.UUID], cohort_i
         ch_settings = {
             "mutations_sync": "2",
             "lightweight_deletes_sync": "2",
+        }
+    elif wait_for_local_replica:
+        # A person added back right after a queued delete would be lost when the delete ran.
+        ch_settings = {
+            "mutations_sync": "1",
+            "lightweight_deletes_sync": "1",
         }
     else:
         # Use async mutations in production to avoid replica sync issues
@@ -1709,7 +1717,9 @@ def remove_static_cohort_members(team_id: int, cohort_id: int, person_ids: Seque
 
     uuids = personhog_call("get_persons", person_uuids)
     for start in range(0, len(uuids), _REMOVE_MEMBERS_CHUNK_SIZE):
-        remove_people_from_static_cohort(uuids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE], cohort_id, team_id=team_id)
+        remove_people_from_static_cohort(
+            uuids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE], cohort_id, team_id=team_id, wait_for_local_replica=True
+        )
 
     def delete_members() -> None:
         for start in range(0, len(person_ids), _REMOVE_MEMBERS_CHUNK_SIZE):
