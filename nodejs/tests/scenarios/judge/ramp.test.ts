@@ -299,16 +299,18 @@ describe('ramp', () => {
 
     const STEPS_DRIVEN = [driven(0), driven(1), driven(2)]
     const JOURNAL = [unit(0, 3), unit(1, 7), unit(2, 3)]
-    const held = (name = 'writer_cpu_under'): BarResult => ({ name, unit: '%', passed: true })
+    const held = (name = 'writer_cpu_under'): BarResult => ({ name, unit: '%', limit: 70, passed: true })
     const brokeAt = (scale: number, part = 'db:cyclotron'): BarResult => ({
         name: 'writer_cpu_under',
         unit: '%',
+        limit: 70,
         passed: false,
         breakingPoint: { scale, at: iso(T), offeredPerSecond: 5, value: 91, part },
     })
     const unreadAt = (scale: number): BarResult => ({
         name: 'writer_cpu_under',
         unit: '%',
+        limit: 70,
         passed: false,
         unjudged: `no writer CPU reading in the ${scale}x step`,
         harnessLimit: { scale, by: 'run_host' },
