@@ -327,6 +327,7 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    Canvas = 'canvas',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
     DataCatalog = 'data_catalog',
@@ -1147,6 +1148,7 @@ export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
     Yours = 'yours',
+    Anomalies = 'anomalies',
     History = 'history',
     Alerts = 'alerts',
     Notifications = 'notifications',
@@ -1179,6 +1181,7 @@ export enum ActivityTab {
     ExploreEvents = 'events',
     LiveEvents = 'live',
     ExploreSessions = 'sessions',
+    ExploreFlagCalls = 'flag-calls',
 }
 
 export enum ProgressStatus {
@@ -1965,6 +1968,8 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     PROFILE = 'profile',
     EVENTS = 'events',
+    // pinned: the value is the activeTab URL hash param. Renaming it breaks saved links.
+    FLAG_CALLS = 'flagCalls',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
@@ -4827,6 +4832,8 @@ export interface PreflightStatus {
     cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
+    /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
+    cimd_verification_token_issuer_url?: string
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]

@@ -134,7 +134,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import reports_for_person
+from products.signals.backend.briefing_reports import reports_for_person, reports_needing_person
 from products.signals.backend.contracts import alert_patterns_problem
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
@@ -142,6 +142,7 @@ from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.source_configs import AlertNamePatterns, evaluate_alert_filter
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.filter_expression import FilterValidationError
+from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE
 from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
@@ -242,7 +243,8 @@ from products.signals.backend.report_metric_refresh import (
     REFRESHABLE_REPORT_STATUSES,
     refresh_report_metric_snapshots,
 )
-from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
+from products.signals.backend.report_monitoring_attempts import complete_implementation, verifying_attempt
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_note_mentions import (
     note_text,
@@ -257,22 +259,27 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_repository import update_report_repository
 from products.signals.backend.report_search import (
     search_enabled as report_search_enabled,
     search_reports,
 )
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
+    IMPLEMENT_RUN_ACTIVE_DETAIL,
     INBOX_REPORT_ACTION_EVENT,
     PULL_REQUEST_ACTION_KINDS,
     PULL_REQUEST_RUN_ACTIVE_DETAIL,
     ReportActionState,
     ReportTaskActionContext,
     ReportTaskActionStartError,
+    active_implementation_run,
     active_pull_request_run,
     inbox_report_action_properties,
     list_report_task_actions,
+    repository_connected,
     resolve_report_task_action,
+    select_implementation_repository,
     start_report_task_action,
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
@@ -291,6 +298,7 @@ from products.signals.backend.scout_harness.tools.report_author import (
     UserReportAuthor,
     user_report_limit_resets_at,
 )
+from products.signals.backend.scout_harness.tools.runs import run_id_for_sandbox_task
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_harness.views import (
     assert_custom_image_usable,
@@ -335,6 +343,7 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportRepositoryUpdateSerializer,
     SignalReportSearchQuerySerializer,
     SignalReportSearchResponseSerializer,
     SignalReportSectionCountsSerializer,
@@ -377,6 +386,7 @@ from products.signals.backend.task_attribution import (
     resolve_external_agent_name,
     resolve_request_attribution,
 )
+from products.signals.backend.task_profiles import INBOX
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded, implementation_in_flight_report_ids
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -2015,6 +2025,18 @@ _REPORT_LIST_PARAMETERS = [
             "claims by MCP agents acting for them. Internal task claims are not included."
         ),
     ),
+    OpenApiParameter(
+        name="needs_you",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "'true' keeps only the reports that need the requesting user: the ones waiting on their input "
+            "(pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or "
+            "through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by "
+            "the user's personal ranking."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
@@ -2373,6 +2395,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_unclaimed_filter(qs)
         qs = self._apply_signal_report_assignee_filter(qs)
+        qs = self._apply_signal_report_needs_you_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
@@ -2724,6 +2747,13 @@ class SignalReportViewSet(
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
+
+    def _apply_signal_report_needs_you_filter(self, queryset):
+        wants_needs_you = self._bool_query_param("needs_you")
+        if wants_needs_you is None:
+            return queryset
+        needs_you = reports_needing_person(self.team_id, cast(User, self.request.user))
+        return queryset.filter(needs_you) if wants_needs_you else queryset.exclude(needs_you)
 
     def _channel_id_filter_value(self) -> uuid.UUID | None:
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
@@ -3543,6 +3573,41 @@ class SignalReportViewSet(
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(
+        request_serializer=SignalReportRepositoryUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report with the new repository."),
+            400: OpenApiResponse(
+                description="The repository is not in 'owner/repo' format, or the project's GitHub integration cannot reach it."
+            ),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Change a report's repository",
+        description=(
+            "Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the "
+            "report's work log keeps the previous selection and records who changed it. Later implementation runs "
+            "use the new repository. A run that already started keeps its repository. Setting the current "
+            "repository again changes nothing."
+        ),
+        operation_id="signals_reports_repository_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
+    def repository(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        repository = request.validated_data["repository"]
+        if repository not in self._connected_repositories():
+            raise serializers.ValidationError(
+                {
+                    "repository": (
+                        f"This project's GitHub integration can't reach {repository}. "
+                        "Pick a repository the integration has access to."
+                    )
+                }
+            )
+        update_report_repository(report=report, repository=repository, attribution=self._request_attribution())
+        report.__dict__.pop("prefetched_repo_selection_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
         request_serializer=SignalReportContentUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalReportSerializer, description="Report updated."),
@@ -4209,6 +4274,8 @@ class SignalReportViewSet(
             "conflicts with its base branch. "
             "`resolve_conflicts` is available only while the report's open pull request conflicts with its base "
             "branch. "
+            "`implement` is available only while the report is ready and actionable, or waiting on input, has no "
+            "pull request, is not a plan, has no implementation run in progress, and nobody else holds its claim. "
             "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
         ),
         operation_id="signals_reports_actions_list",
@@ -4241,21 +4308,31 @@ class SignalReportViewSet(
             201: OpenApiResponse(response=SignalReportTaskActionRunResponseSerializer, description="Task created"),
             400: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
-                description="The action is not available on this report now (code `report_action_unavailable`)",
+                description=(
+                    "The action is not available on this report now (code `report_action_unavailable`), the "
+                    "`repository` is not connected to this project (code `report_action_repository_unavailable`), "
+                    "or no repository could be resolved for `implement` (code "
+                    "`report_implementation_repository_unresolved`)"
+                ),
             ),
             402: OpenApiResponse(
-                description="The organization is on a Self-driving free trial (code `self_driving_free_trial`)"
+                response=SignalReportTaskActionErrorSerializer,
+                description="The organization is on a Self-driving free trial (code `self_driving_free_trial`)",
             ),
             403: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
-                description="AI data processing is not approved, or the request came from a task sandbox",
+                description=(
+                    "AI data processing is not approved, the request came from a task sandbox, or `implement` "
+                    "needs code access the caller does not have"
+                ),
             ),
             404: OpenApiResponse(description="The report has no suggested prompt at that index"),
             409: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
-                    "A run is already working on this report's pull request (code `report_action_run_active`). "
-                    "The body carries its `task_id` and `run_id`."
+                    "A run is already working on this report's pull request, or for `implement`, an "
+                    "implementation run is still in progress (code `report_action_run_active`). The body carries "
+                    "its `task_id` and `run_id` once that run has started."
                 ),
             ),
             429: OpenApiResponse(
@@ -4270,7 +4347,8 @@ class SignalReportViewSet(
         description=(
             "Create a task linked to the report and start its first run in the background, with the "
             "instructions the inbox uses for the same action. `ask` sends your own message with the framing "
-            "of the inbox's Ask AI. The run shows in the report's runs and counts "
+            "of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the "
+            "report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts "
             "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
             "writes a note to the report's work log when it needs a decision."
         ),
@@ -4296,9 +4374,16 @@ class SignalReportViewSet(
         context = ReportTaskActionContext(team=self.team, user=user)
         data = request.validated_data
         kind = ReportTaskActionKind(data["action"])
+        repository = data.get("repository")
         state = ReportActionState.read(report)
         report_action = resolve_report_task_action(
-            context, report, kind, data.get("suggested_prompt_index"), state=state, message=data.get("message")
+            context,
+            report,
+            kind,
+            data.get("suggested_prompt_index"),
+            state=state,
+            message=data.get("message"),
+            repository=repository,
         )
         if report_action is None:
             raise exceptions.NotFound("This report has no suggested prompt at that index.")
@@ -4315,8 +4400,24 @@ class SignalReportViewSet(
                 request=request,
             )
 
+        if kind == ReportTaskActionKind.IMPLEMENT and (
+            implementation := active_implementation_run(team_id=self.team.id, report_id=str(report.id))
+        ):
+            capture("limited", "report_action_run_active")
+            return self._task_action_error(
+                "report_action_run_active",
+                IMPLEMENT_RUN_ACTIVE_DETAIL,
+                status.HTTP_409_CONFLICT,
+                task_id=implementation.task_id,
+                run_id=implementation.run_id,
+            )
+
         if report_action.disabled_reason is not None:
             capture("blocked")
+            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
+                return self._task_action_error(
+                    "self_driving_free_trial", report_action.disabled_reason, status.HTTP_402_PAYMENT_REQUIRED
+                )
             error_status: int = (
                 status.HTTP_403_FORBIDDEN
                 if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
@@ -4342,9 +4443,32 @@ class SignalReportViewSet(
                 str(limit_response.data["code"]), str(limit_response.data["error"]), limit_response.status_code
             )
 
-        # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
-        # create endpoint applies to an inbox discussion.
-        code_access_allowed = code_access_required_response(request, self.organization) is None
+        if kind == ReportTaskActionKind.IMPLEMENT:
+            # An implementation always works in a repository, so it needs code access, the same rule the
+            # tasks create endpoint applies to Create PR.
+            if access_response := code_access_required_response(
+                request, self.organization, origin_product=INBOX.origin_product
+            ):
+                capture("blocked")
+                return self._task_action_error(
+                    str(access_response.data.get("code", "code_access_required")),
+                    str(access_response.data.get("error") or access_response.data.get("detail")),
+                    access_response.status_code,
+                )
+            if repository is not None:
+                if not repository_connected(self.team.id, repository):
+                    capture("blocked")
+                    return self._task_action_error(
+                        "report_action_repository_unavailable",
+                        "This repository is not connected to this project. Connect it in the GitHub integration first.",
+                        status.HTTP_400_BAD_REQUEST,
+                    )
+                select_implementation_repository(report, repository, self._request_attribution())
+            code_access_allowed = True
+        else:
+            # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
+            # create endpoint applies to an inbox discussion.
+            code_access_allowed = code_access_required_response(request, self.organization) is None
         try:
             started = start_report_task_action(context, report, report_action, code_access_allowed=code_access_allowed)
         except ReportTaskCapExceeded as error:
@@ -4352,7 +4476,7 @@ class SignalReportViewSet(
             return self._task_action_error("signal_report_task_cap", error.detail, status.HTTP_429_TOO_MANY_REQUESTS)
         except ReportTaskActionStartError as error:
             capture("failure")
-            return self._task_action_error("report_action_start_failed", error.detail, status.HTTP_400_BAD_REQUEST)
+            return self._task_action_error(error.code, error.detail, status.HTTP_400_BAD_REQUEST)
         capture("failure" if started.run_error else "success")
         return Response(
             SignalReportTaskActionRunResponseSerializer(
@@ -6879,6 +7003,14 @@ def _record_reviewer_edit(
     )
 
 
+def _bound_to_scout_run(request: Request, team: Team) -> bool:
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    task_id = authenticator.access_token.sandbox_task_id
+    return run_id_for_sandbox_task(task_id=task_id, team_id=team.parent_team_id or team.id) is not None
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's checks",
@@ -6962,9 +7094,32 @@ class SignalReportCheckViewSet(
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
-        stopped = cancel_check(
-            check, reason="stopped_by_person", attribution=resolve_request_attribution(request, self.team.id)
-        )
+        attribution = resolve_request_attribution(request, self.team.id)
+        with transaction.atomic():
+            # A running assessment was prompted with this check, so a cancel now would not reach its verdict.
+            # The report lock keeps an assessment from starting between this guard and the cancel.
+            report = (
+                SignalReport.objects.select_for_update(no_key=True, of=("self",))
+                .select_related("team__organization")
+                .get(team_id=check.team_id, id=check.report_id)
+            )
+            attempt = verifying_attempt(report, check)
+            # Scout tokens carry inbox:write, and a cancelled member leaves verification.
+            if attempt is not None and _bound_to_scout_run(request, self.team):
+                return Response(
+                    {"error": "A scout cannot cancel a check that is verifying a report in Monitoring."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if (
+                attempt is not None
+                and attempt.aggregation_state == MonitoringAggregation.ASSESSMENT_REQUIRED
+                and report.team.organization.is_ai_data_processing_approved is True
+            ):
+                return Response(
+                    {"error": "This check is part of an assessment in progress. Try again after it finishes."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            stopped = cancel_check(check, reason="stopped_by_person", attribution=attribution)
         if not stopped:
             return Response(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},

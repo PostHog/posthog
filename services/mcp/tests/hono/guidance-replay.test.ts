@@ -22,7 +22,7 @@ async function noticeFor(project: unknown, args: Record<string, unknown>): Promi
 describe('replay empty-result guidance', () => {
     it.each([
         ['recording off', RECORDING_OFF, { session_ids: ['a'], properties: [{ key: 'x' }] }, 'recording-off'],
-        ['session IDs with the default range', RECORDING_ON, { session_ids: ['a'] }, 'session-range'],
+        ['session IDs with the default range', RECORDING_ON, { session_ids: ['a'] }, undefined],
         ['session IDs with a date range', RECORDING_ON, { session_ids: ['a'], date_from: '-30d' }, 'session-missing'],
         ['a person', RECORDING_ON, { person_uuid: 'p', date_from: '-7d' }, 'person'],
         ['property filters', RECORDING_ON, { properties: [{ key: 'x' }], date_from: '-7d' }, 'filters'],
