@@ -194,6 +194,7 @@ from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.report_actionability_update import ActionabilityRequired, update_report_actionability
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
@@ -335,6 +336,7 @@ from products.signals.backend.serializers import (
     RankingOutcomesResponseSerializer,
     RankingOutcomesStatus,
     ReportSignalsResponseSerializer,
+    SignalReportActionabilityUpdateSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -2522,6 +2524,7 @@ class SignalReportViewSet(
             "pr_comments",
             "claim",
             "priority",
+            "actionability",
         }
     )
 
@@ -3582,6 +3585,46 @@ class SignalReportViewSet(
             attribution=self._request_attribution(),
         )
         report.__dict__.pop("prefetched_priority_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
+        request_serializer=SignalReportActionabilityUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report with the new values."),
+            400: OpenApiResponse(
+                description="Neither value was given, the actionability is not an allowed value, or the report has "
+                "no actionability yet and the request names none."
+            ),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Change a report's actionability or already addressed",
+        description=(
+            "Set whether the report can be acted on now, and whether its issue is already addressed. Appends an "
+            "attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later "
+            "agent runs keep the person's values. A new actionability moves a Ready or Needs input report: "
+            "`requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report "
+            "in any other status keeps it. The change does not start an implementation. Setting the current values "
+            "again changes nothing."
+        ),
+        operation_id="signals_reports_actionability_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
+    def actionability(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        actionability = request.validated_data.get("actionability")
+        try:
+            update_report_actionability(
+                report=report,
+                actionability=ActionabilityChoice(actionability) if actionability else None,
+                already_addressed=request.validated_data.get("already_addressed"),
+                attribution=self._request_attribution(),
+            )
+        except ActionabilityRequired:
+            raise serializers.ValidationError(
+                {"actionability": "This report has no actionability yet, so the change has to set one."}
+            )
+        report.refresh_from_db()
+        report.__dict__.pop("prefetched_actionability_artefacts", None)
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(

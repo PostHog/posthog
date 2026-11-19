@@ -8991,13 +8991,13 @@ Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 - [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
 - [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
 - [x] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
-- [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
-- [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
+- [x] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
+- [x] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
 - [x] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
 - [x] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
 - [x] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
-- [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low)
-- [ ] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
+- [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low) Skipped: requires timeframe_start with no documented history bound or order, and late events change past hourly counts, so neither incremental nor bounded full refresh is reliable.
+- [x] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
 
 Note: Diffed against the official Orb SDK API surface (orbcorp/orb-node api.md), which enumerates every REST path. Alerts, webhooks and backfill endpoints excluded as config/plumbing.
 

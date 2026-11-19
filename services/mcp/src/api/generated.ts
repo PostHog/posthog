@@ -117534,6 +117534,13 @@ export namespace Schemas {
       ArrayBoolean: 'array<boolean>',
     } as const;
 
+    export interface SignalReportActionabilityUpdate {
+      /** `immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet. */
+      actionability?: string;
+      /** Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value. */
+      already_addressed?: boolean;
+    }
+
     /**
      * Body for appending an artefact to a report.
      *

@@ -1210,6 +1210,25 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const SignalsReportsActionabilityUpdateBody = /* @__PURE__ */ zod.object({
+    actionability: zod
+        .string()
+        .optional()
+        .describe(
+            '`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet.'
+        ),
+    already_addressed: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value.'
+        ),
+})
+
+/**
  * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. A task sandbox cannot start an action, except a scout run that a person granted the action in the scout's settings.
  * @summary Start a report action as a background agent run
  */
