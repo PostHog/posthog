@@ -94,6 +94,18 @@ class TestTransactionalPushTemplates(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
+    def test_refuses_an_email_template_when_the_caller_expects_push(self, _flag):
+        template = MessageTemplate.objects.create(team=self.team, name="Welcome", type="email", content={})
+
+        response = self.client.post(
+            f"{self.templates_url}{template.id}/make_transactional/", {"expected_type": "push"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "template_type_mismatch"
+        template.refresh_from_db()
+        assert template.transactional_hog_flow_id is None
+
     def test_saving_a_transactional_push_template_writes_a_new_workflow_version(self, _flag):
         template = self._template()
         hog_flow_id = self._make_transactional(template).json()["transactional_hog_flow_id"]
