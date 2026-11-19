@@ -6,7 +6,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { type DashboardV2Action, dashboardV2DisabledReason } from './access/dashboardV2Access'
 import { kitchenSinkDashboard } from './fixtures/kitchenSinkDashboard'
 import { type DashboardEdit, applyEdit, settleDashboard, withFolds } from './layout/dashboardEdits'
-import type { Dashboard, DashboardTab } from './layout/dashboardTypes'
+import { type Dashboard, type DashboardTab, gapPxOf } from './layout/dashboardTypes'
 import type { PointerTarget } from './layout/dropTargets'
 
 const HISTORY_LIMIT = 100
@@ -37,6 +37,7 @@ export interface dashboardV2LogicValues {
     disabledReasonFor: (action: DashboardV2Action) => string | null
     dropTarget: DropTarget | null
     folds: Record<string, boolean>
+    gapPx: number
     history: History
     stacked: boolean
     viewedDashboard: Dashboard
@@ -81,6 +82,7 @@ export interface dashboardV2LogicActions {
 export interface dashboardV2LogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dashboard: (history: History) => Dashboard
+        gapPx: (dashboard: Dashboard) => number
         canUndo: (history: History) => boolean
         canRedo: (history: History) => boolean
         disabledReasonFor: (dashboard: Dashboard, stacked: boolean) => (action: DashboardV2Action) => string | null
@@ -150,6 +152,7 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
     }),
     selectors({
         dashboard: [(s) => [s.history], (history: History): Dashboard => history.present],
+        gapPx: [(s) => [s.dashboard], (dashboard: Dashboard): number => gapPxOf(dashboard)],
         canUndo: [(s) => [s.history], (history: History): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: History): boolean => history.future.length > 0],
         disabledReasonFor: [
