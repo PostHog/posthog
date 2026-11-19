@@ -204,8 +204,8 @@ describe('pg.failover', () => {
             /-reader's capacity read has a timestamp outside the .* it asked for: /,
         ],
         [
-            'a capacity read with a reading under the minimum its run manifest names',
-            { liveReaderAcu: { maxima: [1, 1, 0, 1, 1] } },
+            'a capacity read with a reading under the minimum its run manifest names before its last five minutes',
+            { liveReaderAcu: { maxima: [1, 0, 1, 1, 1, 1, 1] } },
             () => undefined,
             /-reader's capacity read has a value below 1 at /,
         ],
