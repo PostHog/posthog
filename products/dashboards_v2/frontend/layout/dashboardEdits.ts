@@ -61,13 +61,14 @@ function sectionRows(section: SectionWidget): number {
 }
 
 /** Brings one grid into shape, innermost first because a section's height comes from what is inside it. */
-function settleGrid(tiles: Tile[], cols: number, gapPx: number): Tile[] {
+function settleGrid(tiles: Tile[], cols: number, fitGapPx: number | null): Tile[] {
     const sized = tiles.map((tile) => {
         const w = Math.max(1, Math.min(cols, tile.place.w))
         if (!isSection(tile)) {
-            return { ...tile, place: { ...tile.place, w, h: Math.max(tile.place.h, minRows(tile.widget, gapPx)) } }
+            const h = fitGapPx === null ? tile.place.h : Math.max(tile.place.h, minRows(tile.widget, fitGapPx))
+            return { ...tile, place: { ...tile.place, w, h } }
         }
-        const widget = { ...tile.widget, tiles: settleGrid(tile.widget.tiles, w, gapPx) }
+        const widget = { ...tile.widget, tiles: settleGrid(tile.widget.tiles, w, fitGapPx) }
         return { ...tile, widget, place: { ...tile.place, w, h: sectionRows(widget) } }
     })
     return withPlaces(sized, placeTiles(toPlacedItems(sized), cols))
@@ -102,12 +103,12 @@ function stackSection(tile: SectionTile, cols: number, y: number): Tile {
     return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
 }
 
-/** The dashboard as one person sees it, with sections they opened or closed for themselves. Never saved. */
+/**
+ * The dashboard as one person sees it, with sections they opened or closed for themselves and every tile tall enough
+ * for its parts at the current spacing. Never saved, so switching spacing back restores the saved heights.
+ */
 export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>): Dashboard {
     const ids = Object.keys(folds)
-    if (ids.length === 0) {
-        return dashboard
-    }
     const folded = ids.reduce(
         (next, id) =>
             changeTileEverywhere(next, id, (tile) =>
@@ -115,13 +116,14 @@ export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>):
             ),
         dashboard
     )
-    return settleDashboard(folded)
+    return settleDashboard(folded, true)
 }
 
-export function settleDashboard(dashboard: Dashboard): Dashboard {
+export function settleDashboard(dashboard: Dashboard, fitParts = false): Dashboard {
+    const fitGapPx = fitParts ? gapPxOf(dashboard) : null
     return {
         ...dashboard,
-        tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns, gapPxOf(dashboard)) })),
+        tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns, fitGapPx) })),
     }
 }
 
