@@ -2,10 +2,11 @@
 
 import dataclasses
 
-from posthog.event_usage import report_team_action
+from posthog.event_usage import groups, report_team_action
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger, log_activity
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.ph_client import ScopedCapture
 
 EMAIL_SENDING_TIER_CHANGED_ACTIVITY = "email_sending_tier_changed"
 EMAIL_SENDING_TIER_SWEEP_JOB_TYPE = "workflows_email_sending_tier_sweep"
@@ -29,21 +30,24 @@ def log_email_sending_tier_change(
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
+    capture: ScopedCapture | None = None,
 ) -> None:
     """Write the audit row for a tier or pin change. Writes nothing when neither value moved."""
+    pinned_before, pinned_after = pin_change
+    pin_changed = pinned_before != pinned_after
     changes: list[Change] = []
     if previous_tier != new_tier:
         changes.append(
             Change(type="Team", action="changed", field="email_sending_tier", before=previous_tier, after=new_tier)
         )
-    if pin_change[0] != pin_change[1]:
+    if pin_changed:
         changes.append(
             Change(
                 type="Team",
                 action="changed",
                 field="email_sending_tier_pinned",
-                before=pin_change[0],
-                after=pin_change[1],
+                before=pinned_before,
+                after=pinned_after,
             )
         )
     if not changes:
@@ -64,18 +68,23 @@ def log_email_sending_tier_change(
             context=EmailSendingTierActivityContext(reason=reason),
         ),
     )
-    report_team_action(
-        team,
-        EMAIL_SENDING_TIER_CHANGED_EVENT,
-        {
-            "previous_tier": previous_tier,
-            "new_tier": new_tier,
-            "reason": reason,
-            "changed_by": _changed_by(user_id, trigger),
-            "pinned": pin_change[1],
-            "pin_changed": pin_change[0] != pin_change[1],
-        },
-    )
+    properties = {
+        "previous_tier": previous_tier,
+        "new_tier": new_tier,
+        "reason": reason,
+        "changed_by": _changed_by(user_id, trigger),
+        "pinned": pinned_after,
+        "pin_changed": pin_changed,
+    }
+    if capture is None:
+        report_team_action(team, EMAIL_SENDING_TIER_CHANGED_EVENT, properties)
+    else:
+        capture(
+            distinct_id=str(team.uuid),
+            event=EMAIL_SENDING_TIER_CHANGED_EVENT,
+            properties=properties,
+            groups=groups(team=team),
+        )
 
 
 def _changed_by(user_id: int | None, trigger: Trigger | None) -> str:

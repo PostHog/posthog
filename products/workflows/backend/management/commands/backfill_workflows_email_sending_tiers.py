@@ -8,12 +8,13 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.ph_client import ScopedCapture, ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
@@ -82,10 +83,10 @@ class Command(BaseCommand):
         )
         decisions = self._decide(histories=histories, team_ids=team_ids)
 
-        try:
-            written = self._apply(decisions) if apply_changes else 0
-        finally:
-            posthoganalytics.flush(timeout_seconds=None)
+        written = 0
+        if apply_changes:
+            with ph_scoped_capture(event_region=get_instance_region()) as capture:
+                written = self._apply(decisions, capture)
 
         self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes, written=written)
 
@@ -145,7 +146,7 @@ class Command(BaseCommand):
                 decisions.append(decision)
         return decisions
 
-    def _apply(self, decisions: list[TierDecision]) -> int:
+    def _apply(self, decisions: list[TierDecision], capture: ScopedCapture) -> int:
         teams = {team.id: team for team in Team.objects.filter(id__in=[d.team_id for d in decisions])}
         now = timezone.now()
         trigger = Trigger(job_type=EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE, job_id=str(uuid4()), payload={})
@@ -185,9 +186,10 @@ class Command(BaseCommand):
                 reason=decision.reason,
                 pin_change=(False, False),
                 trigger=trigger,
+                capture=capture,
             )
             if written % TIER_EVENTS_PER_FLUSH == 0:
-                posthoganalytics.flush(timeout_seconds=None)
+                capture.flush()
         return written
 
     def _current_tiers(self, team_ids: Iterable[int]) -> dict[int, int]:

@@ -1,13 +1,15 @@
+from contextlib import nullcontext
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
@@ -414,18 +416,27 @@ class TestRecomputeEmailSendingTiers(BaseTest):
                 "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
                 return_value=SendingHistoryWindows(window=histories, recent=histories),
             ),
-            patch("posthog.event_usage.posthoganalytics.capture") as capture,
-            patch("products.workflows.backend.tasks.email_sending_tiers.posthoganalytics.flush") as flush,
+            patch("posthog.event_usage.posthoganalytics.capture") as global_capture,
+            patch(
+                "products.workflows.backend.tasks.email_sending_tiers.ph_scoped_capture",
+                return_value=nullcontext(scoped_capture := MagicMock()),
+            ),
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
             else:
                 recompute_workflows_email_sending_tiers()
 
-        [event] = [
-            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
-        ]
+        tier_events = {
+            name: [
+                call.kwargs for call in mock.call_args_list if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
+            ]
+            for name, mock in (("global", global_capture), ("scoped", scoped_capture))
+        }
+        [event] = tier_events["global" if by_staff else "scoped"]
+        assert tier_events["scoped" if by_staff else "global"] == []
         assert event["distinct_id"] == str(self.team.uuid)
+        assert event["groups"] == groups(team=self.team)
         assert event["properties"] == {
             "previous_tier": 0,
             "new_tier": 1,
@@ -434,7 +445,6 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             "pinned": False,
             "pin_changed": False,
         }
-        assert flush.call_args_list == ([] if by_staff else [call(timeout_seconds=None)])
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None
@@ -520,13 +530,10 @@ class TestBackfillEmailSendingTiers(BaseTest):
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned}
         )
         decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
-        with (
-            patch("posthog.event_usage.posthoganalytics.capture") as capture,
-            patch(f"{BACKFILL_MODULE}.posthoganalytics.flush") as flush,
-            patch(f"{BACKFILL_MODULE}.TIER_EVENTS_PER_FLUSH", 1),
-        ):
-            assert BackfillCommand()._apply([decision]) == (0 if pinned else 1)
-        assert flush.call_args_list == ([] if pinned else [call(timeout_seconds=None)])
+        capture = MagicMock()
+        with patch(f"{BACKFILL_MODULE}.TIER_EVENTS_PER_FLUSH", 1):
+            assert BackfillCommand()._apply([decision], capture) == (0 if pinned else 1)
+        assert capture.flush.call_count == (0 if pinned else 1)
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
         assert [
             call.kwargs["properties"]["changed_by"]

@@ -1,11 +1,12 @@
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from celery import shared_task
 
 from posthog.models.activity_logging.activity_log import Trigger
+from posthog.ph_client import ph_scoped_capture
 from posthog.tasks.utils import CeleryQueue
+from posthog.utils import get_instance_region
 
 from products.workflows.backend.services.email_sending_tier import recompute_email_sending_tiers
 from products.workflows.backend.services.email_sending_tier_audit import EMAIL_SENDING_TIER_SWEEP_JOB_TYPE
@@ -19,15 +20,13 @@ def recompute_workflows_email_sending_tiers() -> None:
     """Move each team at most one trust tier, based on how much workflow email it sent and how
     clean the sending was. Runs in every rollout mode: tiers are stored before anything reads them,
     so enforcement can be switched on against a settled distribution."""
-    try:
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
         # One job id groups every audit row this run writes.
         decisions = recompute_email_sending_tiers(
-            trigger=Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id=str(uuid4()), payload={})
+            trigger=Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id=str(uuid4()), payload={}),
+            capture=capture,
         )
         notify_email_sending_tier_changes(decisions)
-    finally:
-        # The worker can exit before the global client's background thread sends the tier change events.
-        posthoganalytics.flush(timeout_seconds=None)
     logger.info(
         "workflows_email_sending_tier_sweep_finished",
         evaluated_teams=len(decisions),

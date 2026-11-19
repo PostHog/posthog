@@ -11,6 +11,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Trigger
+from posthog.ph_client import ScopedCapture
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -373,6 +374,7 @@ def apply_tier_decision(
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
+    capture: ScopedCapture | None = None,
 ) -> bool:
     """Persist a tier change. Returns whether anything was written."""
     if not decision.changed:
@@ -417,6 +419,7 @@ def apply_tier_decision(
         trigger=trigger,
         user_id=user_id,
         was_impersonated=was_impersonated,
+        capture=capture,
     )
     return True
 
@@ -427,6 +430,7 @@ def recompute_email_sending_tiers(
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
+    capture: ScopedCapture | None = None,
 ) -> list[TierDecision]:
     """
     Move every candidate team at most one tier, up or down.
@@ -502,7 +506,7 @@ def recompute_email_sending_tiers(
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
         if not decision.changed or apply_tier_decision(
-            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated
+            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated, capture=capture
         ):
             decisions.append(decision)
     return decisions
