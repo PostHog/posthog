@@ -11,11 +11,15 @@ from rest_framework import exceptions, serializers
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import posthog_feature_flag_enabled, request_subject
 from posthog.types import AnyPropertyFilter
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 from . import team_config
 
@@ -161,8 +165,15 @@ def validate_path_cleaning_filters(value: object) -> object:
 
 
 def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPermissions") -> str | None:
-    level = user_permissions.team(team).effective_membership_level
-    if level is None or level < OrganizationMembership.Level.ADMIN:
+    # Typed as `User`, but service principals also reach here. They hold no membership, so they get no secret.
+    user: object = user_permissions.user
+    if not isinstance(user, User) or user.pk is None:
+        return None
+    if not authorization.check(
+        resource=Resource.project(team.pk),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    ):
         return None
     return team.heatmaps_screenshot_secret
 
@@ -228,8 +239,9 @@ def validate_team_attrs(
             admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
-            level = view.user_permissions.team(team_for_check).effective_membership_level
-            if level is None or level < OrganizationMembership.Level.ADMIN:
+            if not authorization.check(
+                resource=Resource.project(team_for_check.pk), action=Action.EDIT, subject=request_subject(view.request)
+            ):
                 raise exceptions.PermissionDenied(
                     "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
                 )
@@ -241,11 +253,11 @@ def validate_team_attrs(
         # too — naming a project you're allowed to create is not the same as renaming an existing one.
         admin_fields_touched = (team_config.TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
-            membership = OrganizationMembership.objects.filter(
-                user=cast(User, view.request.user), organization_id=view.organization_id
-            ).first()
-            member_level = membership.level if membership else None
-            if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
+            if not authorization.check(
+                resource=Resource.organization(view.organization_id),
+                action=Action.EDIT,
+                subject=request_subject(view.request),
+            ):
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
