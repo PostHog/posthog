@@ -272,6 +272,7 @@ class SubjectMetadata:
     table_names: dict[UUID, str]
     table_keys: dict[UUID, str]
     view_names: dict[UUID, str]
+    hogql_referenceable_view_ids: frozenset[UUID]
     metrics: tuple[MetricSummary, ...]
 
 
@@ -285,6 +286,7 @@ def subject_metadata(team_id: int) -> SubjectMetadata:
         view_names={
             UUID(view_id): name for view_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
         },
+        hogql_referenceable_view_ids=data_modeling_facade.hogql_referenceable_saved_query_ids(team_id),
         metrics=tuple(data_catalog_facade.live_metric_summaries(team_id)),
     )
 
@@ -296,7 +298,11 @@ def _readable_subject_names(readable: ReadableSubjects, metadata: SubjectMetadat
         if (name := metadata.table_names.get(table_id)) is not None
         for spelling in (name, metadata.table_keys.get(table_id, name))
     }
-    view_names = {name for view_id in readable.view_ids if (name := metadata.view_names.get(view_id)) is not None}
+    view_names = {
+        name
+        for view_id in readable.view_ids & metadata.hogql_referenceable_view_ids
+        if (name := metadata.view_names.get(view_id)) is not None
+    }
     return frozenset(table_names | view_names)
 
 

@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -23,7 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
@@ -1665,6 +1665,42 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert listed.json()["results"] == []
         assert recreated.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("raw_trino", {"executionTarget": "managed_trino", "sendRawQuery": True}, False),
+            ("direct_connection", {"connectionId": "018f0000-0000-0000-0000-000000000001"}, False),
+            ("managed_viewset", {}, True),
+        ]
+    )
+    def test_a_readable_view_that_hogql_cannot_reference_blocks_authoring(
+        self, _name: str, engine_keys: dict[str, Any], in_managed_viewset: bool
+    ) -> None:
+        allowed = self._make_view("customers")
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="unreferenceable",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id", **engine_keys},
+            managed_viewset=(
+                DataWarehouseManagedViewSet.objects.create(team=self.team, kind="revenue_analytics")
+                if in_managed_viewset
+                else None
+            ),
+        )
+        self._deny_the_view()
+
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                subject_uuid=str(allowed.id),
+                check_type=CheckType.CUSTOM_SQL,
+                column_name="",
+                config={"query": "SELECT 1 FROM unreferenceable"},
+            ),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
 
     def test_a_database_build_that_fails_refuses_rather_than_500s(self) -> None:
         allowed = self._make_view("customers")
