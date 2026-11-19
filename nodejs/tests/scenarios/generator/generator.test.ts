@@ -599,6 +599,7 @@ describe('drive', () => {
                     gates: {},
                     journal,
                     admissions: [],
+                    converged: true,
                 }),
             }).toEqual(expected)
         }

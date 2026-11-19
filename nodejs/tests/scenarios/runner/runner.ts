@@ -624,6 +624,7 @@ export function createRunner(
                           gates: card.gates,
                           journal: evidence.journal,
                           admissions,
+                          converged: convergence.converged,
                       })
                     : undefined
                 const verdict = statusOf({

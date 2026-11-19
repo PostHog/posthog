@@ -171,14 +171,15 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
     const halt = new AbortController()
-    const watching = AbortSignal.any([signal, halt.signal])
     const refused: JournalEntry[] = []
     const settled = new Map<number, readonly BarResult[]>()
     const gate = live.gates[REFUSED_AT_INTAKE] ?? 0
     let stop: RampStop | undefined
 
     const stopWith = (stopped: RampStop): void => {
-        stop ??= stopped
+        if (stop === undefined || stopped.index < stop.index) {
+            stop = stopped
+        }
         halt.abort()
     }
 
@@ -206,12 +207,12 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
         },
         gate: async (window, offered) => {
             try {
-                await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), watching)
-                if (watching.aborted) {
+                await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), signal)
+                if (signal.aborted) {
                     return
                 }
                 const { results, stop: stopped } = await judgeLive(live, window, offered())
-                if (watching.aborted) {
+                if (signal.aborted) {
                     return
                 }
                 if (results) {
@@ -242,6 +243,7 @@ export type RampEvidence = {
     gates: Record<string, number>
     journal: readonly JournalEntry[]
     admissions: readonly Admission[]
+    converged: boolean
 }
 
 type Candidate = { index: number; rank: number; broke: Broke; reason: string }
@@ -263,7 +265,7 @@ function candidatesOf({ steps, minOffered, stop, bars, invariants, gates, journa
     }
     for (const step of steps) {
         const shortfall = shortfallOf(step, minOffered)
-        if (shortfall) {
+        if (shortfall && !(stop && step.index === steps.length - 1)) {
             add(step.index, harness(step, 'generator'), shortfall)
         }
     }
@@ -366,6 +368,14 @@ export function rampOf(evidence: RampEvidence): Ramp {
             sustainedScale: steps.at(-1)?.scale ?? null,
             broke: { scale, offeredPerSecond: 0, by: 'generator', kind: 'harness', at: null, part: null },
             reason: `the drive ended before the ${scale}x step`,
+        }
+    }
+    if (!evidence.converged) {
+        return {
+            end: 'broke',
+            sustainedScale: null,
+            broke: { scale: null, offeredPerSecond: null, by: 'convergence', kind: 'invariant', at: null, part: null },
+            reason: 'the run did not converge, and no step can be blamed for it',
         }
     }
     const ceiling = planned[planned.length - 1].scale

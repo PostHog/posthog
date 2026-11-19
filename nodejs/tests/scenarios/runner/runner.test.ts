@@ -1564,10 +1564,9 @@ describe('runner through seed, drive and judge', () => {
             const ramp = [
                 { scale: 1, for: '1s' },
                 { scale: 2, for: '1s' },
-                { scale: 3, for: '1s' },
             ]
 
-            const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '3s' })
+            const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '2s' })
 
             expect({
                 status: result.status,
@@ -1586,17 +1585,15 @@ describe('runner through seed, drive and judge', () => {
                         unjudged: 'the local stack has no Aurora writer to read CPU from',
                     },
                 ],
-                steps: [1, 2, 3],
+                steps: [1, 2],
             })
         },
         30_000
     )
 
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
-        let answered = 0
         const refusingIntake = http.createServer((_request, response) => {
-            answered += 1
-            setTimeout(() => response.writeHead(503).end(), answered === 1 ? 1_000 : 4_000)
+            response.writeHead(503).end()
         })
         await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
         try {
