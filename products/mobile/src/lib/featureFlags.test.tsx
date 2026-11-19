@@ -64,23 +64,23 @@ describe('mobile feature flags', () => {
             ...useMobileProductFlags(),
             modelSort: useFeatureFlag(FEATURE_FLAGS.modelScoreSort),
         }))
-        expect(result.current).toEqual({ errors: enabled, replay: enabled, modelSort: false })
+        expect(result.current).toEqual({ errors: enabled, replay: enabled, experiments: enabled, modelSort: false })
     })
 
     test('updates local defaults when a session signs in, switches host, and signs out', () => {
         const { useAuthStore, useMobileProductFlags } = loadFeatureFlags(true)
         useAuthStore.setState({ status: 'loading', signedIn: false, host: 'http://localhost:8010' })
         const { result } = renderHook(useMobileProductFlags)
-        expect(result.current).toEqual({ errors: false, replay: false })
+        expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
 
         act(() => useAuthStore.setState({ status: 'signed_in', signedIn: true }))
-        expect(result.current).toEqual({ errors: true, replay: true })
+        expect(result.current).toEqual({ errors: true, replay: true, experiments: true })
         act(() => useAuthStore.setState({ host: 'https://us.posthog.com' }))
-        expect(result.current).toEqual({ errors: false, replay: false })
+        expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
         act(() => useAuthStore.setState({ host: 'http://localhost:8010' }))
-        expect(result.current).toEqual({ errors: true, replay: true })
+        expect(result.current).toEqual({ errors: true, replay: true, experiments: true })
         act(() => useAuthStore.setState({ status: 'signed_out', signedIn: false }))
-        expect(result.current).toEqual({ errors: false, replay: false })
+        expect(result.current).toEqual({ errors: false, replay: false, experiments: false })
     })
 
     test.each([true, false])('retains remote rollout values in development %s', (isDev) => {
@@ -96,7 +96,7 @@ describe('mobile feature flags', () => {
             ...useMobileProductFlags(),
             modelSort: useFeatureFlag(FEATURE_FLAGS.modelScoreSort),
         }))
-        expect(result.current).toEqual({ errors: false, replay: true, modelSort: true })
+        expect(result.current).toEqual({ errors: false, replay: true, experiments: false, modelSort: true })
     })
 
     test.each([true, false])('limits explicit flag overrides to development %s', (isDev) => {
@@ -107,6 +107,6 @@ describe('mobile feature flags', () => {
         useAuthStore.setState({ status: 'signed_in', signedIn: true, host: 'https://us.posthog.com' })
         setFeatureFlags({ [FEATURE_FLAGS.errorTracking]: false, [FEATURE_FLAGS.sessionReplay]: false })
         const { result } = renderHook(useMobileProductFlags)
-        expect(result.current).toEqual({ errors: isDev, replay: isDev })
+        expect(result.current).toEqual({ errors: isDev, replay: isDev, experiments: false })
     })
 })

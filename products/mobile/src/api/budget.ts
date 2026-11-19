@@ -2,7 +2,7 @@
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
 // start refills them.
 
-export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live'
+export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live' | 'experiments'
 
 interface BucketSpec {
     capacity: number
@@ -12,7 +12,10 @@ interface BucketSpec {
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 
-/** Published budgets: insights 240/min and 1,200/h; dashboards and shortcuts 480/min and 4,800/h; query 240/min and 1,200/h. */
+/**
+ * Published budgets: insights 240/min and 1,200/h; dashboards and shortcuts 480/min and 4,800/h; query 240/min and
+ * 1,200/h; experiments 480/min and 4,800/h.
+ */
 export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     insights: [
         { capacity: 60, windowMs: MINUTE_MS },
@@ -37,6 +40,12 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     live: [
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 900, windowMs: HOUR_MS },
+    ],
+    // The list's lazy row reads and the detail's polls. Writes count too, because the path does not say the method,
+    // and a person never taps 120 writes a minute.
+    experiments: [
+        { capacity: 120, windowMs: MINUTE_MS },
+        { capacity: 1200, windowMs: HOUR_MS },
     ],
 }
 
@@ -96,7 +105,8 @@ export function resetBudgets(): void {
     buckets.clear()
 }
 
-const FAMILY_PATH = /^\/api\/(?:projects|environments)\/[^/]+\/(insights|dashboards|file_system_shortcut|query)(?:\/|$)/
+const FAMILY_PATH =
+    /^\/api\/(?:projects|environments)\/[^/]+\/(insights|dashboards|file_system_shortcut|query|experiments)(?:\/|$)/
 
 /** The budget a project path counts against, or null for endpoints outside the Views budgets. */
 export function budgetFamilyFor(path: string): BudgetFamily | null {
@@ -109,6 +119,8 @@ export function budgetFamilyFor(path: string): BudgetFamily | null {
             return 'dashboards'
         case 'query':
             return 'query'
+        case 'experiments':
+            return 'experiments'
         default:
             return null
     }

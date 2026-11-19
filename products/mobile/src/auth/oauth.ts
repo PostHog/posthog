@@ -33,6 +33,8 @@ export const OAUTH_SCOPES = [
     'replay_scanner:read',
     'replay_scanner:write',
     'export:write',
+    'experiment:read',
+    'experiment:write',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000

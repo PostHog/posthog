@@ -45,6 +45,12 @@ const COPY: Record<ScopedFeature, FeatureCopy> = {
         reauthTitle: 'Sign in again to see sessions',
         shows: 'session recordings',
     },
+    experiments: {
+        unavailableTitle: "Experiments aren't available yet",
+        reads: 'experiments',
+        reauthTitle: 'Sign in again to see experiments',
+        shows: 'experiments',
+    },
 }
 
 function scopeList(scopes: readonly string[]): string {
