@@ -172,9 +172,9 @@ export function TodayPulseEditor(): JSX.Element {
                 ref={triggerRef}
                 render={
                     <Button
-                        variant="link-muted"
+                        variant="outline"
                         size="sm"
-                        className="-mx-2 -my-1 text-[13px]"
+                        className="-my-1"
                         aria-label="Edit numbers"
                         data-attr="today-pulse-edit"
                     >

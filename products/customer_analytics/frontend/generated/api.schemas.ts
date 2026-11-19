@@ -830,6 +830,28 @@ export interface CustomPropertyValueWriteApi {
     value: string | number | boolean | null
 }
 
+/**
+ * One value an account held for a custom property (read shape).
+ */
+export interface CustomPropertyValueHistoryEntryApi {
+    /** The value, typed per the property's data type. */
+    readonly value: string | number | boolean
+    /** When the account got this value. */
+    readonly set_at: string
+    /**
+     * ID of the user who set this value. Null when a sync or the system set it.
+     * @nullable
+     */
+    readonly set_by_id: number | null
+    /**
+     * When the next value replaced this one. Null for the current value, and for a value that was cleared with no value after it.
+     * @nullable
+     */
+    readonly replaced_at: string | null
+    /** Whether this is the account's value now. */
+    readonly is_current: boolean
+}
+
 export interface AccountNotebookApi {
     readonly id: string
     readonly short_id: string
@@ -5292,6 +5314,17 @@ export type AccountsListParams = {
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string
+}
+
+export type AccountsCustomPropertyValuesHistoryRetrieveParams = {
+    /**
+     * ID of the custom property definition to read the history of.
+     */
+    definition: string
+    /**
+     * Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.
+     */
+    since?: string
 }
 
 export type AccountsNotebooksListParams = {
