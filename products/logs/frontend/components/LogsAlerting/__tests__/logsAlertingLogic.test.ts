@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -168,6 +169,34 @@ describe('logsAlertingLogic', () => {
             await Promise.resolve()
 
             expect(logic.values.alerts).toEqual(currentProjectAlerts)
+
+            logic.unmount()
+        })
+    })
+
+    describe('loadAlerts', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('treats a 403 as no access and stops polling', async () => {
+            jest.useFakeTimers({
+                doNotFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'nextTick', 'queueMicrotask'],
+            })
+            mockList.mockRejectedValue(new ApiError('Non-OK response', 403))
+
+            const logic = logsAlertingLogic()
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadAlertsFailure'])
+                .toMatchValues({ alerts: [] })
+            mockList.mockClear()
+
+            jest.advanceTimersByTime(3 * 30_000)
+
+            expect(mockList).not.toHaveBeenCalled()
 
             logic.unmount()
         })
