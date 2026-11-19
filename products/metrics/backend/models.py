@@ -6,6 +6,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.metrics.backend.facade.enums import PrecomputedMetricKind
+
 # Define your models here
 # Important:
 # - Keep models thin, no business logic, use logic.py instead
@@ -180,4 +182,65 @@ class MetricRecordingRule(TeamScopedRootMixin, UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["team", "metric_name"], name="metrics_recording_rule_unique_name")
+        ]
+
+
+class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
+    """Hourly aggregates of one metric, summed by a few kept labels, that answer long-range dashboard tiles.
+
+    A dashboard-v2 tile creates one the first time it needs it. The fill loop stores one chunk per UTC day,
+    newest first, and the query planner reads the covered hours instead of the raw samples.
+    """
+
+    class State(models.TextChoices):
+        ACTIVE = "active", "Active"
+        PAUSED = "paused", "Paused"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # One of MAX_PRECOMPUTED_METRICS_PER_TEAM slots. The unique slot makes the cap hold under concurrent creates.
+    slot = models.PositiveSmallIntegerField()
+    metric_name = models.CharField(max_length=400)
+    # Empty when the clause reads every type of the metric.
+    metric_type = models.CharField(max_length=32, blank=True, default="")
+    kind = models.CharField(max_length=16, choices=[(kind.value, kind.value) for kind in PrecomputedMetricKind])
+    labels = models.JSONField(default=list, help_text="The kept labels, each {key, scope}, sorted.")
+    labels_key = models.CharField(max_length=64, help_text="A digest of `labels`, for the uniqueness constraint.")
+    bucket_seconds = models.PositiveIntegerField(default=3600)
+    # The stored hours are [covered_from, covered_to). Both are null until the first fill.
+    covered_from = models.DateTimeField(null=True, blank=True)
+    covered_to = models.DateTimeField(null=True, blank=True)
+    # An hour is stored once it ended this long ago. It widens when a re-read finds late data.
+    settle_seconds = models.PositiveIntegerField(default=900)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.ACTIVE)
+    consecutive_failures = models.PositiveSmallIntegerField(default=0)
+    last_error = models.TextField(null=True, blank=True)
+    last_used_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "slot"], name="metrics_precomputed_unique_slot"),
+            models.UniqueConstraint(
+                fields=["team", "metric_name", "metric_type", "kind", "labels_key"],
+                name="metrics_precomputed_unique_definition",
+            ),
+        ]
+
+
+class MetricPrecomputedChunk(TeamScopedRootMixin, UUIDModel):
+    """One UTC day of a precomputed metric's hourly buckets. A fill replaces the hours it read."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    precomputed_metric = models.ForeignKey(MetricPrecomputedMetric, on_delete=models.CASCADE, related_name="+")
+    day = models.DateField()
+    series = models.JSONField(
+        default=list,
+        help_text="One entry per kept label set (and histogram layout): its label values, fingerprints and points.",
+    )
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["precomputed_metric", "day"], name="metrics_precomputed_chunk_unique_day")
         ]
