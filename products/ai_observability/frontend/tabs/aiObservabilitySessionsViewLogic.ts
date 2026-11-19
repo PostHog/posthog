@@ -14,7 +14,7 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 import type { AnyPropertyFilter } from '../../../../frontend/src/types'
 import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'
 import type { SortDirection, SortState } from '../aiObservabilitySharedLogic'
-import { aiObservabilitySharedLogic, redesignedListOwnsUrl } from '../aiObservabilitySharedLogic'
+import { aiObservabilitySharedLogic, shellListOwnsUrl } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
 import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
@@ -368,7 +368,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
 
     urlToAction(({ actions, values }) => ({
         '/ai-observability/sessions/:id': ({ id }) => {
-            if (redesignedListOwnsUrl(values.featureFlags)) {
+            if (shellListOwnsUrl(values.featureFlags)) {
                 return
             }
             const sessionId = tryDecodeURIComponent(id ?? '')
@@ -377,7 +377,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             }
         },
         '/ai-observability/sessions': () => {
-            if (redesignedListOwnsUrl(values.featureFlags)) {
+            if (shellListOwnsUrl(values.featureFlags)) {
                 return
             }
             if (values.selectedSessionId) {
