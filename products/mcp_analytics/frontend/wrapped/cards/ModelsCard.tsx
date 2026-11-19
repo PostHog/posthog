@@ -1,3 +1,5 @@
+import { cn } from 'lib/utils/css-classes'
+
 import type { MCPWrappedSharesCardApi } from '../../generated/api.schemas'
 import { formatPercent } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
@@ -15,21 +17,26 @@ export function ModelsCard({ card }: { card: MCPWrappedSharesCardApi }): JSX.Ele
                     </p>
                 </>
             )}
-            <ol className="m-0 flex list-none flex-col gap-2.5 p-0">
+            <ol className="m-0 mt-2 flex list-none flex-col gap-3 p-0">
                 {families.map((family, index) => (
                     <li
                         key={family.name}
-                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-2 text-sm tabular-nums"
+                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-x-2 gap-y-1.5 text-sm tabular-nums"
+                        style={{ animationDelay: `${index * 80}ms` }}
                     >
                         <span className="font-bold">{index + 1}</span>
                         <span className="truncate">{family.name}</span>
                         <span>{formatPercent(family.share)}</span>
-                        <span className="col-span-2 col-start-2 h-1.5 overflow-hidden rounded bg-white/20">
+                        <span className="col-span-2 col-start-2 h-3 overflow-hidden rounded-full bg-white/20">
                             <span
-                                className={
-                                    index === 0 ? 'block h-full rounded bg-warning' : 'block h-full rounded bg-white'
-                                }
-                                style={{ width: `${(family.share / leader.share) * 100}%` }}
+                                className={cn(
+                                    'MCPWrapped__grow-x block h-full rounded-full',
+                                    index === 0 ? 'bg-white' : 'bg-white/60'
+                                )}
+                                style={{
+                                    width: `${Math.max(2, (family.share / leader.share) * 100)}%`,
+                                    animationDelay: `${index * 80}ms`,
+                                }}
                             />
                         </span>
                     </li>
