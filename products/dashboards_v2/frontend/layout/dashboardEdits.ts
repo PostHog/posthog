@@ -17,7 +17,7 @@ export type DashboardEdit =
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
-    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title' | 'collapsed'>> }
+    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
     | { edit: 'setTileParts'; id: string; parts: ContentWidget['parts'] }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
