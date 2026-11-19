@@ -1,14 +1,14 @@
 const { execFileSync } = require('node:child_process')
 
 const FORK_PR_MARKER = (number, login) => `<!-- fork-pr: ${number} @${login} -->`
-const IMPORT_MARKER = '<!-- fork-pr-import -->'
+const RECREATED_MARKER = '<!-- fork-pr-recreated -->'
 const HANDBOOK_URL = 'https://posthog.com/handbook/engineering/fork-pull-requests'
 const MERGE_QUEUE_LABEL = 'trunk-merge-queue-submit'
 const WRITE_PERMISSIONS = ['admin', 'maintain', 'write']
 const VERDICT_STATES = ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED']
 const PROTECTED_PATH_PREFIXES = ['.github/workflows/', '.depot/workflows/']
 
-class ImportRefused extends Error {}
+class RecreateRefused extends Error {}
 
 function branchName(forkPrNumber) {
     return `fork-pr/${forkPrNumber}`
@@ -75,7 +75,7 @@ function buildBody({ forkPr, approval, approvedSha, contributor, trailers }) {
         .join('\n')
     return [
         FORK_PR_MARKER(forkPr.number, contributor.login),
-        IMPORT_MARKER,
+        RECREATED_MARKER,
         '## Problem',
         '',
         `Contributed by @${contributor.login} in #${forkPr.number}, which cannot merge because backend CI does not run for fork PRs ([why](${HANDBOOK_URL})).`,
@@ -106,8 +106,8 @@ function squashedTree({ masterSha, mergeBaseSha, approvedSha }) {
             .trim()
     } catch (error) {
         if (error.status === 1) {
-            throw new ImportRefused(
-                'The approved commit conflicts with `master`. Ask the contributor to merge `master` into their branch, approve the new head, then comment `/import` again.'
+            throw new RecreateRefused(
+                'The approved commit conflicts with `master`. Ask the contributor to merge `master` into their branch, approve the new head, then comment `/recreate-fork-pr` again.'
             )
         }
         throw error
@@ -138,18 +138,18 @@ async function uploadTree({ github, owner, repo, masterTreeSha, entries }) {
 
 async function refuseUnlessAllowed({ github, owner, repo, forkPr, commenter, defaultBranch }) {
     if (forkPr.state !== 'open') {
-        throw new ImportRefused('This pull request is closed.')
+        throw new RecreateRefused('This pull request is closed.')
     }
     if (forkPr.head.repo?.full_name === `${owner}/${repo}`) {
-        throw new ImportRefused(
+        throw new RecreateRefused(
             'This pull request is already on a branch in this repository, so CI runs on it as it is.'
         )
     }
     if (forkPr.base.ref !== defaultBranch) {
-        throw new ImportRefused(`Only pull requests into \`${defaultBranch}\` can be imported.`)
+        throw new RecreateRefused(`Only pull requests into \`${defaultBranch}\` can be re-created.`)
     }
     if (sameLogin(forkPr.user.login, commenter)) {
-        throw new ImportRefused('The author of a pull request cannot import it.')
+        throw new RecreateRefused('The author of a pull request cannot re-create it.')
     }
     const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
         owner,
@@ -157,11 +157,11 @@ async function refuseUnlessAllowed({ github, owner, repo, forkPr, commenter, def
         username: commenter,
     })
     if (!WRITE_PERMISSIONS.includes(permission.permission)) {
-        throw new ImportRefused(`@${commenter} does not have write access to this repository.`)
+        throw new RecreateRefused(`@${commenter} does not have write access to this repository.`)
     }
 }
 
-async function importForkPr({ github, context, core, forkPrNumber, commenter, runUrl }) {
+async function recreateForkPr({ github, context, core, forkPrNumber, commenter, runUrl }) {
     const { owner, repo } = context.repo
     const { data: repository } = await github.rest.repos.get({ owner, repo })
     const defaultBranch = repository.default_branch
@@ -177,8 +177,8 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
     })
     const approval = latestApproval(reviews, commenter)
     if (!approval) {
-        throw new ImportRefused(
-            `@${commenter} has no standing approval on this pull request. Approve the commit you reviewed, then comment \`/import\`.`
+        throw new RecreateRefused(
+            `@${commenter} has no standing approval on this pull request. Approve the commit you reviewed, then comment \`/recreate-fork-pr\`.`
         )
     }
     const approvedSha = approval.commit_id
@@ -186,7 +186,7 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
     const branch = branchName(forkPrNumber)
     const { data: existing } = await github.rest.pulls.list({ owner, repo, head: `${owner}:${branch}`, state: 'open' })
     if (existing.length > 0) {
-        throw new ImportRefused(`This pull request was already imported as #${existing[0].number}.`)
+        throw new RecreateRefused(`This pull request was already re-created as #${existing[0].number}.`)
     }
 
     const { data: master } = await github.rest.repos.getBranch({ owner, repo, branch: defaultBranch })
@@ -198,7 +198,7 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
         per_page: 250,
     })
     if (comparison.total_commits > comparison.commits.length) {
-        throw new ImportRefused(
+        throw new RecreateRefused(
             'The approved commit has more than 250 commits ahead of `master`. Re-create it by hand.'
         )
     }
@@ -206,11 +206,11 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
     const treeSha = squashedTree({ masterSha, mergeBaseSha: comparison.merge_base_commit.sha, approvedSha })
     const entries = parseRawDiff(git(['diff-tree', '-r', '-z', '--no-renames', masterSha, treeSha]))
     if (entries.length === 0) {
-        throw new ImportRefused('The approved commit changes nothing on `master`. It may already have landed.')
+        throw new RecreateRefused('The approved commit changes nothing on `master`. It may already have landed.')
     }
     const blocked = protectedPaths(entries)
     if (blocked.length > 0) {
-        throw new ImportRefused(
+        throw new RecreateRefused(
             `The approved commit changes CI workflows (${blocked.map((path) => `\`${path}\``).join(', ')}). Re-create it by hand so a maintainer owns that change.`
         )
     }
@@ -227,7 +227,7 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
     const message = [
         `${forkPr.title} (#${forkPrNumber})`,
         '',
-        `Imported from #${forkPrNumber} at ${approvedSha}.`,
+        `Re-created from #${forkPrNumber} at ${approvedSha}.`,
         '',
         ...trailers,
     ]
@@ -245,7 +245,7 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
     }
     await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.sha })
 
-    const { data: importedPr } = await github.rest.pulls.create({
+    const { data: recreatedPr } = await github.rest.pulls.create({
         owner,
         repo,
         base: defaultBranch,
@@ -254,26 +254,29 @@ async function importForkPr({ github, context, core, forkPrNumber, commenter, ru
         body: buildBody({ forkPr, approval, approvedSha, contributor, trailers }),
         maintainer_can_modify: true,
     })
-    await github.rest.issues.addLabels({ owner, repo, issue_number: importedPr.number, labels: [MERGE_QUEUE_LABEL] })
-    await github.rest.pulls.requestReviewers({ owner, repo, pull_number: importedPr.number, reviewers: [commenter] })
+    await github.rest.issues.addLabels({ owner, repo, issue_number: recreatedPr.number, labels: [MERGE_QUEUE_LABEL] })
+    await github.rest.pulls.requestReviewers({ owner, repo, pull_number: recreatedPr.number, reviewers: [commenter] })
 
     const leftBehind =
-        forkPr.head.sha !== approvedSha ? ` Commits pushed after ${approvedSha.slice(0, 7)} were not imported.` : ''
+        forkPr.head.sha !== approvedSha ? ` Commits pushed after ${approvedSha.slice(0, 7)} were not included.` : ''
     await github.rest.issues.createComment({
         owner,
         repo,
         issue_number: forkPrNumber,
-        body: `${IMPORT_MARKER}\nThank you @${contributor.login}! Fork PRs can't run our backend CI, so this change continues in #${importedPr.number}, with you as co-author ([why](${HANDBOOK_URL})).${leftBehind}\n\n[Import run](${runUrl})`,
+        body: `${RECREATED_MARKER}\nThank you @${contributor.login}! Fork PRs can't run our backend CI, so this change continues in #${recreatedPr.number}, with you as co-author ([why](${HANDBOOK_URL})).${leftBehind}\n\n[Run](${runUrl})`,
     })
     await github.rest.pulls.update({ owner, repo, pull_number: forkPrNumber, state: 'closed' })
-    core.info(`Imported #${forkPrNumber} at ${approvedSha} as #${importedPr.number}`)
+    core.info(`Re-created #${forkPrNumber} at ${approvedSha} as #${recreatedPr.number}`)
 }
 
 module.exports = async ({ github, context, core, forkPrNumber, commenter, runUrl }) => {
     try {
-        await importForkPr({ github, context, core, forkPrNumber, commenter, runUrl })
+        await recreateForkPr({ github, context, core, forkPrNumber, commenter, runUrl })
     } catch (error) {
-        const reason = error instanceof ImportRefused ? error.message : `The import failed. See the [run](${runUrl}).`
+        const reason =
+            error instanceof RecreateRefused
+                ? error.message
+                : `Re-creating the pull request failed. See the [run](${runUrl}).`
         await github.rest.issues.createComment({
             ...context.repo,
             issue_number: forkPrNumber,
