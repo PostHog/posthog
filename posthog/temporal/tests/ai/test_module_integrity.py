@@ -14,7 +14,6 @@ class TestAITemporalModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected workflows are present in the module."""
         expected_workflows = [
-            "SyncVectorsWorkflow",
             "AssistantConversationRunnerWorkflow",
             "ChatAgentWorkflow",
             "ConversationMirrorWorkflow",
@@ -40,9 +39,6 @@ class TestAITemporalModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected activities are present in the module."""
         expected_activities = [
-            "get_approximate_actions_count",
-            "batch_summarize_actions",
-            "batch_embed_and_sync_actions",
             "process_conversation_activity",
             "process_chat_agent_activity",
             "mirror_conversation_to_task_activity",
@@ -70,7 +66,6 @@ class TestAITemporalModuleIntegrity:
     def test_all_exports_remain_unchanged(self):
         """Ensure __all__ exports remain unchanged."""
         expected_exports = [
-            "SyncVectorsInputs",
             "SummarizeLLMTracesInputs",
         ]
         actual_exports = ai.__all__

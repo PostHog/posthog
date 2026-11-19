@@ -19,7 +19,9 @@ import {
 } from '@posthog/quill-charts'
 
 import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
+import type { DataColorTheme } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -257,6 +259,39 @@ export function hasValueLabels(
     return !!chartSettings.showValuesOnSeries || !!ySeriesData?.some(optsIntoValueLabels)
 }
 
+export function withCategoryBarColors(
+    series: Series<SqlLineSeriesMeta>[],
+    labels: string[],
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings,
+    colors: string[],
+    dataTheme: DataColorTheme | null
+): Series<SqlLineSeriesMeta>[] {
+    if (
+        !chartSettings.colorBarsByCategory ||
+        chartSettings.seriesBreakdownColumn ||
+        series.length !== 1 ||
+        ![ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue].includes(visualizationType)
+    ) {
+        return series
+    }
+    const colorByCategory = new Map<string, string | undefined>()
+    const bars = labels.map((value) => {
+        const key = String(value)
+        if (!colorByCategory.has(key)) {
+            const customization = chartSettings.resultCustomizations?.[key]
+            const presetColor =
+                customization?.color && dataTheme ? getColorFromToken(dataTheme, customization.color) : undefined
+            colorByCategory.set(
+                key,
+                customization?.customColor ?? presetColor ?? colors[colorByCategory.size % colors.length]
+            )
+        }
+        return { color: colorByCategory.get(key) }
+    })
+    return [{ ...series[0], bars }]
+}
+
 export function buildSeries(
     yData: SqlLineYSeries[],
     visualizationType: ChartDisplayType,
@@ -492,6 +527,8 @@ function buildValueLabelsConfig(
     return {
         position: chartSettings.valueLabelPosition,
         background: chartSettings.valueLabelBackground,
+        color: chartSettings.valueLabelColor,
+        backgroundColor: chartSettings.valueLabelBackgroundColor,
         fontSize: chartSettings.valueLabelFontSize,
         rotation: chartSettings.valueLabelRotation,
         formatter: (_value, seriesIndex, _dataIndex, context) =>

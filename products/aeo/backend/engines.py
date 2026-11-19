@@ -485,10 +485,12 @@ def build_check_fields(
     """
     target_urls = [url for url in check.cited_urls if is_target_url(url, target_domains)]
     answer_text = strip_llm_framing_markers(check.answer_text, MAX_ANSWER_TEXT_LENGTH) or None
+    stored_prompt = sanitize_user_text(prompt_text, MAX_PROMPT_LENGTH)
     return {
         "run_id": run_id,
         "prompt_id": prompt_id,
-        "prompt_text": sanitize_user_text(prompt_text, MAX_PROMPT_LENGTH),
+        "prompt_text": stored_prompt,
+        "prompt_branded": names_brand(stored_prompt, target_domains),
         "prompt_source": prompt_source,
         "prompt_hash": prompt_hash,
         "engine": check.engine,

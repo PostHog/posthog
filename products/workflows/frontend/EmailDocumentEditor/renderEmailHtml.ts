@@ -1063,12 +1063,26 @@ ${blocks}
 </html>`
 }
 
+/** The html without its doctype, `<html>`, `<head>` and `<body>` tags, which only wrap what a person reads. */
+function withoutDocumentWrapper(html: string): string {
+    let rest = html.replace(/<!doctype[^>]*>/gi, '')
+    let start = rest.search(/<head[\s>]/i)
+    while (start !== -1) {
+        const end = rest.toLowerCase().indexOf('</head>', start)
+        rest = end === -1 ? rest.slice(0, start) : rest.slice(0, start) + rest.slice(end + '</head>'.length)
+        start = rest.search(/<head[\s>]/i)
+    }
+    return rest.replace(/<\/?(html|body)(\s[^>]*)?>/gi, '')
+}
+
 function textFromHtml(html: string): string {
     // The parser moves text between table rows to before the table, which would take a Liquid tag out of the rows it
     // wraps. A comment stays where it is, so each tag travels as one and turns back into text afterwards.
     const tags: string[] = []
     const marked = html.replace(/\{%[\s\S]*?%\}/g, (tag) => `<!--ph-liquid-${tags.push(tag) - 1}-->`)
-    const doc = new DOMParser().parseFromString(marked, 'text/html')
+    // Every tag has to stay inside the body in its source order, also around a whole document or several of them,
+    // so the document wrapper goes and one body holds it all.
+    const doc = new DOMParser().parseFromString(`<body>${withoutDocumentWrapper(marked)}</body>`, 'text/html')
     const comments = doc.createTreeWalker(doc, NodeFilter.SHOW_COMMENT)
     const found: Comment[] = []
     while (comments.nextNode()) {
@@ -1076,7 +1090,7 @@ function textFromHtml(html: string): string {
     }
     for (const comment of found) {
         const index = /^ph-liquid-(\d+)$/.exec(comment.data)?.[1]
-        if (index !== undefined) {
+        if (index !== undefined && comment.parentNode !== doc) {
             comment.replaceWith(doc.createTextNode(tags[Number(index)]))
         }
     }

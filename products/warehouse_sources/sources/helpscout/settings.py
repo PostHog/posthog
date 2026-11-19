@@ -144,6 +144,41 @@ HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
         params={"sortField": "number", "sortOrder": "ASC"},
         is_report=True,
     ),
+    "team_members": HelpScoutEndpointConfig(
+        name="team_members",
+        path="/teams/{team_id}/members",
+        embedded_key="users",
+        # A user can belong to several teams, so the team id is part of the key.
+        primary_key=["team_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="teams",
+            resolve_param="team_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "team_id"},
+        ),
+    ),
+    "user_conversation_history": HelpScoutEndpointConfig(
+        name="user_conversation_history",
+        # The report takes the user as a query param, not a path segment.
+        path="/reports/user/conversation-history?user={user_id}",
+        embedded_key="results",
+        # `id` is the conversation id. Help Scout returns one row per reply the user sent, so a
+        # conversation can repeat for a user; the transport collapses those repeats.
+        primary_key=["user_id", "id"],
+        # Rows carry no timestamp.
+        partition_key=None,
+        # Sorting on the conversation number keeps a conversation's repeated rows adjacent.
+        params={"sortField": "number", "sortOrder": "ASC"},
+        is_report=True,
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "user_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(HELP_SCOUT_ENDPOINTS.keys())

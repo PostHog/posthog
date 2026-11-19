@@ -1035,6 +1035,12 @@ export interface _MetricClauseApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together for this clause. */
     filters?: _MetricFilterApi[]
     /** Labels to split this clause into separate series by. */
@@ -1093,6 +1099,12 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
     /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -1374,6 +1386,10 @@ export interface _MetricNameApi {
      * @nullable
      */
     first_seen?: string | null
+    /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+    series_count?: number
+    /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+    tag_key_count?: number
     /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
     classic_histogram?: _MetricClassicHistogramApi
 }
@@ -1653,6 +1669,10 @@ export type MetricsValuesRetrieveParams = {
      * @minLength 1
      */
     match?: MetricsValuesRetrieveMatch
+    /**
+     * Add `series_count` and `tag_key_count` for each name, over the last 24 hours.
+     */
+    series_stats?: boolean
     /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024

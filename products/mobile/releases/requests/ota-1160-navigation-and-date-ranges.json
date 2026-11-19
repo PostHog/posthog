@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-navigation-and-date-ranges",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-notification-controls",
+    "notes": "Live event details stay at the same height while custom properties load. The app remembers date ranges on dashboards, insights, and Web Analytics across restarts. Tap the selected tab to return to the top of its list."
+}

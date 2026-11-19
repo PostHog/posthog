@@ -95,7 +95,7 @@ def list_suggestions(
         surface=surface,
         subject_kinds=subject_kinds,
     )
-    rows = select_page(visible, page)
+    rows = select_page(visible.filter(access.decided_or_editable_q()), page)
     return Page(results=_to_contracts(team_id, user_access_control, rows.results, access), count=rows.count)
 
 

@@ -117,12 +117,43 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
             status_code=2,
             attributes={"peer.service": "api"},
         )
+        # A retry that names the service wraps an HTTP call that names only the load balancer and
+        # reaches api. Both resolve to web -> api, so the request counts once.
+        retried = w.span("web", name="GET /orders", env="prod", trace=6)
+        named = w.span(
+            "web", name="retry api", kind=3, env="prod", trace=6, parent=retried, attributes={"peer.service": "api"}
+        )
+        http = w.span(
+            "web",
+            name="GET",
+            kind=3,
+            env="prod",
+            trace=6,
+            parent=named,
+            attributes={"server.address": "api-lb.internal"},
+        )
+        w.span("api", name="GET /orders", env="prod", trace=6, parent=http)
+        # A database client without a namespace over HTTP to a host named like the database system.
+        job = w.span("worker", name="run", env="prod", trace=7)
+        query = w.span(
+            "worker", name="SELECT", kind=3, env="prod", trace=7, parent=job, attributes={"db.system": "clickhouse"}
+        )
+        w.span(
+            "worker",
+            name="POST",
+            kind=3,
+            env="prod",
+            trace=7,
+            parent=query,
+            attributes={"server.address": "clickhouse"},
+        )
         root = w.span("eu-web", name="GET /", env="staging", trace=10)
         w.span("eu-web", name="query", kind=3, env="staging", trace=10, parent=root, attributes={"db.system": "redis"})
         w.insert()
 
     def _get(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(URL.format(self.team.id), query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -130,26 +161,38 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_service_and_inferred_edges_with_caller_side_metrics(self) -> None:
         data = self._get()
-        edges = {(e["caller"], e["callee"]): e for e in data["edges"]}
+        edges = {(e["caller"], e["callee"], e["kind"]): e for e in data["edges"]}
         self.assertEqual(
-            {key: (e["inferred"], e["kind"], e["requests"], e["error_count"]) for key, e in edges.items()},
+            {key: (e["inferred"], e["requests"], e["error_count"]) for key, e in edges.items()},
             {
-                ("web", "api"): (False, "service", 5, 2),
-                ("api", "web"): (False, "service", 4, 0),
-                ("api", "postgresql:orders"): (True, "database", 4, 0),
-                ("api", "redis"): (True, "database", 4, 0),
-                ("api", "clickhouse:events"): (True, "database", 1, 0),
-                ("api", "ch.internal"): (True, "external", 1, 0),
-                ("api", "payments.example.com"): (True, "external", 2, 2),
+                ("web", "api", "service"): (False, 6, 2),
+                ("api", "web", "service"): (False, 4, 0),
+                ("api", "postgresql:orders", "database"): (True, 4, 0),
+                ("api", "redis", "database"): (True, 4, 0),
+                ("api", "clickhouse:events", "database"): (True, 1, 0),
+                ("api", "ch.internal", "external"): (True, 1, 0),
+                ("api", "payments.example.com", "external"): (True, 2, 2),
+                ("worker", "clickhouse", "database"): (True, 1, 0),
+                ("worker", "clickhouse", "external"): (True, 1, 0),
             },
         )
-        self.assertGreaterEqual(edges[("web", "api")]["p95_ms"], 50)
+        self.assertGreaterEqual(edges[("web", "api", "service")]["p95_ms"], 50)
         self.assertFalse(data["truncated"])
+        self.assertEqual((data["sampled"], data["trace_count"]), (False, 7))
+
+    def test_busy_window_reads_a_sample_of_whole_traces(self) -> None:
+        with patch("products.apm.backend.logic.health.sources.MAP_TRACE_LIMIT", 3):
+            data = self._get()
+        self.assertEqual((data["sampled"], data["trace_count"]), (True, 3))
+        full = {(e["caller"], e["callee"], e["kind"]): e["requests"] for e in self._get()["edges"]}
+        sampled = {(e["caller"], e["callee"], e["kind"]): e["requests"] for e in data["edges"]}
+        self.assertTrue(sampled)
+        self.assertTrue(all(0 < requests <= full[key] for key, requests in sampled.items()), sampled)
 
     def test_service_filter_keeps_edges_on_either_side(self) -> None:
         data = self._get(service="web")
         self.assertEqual(
-            {(e["caller"], e["callee"], e["requests"]) for e in data["edges"]}, {("web", "api", 5), ("api", "web", 4)}
+            {(e["caller"], e["callee"], e["requests"]) for e in data["edges"]}, {("web", "api", 6), ("api", "web", 4)}
         )
         self.assertEqual(data["service"], "web")
         self.assertEqual(
@@ -167,6 +210,11 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(e["caller"], e["callee"], e["inferred"]) for e in self._get(service="payments.example.com")["edges"]],
             [("api", "payments.example.com", True)],
+        )
+        # No attribute holds the whole name of a database node, only its system and namespace apart.
+        self.assertEqual(
+            [(e["caller"], e["callee"], e["inferred"]) for e in self._get(service="postgresql:orders")["edges"]],
+            [("api", "postgresql:orders", True)],
         )
 
     def test_session_request_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
@@ -188,6 +236,12 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(e["caller"], e["callee"], e["kind"]) for e in data["edges"]], [("eu-web", "redis", "database")]
         )
+
+        everything = self._get(environment=None)
+        self.assertIsNone(everything["environment"])
+        callees = {(e["caller"], e["callee"]) for e in everything["edges"]}
+        self.assertIn(("eu-web", "redis"), callees)
+        self.assertTrue(callees > {("eu-web", "redis")})
 
     def test_edge_cap_sets_truncated(self) -> None:
         with patch("products.apm.backend.logic.health.dependencies.DEPENDENCY_EDGES_LIMIT", 1):
