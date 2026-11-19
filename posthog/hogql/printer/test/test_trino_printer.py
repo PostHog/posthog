@@ -660,11 +660,16 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
     assert expected in sql
 
 
-def test_rejects_property_read_on_a_value_a_subquery_already_extracted() -> None:
-    query = parse_select("SELECT p.key FROM (SELECT properties.nested AS p FROM users)")
-
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT p.key FROM (SELECT properties.nested AS p FROM users)",
+        "WITH c AS (SELECT properties.nested AS p FROM users) SELECT q.p.key FROM (SELECT p FROM c) AS q",
+    ],
+)
+def test_rejects_property_read_on_a_value_a_subquery_already_extracted(query: str) -> None:
     with pytest.raises(TrinoLoweringError, match="TRINO_PROPERTY_NOT_LOWERED"):
-        prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
 
 def test_drops_clickhouse_global_distribution_modifiers() -> None:
