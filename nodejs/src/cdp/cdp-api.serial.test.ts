@@ -79,7 +79,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
-import { transactionalPushFingerprint } from './services/hogflows/transactional-push'
+import { transactionalPushFingerprints } from './services/hogflows/transactional-push'
 import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
@@ -6170,8 +6170,34 @@ describe('CDP API', () => {
             expect(other.status).toEqual(422)
             expect(queueIdempotently).toHaveBeenCalledTimes(1)
             expect(await api['hogflowQueue'].findIdempotencyKey(first.body.invocation_id)).toMatchObject({
-                fingerprint: transactionalPushFingerprint(hogFlow.id, keyed),
+                fingerprint: transactionalPushFingerprints(api['fingerprintSigner'], hogFlow.id, keyed)[0],
             })
+        })
+
+        it('answers a retry with the first send after the workflow is turned off', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+            const first = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockResolvedValue({
+                ...hogFlow,
+                status: 'draft',
+            })
+
+            const retry = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            const fresh = await send(hogFlow.id, mintToken(hogFlow.id), { ...keyed, idempotency_key: 'another-key' })
+
+            expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
+            expect(fresh.status).toEqual(400)
+        })
+
+        it('answers a failed team lookup as a server error, not as a missing team', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            jest.spyOn(api['deps'].teamManager, 'getTeam').mockRejectedValueOnce(new Error('connection timeout'))
+
+            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+            expect(res.status).toEqual(500)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
         it('queues one run when two sends with one key race past the lookup', async () => {

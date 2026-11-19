@@ -528,11 +528,15 @@ describe('transactional send sealing', () => {
             { isEnabled: () => false }
         )
 
+    const toPostgres = (stored: CyclotronJobInvocation) => invocationToV2JobInit(stored).state!
+    const toKafka = (stored: CyclotronJobInvocation) => JSON.stringify(serializeInvocation(stored))
     it.each([
-        ['the postgres job state', (stored: CyclotronJobInvocation) => invocationToV2JobInit(stored).state!],
-        ['the kafka job message', (stored: CyclotronJobInvocation) => JSON.stringify(serializeInvocation(stored))],
-    ])('keeps a transactional send out of %s and reads it back whole', (name, serialize) => {
-        const invocation = send('$transactional_email')
+        ['an email', 'the postgres job state', toPostgres, '$transactional_email'],
+        ['an email', 'the kafka job message', toKafka, '$transactional_email'],
+        ['a push', 'the postgres job state', toPostgres, '$transactional_push'],
+        ['a push', 'the kafka job message', toKafka, '$transactional_push'],
+    ])('keeps %s transactional send out of %s and reads it back whole', (_kind, name, serialize, event) => {
+        const invocation = send(event)
 
         const bytes = serialize(sanitizer(true).sanitizeInvocations([invocation])[0]).toString()
         const read =

@@ -84,7 +84,7 @@ import {
     TransactionalPushOutcome,
     TransactionalPushRequestSchema,
     sendsOnlyPush,
-    transactionalPushFingerprint,
+    transactionalPushFingerprints,
     transactionalPushRequestsTotal,
 } from './services/hogflows/transactional-push'
 import {
@@ -1754,13 +1754,36 @@ export class CdpApi {
             }
             const { distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
 
-            const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+            const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id))
             if (!team) {
                 return reply('not_found', 404, { error: 'Team not found' })
             }
             const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
             if (!hogFlow || hogFlow.team_id !== team.id) {
                 return reply('not_found', 404, { error: 'Workflow not found' })
+            }
+
+            // The first one is stored with a new claim. The others match a claim signed before a key rotation.
+            const fingerprints = transactionalPushFingerprints(this.fingerprintSigner, hogFlow.id, parsed.data)
+            const runId = idempotencyKey ? keyedRunId(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotencyKey) : undefined
+            const answerClaim = (claimedFingerprint: string | undefined) =>
+                claimedFingerprint !== undefined && fingerprints.includes(claimedFingerprint)
+                    ? reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
+                    : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+            // Checked before the workflow, so a retry still gets its answer after someone turns the workflow off.
+            if (runId) {
+                let claimed: Awaited<ReturnType<IdempotentJobQueue['findIdempotencyKey']>>
+                try {
+                    claimed = await this.hogflowQueue.findIdempotencyKey(runId)
+                } catch (error) {
+                    logger.error('🔑', 'Transactional push claim lookup failed', {
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                }
+                if (claimed) {
+                    return answerClaim(claimed.fingerprint)
+                }
             }
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active' || !sendsOnlyPush(hogFlow)) {
                 return reply('not_sendable', 400, { error: 'not_sendable' })
@@ -1787,49 +1810,29 @@ export class CdpApi {
             const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocation.state.triggerMetricPending = true
-
-            const fingerprint = transactionalPushFingerprint(hogFlow.id, parsed.data)
-            const replayed = (runId: string) =>
-                reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
-            if (idempotencyKey) {
-                invocation.id = keyedRunId(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotencyKey)
-                let claimed: Awaited<ReturnType<IdempotentJobQueue['findIdempotencyKey']>>
-                try {
-                    claimed = await this.hogflowQueue.findIdempotencyKey(invocation.id)
-                } catch (error) {
-                    logger.error('🔑', 'Transactional push claim lookup failed', {
-                        error: error instanceof Error ? error.message : String(error),
-                    })
-                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
-                }
-                if (claimed) {
-                    return claimed.fingerprint === fingerprint
-                        ? replayed(invocation.id)
-                        : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
-                }
+            if (runId) {
+                invocation.id = runId
             }
+
             if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
                 return reply('quota_limited', 429, { error: 'quota_limited' })
             }
             const rows = this.invocationResultsService.invocationResultsRowsService
-            rows.queueLifecycleRow(invocation, 'running')
-            try {
-                if (idempotencyKey) {
-                    // Two sends with one key can both pass the lookup above, and the insert lets only one through.
-                    const [claim] = await this.hogflowQueue.queueInvocationsIdempotently([{ invocation, fingerprint }])
-                    if (claim.outcome !== 'created') {
-                        rows.dropQueuedRowsFor([invocation.id])
-                        return claim.outcome === 'replayed'
-                            ? replayed(invocation.id)
-                            : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
-                    }
-                } else {
-                    await this.hogflowQueue.queueInvocations([invocation])
+            // Prepared before the insert, because a worker can finish the run before the insert returns. Queued only
+            // once this request owns the run, so a losing request never publishes a row for it.
+            const runningRow = rows.prepareLifecycleRow(invocation, 'running')
+            if (runId) {
+                // Two sends with one key can both pass the lookup above, and the insert lets only one through.
+                const [claim] = await this.hogflowQueue.queueInvocationsIdempotently([
+                    { invocation, fingerprint: fingerprints[0] },
+                ])
+                if (claim.outcome !== 'created') {
+                    return answerClaim(claim.outcome === 'replayed' ? fingerprints[0] : claim.storedFingerprint)
                 }
-            } catch (error) {
-                rows.dropQueuedRowsFor([invocation.id])
-                throw error
+            } else {
+                await this.hogflowQueue.queueInvocations([invocation])
             }
+            rows.queuePreparedRow(runningRow)
             // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
             const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
             void produced.catch((error: unknown) =>

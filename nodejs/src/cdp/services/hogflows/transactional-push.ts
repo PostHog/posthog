@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 
+import { EncryptedFields } from '../../utils/encryption-utils'
 import { requestFingerprint } from './idempotency-keys'
 
 export const TRANSACTIONAL_PUSH_EVENT = '$transactional_push'
@@ -41,10 +42,15 @@ export const transactionalPushRequestsTotal = new Counter({
     labelNames: ['outcome'],
 })
 
-export const transactionalPushFingerprint = (
+const FINGERPRINT_PURPOSE = 'transactional_push_idempotency_fingerprint'
+
+// Keyed, because the variables can hold a short login code that anyone who reads the claims could guess offline from an
+// unkeyed hash. One per key, so a claim signed before a key rotation still matches.
+export const transactionalPushFingerprints = (
+    signer: Pick<EncryptedFields, 'signatures'>,
     hogFlowId: string,
     { distinct_id, variables }: TransactionalPushRequest
-): string => requestFingerprint([hogFlowId, distinct_id, variables])
+): string[] => signer.signatures(FINGERPRINT_PURPOSE, requestFingerprint([hogFlowId, distinct_id, variables]))
 
 // A token for one workflow can only run that workflow, so this only stops a push token reaching a workflow that
 // someone changed to send something else.
