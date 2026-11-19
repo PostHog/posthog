@@ -751,7 +751,7 @@ Do not write a private `_format_datetime`, `_to_epoch_ms` or start-date resolver
 
 - `format_datetime(value, style)` writes a datetime, date, ISO string or epoch number in UTC. Styles: `iso_z`, `iso_z_millis`, `iso_z_micros`, `iso_offset`, `iso_naive`, `date`, `compact_date`. It truncates, so a lower bound never skips a row.
 - `to_epoch(value, unit)` and `from_epoch(value, unit)` convert to and from epoch `"s"` or `"ms"`. `to_epoch` rounds down.
-- `coerce_date(value)` returns the UTC date, or None. `parse_datetime_value(value)` returns a UTC datetime, or None. It reads epoch numbers too.
+- `coerce_date(value)` returns the UTC date, or None. `parse_datetime_or_epoch(value)` returns a UTC datetime, or None. It reads epoch numbers too. `parse_datetime_value(value)` returns None for a number.
 - `resolve_incremental_start(should_use, last_value, default=..., lookback=..., floor=..., now=...)` gives the start of an incremental read. It parses the cursor and subtracts the lookback. With no cursor, it uses `now - default`. It then applies the floor and caps the result at now.
 
 Do not test a cursor for truthiness (`should_use_incremental_field and db_incremental_field_last_value`). A `0` or `""` cursor is a real value, so check `is not None`. `resolve_incremental_start` does this for you, and it raises `ValueError` for a cursor it cannot read.

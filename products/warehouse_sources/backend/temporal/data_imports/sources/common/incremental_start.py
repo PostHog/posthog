@@ -3,7 +3,7 @@ from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
-    parse_datetime_value,
+    parse_datetime_or_epoch,
 )
 
 
@@ -29,7 +29,7 @@ def resolve_incremental_start(
     current = coerce_datetime_to_utc(now) or datetime.now(UTC)
 
     if should_use and last_value is not None:
-        start = parse_datetime_value(last_value)
+        start = parse_datetime_or_epoch(last_value)
         if start is None:
             raise ValueError(f"Cannot read the incremental cursor {last_value!r} as a datetime")
         if lookback is not None:

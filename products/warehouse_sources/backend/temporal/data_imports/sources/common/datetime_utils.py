@@ -41,29 +41,37 @@ def coerce_datetime_to_utc(value: Any) -> datetime | None:
 
 
 def parse_datetime_value(value: Any) -> datetime | None:
-    """Same as `coerce_datetime_to_utc`, but also parses a datetime written as a string or an epoch number.
+    """Same as `coerce_datetime_to_utc`, but also parses a datetime written as a string.
 
     An incremental watermark reaches a source as whatever the pipeline persisted, which is a
     string for some sources and a datetime for others, so a caller that has to compare one
-    against a real datetime cannot assume either. A number is an epoch timestamp in seconds, or in
-    milliseconds when it is too large to be seconds.
+    against a real datetime cannot assume either. A number returns None, and some sources rely
+    on that to refuse a watermark of the wrong type; use `parse_datetime_or_epoch` to read one.
     """
     if isinstance(value, str):
         try:
             value = dateutil_parser.parse(value)
         except (ValueError, TypeError, OverflowError):
             return None
-    elif isinstance(value, int | float) and not isinstance(value, bool):
+    return coerce_datetime_to_utc(value)
+
+
+def parse_datetime_or_epoch(value: Any) -> datetime | None:
+    """Same as `parse_datetime_value`, but also reads an epoch number.
+
+    A number is an epoch timestamp in seconds, or in milliseconds when it is too large to be seconds.
+    """
+    if isinstance(value, int | float) and not isinstance(value, bool):
         unit: EpochUnit = "ms" if abs(value) >= _EPOCH_MILLIS_THRESHOLD else "s"
         try:
             return from_epoch(value, unit)
         except (ValueError, OverflowError):
             return None
-    return coerce_datetime_to_utc(value)
+    return parse_datetime_value(value)
 
 
 def _require_datetime(value: Any) -> datetime:
-    parsed = parse_datetime_value(value)
+    parsed = parse_datetime_or_epoch(value)
     if parsed is None:
         raise ValueError(f"Cannot read {value!r} as a datetime")
     return parsed
@@ -100,5 +108,5 @@ def coerce_date(value: Any) -> date | None:
 
     Returns None when the value cannot be read as a date.
     """
-    parsed = parse_datetime_value(value)
+    parsed = parse_datetime_or_epoch(value)
     return parsed.date() if parsed is not None else None

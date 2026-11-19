@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     coerce_date,
     format_datetime,
     from_epoch,
+    parse_datetime_or_epoch,
     parse_datetime_value,
     to_epoch,
 )
@@ -100,22 +101,32 @@ class TestEpochConversion(SimpleTestCase):
 class TestParseDatetimeValue(SimpleTestCase):
     @parameterized.expand(
         [
-            ("epoch_seconds", 1709618828, datetime(2024, 3, 5, 6, 7, 8, tzinfo=UTC)),
-            ("epoch_seconds_float", 1709618828.25, datetime(2024, 3, 5, 6, 7, 8, 250000, tzinfo=UTC)),
-            ("epoch_millis", 1709618828123, datetime(2024, 3, 5, 6, 7, 8, 123000, tzinfo=UTC)),
-            ("largest_seconds", 99_999_999_999, datetime(5138, 11, 16, 9, 46, 39, tzinfo=UTC)),
-            ("smallest_millis", 100_000_000_000, datetime(1973, 3, 3, 9, 46, 40, tzinfo=UTC)),
-            ("zero_is_epoch", 0, datetime(1970, 1, 1, tzinfo=UTC)),
-            ("string", "2024-03-05T06:07:08Z", datetime(2024, 3, 5, 6, 7, 8, tzinfo=UTC)),
-            ("bool", True, None),
-            ("nan", float("nan"), None),
-            ("infinity", float("inf"), None),
-            ("too_large", 10**20, None),
-            ("garbage", "not a date", None),
+            ("epoch_seconds", 1709618828, datetime(2024, 3, 5, 6, 7, 8, tzinfo=UTC), None),
+            ("epoch_seconds_float", 1709618828.25, datetime(2024, 3, 5, 6, 7, 8, 250000, tzinfo=UTC), None),
+            ("epoch_millis", 1709618828123, datetime(2024, 3, 5, 6, 7, 8, 123000, tzinfo=UTC), None),
+            ("largest_seconds", 99_999_999_999, datetime(5138, 11, 16, 9, 46, 39, tzinfo=UTC), None),
+            ("smallest_millis", 100_000_000_000, datetime(1973, 3, 3, 9, 46, 40, tzinfo=UTC), None),
+            ("zero_is_epoch", 0, datetime(1970, 1, 1, tzinfo=UTC), None),
+            (
+                "string",
+                "2024-03-05T06:07:08Z",
+                datetime(2024, 3, 5, 6, 7, 8, tzinfo=UTC),
+                datetime(2024, 3, 5, 6, 7, 8, tzinfo=UTC),
+            ),
+            ("datetime", MOMENT, MOMENT, MOMENT),
+            ("bool", True, None, None),
+            ("nan", float("nan"), None, None),
+            ("infinity", float("inf"), None, None),
+            ("too_large", 10**20, None, None),
+            ("garbage", "not a date", None, None),
+            ("none", None, None, None),
         ]
     )
-    def test_parse(self, _name: str, value: Any, expected: datetime | None) -> None:
-        assert parse_datetime_value(value) == expected
+    def test_parse(
+        self, _name: str, value: Any, expected_with_epoch: datetime | None, expected_without_epoch: datetime | None
+    ) -> None:
+        assert parse_datetime_or_epoch(value) == expected_with_epoch
+        assert parse_datetime_value(value) == expected_without_epoch
 
 
 class TestCoerceDate(SimpleTestCase):

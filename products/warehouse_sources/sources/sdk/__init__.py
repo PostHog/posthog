@@ -108,6 +108,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     coerce_datetime_to_utc,
     format_datetime,
     from_epoch,
+    parse_datetime_or_epoch,
     parse_datetime_value,
     to_epoch,
 )
@@ -625,6 +626,7 @@ __all__ = [
     "normalize_namespace",
     "parent_snapshot_covers_through",
     "parse_azure_url",
+    "parse_datetime_or_epoch",
     "parse_datetime_value",
     "parse_gcs_url",
     "parse_r2_url",
