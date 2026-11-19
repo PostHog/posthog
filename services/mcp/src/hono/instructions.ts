@@ -17,7 +17,7 @@ import EXEC_WRITE_TOOL from '@/templates/sections/exec-write-tool.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
-import { EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from '@/tools/exec-names'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from '@/tools/exec-names'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -133,14 +133,10 @@ export class InstructionsBuilder {
         if (!state.splitWrites) {
             return [this.buildExecToolEntry(state)]
         }
-        const readEntry = this.buildExecToolEntry(state, { readOnly: true })
-        return [
-            { ...readEntry, description: `${EXEC_READ_ONLY_LEAD.trim()}\n\n${readEntry.description}` },
-            this.buildExecWriteToolEntry(),
-        ]
+        return [this.buildExecReadToolEntry(state), this.buildExecWriteToolEntry()]
     }
 
-    buildExecToolEntry(state: ExecToolState, { readOnly = false }: { readOnly?: boolean } = {}): McpTool {
+    buildExecToolEntry(state: ExecToolState): McpTool {
         const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
@@ -149,11 +145,22 @@ export class InstructionsBuilder {
             title: 'Execute PostHog command',
             description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
-            annotations: { ...EXEC_TOOL_ANNOTATIONS, readOnlyHint: readOnly },
+            annotations: { ...EXEC_TOOL_ANNOTATIONS },
         }
     }
 
-    /** Short on purpose: discovery stays on `exec`, so this schema adds no command reference to the agent's context. */
+    buildExecReadToolEntry(state: ExecToolState): McpTool {
+        const entry = this.buildExecToolEntry(state)
+        return {
+            ...entry,
+            name: EXEC_READ_TOOL_NAME,
+            title: 'Read PostHog data',
+            description: `${EXEC_READ_ONLY_LEAD.trim()}\n\n${entry.description}`,
+            annotations: { ...EXEC_TOOL_ANNOTATIONS, readOnlyHint: true },
+        }
+    }
+
+    /** Short on purpose: discovery stays on `exec-read`, so this schema adds no command reference to the agent's context. */
     buildExecWriteToolEntry(): McpTool {
         return {
             name: EXEC_WRITE_TOOL_NAME,
@@ -166,7 +173,7 @@ export class InstructionsBuilder {
                 },
                 required: ['command'],
             },
-            // It can run deletes, and unlike `exec` it never carries reads that a destructive hint would make prompt.
+            // It can run deletes, and unlike `exec` it carries no reads that a destructive hint would make prompt.
             annotations: { ...EXEC_TOOL_ANNOTATIONS, destructiveHint: true },
         }
     }

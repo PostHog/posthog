@@ -120,10 +120,7 @@ vi.mock('@/hono/request-context', async () => {
             return {
                 tokenCache: { ...makeCache(mockTokenStore), scope: props.userHash },
                 lookups: args[4] ?? new StateLookupCache(),
-                sessionScopedCache:
-                    props.mcpSessionId || props.mcpConversationId
-                        ? makeCache(sessionScopedStore(props.mcpSessionId ?? `conversation:${props.mcpConversationId}`))
-                        : undefined,
+                sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
                 legacySessionScopedCache: props.mcpSessionId
                     ? {
                           get: vi.fn(async () => {
@@ -1002,7 +999,7 @@ describe('RequestStateResolver MCP client contexts', () => {
             false,
         ],
         ['nothing asks for it', '', {}, false],
-        ['tools mode, where a cached exec must still refuse writes', '?split_writes=true&mode=tools', {}, true],
+        ['tools mode', '?split_writes=true&mode=tools', {}, true],
         ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
         [
             'a wrapper whose write gate only knows exec',
@@ -1018,48 +1015,9 @@ describe('RequestStateResolver MCP client contexts', () => {
             {}
         )
 
-        const result = await makeResolver().resolve({ ...props, mcpSessionId: 'mcp-session-1' })
+        const result = await makeResolver().resolve(props)
 
         expect(result.splitWrites).toBe(expected)
-    })
-
-    it.each([
-        ['no handle', {}],
-        [
-            'only a conversation handle, which the first call mints after tools/list',
-            { mcpConversationId: 'conversation-1' },
-        ],
-    ])('does not split writes for a client with %s', async (_label, handle) => {
-        const result = await makeResolver().resolve(
-            makeProps({ mcpSessionId: undefined, splitWrites: true, ...handle })
-        )
-
-        expect(result.splitWrites).toBe(false)
-    })
-
-    it.each([
-        ['a later request in the same session that drops the option', 'mcp-session-1', undefined, true],
-        ['a later request in the same session that declines it', 'mcp-session-1', false, true],
-        ['another session', 'mcp-session-2', undefined, false],
-    ])('keeps writes split for %s', async (_label, mcpSessionId, splitWrites, expected) => {
-        const resolver = makeResolver()
-        await resolver.resolve(makeProps({ splitWrites: true }))
-
-        const result = await resolver.resolve(makeProps({ mcpSessionId, splitWrites }))
-
-        expect(result.splitWrites).toBe(expected)
-    })
-
-    it.each([
-        ['a wrapper', { mcpConsumer: 'posthog-code' }],
-        ['a read-only request', { readOnly: true }],
-    ])('ignores a pinned split on %s in the same session', async (_label, overrides) => {
-        const resolver = makeResolver()
-        await resolver.resolve(makeProps({ splitWrites: true }))
-
-        const result = await resolver.resolve(makeProps(overrides))
-
-        expect(result.splitWrites).toBe(false)
     })
 
     it('carries connected-tool restrictions to execution', async () => {

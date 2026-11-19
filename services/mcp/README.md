@@ -383,12 +383,12 @@ An explicit value always wins over the client auto-detection; any other value is
 ### Separate read and write tools in cli mode
 
 By default every cli-mode command goes through `exec`, so a client can only allow all of them or ask about each one.
-Send `split_writes=true` to list two tools instead:
+Send `split_writes=true` to list two tools in its place:
 
-| Tool         | Runs                                                         | `readOnlyHint` | `destructiveHint` |
-| ------------ | ------------------------------------------------------------ | -------------- | ----------------- |
-| `exec`       | Every discovery command and `call`s to read-only tools.      | `true`         | `false`           |
-| `exec-write` | `call`s to tools that change data, and anything `exec` runs. | `false`        | `true`            |
+| Tool         | Runs                                                              | `readOnlyHint` | `destructiveHint` |
+| ------------ | ----------------------------------------------------------------- | -------------- | ----------------- |
+| `exec-read`  | Every discovery command and `call`s to read-only tools.           | `true`         | `false`           |
+| `exec-write` | `call`s to tools that change data, and anything `exec-read` runs. | `false`        | `true`            |
 
 ```text
 https://mcp.posthog.com/mcp?split_writes=true
@@ -399,15 +399,14 @@ x-posthog-split-writes: true
 ```
 
 The header wins when both are set.
-A client can then always allow `exec` and keep asking about `exec-write`.
-Clients that honor `destructiveHint`, such as Claude, ask about every `exec-write` call even when it is set to always allow.
+A client can then always allow `exec-read` and keep asking about `exec-write`.
 Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by default, and Claude Code, Codex and Cursor take an allow rule for each tool name.
+Clients that honor `destructiveHint`, such as Claude, ask about every `exec-write` call even when it is set to always allow.
 
-- `exec` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
-- `exec-write` answers only on a split connection, so a wrapper whose approval gate doesn't know it can't reach it.
-- The split sticks for the MCP session, so a later request that drops the option still refuses writes on `exec`. A client without an MCP session has nothing to pin it to, so it doesn't split. A conversation handle doesn't count, because the first call mints it after the client listed its tools.
-- A connection that sends `consumer`, such as the AI plugin, PostHog Code or a Tasks sandbox, never splits, because those wrappers gate writes on the `exec` name.
-- Only the parameter or header turns the split on, in every mode, and `false` can't turn it off within a session. A client keeps the tool list it fetched, so a server-side default or a mode that later changed would leave a cached read-only `exec` running writes. Tools mode still lists every tool by name, and refuses writes on a cached `exec`.
+- `exec-read` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
+- `exec-read` refuses writes on every request and every connection, so a client that cached it as read-only never has it run a write, whatever later requests send.
+- `exec-write` answers only on a request that asks for the split. A connection that sends `consumer`, such as the AI plugin, PostHog Code or a Tasks sandbox, never gets it, because those wrappers gate writes on the `exec` name.
+- `exec` keeps working on every connection.
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.

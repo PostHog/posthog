@@ -24,7 +24,6 @@ export type SessionScopedState = {
     activeOrgId: string | null | undefined
     appliedPinProjectId: string | undefined
     appliedPinOrgId: string | undefined
-    splitWrites: true | undefined
 }
 
 /**

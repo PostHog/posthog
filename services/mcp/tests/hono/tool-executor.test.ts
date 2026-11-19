@@ -165,10 +165,14 @@ describe('ToolExecutor', () => {
                 return { state, request }
             }
 
-            it('refuses a write through exec on a split connection', async () => {
-                const { state, request } = splitState(true)
+            // Clients always allow exec-read, so no request, split or not, may let it write.
+            it.each([true, false])('refuses a write through exec-read when the request split is %s', async (split) => {
+                const { state, request } = splitState(split)
 
-                const result = (await executor.handleToolCall({ name: 'exec', arguments: deleteCommand }, state)) as any
+                const result = (await executor.handleToolCall(
+                    { name: 'exec-read', arguments: deleteCommand },
+                    state
+                )) as any
 
                 expect(result.content[0].text).toContain('exec-write')
                 expect(request).not.toHaveBeenCalled()
@@ -188,19 +192,18 @@ describe('ToolExecutor', () => {
             })
 
             // It saves the regenerated summary onto the survey.
-            it('refuses survey summarization through exec on a split connection', async () => {
+            it('refuses survey summarization through exec-read', async () => {
                 const request = vi.fn()
                 const tools = catalog
                     .getFilteredTools({ scopes: ['*'] })
                     .filter((tool) => tool.name === 'surveys-summarize-responses-create')
                 const state = makeToolExecutorState(tools, {
                     useSingleExec: true,
-                    splitWrites: true,
                     context: { ...makeToolExecutorState([]).context, api: mockApi({ request }) } as any,
                 })
 
                 const result = (await executor.handleToolCall(
-                    { name: 'exec', arguments: { command: 'call surveys-summarize-responses-create {"id":"1"}' } },
+                    { name: 'exec-read', arguments: { command: 'call surveys-summarize-responses-create {"id":"1"}' } },
                     state
                 )) as any
 
@@ -355,7 +358,7 @@ describe('ToolExecutor', () => {
                 'a split connection',
                 { splitWrites: true },
                 [
-                    ['exec', true],
+                    ['exec-read', true],
                     ['exec-write', false],
                 ],
             ],
@@ -372,7 +375,7 @@ describe('ToolExecutor', () => {
                 makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
             )
             expect(result.tools.map((t) => [t.name, t.annotations?.destructiveHint])).toEqual([
-                ['exec', false],
+                ['exec-read', false],
                 ['exec-write', true],
             ])
         })
@@ -1230,10 +1233,10 @@ describe('ToolExecutor', () => {
             })
         })
 
-        it('sends the write to exec-write instead of asking for its scope on a split exec', async () => {
+        it('sends the write to exec-write instead of asking for its scope on exec-read', async () => {
             const result = (await executor.handleToolCall(
-                calls[1]!.params,
-                makeToolExecutorState([], { useSingleExec: true, splitWrites: true, ...gated, supportsStepUp: true })
+                { name: 'exec-read', arguments: { command: 'call endpoint-create {}' } },
+                makeToolExecutorState([], { useSingleExec: true, ...gated, supportsStepUp: true })
             )) as any
 
             expect(result.content[0].text).toContain('exec-write({"command":"call endpoint-create {}"})')

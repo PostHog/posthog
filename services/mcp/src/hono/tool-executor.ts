@@ -55,7 +55,7 @@ import {
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
-import { EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME, isExecDispatcher } from '@/tools/exec-names'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME, isExecDispatcher } from '@/tools/exec-names'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -235,7 +235,10 @@ export class ToolExecutor {
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
         if (state.useSingleExec) {
             if (toolName === EXEC_TOOL_NAME) {
-                return this.instructionsBuilder.buildExecToolEntries(state)[0]
+                return this.instructionsBuilder.buildExecToolEntry(state)
+            }
+            if (toolName === EXEC_READ_TOOL_NAME) {
+                return this.instructionsBuilder.buildExecReadToolEntry(state)
             }
             if (toolName === EXEC_WRITE_TOOL_NAME && state.splitWrites) {
                 return this.instructionsBuilder.buildExecWriteToolEntry()
@@ -353,7 +356,7 @@ export class ToolExecutor {
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
             return this.callExecTool(callParams, state, analyticsMeta, {
-                refuseWrites: toolName === EXEC_TOOL_NAME && state.splitWrites,
+                refuseWrites: toolName === EXEC_READ_TOOL_NAME,
             })
         }
 
@@ -1200,7 +1203,7 @@ function challengeStepUpForGatedTool(toolName: string, args: Record<string, unkn
         return
     }
     const scopeGatedTool = state.findScopeGatedTool(targetToolName)
-    const refusedOnExec = toolName === EXEC_TOOL_NAME && state.splitWrites && !isReadOnlyDefinition(targetToolName)
+    const refusedOnExec = toolName === EXEC_READ_TOOL_NAME && !isReadOnlyDefinition(targetToolName)
     if (scopeGatedTool && !refusedOnExec) {
         challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)
     }

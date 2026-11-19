@@ -27,7 +27,7 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
-import { EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from './exec-names'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from './exec-names'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -319,7 +319,7 @@ export function isReadOnlyDefinition(toolName: string): boolean {
 
 function needsWriteTool(toolName: string, command: string): ExecCommandError {
     return new ExecCommandError(
-        `Tool "${toolName}" can change data, so "${EXEC_TOOL_NAME}" only runs read-only tools. Run the same command with the "${EXEC_WRITE_TOOL_NAME}" tool: ${EXEC_WRITE_TOOL_NAME}(${JSON.stringify({ command })}).`,
+        `Tool "${toolName}" can change data, so "${EXEC_READ_TOOL_NAME}" only runs read-only tools. Run the same command with the "${EXEC_WRITE_TOOL_NAME}" tool: ${EXEC_WRITE_TOOL_NAME}(${JSON.stringify({ command })}).`,
         'needs_write_tool'
     )
 }
