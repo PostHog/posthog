@@ -1,5 +1,6 @@
 import json
 import datetime
+import threading
 from collections.abc import Iterator
 from typing import Any, Optional
 
@@ -20,6 +21,7 @@ from products.warehouse_sources.sources.firebase.firebase import (
     FirebaseResumeConfig,
     FirestoreIncrementalCursor,
     _api_session,
+    _firestore_discovery_cache_key,
     build_jwt_assertion,
     decode_firestore_value,
     firebase_source,
@@ -45,6 +47,7 @@ from products.warehouse_sources.sources.firebase.settings import (
     AUTH_TENANT_USERS_TABLE,
     AUTH_USERS_TABLE,
     FIRESTORE_CREATE_TIME_COLUMN,
+    FIRESTORE_DISCOVERY_CONCURRENCY,
     FIRESTORE_ID_COLUMN,
     FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT,
     FIRESTORE_PATH_COLUMN,
@@ -64,6 +67,7 @@ from products.warehouse_sources.sources.firebase.tests.conftest import (
     FakeResponse,
     FakeResumeManager,
     FakeSession,
+    RoutedSession,
     credentials,
 )
 from products.warehouse_sources.sources.sdk import IncrementalFieldType
@@ -71,6 +75,10 @@ from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 _FIREBASE_MODULE = "products.warehouse_sources.sources.firebase.firebase"
 _SESSION_FACTORY = f"{_FIREBASE_MODULE}.make_tracked_session"
+_DISCOVERY_CONCURRENCY = f"{_FIREBASE_MODULE}.FIRESTORE_DISCOVERY_CONCURRENCY"
+
+# Long enough to never bind when the probes overlap, short enough that a serial walk fails fast.
+_BARRIER_TIMEOUT_SECONDS = 5
 
 # Stand-ins for the shipped byte caps, small enough that a test can overflow one cheaply.
 _PAGE_CAP = 2048
@@ -626,6 +634,27 @@ class TestFirestoreIncrementalFieldDiscovery:
         assert len(session.requests) == FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT
         assert list(found) == tables[:FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT]
 
+    def test_collections_are_sampled_concurrently_and_keep_their_order(self) -> None:
+        # Sampled one at a time, a project with many collections outlasts the schema lookup's timeout.
+        # Every sample waits at the barrier, so this only finishes when the samples overlap.
+        collections = ["secrets", "rooms", "chats"]
+        barrier = threading.Barrier(len(collections), timeout=_BARRIER_TIMEOUT_SECONDS)
+
+        def route(method: str, url: str, kwargs: dict[str, Any]) -> FakeResponse:
+            barrier.wait()
+            if url == f"{DOCUMENTS_ROOT}/secrets":
+                return FakeResponse(status_code=403, payload={"error": {"status": "PERMISSION_DENIED"}})
+            return FakeResponse(payload={"documents": [timestamped_document("a", "2026-01-01T00:00:00Z")]})
+
+        session = RoutedSession(route)
+        with (
+            mock.patch(_SESSION_FACTORY, return_value=session.as_session()),
+            mock.patch(_DISCOVERY_CONCURRENCY, FIRESTORE_DISCOVERY_CONCURRENCY),
+        ):
+            found = get_incremental_fields(credentials(), [f"firestore_{name}" for name in collections])
+
+        assert list(found) == ["firestore_rooms", "firestore_chats"]
+
 
 class TestFirestoreCollectionGroup:
     @staticmethod
@@ -1081,6 +1110,64 @@ class TestTableDiscovery:
 
         assert first == cached == [AUTH_USERS_TABLE, "firestore_rooms"]
         assert len(session.requests) == 7
+
+    def test_collections_are_walked_concurrently_and_listed_in_a_stable_order(self) -> None:
+        # A serial walk of a project with many collections outlasts the schema lookup's timeout, and
+        # since an unfinished walk is never cached, every retry fails the same way. Every root sample
+        # waits at the barrier, so this only finishes when the probes overlap.
+        children = {"rooms": ["messages"], "chats": ["messages", "attachments"], "users": ["profiles"]}
+        barrier = threading.Barrier(len(children), timeout=_BARRIER_TIMEOUT_SECONDS)
+
+        def route(method: str, url: str, kwargs: dict[str, Any]) -> FakeResponse:
+            if url == f"{DOCUMENTS_ROOT}:listCollectionIds":
+                return FakeResponse(payload={"collectionIds": list(children)})
+            for collection, child_ids in children.items():
+                if url == f"{DOCUMENTS_ROOT}/{collection}":
+                    barrier.wait()
+                    name = f"projects/demo-project/databases/(default)/documents/{collection}/doc1"
+                    return FakeResponse(payload={"documents": [{"name": name}]})
+                if url == f"{DOCUMENTS_ROOT}/{collection}/doc1:listCollectionIds":
+                    return FakeResponse(payload={"collectionIds": child_ids})
+            if url == f"{DOCUMENTS_ROOT}:runQuery":
+                return FakeResponse(payload=[])
+            if url == TENANTS_URL:
+                return FakeResponse(payload={})
+            raise AssertionError(f"unexpected {method} {url}")
+
+        with (
+            mock.patch(_SESSION_FACTORY, return_value=RoutedSession(route).as_session()),
+            mock.patch(_DISCOVERY_CONCURRENCY, FIRESTORE_DISCOVERY_CONCURRENCY),
+        ):
+            tables = get_tables(credentials())
+
+        assert tables == [
+            AUTH_USERS_TABLE,
+            "firestore_rooms",
+            "firestore_chats",
+            "firestore_users",
+            "firestore_collection_group/messages",
+            "firestore_collection_group/attachments",
+            "firestore_collection_group/profiles",
+        ]
+
+    def test_a_failed_concurrent_probe_fails_discovery_and_caches_nothing(self) -> None:
+        # A probe error swallowed in a worker would hand the schema sync a short table list, and the
+        # sync would treat the missing tables as removed.
+        def route(method: str, url: str, kwargs: dict[str, Any]) -> FakeResponse:
+            if url == f"{DOCUMENTS_ROOT}:listCollectionIds":
+                return FakeResponse(payload={"collectionIds": ["rooms", "chats"]})
+            if url == f"{DOCUMENTS_ROOT}/chats":
+                return FakeResponse(status_code=500, payload={"error": {"status": "INTERNAL"}})
+            return FakeResponse(payload={})
+
+        with (
+            mock.patch(_SESSION_FACTORY, return_value=RoutedSession(route).as_session()),
+            mock.patch(_DISCOVERY_CONCURRENCY, FIRESTORE_DISCOVERY_CONCURRENCY),
+        ):
+            with pytest.raises(requests.HTTPError, match="500"):
+                get_tables(credentials())
+
+        assert django_cache.get(_firestore_discovery_cache_key(credentials())) is None
 
     @pytest.mark.parametrize(
         "tenant_response,expected_tables",
