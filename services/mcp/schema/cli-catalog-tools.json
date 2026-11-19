@@ -27968,6 +27968,11 @@
                     "csv": false
                 },
                 {
+                    "param": "connected",
+                    "key": "connected",
+                    "csv": false
+                },
+                {
                     "param": "count_only",
                     "key": "count_only",
                     "csv": false
@@ -28172,6 +28177,7 @@
                     "personal_tier",
                     "personal_reason",
                     "monitoring_started_at",
+                    "monitoring_ended_at",
                     "monitoring_summary.state",
                     "monitoring_summary.started_at",
                     "monitoring_summary.ends_at",
@@ -28180,6 +28186,8 @@
                     "monitoring_summary.lead_check.comparison",
                     "monitoring_summary.lead_check.baseline_value",
                     "monitoring_summary.lead_check.next_measurement_at",
+                    "monitoring_summary.checks",
+                    "monitoring_outcome",
                     "created_at",
                     "updated_at"
                 ],
@@ -28194,7 +28202,7 @@
                 "field": "id",
                 "suffix": ""
             },
-            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28285,7 +28293,7 @@
                 "suffix": "",
                 "source": "result"
             },
-            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
             "informational": null,
             "textInclude": []
         },
@@ -44153,6 +44161,10 @@
                 {
                     "param": "expires_at",
                     "key": "expires_at"
+                },
+                {
+                    "param": "if_updated_at",
+                    "key": "if_updated_at"
                 }
             ],
             "injectBody": {},
@@ -46158,6 +46170,10 @@
                 {
                     "param": "expires_at",
                     "key": "expires_at"
+                },
+                {
+                    "param": "if_updated_at",
+                    "key": "if_updated_at"
                 }
             ],
             "injectBody": {},

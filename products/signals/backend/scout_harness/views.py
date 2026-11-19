@@ -163,6 +163,7 @@ from products.signals.backend.scout_harness.serializers import (
     RecordCheckResultResponseSerializer,
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
+    RememberConflictSerializer,
     RememberRequestSerializer,
     ScoutCheckSummarySerializer,
     ScoutEmissionReportLinkSerializer,
@@ -271,6 +272,7 @@ from products.signals.backend.scout_harness.tools.runs import (
 from products.signals.backend.scout_harness.tools.scratchpad import (
     NOT_IN_USE_KEY_PREFIX,
     InvalidScratchpadError,
+    ScratchpadConflictError,
     forget,
     record_not_in_use_write,
     remember,
@@ -440,6 +442,13 @@ class Conflict(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "A run for this scout is already in progress."
     default_code = "conflict"
+
+
+def _remember_conflict_response(conflict: ScratchpadConflictError) -> Response:
+    return Response(
+        RememberConflictSerializer({"detail": str(conflict), "updated_at": conflict.current_updated_at}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
 
 
 def _raise_rejection(rejection: ScoutRunRejection) -> None:
@@ -2124,15 +2133,24 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(
                 description=(
-                    "Invalid memory shape (empty key/content, key too long, or an `expires_at` on a "
-                    "`followup:` entry). An unparseable or past `expires_at` is dropped, not rejected."
+                    "Invalid memory shape (empty key/content, key too long, an `expires_at` on a "
+                    "`followup:` entry, or an unparseable `if_updated_at`). An unparseable or past "
+                    "`expires_at` is dropped, not rejected."
                 )
+            ),
+            409: OpenApiResponse(
+                response=RememberConflictSerializer,
+                description=(
+                    "`if_updated_at` did not match: the entry changed since it was read, or no entry has "
+                    "this key. Nothing was written."
+                ),
             ),
         },
         summary="Remember a scratchpad entry",
         description=(
             "Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. "
-            "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted."
+            "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. "
+            "Pass `if_updated_at` to write only when the entry is still the one you read."
         ),
         operation_id="signals_scout_scratchpad_remember",
     )
@@ -2144,10 +2162,15 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             try:
                 with trial_state_errors():
                     entry = private.remember(
-                        key=data["key"], content=data["content"], expires_at=data.get("expires_at")
+                        key=data["key"],
+                        content=data["content"],
+                        expires_at=data.get("expires_at"),
+                        if_updated_at=data.get("if_updated_at"),
                     )
             except InvalidScratchpadError as error:
                 raise exceptions.ValidationError({"detail": str(error)}) from error
+            except ScratchpadConflictError as conflict:
+                return _remember_conflict_response(conflict)
             return Response(ScratchpadEntrySerializer(entry.as_dict()).data)
         run_id = data.get("run_id") or None
         # `run_id` only stamps best-effort `created_by_run_id` lineage — a memory write must
@@ -2186,9 +2209,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # could name a scout's skill instead.
                 identity=pipeline_writer_identity(task_id=_sandbox_bound_task_id(request), team_id=team_id),
                 expires_at=data.get("expires_at"),
+                if_updated_at=data.get("if_updated_at"),
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        except ScratchpadConflictError as conflict:
+            return _remember_conflict_response(conflict)
         # Attributed to the token's run, not the body's: a body `run_id` can name any run on the
         # project, including a sibling scout's.
         if is_not_in_use and sandbox_run_id is not None:
