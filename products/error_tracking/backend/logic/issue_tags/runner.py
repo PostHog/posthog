@@ -68,7 +68,7 @@ def run_issue_taggers(
 
 
 def applicable_taggers(
-    team_id: int, taggers: tuple[Tagger, ...], keys: Collection[str] | None = None
+    team_id: int, taggers: tuple[Tagger, ...], keys: Collection[str] | None
 ) -> list[tuple[Tagger, tuple[IssueTagDefinition, ...]]]:
     """Each tagger that applies to the team, with the enabled tags that list it. The caller checked ISSUE_TAGS_FLAG."""
     enabled = issue_tag_definitions_for_enabled_team(team_id)

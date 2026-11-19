@@ -5,14 +5,14 @@ from io import StringIO
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from products.error_tracking.backend.logic import team_flags
-from products.error_tracking.backend.logic.issue_tags import runner
+from products.error_tracking.backend.logic.issue_tags import rerun, runner
 from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
 from products.error_tracking.backend.logic.issue_tags.registry import (
     IssueTagDefinition,
@@ -26,7 +26,12 @@ from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTa
 from products.error_tracking.backend.logic.rules import compile_filter_bytecode
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 from products.event_definitions.backend.models import PropertyDefinition, PropertyType
-from products.ml_inference.backend.facade.contracts import DecisionGatewayError, DecisionResult, NoulAnswer
+from products.ml_inference.backend.facade.contracts import (
+    DecisionGatewayError,
+    DecisionGatewayUnreachableError,
+    DecisionResult,
+    NoulAnswer,
+)
 
 Source = ErrorTrackingIssueTag.Source
 
@@ -63,6 +68,7 @@ STACK_TRACE: dict[str, object] = {
         }
     ]
 }
+JEV_ANSWER = DecisionResult(model="jevk5-0.2", answers={"cause_in_trace": NoulAnswer(probability=0.9)}, input_tokens=1)
 
 
 def _row(source: Source, *, question_version: int, model: str | None) -> ErrorTrackingIssueTag:
@@ -103,6 +109,7 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
         }
         self.rule = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
             team=self.team,
+            key="paid_plan",
             label="Paid plan",
             filters=filters,
             bytecode=compile_filter_bytecode(self.team.id, filters),
@@ -154,56 +161,63 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
             self._exception(issue, {"plan": "paid"}, at=issue.created_at - timedelta(seconds=5))
         flush_persons_and_events()
 
-        result = self._rerun(limit=2)
+        with patch.object(rerun, "BATCH_SIZE", 1):
+            result = self._rerun(limit=2)
 
         assert result == IssueTaggerRerun(selected=2, ran=2, skipped=0, failed=0)
         assert {issue_id for issue_id, *_ in self._labels()} == {issues[1].id, issues[2].id}
 
     @parameterized.expand(
         [
-            ("rate_limited_then_answers", [DecisionGatewayError(429, "slow down")], True, (1, 0)),
-            ("rate_limited_on_every_attempt", [DecisionGatewayError(429, "slow down")] * 3, False, (0, 1)),
-            ("rejected", [DecisionGatewayError(422, "bad request")], False, (0, 1)),
+            ("rate_limited_then_answers", [DecisionGatewayError(429, "slow down")], True),
+            ("rate_limited_on_every_attempt", [DecisionGatewayError(429, "slow down")] * 3, False),
+            ("gateway_error_then_answers", [DecisionGatewayError(503, "unavailable")], True),
+            ("unreachable_then_answers", [DecisionGatewayUnreachableError("timeout")], True),
+            ("rejected", [DecisionGatewayError(422, "bad request")], False),
         ]
     )
     def test_retries_jev_while_the_model_is_unavailable(
-        self, _name: str, errors: list[Exception], labelled: bool, ran_failed: tuple[int, int]
+        self, _name: str, errors: list[Exception], answered: bool
     ) -> None:
         issue = self._issue(days_ago=1)
         self._exception(issue, STACK_TRACE, at=issue.created_at - timedelta(seconds=5))
         flush_persons_and_events()
-        answer = DecisionResult(
-            model="jevk5-0.2", answers={"cause_in_trace": NoulAnswer(probability=0.9)}, input_tokens=1
-        )
 
-        with patch(DECIDE, side_effect=[*errors, answer]), patch(SLEEP):
+        with patch(DECIDE, side_effect=[*errors, JEV_ANSWER]), patch(SLEEP):
             result = self._rerun()
 
-        assert result == IssueTaggerRerun(selected=1, ran=ran_failed[0], skipped=0, failed=ran_failed[1])
-        assert [key for _, key, *_ in self._labels()] == (["cause_in_trace"] if labelled else [])
+        assert result == IssueTaggerRerun(selected=1, ran=int(answered), skipped=0, failed=int(not answered))
+        assert [key for _, key, *_ in self._labels()] == (["cause_in_trace"] if answered else [])
 
     @parameterized.expand(
-        [("rule_tagger_only", Source.RULE, None, False), ("jev_tag_only", None, "cause_in_trace", True)]
+        [
+            ("rule_tagger_only", Source.RULE, None, ["paid_plan", "paid_plan_copy"]),
+            ("jev_tag_only", None, "cause_in_trace", ["cause_in_trace"]),
+            ("one_rule_tag_only", None, "paid_plan", ["paid_plan"]),
+        ]
     )
     def test_a_rerun_limited_to_a_tagger_or_a_tag_runs_nothing_else(
-        self, _name: str, source: Source | None, key: str | None, jev_labels: bool
+        self, _name: str, source: Source | None, key: str | None, labels: list[str]
     ) -> None:
+        ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
+            team=self.team,
+            key="paid_plan_copy",
+            label="Paid plan copy",
+            filters=self.rule.filters,
+            bytecode=self.rule.bytecode,
+            order_key=2,
+        )
         issue = self._issue(days_ago=1)
         self._exception(issue, {**STACK_TRACE, "plan": "paid"}, at=issue.created_at - timedelta(seconds=5))
         flush_persons_and_events()
-        answer = DecisionResult(
-            model="jevk5-0.2", answers={"cause_in_trace": NoulAnswer(probability=0.9)}, input_tokens=1
-        )
-        taggers = tuple(tagger for tagger in runner.TAGGERS if source in (None, tagger.source))
+        taggers = tuple(tagger for tagger in runner.TAGGERS if source is None or tagger.source == source)
 
-        with patch(DECIDE, return_value=answer) as decide:
-            result = rerun_issue_taggers(
-                self.team.id, days=7, taggers=taggers, keys=None if key is None else [key], limit=10, dry_run=False
-            )
+        with patch(DECIDE, return_value=JEV_ANSWER) as decide:
+            result = self._rerun(taggers=taggers, keys=None if key is None else [key])
 
         assert result == IssueTaggerRerun(selected=1, ran=1, skipped=0, failed=0)
-        assert [key for _, key, *_ in self._labels()] == ["cause_in_trace" if jev_labels else self.rule.key]
-        assert decide.called is jev_labels
+        assert [label_key for _, label_key, *_ in self._labels()] == labels
+        assert decide.called is ("cause_in_trace" in labels)
 
     def test_the_command_skips_a_team_with_issue_tags_off_and_reads_nothing(self) -> None:
         self._issue(days_ago=1)
@@ -217,10 +231,28 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
 
         assert stdout.getvalue() == f"Issue tags are off for team {self.team.id}, so nothing ran.\n"
 
+    def test_the_command_rejects_a_tag_that_no_selected_tagger_answers(self) -> None:
+        with self.assertRaisesMessage(CommandError, "cause_in_trace"):
+            call_command(
+                "rerun_error_tracking_issue_taggers",
+                "--team-id",
+                str(self.team.id),
+                "--tagger",
+                "rule",
+                "--tag",
+                "cause_in_trace",
+                stdout=StringIO(),
+            )
+
     def _rerun(
-        self, *, limit: int = 100, dry_run: bool = False, taggers: tuple[Tagger, ...] = runner.TAGGERS
+        self,
+        *,
+        limit: int = 100,
+        dry_run: bool = False,
+        taggers: tuple[Tagger, ...] = runner.TAGGERS,
+        keys: list[str] | None = None,
     ) -> IssueTaggerRerun | IssueTaggingSkipReason:
-        return rerun_issue_taggers(self.team.id, days=7, taggers=taggers, keys=None, limit=limit, dry_run=dry_run)
+        return rerun_issue_taggers(self.team.id, days=7, taggers=taggers, keys=keys, limit=limit, dry_run=dry_run)
 
     def _issue(
         self, *, days_ago: int, status: ErrorTrackingIssue.Status = ErrorTrackingIssue.Status.ACTIVE

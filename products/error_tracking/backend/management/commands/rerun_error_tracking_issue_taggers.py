@@ -19,9 +19,6 @@ from django.core.management.base import BaseCommand, CommandError
 from products.error_tracking.backend.logic.issue_tags.rerun import IssueTaggerRerun, rerun_issue_taggers
 from products.error_tracking.backend.logic.issue_tags.runner import TAGGERS, IssueTaggingSkipReason
 
-DEFAULT_DAYS = 7
-DEFAULT_LIMIT = 1000
-
 
 class Command(BaseCommand):
     help = "Re-run the error tracking issue taggers on a team's recent active issues."
@@ -31,8 +28,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--days",
             type=int,
-            default=DEFAULT_DAYS,
-            help=f"Re-run issues created in this many days (default: {DEFAULT_DAYS}).",
+            default=7,
+            help="Re-run issues created in this many days (default: %(default)s).",
         )
         parser.add_argument(
             "--tagger",
@@ -48,8 +45,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--limit",
             type=int,
-            default=DEFAULT_LIMIT,
-            help=f"Re-run at most this many issues, newest first (default: {DEFAULT_LIMIT}).",
+            default=1000,
+            help="Re-run at most this many issues, newest first (default: %(default)s).",
         )
         parser.add_argument("--dry-run", action="store_true", help="Count the issues to re-run, and write nothing.")
 

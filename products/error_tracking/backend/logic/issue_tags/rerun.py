@@ -5,6 +5,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -66,7 +67,8 @@ class IssueTaggerRerun:
     # The issues with a tag to re-run, up to the limit. A dry run counts them and runs nothing.
     selected: int
     ran: int
-    # No first event in ClickHouse, or the issue merged away during the run.
+    # No first event in ClickHouse, or run_issue_taggers skipped the issue: it merged away, or no selected tagger
+    # applies to it any more.
     skipped: int
     # A tagger still failed after the retries.
     failed: int
@@ -104,12 +106,11 @@ def rerun_issue_taggers(
     except Team.DoesNotExist:
         return IssueTaggingSkipReason.TEAM_MISSING
     applicable = applicable_taggers(team_id, taggers, keys)
-    if keys is not None:
-        unanswered = set(keys) - {definition.key for _, definitions in applicable for definition in definitions}
-        if unanswered:
-            raise ValueError(f"no selected tagger answers the issue tags {sorted(unanswered)} for team {team_id}")
+    answered = {definition.key for _, definitions in applicable for definition in definitions}
+    if keys is not None and (unanswered := set(keys) - answered):
+        raise ValueError(f"no selected tagger answers the issue tags {sorted(unanswered)} for team {team_id}")
 
-    stale = _stale_issues(team, applicable, since=timezone.now() - timedelta(days=days), limit=limit)
+    stale = _stale_issues(team, applicable, answered, since=timezone.now() - timedelta(days=days), limit=limit)
     if dry_run:
         return IssueTaggerRerun(selected=len(stale), ran=0, skipped=0, failed=0)
 
@@ -125,6 +126,9 @@ def rerun_issue_taggers(
                 continue
             result = _run_with_retries(team_id, issue, properties)
             if isinstance(result, IssueTaggingSkipReason):
+                logger.info(
+                    "error_tracking_issue_tagger_rerun_skipped", team_id=team_id, issue_id=str(issue.id), reason=result
+                )
                 skipped += 1
             elif any(run.error is not None for run in result):
                 _log_failures(team_id, issue, result)
@@ -146,30 +150,32 @@ def _needs_rerun(source: Source, definition: IssueTagDefinition, row: ErrorTrack
         return False
     if row.source != source:
         return True
-    model = str(definition.tagger_config(RuleTaggerConfig).rule_id) if source == Source.RULE else None
-    return row.question_version != definition.question_version or (model is not None and row.model != model)
+    return row.question_version != definition.question_version or (
+        source == Source.RULE and row.model != str(definition.tagger_config(RuleTaggerConfig).rule_id)
+    )
 
 
 def _stale_issues(
     team: Team,
     applicable: Sequence[tuple[Tagger, tuple[IssueTagDefinition, ...]]],
+    keys: Collection[str],
     *,
     since: datetime,
     limit: int,
 ) -> list[_StaleIssue]:
-    keys = {definition.key for _, definitions in applicable for definition in definitions}
     if not keys:
         return []
-    issues = (
-        ErrorTrackingIssue.objects.filter(
-            team_id=team.id, status=ErrorTrackingIssue.Status.ACTIVE, created_at__gte=since
-        )
-        .order_by("-created_at")
-        .values_list("id", "created_at")
-    )
+    issues = ErrorTrackingIssue.objects.filter(
+        team_id=team.id, status=ErrorTrackingIssue.Status.ACTIVE, created_at__gte=since
+    ).order_by("-created_at", "-id")
     tags = ErrorTrackingIssueTag.objects.for_team(team.parent_team_id or team.id, canonical=True)
     stale: list[_StaleIssue] = []
-    for batch in itertools.batched(issues.iterator(chunk_size=BATCH_SIZE), BATCH_SIZE, strict=False):
+    page = issues
+    # Page by keyset, not iterator(), which reads the whole result into memory when pgbouncer turns off server-side
+    # cursors.
+    while batch := list(page.values_list("id", "created_at")[:BATCH_SIZE]):
+        last_id, last_created_at = batch[-1]
+        page = issues.filter(Q(created_at__lt=last_created_at) | Q(created_at=last_created_at, id__lt=last_id))
         rows = tags.filter(issue_id__in=[issue_id for issue_id, _ in batch], key__in=keys)
         stored = {
             (row.issue_id, row.key): row for row in rows.only("issue_id", "key", "source", "question_version", "model")
@@ -224,19 +230,16 @@ def _first_exception_events(team: Team, issues: Sequence[_StaleIssue]) -> dict[U
 def _run_with_retries(
     team_id: int, issue: _StaleIssue, properties: dict[str, object]
 ) -> tuple[TaggerRun, ...] | IssueTaggingSkipReason:
-    result = _run(team_id, issue, properties)
-    for delay in RETRY_DELAYS:
-        if isinstance(result, IssueTaggingSkipReason) or not any(_model_unavailable(run.error) for run in result):
-            break
+    delays = iter(RETRY_DELAYS)
+    while True:
+        result = run_issue_taggers(team_id, issue.id, lambda team: properties, taggers=issue.taggers, keys=issue.keys)
+        if (
+            isinstance(result, IssueTaggingSkipReason)
+            or not any(_model_unavailable(run.error) for run in result)
+            or (delay := next(delays, None)) is None
+        ):
+            return result
         time.sleep(delay.total_seconds())
-        result = _run(team_id, issue, properties)
-    return result
-
-
-def _run(
-    team_id: int, issue: _StaleIssue, properties: dict[str, object]
-) -> tuple[TaggerRun, ...] | IssueTaggingSkipReason:
-    return run_issue_taggers(team_id, issue.id, lambda team: properties, taggers=issue.taggers, keys=issue.keys)
 
 
 def _model_unavailable(error: Exception | None) -> bool:
