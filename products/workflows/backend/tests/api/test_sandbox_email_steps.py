@@ -251,12 +251,40 @@ class TestSandboxEmailSteps(APIBaseTest):
             ("live_on_a_hog_sandbox_step", "active", [_sandbox_step(templating="hog")], ["test_sender_live"], True),
             ("draft_on_the_sandbox_sender", "draft", [_sandbox_step()], [], False),
             ("live_on_an_own_sender", "active", [_own_email_step(sender_id=1)], [], False),
+            (
+                "live_on_an_own_sender_with_a_staged_test_sender_step",
+                "active",
+                [_own_email_step(sender_id=1)],
+                [],
+                False,
+                [_sandbox_step()],
+            ),
+            (
+                "live_on_the_sandbox_sender_with_a_staged_switch",
+                "active",
+                [_sandbox_step()],
+                ["test_sender_live"],
+                False,
+                [_own_email_step(sender_id=1)],
+            ),
         ]
     )
     def test_a_stored_workflow_carries_its_warnings_in_detail_and_list(
-        self, _name: str, status: str, steps: list[dict[str, Any]], expected: list[str], names_hog_steps: bool
+        self,
+        _name: str,
+        status: str,
+        steps: list[dict[str, Any]],
+        expected: list[str],
+        names_hog_steps: bool,
+        staged: list[dict[str, Any]] | None = None,
     ) -> None:
-        flow = HogFlow.objects.create(team=self.team, name="Flow", status=status, actions=[_trigger(), *steps])
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Flow",
+            status=status,
+            actions=[_trigger(), *steps],
+            draft={"actions": [_trigger(), *staged]} if staged else None,
+        )
 
         detail = self.client.get(self._url(str(flow.id))).json()
         listed = self.client.get(self._url()).json()["results"][0]
