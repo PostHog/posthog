@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
+import { randomUUID } from 'crypto'
 import { once } from 'events'
 import fs, {
     appendFileSync,
@@ -56,7 +57,9 @@ import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
 import { seedBacklog } from '../backlog/backlog'
 import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
-import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
+import { FakeCloud } from '../cloud/fake-cloud'
+import { pinClockAfterMinuteStart } from '../cloud/fixtures'
+import { Environment, RoleExit, createEnvironment, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
@@ -979,6 +982,7 @@ describe('runner through seed, drive and judge', () => {
 
     afterEach(async () => {
         jest.restoreAllMocks()
+        jest.useRealTimers()
         try {
             await cleanUp()
         } finally {
@@ -1492,6 +1496,49 @@ describe('runner through seed, drive and judge', () => {
             statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
             timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: 'pg.failover runs only on a run host' }],
         })
+    }, 30_000)
+
+    it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+        pinClockAfterMinuteStart()
+        const cloud = new FakeCloud({
+            now: () => new Date(),
+            failover: { takesMs: 20 },
+            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
+            shortValuesOf: 'Maximum',
+        })
+        const { manifest } = cloud.runCluster(randomUUID())
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
+        const host = createEnvironment({
+            aws: cloud,
+            failover: {
+                identity: () => Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
+            },
+        })
+        const onHost: Environment = { ...environmentOf('all'), actuate: (action) => host.actuate(action) }
+
+        const result = await createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            {
+                topologyWithinMs: 1000,
+                topologyEveryMs: 10,
+            }
+        ).run(shortSmoke([{ ...failover, at: '1s', for: '500ms' }]), NEVER_ABORTED)
+        results.push(result)
+
+        const refusal = expect.stringMatching(
+            /^pg\.failover refused: .*-reader's capacity read has \d+ timestamps and \d+ values/
+        )
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringMatching(/^pg\.failover on cyclotron was not observed: pg\.failover refused: /),
+            timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: refusal }],
+        })
+        expect(result.timeline[0]).not.toHaveProperty('intentAt')
+        expect(cloud.promotions).toEqual([])
+        expect(cloud.writerOf(manifest.stackName)).toBe(`${manifest.stackName}-writer`)
     }, 30_000)
 
     it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
