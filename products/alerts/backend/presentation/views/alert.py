@@ -1250,8 +1250,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # the copy's write, because the platform locks a copy before this lock.
         self._recheck_real_time_limit(instance, edit.previous)
 
-        _show_platform_status([instance], now=timezone.now())
-        _show_platform_subscribers([instance])
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
@@ -1318,8 +1316,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 actor_id=self.context["request"].user.id,
                 was_impersonated=is_impersonated(self.context["request"]),
             )
-        _show_platform_status([updated], now=timezone.now())
-        _show_platform_subscribers([updated])
         updated.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
@@ -2372,7 +2368,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(alert, data=request.data, partial=kwargs.get("partial", False))
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(self.get_serializer(serializer.instance).data)
+        updated = cast(AlertConfiguration, serializer.instance)
+        if updated.platform_owned:
+            # After the update's transaction, so a slow history read never holds the alert's locks.
+            _show_platform_status([updated], now=timezone.now())
+            _show_platform_subscribers([updated])
+        return Response(self.get_serializer(updated).data)
 
     def _alert_or_native(self) -> AlertConfiguration:
         """The alert under the URL's id: its insight row, or the platform's alert with no insight row."""
