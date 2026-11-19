@@ -102,6 +102,10 @@ from products.metrics.backend.metric_query_runner import (
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.precompute.fill import (
+    fill_precomputed_metrics as _fill_precomputed_metrics,
+    teams_with_precomputed_metrics as _teams_with_precomputed_metrics,
+)
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -1277,3 +1281,13 @@ def update_recording_rule(
 def delete_recording_rule(*, team: Team, rule_id: str) -> None:
     """Raises `RecordingRuleNotFound`."""
     recording_rule_logic.delete_rule(team.id, rule_id)
+
+
+def fill_precomputed_metrics(*, team_id: int) -> None:
+    """One pass of the fill loop over a team's precomputed metrics: forward, a day of backfill, retention."""
+    _fill_precomputed_metrics(team_id)
+
+
+def teams_with_precomputed_metrics() -> list[int]:
+    """The teams with at least one active precomputed metric, for the fill schedule."""
+    return _teams_with_precomputed_metrics()

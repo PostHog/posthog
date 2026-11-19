@@ -790,19 +790,26 @@ class MetricQueryRunner:
 
     def _run_histogram_quantile(self) -> list[dict[str, Any]]:
         """Calculate quantiles from the distributions that ClickHouse sums."""
-        assert self.quantile is not None
-        query = self._build_histogram_query()
+        return self.quantile_rows(self.histogram_rows())
+
+    def histogram_rows(self) -> list[Any]:
+        """The summed distributions, one row per (time, *group labels, bounds, metric type):
+        `(time, *group labels, bounds, counts, series_fingerprints, metric_type)`."""
         response = execute_hogql_query(
             query_type="MetricQuery",
-            query=query,
+            query=self._build_histogram_query(),
             team=self.team,
             workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
+        return response.results
 
+    def quantile_rows(self, results: list[Any]) -> list[dict[str, Any]]:
+        """Bucketed quantile rows from rows shaped like `histogram_rows`."""
+        assert self.quantile is not None
         rows: list[dict[str, Any]] = []
-        for key, merged in self.merged_distributions(response.results).items():
+        for key, merged in self.merged_distributions(results).items():
             bounds, counts = merged.bounds, merged.counts
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
