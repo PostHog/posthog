@@ -76,6 +76,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
     credentials_service,
     source_helpers,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.async_job import (
+    AsyncJobFailedError,
+    AsyncJobTimeoutError,
+    JobStatus,
+    poll_until_done,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     UNVERSIONED_API_VERSION,
@@ -102,8 +108,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.cur
     SourceCursorManager,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
+    DatetimeStyle,
+    EpochUnit,
+    coerce_date,
     coerce_datetime_to_utc,
+    format_datetime,
+    from_epoch,
+    parse_datetime_or_epoch,
     parse_datetime_value,
+    to_epoch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
     DeadlineExceededError,
@@ -138,12 +151,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
+    NETWORK_ERRORS,
+    RetryableHTTPError,
+    is_retryable_status,
     make_tracked_adapter,
     make_tracked_session,
+    parse_retry_after,
+    raise_for_retryable_status,
+    raise_for_status_redacted,
     request_deadline,
     retry_with_deadline,
     stop_at_request_deadline,
     suspend_adapter_retries,
+    vendor_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
@@ -156,7 +176,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import (
     redact_literal_values,
+    safe_url,
     scrub_url,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.incremental_start import (
+    resolve_incremental_start,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
@@ -321,6 +345,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.row_shaping import (
+    camel_to_snake,
+    flatten_jsonapi,
+    flatten_nested,
+    lift_nested,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     UNKNOWN_RESOURCE_PREFIX,
@@ -386,6 +416,8 @@ __all__ = [
     "AZURE_EXAMPLE_URL",
     "AnsiIdentifierQuoter",
     "ApiKeyAuthConfig",
+    "AsyncJobFailedError",
+    "AsyncJobTimeoutError",
     "AuthConfig",
     "AuthConfigBase",
     "AzureBlobConfig",
@@ -412,6 +444,7 @@ __all__ = [
     "DEFAULT_RETRY",
     "DELIMITER_ERROR",
     "DataWarehouseSourceCategory",
+    "DatetimeStyle",
     "DeadlineExceededError",
     "DependentEndpointConfig",
     "DiscoveryOptions",
@@ -419,6 +452,7 @@ __all__ = [
     "EXCEL_ERROR",
     "Endpoint",
     "EndpointResource",
+    "EpochUnit",
     "ExcelFileError",
     "ExternalDataSchema",
     "ExternalDataSchemaSyncType",
@@ -458,12 +492,14 @@ __all__ = [
     "JSONResponseCursorPaginator",
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
+    "JobStatus",
     "KEYWORDS",
     "LegacyOAuthGrant",
     "LegacyOAuthGrantUnusable",
     "MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP",
     "MAX_EXCEL_FILE_BYTES",
     "MetaAdsIntegration",
+    "NETWORK_ERRORS",
     "NOT_A_DATABRICKS_HOST_MESSAGE",
     "NOT_DETECTABLE",
     "NO_RETRY",
@@ -502,6 +538,7 @@ __all__ = [
     "ResumableSource",
     "ResumableSourceManager",
     "ResumeHook",
+    "RetryableHTTPError",
     "RowFilterColumn",
     "S3_EXAMPLE_URL",
     "SCHEMA_RESOURCE_ID_METADATA_KEY",
@@ -569,7 +606,9 @@ __all__ = [
     "build_endpoint_schemas",
     "build_incremental_fields",
     "cache_for",
+    "camel_to_snake",
     "capture_exception",
+    "coerce_date",
     "coerce_datetime_to_utc",
     "config",
     "connect",
@@ -583,6 +622,10 @@ __all__ = [
     "file_option_fields",
     "filter_integration_accounts",
     "find_values",
+    "flatten_jsonapi",
+    "flatten_nested",
+    "format_datetime",
+    "from_epoch",
     "from_private_key",
     "frozen",
     "get_dlt_mapping_for_external_table",
@@ -592,12 +635,14 @@ __all__ = [
     "is_cloud",
     "is_databricks_workspace_host",
     "is_format_inferable",
+    "is_retryable_status",
     "is_team_allowlisted_for_internal_hosts",
     "is_transient_egress_proxy_error",
     "is_url_allowed",
     "iter_file_rows",
     "iter_parent_pages_from_warehouse",
     "iter_worksheet_rows",
+    "lift_nested",
     "list_worksheets",
     "log_connection_open",
     "lookup_s3_bucket_region",
@@ -611,12 +656,17 @@ __all__ = [
     "normalize_namespace",
     "parent_snapshot_covers_through",
     "parse_azure_url",
+    "parse_datetime_or_epoch",
     "parse_datetime_value",
     "parse_gcs_url",
     "parse_r2_url",
+    "parse_retry_after",
     "parse_s3_url",
     "pinned_connect_host",
+    "poll_until_done",
     "probe_status_message",
+    "raise_for_retryable_status",
+    "raise_for_status_redacted",
     "rank_incremental_fields",
     "reach_safe_point",
     "redact_literal_values",
@@ -626,6 +676,7 @@ __all__ = [
     "request_deadline",
     "required_parents_from_endpoint_configs",
     "resolve_file_format",
+    "resolve_incremental_start",
     "resolve_merge_keys",
     "resolve_request_url",
     "resolve_safe_host",
@@ -635,6 +686,7 @@ __all__ = [
     "rest_api_resources",
     "retry_with_deadline",
     "run_with_deadline",
+    "safe_url",
     "salesforce_refresh_access_token",
     "schema_for_resource",
     "scrub_url",
@@ -651,6 +703,7 @@ __all__ = [
     "suspend_adapter_retries",
     "table_root_of_url",
     "text_field",
+    "to_epoch",
     "tracked_interceptors",
     "try_resolve_parent_table",
     "unbracket_host",
@@ -658,4 +711,5 @@ __all__ = [
     "update_sync_type_config_keys",
     "url_field",
     "validate_via_probe",
+    "vendor_retry",
 ]

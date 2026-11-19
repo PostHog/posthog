@@ -81,6 +81,7 @@ const endpointRow = (
         p95_ms: p95Ms,
         span_count: spanCount,
         error_count: errorCount,
+        apdex: 0.94,
     },
 })
 
@@ -121,6 +122,7 @@ const meta: Meta = {
                                     p95_ms: 186,
                                     span_count: 11_210,
                                     error_count: 145,
+                                    apdex: 0.91,
                                 },
                                 sparkline: REQUESTS,
                             },

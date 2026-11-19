@@ -57,6 +57,12 @@ export const toolErrorsTotal = new Counter({
     labelNames: ['tool', 'error_type'] as const,
 })
 
+export const posthogCaptureEventsLostTotal = new Counter({
+    name: 'mcp_posthog_capture_events_lost_total',
+    help: "Events the server's PostHog client could not deliver, by capture endpoint and reason.",
+    labelNames: ['endpoint', 'reason'] as const,
+})
+
 export const redisOperationsTotal = new Counter({
     name: 'mcp_redis_operations_total',
     help: 'Redis cache and connection operations by outcome.',

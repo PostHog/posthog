@@ -172,8 +172,7 @@ def _observe_cdp_call(seconds: float) -> None:
 
 SANDBOX_FIELDS_UNSUPPORTED = (
     "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
-    "can't send `cc`, `bcc`, `reply_to`, `attachments` or a custom `from`. Remove those fields, or verify a sending "
-    "domain at {setup_url}."
+    "can't send `cc`, `bcc` or `attachments`. Remove those fields, or verify a sending domain at {setup_url}."
 )
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
@@ -228,9 +227,9 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 
 SANDBOX_SENDER_KIND = "email_sandbox"
 SANDBOX_SENDER_WARNING = (
-    "This email went out from PostHog's sandbox sender, because this project has no verified sending domain. The "
-    "sandbox sender only sends to members of your organization. Verify a sending domain to send to anyone from your "
-    "own address."
+    "This email went out from the PostHog test sender, because this project has no verified sending domain. The "
+    "PostHog test sender only sends to members of your organization. Verify a sending domain to send to anyone from "
+    "your own address."
 )
 
 FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
@@ -664,7 +663,7 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
     }
     if email.sensitive is not None:
         accepted["sensitive"] = email.sensitive
-    if email.reply_to:
+    if email.reply_to and sandbox_warning is None:
         accepted["replyTo"] = list(email.reply_to)
     if email.cc:
         accepted["cc"] = list(email.cc)
@@ -714,19 +713,19 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
             raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
         sandbox_sender_id = provision_sandbox_sender(team, None).id
         logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id, key=email.key)
-        return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(team.id)
+        return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(
+            team.id, _fields_the_sandbox_ignores(email)
+        )
     return {"integrationId": sender_id, "email": address, "name": name}, None
 
 
 def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
-    fields = {
-        "cc": email.cc,
-        "bcc": email.bcc,
-        "reply_to": email.reply_to,
-        "attachments": email.attachments,
-        "from": email.sender,
-    }
+    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments}
     return next((field for field, value in fields.items() if value), None)
+
+
+def _fields_the_sandbox_ignores(email: CodeEmail) -> tuple[str, ...]:
+    return tuple(field for field, value in (("from", email.sender), ("reply_to", email.reply_to)) if value)
 
 
 def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
@@ -839,7 +838,7 @@ def _explanation(answer: dict[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _sandbox_sender_warning(team_id: int) -> SendWarning:
+def _sandbox_sender_warning(team_id: int, ignored: tuple[str, ...]) -> SendWarning:
     setup = sending_domain_setup(team_id)
     if setup.unverified_sender_id is None:
         agent_action = (
@@ -854,9 +853,15 @@ def _sandbox_sender_warning(team_id: int) -> SendWarning:
             f"integrations-email-status-retrieve for integration {setup.unverified_sender_id} to get the DNS records "
             "to publish."
         )
+    message = SANDBOX_SENDER_WARNING
+    if ignored:
+        names = " and ".join(f"`{field}`" for field in ignored)
+        ignored_note = f" PostHog ignored {names}, because the PostHog test sender only sends from its own address."
+        message += ignored_note
+        agent_action += ignored_note
     return SendWarning(
         code=SendWarningCode.SANDBOX_SENDER,
-        message=SANDBOX_SENDER_WARNING,
+        message=message,
         setup_url=setup.setup_url,
         agent_action=agent_action,
     )

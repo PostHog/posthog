@@ -19,7 +19,7 @@ export function DeploymentsTab(): JSX.Element {
     const { setDeploymentsService, requestReload } = useActions(deploymentsLogic)
     const servicesFailed = hasLoadError && !deploymentsService
     const servicesPending = servicesHealthLoading && !deploymentsService
-    let emptyState = 'No versions in this time range. Set service.version on your spans to see deployments.'
+    let emptyState: React.ReactNode = <NoVersionsEmptyState />
     if (servicesFailed) {
         emptyState = "Couldn't load services."
     } else if (servicesPending) {
@@ -52,7 +52,9 @@ export function DeploymentsTab(): JSX.Element {
                     data-attr="apm-deployments-service"
                 />
                 <span className="text-xs text-secondary">
-                    One row per service.version seen in the time range. Changes compare with the version before it.
+                    {deployments?.version_source === 'k8s.replicaset.name'
+                        ? 'Versions from Kubernetes replica sets, because these spans have no service.version. Changes compare with the version before it.'
+                        : 'One row per service.version seen in the time range. Changes compare with the version before it.'}
                 </span>
             </div>
             <DeploymentVersionsTable
@@ -61,6 +63,19 @@ export function DeploymentsTab(): JSX.Element {
                 emptyState={emptyState}
                 dataAttr="apm-deployments-table"
             />
+        </div>
+    )
+}
+
+function NoVersionsEmptyState(): JSX.Element {
+    return (
+        <div className="flex flex-col items-center gap-1 text-center">
+            <span>No versions in this time range.</span>
+            <span className="text-secondary">
+                Versions come from the service.version resource attribute, or from k8s.replicaset.name on Kubernetes. To
+                set service.version, add it to your OpenTelemetry resource attributes:
+            </span>
+            <code className="font-mono text-xs">OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2</code>
         </div>
     )
 }

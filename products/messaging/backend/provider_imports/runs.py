@@ -25,15 +25,18 @@ from products.messaging.backend.models.provider_import_run import (
     ProviderImportStatus,
 )
 from products.messaging.backend.provider_imports.base import (
+    ImportAccessLost,
     ImportContext,
     ImportItem,
     ImportPage,
     ImportProvider,
+    ImportStepBlocked,
     ImportStepError,
     StepCheckpoint,
 )
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
+from products.workflows.backend.facade.api import can_edit_workflows
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +134,12 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         created_by_id=run.created_by_id,
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
+        steps=tuple(run.steps),
     )
     try:
+        _check_required_steps(provider, run, step)
         for page in provider.run_step(step, context, claim.checkpoint):
+            _check_creator_access(team_id, run.created_by_id)
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
                 return
@@ -149,6 +155,28 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         except (StaleImportAttempt, ImportRunClosed):
             pass
         raise
+
+
+def _check_creator_access(team_id: int, created_by_id: int | None) -> None:
+    # The run writes in the background, so the person who started it may have lost access since.
+    if not can_edit_workflows(team_id=team_id, user_id=created_by_id):
+        raise ImportAccessLost(
+            "The person who started this import can't edit workflows in this project anymore, so it stopped."
+        )
+
+
+def _check_required_steps(provider: ImportProvider, run: ProviderImportRun, step: str) -> None:
+    spec = next((spec for spec in provider.steps if spec.key == step), None)
+    labels = {spec.key: spec.label for spec in provider.steps}
+    missing = [
+        labels.get(required, required)
+        for required in (spec.requires if spec else ())
+        if required in run.steps and run.progress.get(required, {}).get("status") != ImportStepStatus.COMPLETED.value
+    ]
+    if missing:
+        raise ImportStepBlocked(
+            f"This step waits for {', '.join(missing)}, which didn't finish. Import again once it has."
+        )
 
 
 def finish_run(team_id: int, run_id: UUID) -> None:
@@ -189,6 +217,11 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
         raise InvalidImportSteps(f"{provider.label} has no step named {', '.join(unknown)}.")
     if not steps:
         raise InvalidImportSteps("Select at least one thing to import.")
+    labels = {spec.key: spec.label for spec in provider.steps}
+    for spec in provider.steps:
+        missing = [labels[key] for key in spec.needs if key not in steps]
+        if spec.key in steps and missing:
+            raise InvalidImportSteps(f"{spec.label} needs {', '.join(missing)} selected too.")
     return [key for key in known if key in steps]
 
 

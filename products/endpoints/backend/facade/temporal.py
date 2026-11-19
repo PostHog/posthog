@@ -8,7 +8,12 @@ completion/failure. Heavy imports (HogQL) ride along, same as the direct
 imports they replace — keep this module off config-only import paths.
 """
 
+from posthog.temporal.common.registration import TemporalRegistration
+
 from products.endpoints.backend.logic.materialization import prepare_executable_query
 from products.endpoints.backend.rate_limit import update_materialization_ready_for_saved_query
 
 __all__ = ["prepare_executable_query", "update_materialization_ready_for_saved_query"]
+
+# Endpoints hosts no workflow or schedule of its own: the data-modeling workflow calls the hooks above.
+TEMPORAL = TemporalRegistration()

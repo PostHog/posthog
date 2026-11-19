@@ -3359,7 +3359,7 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "True while this workflow's email is paused because its spam complaint or hard bounce rate "
-            "crossed a threshold. Other workflows in the project keep sending."
+            "crossed a threshold."
         ),
     )
     email_sending_paused_at = serializers.DateTimeField(

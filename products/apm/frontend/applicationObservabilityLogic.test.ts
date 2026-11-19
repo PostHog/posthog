@@ -25,7 +25,7 @@ const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'cri
     service_name,
     environment: 'prod',
     status,
-    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0 },
+    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0, apdex: 1 },
     sparkline: [1],
 })
 
@@ -47,7 +47,7 @@ const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
             route: null,
             environment: 'prod',
             status: 'serious',
-            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },
+            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1, apdex: 0.5 },
         },
     ],
     environment: 'prod',
@@ -189,6 +189,24 @@ describe('applicationObservabilityLogic', () => {
         router.actions.push(APPLICATION_OBSERVABILITY_PATH, { range: 'yesterday' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.timeRange).toBe('-1h')
+    })
+
+    it.each([
+        ['the dependencies tab starts on the last 15 minutes', { tab: 'dependencies' }, '-15m'],
+        ['a range picked on the dependencies tab wins over its default', { tab: 'dependencies', range: '-1h' }, '-1h'],
+    ])('%s', async (_name, params, expected) => {
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, params)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.timeRange).toBe(expected)
+    })
+
+    it('keeps a URL range equal to the services default when switching to dependencies', async () => {
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { range: '-1h' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTab('dependencies')
+        expect(logic.values.timeRange).toBe('-1h')
+        expect(router.values.searchParams).toMatchObject({ tab: 'dependencies', range: '-1h' })
     })
 
     it('ignores an inherited-property range value in the URL', async () => {
@@ -434,6 +452,19 @@ describe('applicationObservabilityLogic', () => {
             expect(endpointRequests[endpointRequests.length - 1]).not.toContain('service=')
             // The service filter only narrows endpoints, so service health must not reload with it.
             expect(requests.length).toBe(servicesRequestsBefore)
+        })
+
+        it('reloads service health when opening endpoints moves the window off the dependencies default', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'dependencies' })
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(logic.values.timeRange).toBe('-15m')
+            const servicesRequestsBefore = requests.length
+
+            logic.actions.showServiceEndpoints('web')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(logic.values.timeRange).toBe('-1h')
+            expect(requests.length).toBe(servicesRequestsBefore + 1)
         })
 
         it('loads the map for the environment and lays out every service node', async () => {
