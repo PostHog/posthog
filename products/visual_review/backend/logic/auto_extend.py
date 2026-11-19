@@ -188,6 +188,9 @@ def _recent_renders(run: Run, default_branch: str, due: list[_ActiveQuarantine])
 def _extend(run: Run, entry: _ActiveQuarantine, reason: str, now: datetime) -> bool:
     """Replace the quarantine with an automatic one. False when somebody changed it after the read."""
     with transaction.atomic(using=WRITER_DB):
+        # `quarantine_identifier` locks the source run before the quarantine rows. Taking the run first here
+        # too keeps one lock order, so this cannot deadlock with a manual quarantine of the same story.
+        Run.objects.using(WRITER_DB).select_for_update().filter(id=run.id, team_id=run.team_id).exists()
         # A person who lifted or replaced the quarantine since the read changed its expiry. Their choice wins.
         unchanged = (
             QuarantinedIdentifier.objects.using(WRITER_DB)
