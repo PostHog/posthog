@@ -30,10 +30,14 @@ const endpointRow = (
     errorRate: number,
     p95Ms: number,
     spanCount: number,
-    errorCount: number
+    errorCount: number,
+    route: string | null = null
 ): Record<string, unknown> => ({
     service_name: 'checkout',
-    endpoint,
+    endpoint: route ? `${endpoint} ${route}` : endpoint,
+    span_name: endpoint,
+    route_attribute: route ? 'http.route' : null,
+    route,
     environment: 'production',
     status,
     health: {
@@ -94,9 +98,10 @@ const meta: Meta = {
                         environment: 'production',
                         environments: ['production', 'staging'],
                         results: [
-                            endpointRow('POST /api/checkout', 'serious', 1.42, 0.019, 282, 5_120, 96),
+                            endpointRow('POST', 'serious', 1.42, 0.019, 282, 5_120, 96, '/api/checkout'),
                             endpointRow('GET /api/cart', 'good', 1.17, 0.0074, 77, 4_210, 31),
                             endpointRow('POST /api/cart/items', 'good', 0.4, 0.0084, 99, 1_430, 12),
+                            endpointRow('DELETE', 'good', 0.02, 0, 41, 72, 0, '/api/cart/items/:id'),
                         ],
                     },
                 ],
