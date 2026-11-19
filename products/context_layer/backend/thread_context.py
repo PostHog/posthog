@@ -49,16 +49,19 @@ def split_thread_context(text: str) -> SplitPrompt:
     mentioner = ""
     rest = text
     while True:
-        opened = [(rest.find(f"<{tag}>"), tag) for tag in THREAD_CONTEXT_TAGS]
+        # A real opening tag ends its line. A tag named in header prose or forged in a display name does
+        # not, because display names cannot hold a newline.
+        opened = [(rest.find(f"<{tag}>\n"), tag) for tag in THREAD_CONTEXT_TAGS]
         found = [(start, tag) for start, tag in opened if start >= 0]
         if not found:
             break
         start, tag = min(found)
         closing = f"</{tag}>"
-        # Message bodies arrive with these tags stripped, but display names do not, so a forged tag can
-        # only come before the real one.
-        end = rest.rfind(closing)
-        if end < start:
+        # Message bodies arrive with these tags stripped, but display names do not, so a forged closing
+        # tag can only come before the real one, which is the last before the next block opens.
+        later = [i for i in (rest.find(f"<{other}>\n", start + 1) for other in THREAD_CONTEXT_TAGS) if i >= 0]
+        end = rest.rfind(closing, start, min(later, default=len(rest)))
+        if end < 0:
             break
         block_mentioner, messages = _thread_messages(rest[start + len(tag) + 2 : end])
         mentioner = mentioner or block_mentioner
