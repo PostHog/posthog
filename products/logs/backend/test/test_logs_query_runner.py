@@ -668,6 +668,31 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(response.json()["attr"], "limit")
 
+    @parameterized.expand(
+        [
+            ("count", "count", {}),
+            ("sparkline", "sparkline", {}),
+            ("facet_values", "facet_values", {"facetField": "service_name"}),
+            ("impact", "impact", {}),
+            ("count_ranges", "count-ranges", {}),
+            ("patterns", "patterns", {}),
+            ("patterns_diff", "patterns_diff", {}),
+            ("group_by", "group-by", {"groupBy": "service_name"}),
+        ]
+    )
+    def test_logs_rejects_a_message_regex_that_re2_cannot_compile(self, _name: str, action: str, extra: dict) -> None:
+        self.client.raise_request_exception = False
+        message_filter = {"key": "message", "type": "log", "operator": "regex", "value": "(?=.*a)"}
+        with patch("posthog.exceptions.capture_exception") as mock_capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/{action}",
+                data={"query": {"dateRange": {"date_from": "-1h"}, "filterGroup": [message_filter], **extra}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("Invalid regular expression", response.json()["error"])
+        mock_capture.assert_not_called()
+
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest
