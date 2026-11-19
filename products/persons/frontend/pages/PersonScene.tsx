@@ -28,6 +28,7 @@ import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getEuUserId, getUserAdminUrl } from 'lib/utils/userAdmin'
+import { flagCallsOnlyInFlagEvaluations } from 'scenes/feature-flags/flagEvaluationsTable'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -40,6 +41,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -60,6 +62,7 @@ import { MergeSplitPerson } from '../components/MergeSplitPerson'
 import { PersonCohorts } from '../components/PersonCohorts'
 import { PersonDeleteModal } from '../components/PersonDeleteModal'
 import { PersonEmailsTab } from '../components/PersonEmailsTab'
+import { PersonFlagCallsTab } from '../components/PersonFlagCallsTab'
 import { PersonLogsTab } from '../components/PersonLogsTab'
 import PersonProfileCanvas from '../components/PersonProfileCanvas'
 import { PersonPushNotificationsTab } from '../components/PersonPushNotificationsTab'
@@ -264,6 +267,7 @@ export function PersonScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
+                nameAction={<TodayScenePinButton />}
                 name={asDisplay(person, undefined, true)}
                 resourceType={{
                     type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
@@ -415,6 +419,13 @@ export function PersonScene(): JSX.Element | null {
                             />
                         ),
                     },
+                    flagCallsOnlyInFlagEvaluations(currentTeam)
+                        ? {
+                              key: PersonsTabType.FLAG_CALLS,
+                              label: <span data-attr="persons-flag-calls-tab">Flag calls</span>,
+                              content: <PersonFlagCallsTab />,
+                          }
+                        : false,
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
                         label: <span data-attr="person-session-recordings-tab">Recordings</span>,

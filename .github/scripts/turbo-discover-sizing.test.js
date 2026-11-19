@@ -174,9 +174,16 @@ test('a product holding one test is never split', () => {
 })
 
 test('a heavy test between light ones splits the light run', () => {
-    // Ordered [53, 301, 133] against a 320s budget: either contiguous cut leaves a
-    // 354s or 434s chunk, so two shards cannot hold the budget however it is cut.
-    assert.equal(productSplitShards({ work: 487, heavyCount: 1, lightWork: 186, maxLight: 133, testCount: 3 }), 3)
+    // Ordered [first, heavy, last] against the budget: either contiguous cut leaves a
+    // chunk past the budget, so two shards cannot hold it however it is cut.
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const [first, heavy, last] = [0.15, 0.9, 0.4].map((share) => Math.round(budget * share))
+    assert.ok(first + heavy > budget && heavy + last > budget)
+
+    assert.equal(
+        productSplitShards({ work: first + heavy + last, heavyCount: 1, lightWork: first + last, maxLight: last, testCount: 3 }),
+        3
+    )
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
@@ -197,13 +204,15 @@ test('a product that fits one shard is packed, not split by its own margin', () 
 })
 
 test("a split product's last shard absorbs a small product without leaking split flags", () => {
+    const testCount = Math.floor((TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS) / 30) + 1
     const union = {}
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < testCount; i++) {
         union[`products/big_one/backend/test_${i}.py::test_${i}`] = 30
     }
     union['products/small_one/backend/test_s.py::test_s'] = 40
 
-    assert.equal(productSplitShards({ work: 330, heavyCount: 0, lightWork: 330, maxLight: 30, testCount: 11 }), 2)
+    const work = testCount * 30
+    assert.equal(productSplitShards({ work, heavyCount: 0, lightWork: work, maxLight: 30, testCount }), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 

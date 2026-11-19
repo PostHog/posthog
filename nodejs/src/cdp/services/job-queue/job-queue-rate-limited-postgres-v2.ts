@@ -1,3 +1,6 @@
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { PluginsServerConfig } from '~/types'
+
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2BatchLimit, CyclotronV2RateLimitedWorker, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
@@ -76,5 +79,25 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
             return { limit: 0, sleepMs: this.rateLimit.throttledPollDelayMs }
         }
         return { limit: granted }
+    }
+}
+
+export const SES_GLOBAL_BUCKET_KEY = '@posthog/ses/global'
+
+export function sesRateLimitedQueueOptions(
+    config: Pick<
+        PluginsServerConfig,
+        | 'CDP_SES_RATE_LIMIT_CAPACITY'
+        | 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND'
+        | 'CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS'
+    >,
+    sesValkey: RedisV2
+): RateLimitedQueueOptions {
+    return {
+        limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+        key: SES_GLOBAL_BUCKET_KEY,
+        capacity: config.CDP_SES_RATE_LIMIT_CAPACITY,
+        refillPerSecond: config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+        throttledPollDelayMs: config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
     }
 }

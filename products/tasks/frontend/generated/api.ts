@@ -1226,6 +1226,25 @@ export const tasksArtifactsList = async (
     })
 }
 
+export const getTasksCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/close/`
+}
+
+/**
+ * Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task to keep working on it.
+ * @summary Close a task
+ */
+export const tasksCloseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksCommentsListUrl = (projectId: string, id: string, params?: TasksCommentsListParams) => {
     const normalizedParams = new URLSearchParams()
 

@@ -24,6 +24,7 @@ import numpy as np
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_clustering.aggregates import aggregate_evaluation_metrics
@@ -56,18 +57,21 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.ai_observability.backend.facade.clustering_runtime import EVALUATION_LOOKBACK_DAYS, require_current_job
+
 logger = structlog.get_logger(__name__)
 
 
 # ---- Activity input/output dataclasses ----
 
 
-@dataclass
+@frozen
 class EvaluationClusteringComputeInputs:
     team_id: int
     job_id: str
     job_name: str
     max_samples: int = CLUSTERING_MAX_SAMPLES
+    job_scope: str = ""
     embedding_normalization: str = "l2"
     dimensionality_reduction_method: str = "umap"
     dimensionality_reduction_ndims: int = trace_constants.DEFAULT_UMAP_N_COMPONENTS
@@ -114,7 +118,7 @@ class FetchEvaluationMetadataResult:
     metadata: dict[str, EvaluationMetadata]
 
 
-@dataclass
+@frozen
 class GenerateEvaluationLabelsInputs:
     team_id: int
     eval_ids: list[str]
@@ -131,6 +135,7 @@ class GenerateEvaluationLabelsInputs:
     session_id: str = ""
     clustering_run_id: str = ""
     clustering_job_id: str = ""
+    job_scope: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -155,7 +160,7 @@ class ComputeEvaluationAggregatesInputs:
     eval_metadata: dict[str, EvaluationMetadata]
 
 
-@dataclass
+@frozen
 class EmitEvaluationClusterEventsInputs:
     team_id: int
     clustering_run_id: str
@@ -172,6 +177,7 @@ class EmitEvaluationClusterEventsInputs:
     clustering_params: ClusteringParams | None = None
     job_id: str = ""
     job_name: str = ""
+    job_scope: str = ""
     cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
 
 
@@ -232,9 +238,11 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
 
     # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
     except Team.DoesNotExist:
-        logger.info("Team not found, skipping eval clustering run", team_id=inputs.team_id, job_id=inputs.job_id)
+        logger.info("Team not eligible for clustering, skipping eval run", team_id=inputs.team_id, job_id=inputs.job_id)
         return EvaluationClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             eval_ids=[],
@@ -243,7 +251,7 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
             distances=[],
             coords_2d=[],
             centroid_coords_2d=[],
-            skip_reason="team_not_found",
+            skip_reason="team_not_eligible",
         )
 
     # Bound the random embedding sample to the same window Stage B's metadata
@@ -253,10 +261,12 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
     embeddings_window_end = window_end_dt
     embeddings_window_start = window_start_dt
 
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     eval_ids, embeddings_map = fetch_evaluation_embeddings(
         team=team,
         job_id=inputs.job_id,
         max_samples=inputs.max_samples,
+        job_scope=job_scope,
         window_start=embeddings_window_start,
         window_end=embeddings_window_end,
     )
@@ -368,6 +378,7 @@ async def fetch_evaluation_metadata_activity(
 
 
 def _label_sync(inputs: GenerateEvaluationLabelsInputs) -> GenerateEvaluationLabelsOutputs:
+    require_current_job(inputs.team_id, inputs.clustering_job_id, inputs.job_scope)
     items = _items_from_eval_ids(inputs.eval_ids, inputs.eval_metadata)
     labels = generate_evaluation_cluster_labels(
         team_id=inputs.team_id,
@@ -411,6 +422,7 @@ async def compute_evaluation_cluster_aggregates_activity(
 
 
 def _emit_sync(inputs: EmitEvaluationClusterEventsInputs) -> ClusteringResult:
+    require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     # Build cluster items using the metadata join so each member carries the
     # real target_trace_id — without this, frontend navigation fall-backs
     # (scatter plot clicks, list-item links before the summary resolves) would
@@ -522,4 +534,4 @@ def compute_item_labeling_metadata(compute_result: EvaluationClusteringComputeRe
 # Metadata-query window: eval embeddings accumulated over ~24h, so the metadata
 # fetch needs a slightly wider window than the Stage A sampler window. Using 3
 # days from now buys extra safety for late-arriving evals.
-METADATA_LOOKBACK = timedelta(days=3)
+METADATA_LOOKBACK = timedelta(days=EVALUATION_LOOKBACK_DAYS)

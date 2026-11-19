@@ -197,6 +197,8 @@ Top-level sections:
 | `overrides`       | The keys a folder file may override, and each key's ceiling               |
 | `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
 | `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
+| `attestations`    | Optional CI checks that may lift deny categories for the files they prove |
+| `bot_authors`     | Optional bots whose PRs the hosted server may admit, by login and id      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
@@ -379,6 +381,12 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
+A category's `match.edit_paths` patterns deny like `match.paths`, except for a file whose change only adds lines: a modified or new file with no deleted line.
+A rename, a copy, a deletion, a type change or a binary file always matches.
+A file that only `edit_paths` let through still gets an agent review, so it never rides the allow-list to a T0 approval.
+That PR's ownership is read at the merge base, so a rule it adds cannot make its author an owner of the code it changes.
+The deny-list gate message names the files that matched each category, so a refused author knows which change to look at.
+
 Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
 
 A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
@@ -406,6 +414,11 @@ If a check that could lift every deny hasn't reported yet, `review_local.py` ret
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
 
+A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
+The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
+That gate refuses the PR unless an attestation that declares `publisher_files` proved every file in it, because a bot carries no author trust for a file no such check covers.
+A pending attestation of that kind makes the gate wait like a deny.
+
 ### Ownership
 
 Ownership context for the LLM, not a hard gate.
@@ -413,6 +426,7 @@ The sources are declared in `policy.yml` under `ownership:` and read from the ch
 A file's owning teams are the union across all sources.
 A repo that vendors this directory does not need to vendor the resolver as well: add a pinned `owners-yaml` from PyPI to the script dependencies of `review_pr.py`.
 Pin the version, because a new release can change how paths resolve.
+A PR that only adds lines to an ownership file has its ownership read at the merge base, which needs an `owners-yaml` release newer than 0.3.0. With 0.3.0 that PR's review gets no ownership context, and every other review works as before.
 In this monorepo and in the review sandbox, the engine uses the resolver that ships beside it, so the two always match.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.

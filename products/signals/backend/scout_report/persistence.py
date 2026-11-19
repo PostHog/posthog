@@ -89,7 +89,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_tags import set_report_tags
-from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, contains_reviewer
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.source_issues import append_source_issues
@@ -290,9 +290,10 @@ def create_scout_report(
 
     report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
     try:
         with transaction.atomic():
-            report = SignalReport.objects.create(
+            report = SignalReport(
                 id=report_id,
                 team_id=team_id,
                 self_driving_funding=direct_report_funding_snapshot(team_id),
@@ -314,6 +315,10 @@ def create_scout_report(
                     timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
                 ),
             )
+            if emit_signals:
+                # The backing signals reach ClickHouse after this commit, so the ready event cannot read their source yet.
+                report._known_source_products = [source_product]  # type: ignore[attr-defined]
+            report.save(force_insert=True)
             report_id = str(report.id)
             _apply_report_tags(report, tags)
             # Provenance: every authored report carries a note marking it scout-authored, attributed to
@@ -432,7 +437,6 @@ def create_scout_report(
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
         skill_name = run.skill_name if run is not None else None
-        source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
                 team_id=team_id,
@@ -1428,6 +1432,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
             "source_skill": entry.source_skill,
+            # The supplied entry's own value, which is False for a fresh scout pick. A stored entry sent
+            # back unchanged (`add_scout_report_reviewers`) keeps the flags that bar it from the
+            # autostart identity.
+            "is_research_selected": entry.is_research_selected,
+            "is_default_owner": entry.is_default_owner,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))
@@ -1499,6 +1508,45 @@ def set_scout_report_reviewers(
             )
         )
     return True
+
+
+def add_scout_report_reviewers(
+    *,
+    team_id: int,
+    report_id: str,
+    additions: Sequence[SuggestedReviewerEntry],
+    max_reviewers: int,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+    service: ReviewerRules | None = None,
+) -> bool:
+    """Add reviewers the report does not hold yet after its current ones, up to `max_reviewers`.
+
+    The current list is read under the report lock and sent back as the expected state, so the write
+    goes through the report's saved reviewer corrections like any scout selection: a person's removal
+    or confirmed list still wins. A report whose stored reviewers are invalid is left for a person.
+    """
+    _validate_report_id(report_id)
+    service = service or ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    with transaction.atomic():
+        SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+        snapshot = service.read()
+        if snapshot.invalid_reviewers:
+            return False
+        current = snapshot.reviewers
+        room = max(0, max_reviewers - len(current))
+        added = [entry for entry in additions if not contains_reviewer(current, entry)][:room]
+        if not added:
+            return False
+        return set_scout_report_reviewers(
+            team_id=team_id,
+            report_id=report_id,
+            suggested_reviewers=SuggestedReviewers(root=[*current, *added]),
+            attribution=attribution,
+            author=author,
+            proposal=ReviewerProposal(expected_state=snapshot.state, source="scout_edit"),
+            service=service,
+        )
 
 
 def set_scout_report_repository(

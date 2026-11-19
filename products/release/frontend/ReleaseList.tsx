@@ -1,11 +1,13 @@
-import type { ColumnDef } from '@tanstack/react-table'
-import { useValues } from 'kea'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo, useState } from 'react'
 
 import { IconFlag } from '@posthog/icons'
-import { Badge, Button, Card, DataTable, Skeleton, Text } from '@posthog/quill'
+import { Badge, Button, Card, DataTable, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -17,15 +19,36 @@ import { ReleaseAutoImport } from './ReleaseAutoImport'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
 import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
 import { releaseImportLogic } from './releaseImportLogic'
+import { ReleaseListSkeleton } from './ReleaseListSkeleton'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
+import { ReleaseMergeDialog } from './ReleaseMergeDialog'
+import { releaseMergeLogic } from './releaseMergeLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
+import { ReleaseSelectionBar } from './ReleaseSelectionBar'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
+import { useInfiniteRows } from './useInfiniteRows'
 
 export const scene: SceneExport = {
     component: ReleaseList,
     logic: releaseLogic,
+}
+
+function ReleaseNameLink({ row }: { row: ReleaseRow }): JSX.Element {
+    return (
+        <Button
+            variant="link-foreground"
+            size="sm"
+            nativeButton={false}
+            left
+            render={<LinkPrimitive to={urls.release(row.id)} />}
+            className="min-w-0 max-w-full"
+            data-attr="release-table-name"
+        >
+            <span className="truncate">{row.name}</span>
+        </Button>
+    )
 }
 
 const COLUMNS: ColumnDef<ReleaseRow>[] = [
@@ -37,17 +60,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
         meta: { expand: true },
         cell: ({ row }) => (
             <div className="flex min-w-0 flex-col items-start">
-                <Button
-                    variant="link-foreground"
-                    size="sm"
-                    nativeButton={false}
-                    left
-                    render={<LinkPrimitive to={urls.release(row.original.id)} />}
-                    className="min-w-0 max-w-full"
-                    data-attr="release-table-name"
-                >
-                    <span className="truncate">{row.original.name}</span>
-                </Button>
+                <ReleaseNameLink row={row.original} />
                 <Text size="xs" variant="muted" className="px-2">
                     {row.original.status}
                 </Text>
@@ -120,9 +133,79 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
     },
 ]
 
+function sortValue(row: ReleaseRow, columnId: string): string {
+    const column = COLUMNS.find((item) => item.id === columnId)
+    if (column && 'accessorFn' in column && column.accessorFn) {
+        return String(column.accessorFn(row, 0) ?? '')
+    }
+    if (column && 'accessorKey' in column && column.accessorKey) {
+        return String(row[column.accessorKey as keyof ReleaseRow] ?? '')
+    }
+    return ''
+}
+
+function sortRows(rows: ReleaseRow[], sorting: SortingState): ReleaseRow[] {
+    if (!sorting.length) {
+        return rows
+    }
+    return [...rows].sort((a, b) => {
+        for (const sort of sorting) {
+            const order = sortValue(a, sort.id).localeCompare(sortValue(b, sort.id), undefined, { numeric: true })
+            if (order) {
+                return sort.desc ? -order : order
+            }
+        }
+        return 0
+    })
+}
+
+const NARROW_WIDTH = 640
+
+const SELECTION_COLUMN_WIDTH = 40
+
+function narrowColumns(width: number, selectable: boolean): ColumnDef<ReleaseRow>[] {
+    const nameWidth = width - 26 - (selectable ? SELECTION_COLUMN_WIDTH : 0)
+    return [
+        {
+            id: 'name',
+            header: 'Release',
+            accessorKey: 'name',
+            meta: { expand: true },
+            cell: ({ row }) => (
+                <div className="flex min-w-0 items-center gap-3" style={{ width: nameWidth }}>
+                    <div className="flex min-w-0 flex-1 flex-col items-start">
+                        <ReleaseNameLink row={row.original} />
+                        <Text size="xs" variant="muted" className="w-full truncate px-2">
+                            {row.original.audience
+                                ? `${row.original.status} · ${row.original.audience}`
+                                : row.original.status}
+                        </Text>
+                    </div>
+                    <Badge variant={STAGE_TONE[row.original.stage]} className="shrink-0">
+                        {STAGE_LABEL[row.original.stage]}
+                    </Badge>
+                </div>
+            ),
+        },
+    ]
+}
+
 function ReleaseListContent(): JSX.Element {
-    const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
+    const { filteredRows, dataLoading, loadFailed, releases, canEditReleases } = useValues(releaseLogic)
+    const { selection, selectionDisabledReason } = useValues(releaseMergeLogic)
+    const { setSelection } = useActions(releaseMergeLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
+    const narrow = width > 0 && width < NARROW_WIDTH
+    const columns = useMemo(
+        () => (narrow ? narrowColumns(width, canEditReleases) : COLUMNS),
+        [narrow, width, canEditReleases]
+    )
+    const [sorting, setSorting] = useState<SortingState>([])
+    const sortedRows = useMemo(() => sortRows(filteredRows, sorting), [filteredRows, sorting])
+    const { visible, sentinel } = useInfiniteRows(sortedRows.length)
+    const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible])
 
     return (
         <SceneContent>
@@ -136,8 +219,9 @@ function ReleaseListContent(): JSX.Element {
                     </div>
                 }
             />
-            <div data-quill className="flex flex-col gap-3">
+            <div data-quill className="flex flex-col gap-3" ref={setContainer}>
                 {!showAutoImport && <ReleaseFilters />}
+                <ReleaseSelectionBar />
                 <ReleasePartialLoadWarning />
                 <ReleaseImportFailedNotice />
                 {loadFailed ? (
@@ -145,15 +229,23 @@ function ReleaseListContent(): JSX.Element {
                 ) : showAutoImport ? (
                     <ReleaseAutoImport />
                 ) : dataLoading && !filteredRows.length ? (
-                    <Skeleton className="h-64 w-full" />
+                    <ReleaseListSkeleton />
                 ) : (
                     <Card size="sm" flush className="pt-0" data-attr="release-table">
                         <DataTable
-                            columns={COLUMNS}
-                            pageSize={50}
-                            data={filteredRows}
+                            key={narrow ? 'narrow' : 'wide'}
+                            columns={columns}
+                            data={shownRows}
+                            sorting={sorting}
+                            onSortingChange={setSorting}
                             fullWidth
                             size="sm"
+                            selectable={canEditReleases}
+                            rowSelection={selection}
+                            onRowSelectionChange={setSelection}
+                            getRowId={(row) => row.id}
+                            rowSelectionLabel={(row) => `Select ${row.name}`}
+                            rowSelectionDisabledReason={(row) => selectionDisabledReason(row.id)}
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
                             empty={
                                 <Text size="xs" variant="muted">
@@ -163,9 +255,11 @@ function ReleaseListContent(): JSX.Element {
                                 </Text>
                             }
                         />
+                        {visible < filteredRows.length && <div ref={sentinel} />}
                     </Card>
                 )}
                 <NewReleaseDialog />
+                <ReleaseMergeDialog />
             </div>
         </SceneContent>
     )

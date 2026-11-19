@@ -199,6 +199,36 @@ def test_reconciliation_fails_expired_run(team, user) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("idle_for", "expected_status"),
+    [
+        (timedelta(hours=25), WizardRunStatus.FAILED),
+        (timedelta(hours=23), WizardRunStatus.RUNNING),
+    ],
+)
+def test_reconciliation_expires_local_run_that_stopped_reporting(
+    team, user, idle_for: timedelta, expected_status: WizardRunStatus
+) -> None:
+    run = _create_cloud_run(
+        team.id,
+        user.id,
+        environment=WizardRunEnvironment.LOCAL.value,
+        workspace_type=WizardWorkspaceType.LOCAL_FOLDER.value,
+        workspace={"project_name": "example"},
+        status=WizardRunStatus.RUNNING.value,
+        dispatch_status=None,
+        deadline_at=None,
+    )
+    WizardRun.objects.for_team(team.id).filter(id=run.id).update(updated_at=timezone.now() - idle_for)
+
+    reconciliation.reconcile_expired_runs()
+
+    run.refresh_from_db()
+    assert run.status == expected_status.value
+    assert run.error_code == (WizardRunErrorCode.TIMEOUT.value if expected_status == WizardRunStatus.FAILED else None)
+
+
+@pytest.mark.django_db
 def test_reconciliation_destroys_orphaned_active_worker(team, user) -> None:
     run = _create_cloud_run(team.id, user.id, status=WizardRunStatus.COMPLETED.value)
     worker = WizardWorker.objects.for_team(team.id).create(

@@ -27,6 +27,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models import OAuthApplication, Organization, User
+from posthog.models.github_integration_base import PullRequestCiStatus
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -84,6 +85,7 @@ from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_repository import INBOX_REPOSITORY_REASON
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.serializers import ReportMetricListSerializer
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
@@ -110,6 +112,10 @@ from products.tasks.backend.facade.repo_selection_types import RepoSelectionResu
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
+
+
+def _ci_status(ci_status: str) -> PullRequestCiStatus:
+    return PullRequestCiStatus(ci_status=ci_status, has_conflict=False)
 
 
 def authenticate_as_sandbox_token(test: APIBaseTest, *, scopes: list[str] | None = None) -> None:
@@ -1135,14 +1141,14 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("min_lift", {"ranking_min_lift": "fix:2"}, ["high"]),
-            ("min_lift_on_two_heads", {"ranking_min_lift": "fix:1.5,open:1.5"}, ["mid"]),
-            ("min_probability", {"ranking_min_probability": "fix:0.3"}, ["high", "mid"]),
-            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fix:2,fix:1"}, ["high"]),
+            ("min_lift", {"ranking_min_lift": "fix:2"}, ["high", "stale"]),
+            ("min_lift_on_two_heads", {"ranking_min_lift": "fix:1.5,open:1.5"}, ["mid", "stale"]),
+            ("min_probability", {"ranking_min_probability": "fix:0.3"}, ["high", "mid", "stale"]),
+            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fix:2,fix:1"}, ["high", "stale"]),
             (
                 "repeated_head_probability_keeps_the_strictest",
                 {"ranking_min_probability": "fix:0.5,fix:0.2"},
-                ["high"],
+                ["high", "stale"],
             ),
         ]
     )
@@ -1311,7 +1317,9 @@ class TestSignalReportListAPI(APIBaseTest):
             ("naive_vector_time_reads_as_not_stale", datetime(2026, 9, 20, 11, 0), 13, False),
         ]
     )
-    def test_ranking_score_is_stale_after_a_newer_edit(self, _name, embedding_inserted_at, edit_hour, expected_stale):
+    def test_ranking_score_is_marked_stale_after_a_newer_edit_and_still_sorts(
+        self, _name, embedding_inserted_at, edit_hour, expected_stale
+    ):
         self.user.is_staff = True
         self.user.save()
         edited = self._create_report(title="Edited")
@@ -1342,9 +1350,7 @@ class TestSignalReportListAPI(APIBaseTest):
         by_id = {row["id"]: row for row in rows}
         assert by_id[str(edited.id)]["ranking"]["status"] == ("stale" if expected_stale else "scored")
         assert by_id[str(other.id)]["ranking"]["status"] == "scored"
-        ids = [row["id"] for row in rows]
-        expected_order = [str(other.id), str(edited.id)] if expected_stale else [str(edited.id), str(other.id)]
-        assert ids == expected_order
+        assert [row["id"] for row in rows] == [str(edited.id), str(other.id)]
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{edited.id}/")
         assert response.status_code == status.HTTP_200_OK
@@ -2025,10 +2031,10 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["ranker"] == "action"
         assert body["ranking_pill"] is True
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
+            (str(stale_p0.id), pytest.approx(1 - 0.9876)),
             (str(high_p3.id), pytest.approx(1 - 0.8765)),
             (str(close_score_p0.id), pytest.approx(1 - 0.8123)),
             (str(low_p0.id), pytest.approx(1 - 0.1234)),
-            (str(stale_p0.id), 2),
             (str(unscored_p1.id), 3),
         ]
         assert all(r["ranking"]["status"] == "not_available" for r in body["results"])
@@ -5635,6 +5641,105 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not report.artefacts.exists()
 
+    @parameterized.expand(
+        [
+            ("agent_named_a_repository", "acme/website", True),
+            ("agent_found_no_repository", None, False),
+        ]
+    )
+    def test_repository_edit_appends_attributed_selection_and_keeps_research_context(
+        self, _name: str, previous_repository: str | None, expected_autostart_eligible: bool
+    ) -> None:
+        report = self._create_report()
+        previous = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(
+                repository=previous_repository,
+                reason="Stack trace paths match this repository.",
+                research_context={"mode": "code", "repository_status": "available"},
+                autostart_eligible=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._url(str(report.id)) + "repository/"
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            response = self.client.put(url, {"repository": "Acme/Checkout"}, format="json")
+            repeat = self.client.put(url, {"repository": "acme/checkout"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["repo_slug"] == "acme/checkout"
+        assert body["decisions"]["repository"]["value"] == "acme/checkout"
+        assert body["decisions"]["repository"]["reason"] == INBOX_REPOSITORY_REASON
+        assert body["decisions"]["repository"]["set_by"]["kind"] == "user"
+        assert body["decisions"]["repository"]["set_by"]["user"]["id"] == self.user.id
+        assert repeat.status_code == status.HTTP_200_OK
+        first, correction = report.artefacts.filter(type="repo_selection").order_by("created_at")
+        assert first.id == previous.id
+        assert correction.created_by_id == self.user.id
+        assert RepoSelectionResult.model_validate_json(correction.content).model_dump(exclude={"reason"}) == {
+            "repository": "acme/checkout",
+            "research_context": {"mode": "code", "repository_status": "available"},
+            "task_id": None,
+            "autostart_eligible": expected_autostart_eligible,
+        }
+
+    @parameterized.expand(
+        [
+            ("unreachable", "acme/other"),
+            ("not_owner_repo", "checkout"),
+            ("blank", ""),
+        ]
+    )
+    def test_repository_edit_rejects_repositories_the_integration_cannot_use(self, _name: str, repository: str) -> None:
+        report = self._create_report()
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/checkout"],
+        ):
+            response = self.client.put(
+                self._url(str(report.id)) + "repository/", {"repository": repository}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "repository"
+        assert not report.artefacts.exists()
+
+    def test_retrieve_returns_decisions_with_reason_and_setter_but_list_does_not(self) -> None:
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PriorityAssessment(priority=ReportPriority.P1, explanation="Breaks checkout for many users."),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(
+                {"actionability": "made_up", "already_addressed": True, "explanation": "A fix PR is open."}
+            ),
+            actor_kind="user",
+            created_by=self.user,
+        )
+
+        decisions = self.client.get(self._url(str(report.id))).json()["decisions"]
+
+        assert decisions["repository"] is None
+        assert decisions["priority"]["value"] == "P1"
+        assert decisions["priority"]["reason"] == "Breaks checkout for many users."
+        assert decisions["priority"]["set_by"] == {"kind": "system", "user": None, "agent": None, "task_id": None}
+        assert decisions["actionability"]["value"] is None
+        assert decisions["already_addressed"]["value"] is True
+        assert decisions["already_addressed"]["reason"] == "A fix PR is open."
+        assert decisions["already_addressed"]["set_by"]["user"]["id"] == self.user.id
+        listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/").json()["results"]
+        assert next(row for row in listed if row["id"] == str(report.id))["decisions"] is None
+
     def test_priority_edit_cannot_write_to_another_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
         report = self._create_report(team=other_team)
@@ -5888,7 +5993,11 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         ).json()["pull_requests"]
         selected = next(pr for pr in linked if pr["url"].endswith("/2"))
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository") as integration:
-            integration.return_value.get_pull_request_checks.return_value = {"success": True, "checks": []}
+            integration.return_value.get_pull_request_checks.return_value = {
+                "success": True,
+                "checks": [],
+                "has_conflict": False,
+            }
             response = self.client.get(f"{self._checks_url(str(report.id))}?pull_request_id={selected['id']}")
             assert response.status_code == 200
             integration.return_value.get_pull_request_checks.assert_called_once_with("example/sdk", 2)
@@ -6059,15 +6168,19 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
-        github.return_value.get_pull_request_checks.return_value = {"success": True, "checks": checks}
+        github.return_value.get_pull_request_checks.return_value = {
+            "success": True,
+            "checks": checks,
+            "has_conflict": True,
+        }
 
         response = self.client.get(self._checks_url(str(report.id)))
         cached_response = self.client.get(self._checks_url(str(report.id)))
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"checks": checks}
+        assert response.json() == {"checks": checks, "has_conflict": True}
         assert cached_response.status_code == status.HTTP_200_OK
-        assert cached_response.json() == {"checks": checks}
+        assert cached_response.json() == {"checks": checks, "has_conflict": True}
         assert github.return_value.get_pull_request_checks.call_args.args == ("PostHog/posthog", 7)
         github.return_value.get_pull_request_checks.assert_called_once()
         github.assert_called_once_with(
@@ -6079,10 +6192,10 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{endpoint}_{visibility}", url_attr, fetch_name, key, report_status, flag_enabled, expected_status)
-            for endpoint, url_attr, fetch_name, key in [
-                ("checks", "_checks_url", "get_pull_request_checks", "checks"),
-                ("comments", "_comments_url", "get_pull_request_comments", "comments"),
+            (f"{endpoint}_{visibility}", url_attr, fetch_name, body, report_status, flag_enabled, expected_status)
+            for endpoint, url_attr, fetch_name, body in [
+                ("checks", "_checks_url", "get_pull_request_checks", {"checks": [], "has_conflict": False}),
+                ("comments", "_comments_url", "get_pull_request_comments", {"comments": []}),
             ]
             for visibility, report_status, flag_enabled, expected_status in [
                 ("suppressed", SignalReport.Status.SUPPRESSED, False, status.HTTP_200_OK),
@@ -6096,7 +6209,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         _name: str,
         url_attr: str,
         fetch_name: str,
-        key: str,
+        body: dict,
         report_status: str,
         flag_enabled: bool,
         expected_status: int,
@@ -6107,12 +6220,12 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled),
         ):
             fetch = getattr(github.return_value, fetch_name)
-            fetch.return_value = {"success": True, key: []}
+            fetch.return_value = {"success": True, **body}
             response = self.client.get(getattr(self, url_attr)(str(report.id)))
 
         assert response.status_code == expected_status
         if expected_status == status.HTTP_200_OK:
-            assert response.json() == {key: []}
+            assert response.json() == body
             fetch.assert_called_once_with("PostHog/posthog", 7)
         else:
             github.assert_not_called()
@@ -6160,7 +6273,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         report = self._create_report()
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
-        comments = [
+        comments: list[dict[str, object]] = [
             {
                 "id": "1",
                 "author": "alice",
@@ -6170,6 +6283,13 @@ class TestSignalReportPrEndpoints(APIBaseTest):
                 "url": "https://gh/c/1",
                 "comment_type": "conversation",
                 "path": None,
+                "line": None,
+                "start_line": None,
+                "side": None,
+                "diff_hunk": None,
+                "in_reply_to_id": None,
+                "commit_id": None,
+                "reactions": [],
             }
         ]
         github.return_value.get_pull_request_comments.return_value = {"success": True, "comments": comments}
@@ -6245,7 +6365,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         without_pr = self._create_report("no pr")
         github = self._patch_github()
         github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: {
-            reference: ("failing" if reference.number == 7 else "passing") for reference in references
+            reference: _ci_status("failing" if reference.number == 7 else "passing") for reference in references
         }
 
         with patch(
@@ -6289,7 +6409,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         report = self._create_report("stack")
         github = self._patch_github()
         github.return_value.get_pull_request_ci_statuses.side_effect = lambda refs: {
-            ref: states[ref.number - 1] for ref in refs if states[ref.number - 1] is not None
+            ref: _ci_status(states[ref.number - 1]) for ref in refs if states[ref.number - 1] is not None
         }
         with patch(
             "products.signals.backend.views.fetch_implementation_prs_for_reports",
@@ -6312,7 +6432,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
         report = self._create_report("cached")
         github = self._patch_github()
         github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
-            references, "passing"
+            references, _ci_status("passing")
         )
 
         with patch(
@@ -6369,7 +6489,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
             calls.append(len(references))
             if len(calls) > 1:
                 raise GitHubRateLimitError("slow down")
-            return dict.fromkeys(references, "passing")
+            return dict.fromkeys(references, _ci_status("passing"))
 
         github.return_value.get_pull_request_ci_statuses.side_effect = fetch
         url = self._url([report.id for report in reports])
@@ -6382,7 +6502,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
             # The batch that never went out is not remembered as unreadable, because nothing was
             # learned about it, so it resolves as soon as GitHub answers again.
             github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
-                references, "passing"
+                references, _ci_status("passing")
             )
             second = self.client.get(url)
 
@@ -6453,7 +6573,7 @@ class TestSignalReportPrCiStatuses(APIBaseTest):
             first = self.client.get(self._url([report.id]))
             github.side_effect = None
             github.return_value.get_pull_request_ci_statuses.side_effect = lambda references: dict.fromkeys(
-                references, "passing"
+                references, _ci_status("passing")
             )
             second = self.client.get(self._url([report.id]))
 

@@ -120,8 +120,14 @@ export class TransactionClient {
 
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
+    private readonly connectionTimeoutRouters = new Map<number, PostgresRouter>()
+    private ended = false
 
-    constructor(serverConfig: PostgresRouterConfig, appName?: string) {
+    constructor(
+        private readonly serverConfig: PostgresRouterConfig,
+        private readonly appName?: string,
+        connectionTimeoutMillis?: number
+    ) {
         installPostgresTypeParsers()
 
         if (!serverConfig.DATABASE_URL) {
@@ -133,7 +139,9 @@ export class PostgresRouter {
         const commonClient = createPostgresPool(
             serverConfig.DATABASE_URL,
             serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-            app_name
+            app_name,
+            undefined,
+            connectionTimeoutMillis
         )
         logger.info('👍', `Common Postgresql ready`)
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
@@ -153,7 +161,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.DATABASE_READONLY_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Read-only common Postgresql ready`)
@@ -165,7 +175,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.PLUGIN_STORAGE_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Plugin-storage Postgresql ready`)
@@ -177,7 +189,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.PERSONS_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Persons Postgresql ready`)
@@ -193,7 +207,7 @@ export class PostgresRouter {
                     app_name,
                     undefined,
                     // A connection whose startup stalls would otherwise hold a pool slot forever.
-                    BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS
+                    connectionTimeoutMillis ?? BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS
                 )
             )
             logger.info('👍', `Behavioral cohorts Postgresql ready`)
@@ -206,7 +220,9 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.PERSONS_READONLY_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    connectionTimeoutMillis
                 )
             )
             logger.info('👍', `Persons read-only Postgresql ready`)
@@ -294,7 +310,23 @@ export class PostgresRouter {
         return await this.pools.get(usage)!.connect()
     }
 
+    public withConnectionTimeout(connectionTimeoutMillis: number): PostgresRouter {
+        if (this.ended) {
+            return this
+        }
+        let router = this.connectionTimeoutRouters.get(connectionTimeoutMillis)
+        if (!router) {
+            router = new PostgresRouter(this.serverConfig, this.appName, connectionTimeoutMillis)
+            this.connectionTimeoutRouters.set(connectionTimeoutMillis, router)
+        }
+        return router
+    }
+
     async end(): Promise<void> {
+        this.ended = true
+        for (const router of this.connectionTimeoutRouters.values()) {
+            await router.end()
+        }
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
         for (const pool of uniquePools) {

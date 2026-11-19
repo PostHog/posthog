@@ -37,7 +37,9 @@ from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
+from products.aeo.backend.facts import write_facts
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 from products.aeo.backend.temporal.brand_sentiment import start_brand_sentiment_workflow
 
 logger = structlog.get_logger(__name__)
@@ -200,7 +202,7 @@ def run_citation_checks(
         rows_written=summary.rows_written,
         write_failures=summary.write_failures,
     )
-    if record and rows_written and settings.AEO_BRAND_SENTIMENT_ENABLED:
+    if record and rows_written:
         start_brand_sentiment_workflow(canonical_team_id, run_id)
     return summary, checks
 
@@ -379,9 +381,11 @@ def _record_prompt_checks(
                     .values_list("engine", flat=True)
                 )
                 fields_per_engine = [fields for fields in fields_per_engine if fields["engine"] not in recorded]
-            AEOCitationCheck.objects.bulk_create(
+            written = AEOCitationCheck.objects.bulk_create(
                 [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
             )
+            write_facts(written)
+            bump_data_version_on_commit(canonical_team_id)
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
         return "failed"

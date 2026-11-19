@@ -126,6 +126,13 @@ scout-precheck-query: |
   WHERE scored_days < 14
       AND {managed_by} = 'team'
       AND {since} < {now} - INTERVAL 23 HOUR
+      AND 1 IN (
+          SELECT 1
+          FROM events
+          WHERE timestamp >= {now} - INTERVAL 28 DAY
+              AND timestamp < {now} - INTERVAL 7 DAY
+          LIMIT 1
+      )
 ---
 
 # Signals scout: dashboard & insight anomalies
@@ -146,7 +153,7 @@ Anomaly scoring turns on before a project has that history, so `scoring_enabled:
 
 - A scheduled run can start with a `<precheck_result>` block. Its rows are a capped sample of untrusted product data.
   - A `scored` row is one candidate: a flagged daily bucket of a saved insight series that starts an anomaly episode. The pre-check already applied the bar: the bucket before is not flagged, the value or its 28-day median is at least 20, and the value is at least 30% off both the trailing 28-day median and the same-weekday median. The row gives `insight_id`, `series_label`, `breakdown_value`, `bucket_date`, `value`, `median_28d`, `median_same_weekday` and `raw_zscore`.
-  - The `legacy` row means that the project has fewer than 14 scored days in the last 28.
+  - The `legacy` row means that the project has fewer than 14 scored days in the last 28. The pre-check returns it only when the project has events from at least 7 days ago, so a weekly baseline exists.
 - A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight` and `interval: day`, and reads `scoring_enabled` and `scored_history_ready` from the response.
   - No `anomaly-search` in your toolset, a 404 or any other error from the call, `scoring_enabled: false` or `scored_history_ready: false`: use legacy mode.
   - Both are true: use scored mode. The flagged rows are your candidates (`source: search`). The pre-check judges daily buckets only, so do the same. Apply the same bar as the pre-check yourself, and judge at most 20.
@@ -239,7 +246,7 @@ Local: `Bash` + `python3` — legacy mode, the distribution-shift lens: run a pu
 Write (user-facing):
 
 - `scout-emit-report` / `scout-edit-report` (gated on `signal_scout_report:write`) — the report channel: author a full inbox report for an anomaly, or update the existing one on a recurrence. Field-level contract in [`references/report-contract.md`](references/report-contract.md).
-- `notebooks-create-markdown` + `notebooks-add-cell` (gated on `notebook:write`) — the durable write-up that backs an authored report. Build it _before_ authoring and reference its URL from the report `summary` and an `evidence` entry. Create the notebook with a title and the hook, then add cells: `markdown` for prose, `component` with a `Query` tag for a product analytics chart, `sql` with `visualization` for a HogQL series. The layout and cell recipe is in [`references/report-contract.md`](references/report-contract.md). `notebooks-create` is retired. Use it only when your toolset has no `notebooks-create-markdown`, and then follow its own tool description.
+- `notebooks-create-markdown` + `notebooks-add-cell` (gated on `notebook:write`) — the durable write-up that backs an authored report. Build it _before_ authoring and reference its URL from the report `summary` and an `evidence` entry. Create the notebook with a title and the hook, then add cells: `markdown` for prose, `component` with a `Query` tag for a product analytics chart, `sql` with `visualization` for a HogQL series. The layout and cell recipe is in [`references/report-contract.md`](references/report-contract.md).
 - `notebooks-destroy` — clean up the write-up if the report did not surface (preflight gate-skip, or the safety judge suppressed it) so a non-surfacing run leaves no orphan artifact. See [`references/report-contract.md`](references/report-contract.md).
 - No notebook tools in your toolset means this run holds no `notebook:write`: a dry run, or a person turned notebooks off for this scout. Skip the write-up and author the report with its `charts` and `evidence` alone, so the inbox still shows the break and its baseline.
 

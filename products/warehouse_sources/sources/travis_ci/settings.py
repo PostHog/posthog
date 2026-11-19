@@ -15,6 +15,9 @@ class TravisCIEndpointConfig:
     collection_key: str
     # Iterate every accessible repository and query ``path`` once per repo.
     fan_out_over_repositories: bool = False
+    # Yield the rows nested under this key of each collection item (e.g. a build's ``jobs``)
+    # instead of the items themselves, tagged with the parent item's id as ``build_id``.
+    embedded_collection_key: Optional[str] = None
     # Extra query params sent on the first page request (``@pagination.next`` hrefs carry
     # them forward on subsequent pages).
     extra_params: dict[str, str] = field(default_factory=dict)
@@ -27,10 +30,10 @@ class TravisCIEndpointConfig:
     should_sync_default: bool = True
 
 
-# Travis CI API v3 endpoints. The API exposes no server-side timestamp filter, but list
-# endpoints accept ``sort_by`` and return monotonically increasing ids, so builds and jobs
-# sync incrementally by paginating newest-first (``sort_by=id:desc``, verified against the
-# live API) and stopping once a page reaches the last-synced id watermark.
+# Travis CI API v3 endpoints. Builds expose no server-side timestamp filter, but they accept
+# ``sort_by`` and return monotonically increasing ids, so builds, jobs and stages sync
+# incrementally by paginating newest-first (``sort_by=id:desc``, verified against the live
+# API) and stopping once a page reaches the last-synced id watermark. Requests do the same.
 TRAVIS_CI_ENDPOINTS: dict[str, TravisCIEndpointConfig] = {
     "repositories": TravisCIEndpointConfig(
         name="repositories",
@@ -63,6 +66,7 @@ TRAVIS_CI_ENDPOINTS: dict[str, TravisCIEndpointConfig] = {
         path="/repo/{repository_id}/builds",
         collection_key="builds",
         fan_out_over_repositories=True,
+        embedded_collection_key="jobs",
         # ``include=build.jobs`` promotes each build's embedded jobs to their standard
         # representation, so jobs ride the builds pagination (1 request per 100 builds)
         # instead of one request per build.
@@ -79,6 +83,52 @@ TRAVIS_CI_ENDPOINTS: dict[str, TravisCIEndpointConfig] = {
             },
         ],
         partition_key="created_at",
+    ),
+    "stages": TravisCIEndpointConfig(
+        name="stages",
+        path="/repo/{repository_id}/builds",
+        collection_key="builds",
+        fan_out_over_repositories=True,
+        # Builds already embed their stages (every documented stage attribute except the job
+        # list), so stages ride the builds pagination instead of one ``/build/{id}/stages``
+        # request per build.
+        embedded_collection_key="stages",
+        extra_params={"sort_by": "id:desc"},
+        incremental_fields=[
+            {
+                "label": "build_id",
+                "type": IncrementalFieldType.Integer,
+                "field": "build_id",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+        # Stages expose no creation timestamp (started_at resets on restart), so no partitioning.
+    ),
+    "requests": TravisCIEndpointConfig(
+        name="requests",
+        path="/repo/{repository_id}/requests",
+        collection_key="requests",
+        fan_out_over_repositories=True,
+        # The endpoint has no ``sort_by`` but always orders by id descending, and request ids are
+        # global, so it syncs incrementally the same way as builds.
+        incremental_fields=[
+            {
+                "label": "id",
+                "type": IncrementalFieldType.Integer,
+                "field": "id",
+                "field_type": IncrementalFieldType.Integer,
+            },
+        ],
+        partition_key="created_at",
+    ),
+    "crons": TravisCIEndpointConfig(
+        name="crons",
+        path="/repo/{repository_id}/crons",
+        collection_key="crons",
+        fan_out_over_repositories=True,
+        partition_key="created_at",
+        # Full refresh only, one walk per repository each sync, like branches.
+        should_sync_default=False,
     ),
     "branches": TravisCIEndpointConfig(
         name="branches",
