@@ -115,6 +115,10 @@ class HogFlowState(LabeledStrEnum):
     ARCHIVED = "archived"
 
 
+class HogFlowWarningCode(LabeledStrEnum):
+    TEST_SENDER_LIVE = "test_sender_live", "Test sender live"
+
+
 class HogFlowOriginProduct(LabeledStrEnum):
     """The product surface that owns a workflow. Null for workflows built in the workflows UI or the API."""
 

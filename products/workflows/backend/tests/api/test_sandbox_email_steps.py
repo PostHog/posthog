@@ -223,6 +223,34 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert "The PostHog test sender can't send from workflows yet" in response.json()["detail"]
         assert not HogFlow.objects.filter(status="active", actions__contains=[{"type": "email_sandbox"}]).exists()
 
+    @parameterized.expand([("create_active",), ("activate_draft",), ("publish_staged_draft",)])
+    def test_going_live_on_the_sandbox_sender_warns_the_caller(self, path: str) -> None:
+        with _flag(True), _runtime(True):
+            response = self._try_to_run(path)
+
+        assert response.status_code in (200, 201), response.json()
+        workflow = response.json().get("workflow", response.json())
+        assert [warning["code"] for warning in workflow["warnings"]] == ["test_sender_live"]
+        assert f"/project/{self.team.id}/workflows/channels/email/new" in workflow["warnings"][0]["message"]
+
+    @parameterized.expand(
+        [
+            ("live_on_the_sandbox_sender", "active", _sandbox_step(), ["test_sender_live"]),
+            ("draft_on_the_sandbox_sender", "draft", _sandbox_step(), []),
+            ("live_on_an_own_sender", "active", _own_email_step(sender_id=1), []),
+        ]
+    )
+    def test_a_stored_workflow_carries_its_warnings_in_detail_and_list(
+        self, _name: str, status: str, step: dict[str, Any], expected: list[str]
+    ) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status=status, actions=[_trigger(), step])
+
+        detail = self.client.get(self._url(str(flow.id))).json()
+        listed = self.client.get(self._url()).json()["results"][0]
+
+        assert [warning["code"] for warning in detail["warnings"]] == expected
+        assert listed["warnings"] == detail["warnings"]
+
     @parameterized.expand([("live", False), ("staged_draft", True)])
     def test_a_stored_sandbox_step_stays_editable_without_the_flag(self, _name: str, in_draft: bool) -> None:
         flow = HogFlow.objects.create(

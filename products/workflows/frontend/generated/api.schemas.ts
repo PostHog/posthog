@@ -496,6 +496,24 @@ export interface HogFlowLastRunApi {
 }
 
 /**
+ * * `test_sender_live` - Test sender live
+ */
+export type HogFlowWarningCodeEnumApi = (typeof HogFlowWarningCodeEnumApi)[keyof typeof HogFlowWarningCodeEnumApi]
+
+export const HogFlowWarningCodeEnumApi = {
+    TestSenderLive: 'test_sender_live',
+} as const
+
+export interface HogFlowWarningApi {
+    /** test_sender_live: the workflow is enabled and an email step sends from the PostHog test sender, so its emails reach only verified members of the organization.
+     *
+     * * `test_sender_live` - Test sender live */
+    readonly code: HogFlowWarningCodeEnumApi
+    /** What to tell the user, with the link that fixes it. */
+    readonly message: string
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface HogFlowMinimalApi {
@@ -541,6 +559,8 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly suggestions_enabled: boolean | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -851,6 +871,8 @@ export interface HogFlowApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -960,6 +982,8 @@ export interface HogFlowUpdateApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -1069,6 +1093,8 @@ export interface PatchedHogFlowUpdateApi {
     readonly email_sending_resumed_at?: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run?: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings?: readonly HogFlowWarningApi[]
 }
 
 /**

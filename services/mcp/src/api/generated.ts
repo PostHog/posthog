@@ -59377,6 +59377,25 @@ export namespace Schemas {
     }
 
     /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = typeof HogFlowWarningCodeEnum[keyof typeof HogFlowWarningCodeEnum];
+
+
+    export const HogFlowWarningCodeEnum = {
+      TestSenderLive: 'test_sender_live',
+    } as const;
+
+    export interface HogFlowWarning {
+      /** test_sender_live: the workflow is enabled and an email step sends from the PostHog test sender, so its emails reach only verified members of the organization.
+       *
+       * * `test_sender_live` - Test sender live */
+      readonly code: HogFlowWarningCodeEnum;
+      /** What to tell the user, with the link that fixes it. */
+      readonly message: string;
+    }
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface HogFlow {
@@ -59479,6 +59498,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -59696,6 +59717,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -60099,6 +60122,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -92528,6 +92553,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at?: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run?: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings?: readonly HogFlowWarning[];
     }
 
     /**
