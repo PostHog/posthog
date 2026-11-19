@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureMonitoringAction } from '../../inboxAnalytics'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { latestMergedPullRequest } from '../../utils/reportMonitoringSummary'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
@@ -29,7 +30,7 @@ export function MonitoringRowDetail({ report, now }: { report: SignalReportListA
             <div className="flex flex-col gap-4 @2xl:flex-row">
                 <div className="min-w-0 flex-1">
                     {report.monitoring_outcome ? (
-                        <MonitoringOutcomeNote outcome={report.monitoring_outcome} />
+                        <MonitoringOutcomeNote reportId={report.id} outcome={report.monitoring_outcome} />
                     ) : summary ? (
                         <MonitoringEvidence report={report} summary={summary} now={now} />
                     ) : (
@@ -49,6 +50,7 @@ export function MonitoringRowDetail({ report, now }: { report: SignalReportListA
                     type="primary"
                     to={inboxReportDetailUrl(report.id, urls.inbox('monitoring'))}
                     data-attr="inbox-monitoring-open-report"
+                    onClick={() => captureMonitoringAction({ action: 'open_report', reportId: report.id })}
                 >
                     Open report
                 </LemonButton>
@@ -59,6 +61,7 @@ export function MonitoringRowDetail({ report, now }: { report: SignalReportListA
                         to={prUrl}
                         targetBlank
                         data-attr="inbox-monitoring-open-pr"
+                        onClick={() => captureMonitoringAction({ action: 'open_pull_request', reportId: report.id })}
                     >
                         {prNumber ? `PR #${prNumber}` : 'Pull request'}
                     </LemonButton>

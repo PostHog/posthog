@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReportMonitoringOutcomeApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureMonitoringAction } from '../../inboxAnalytics'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { MonitoringTime } from './MonitoringTime'
 
@@ -15,7 +16,13 @@ const OUTCOME_HEADING: Record<ReportMonitoringOutcomeApi['kind'], string> = {
     closed: 'Closed: the fix was not shown to work',
 }
 
-export function MonitoringOutcomeNote({ outcome }: { outcome: ReportMonitoringOutcomeApi }): JSX.Element {
+export function MonitoringOutcomeNote({
+    reportId,
+    outcome,
+}: {
+    reportId: string
+    outcome: ReportMonitoringOutcomeApi
+}): JSX.Element {
     const followUp = outcome.follow_up
     return (
         <div className="flex flex-col gap-1 rounded bg-surface-secondary p-3 text-sm">
@@ -26,7 +33,11 @@ export function MonitoringOutcomeNote({ outcome }: { outcome: ReportMonitoringOu
             {followUp ? (
                 <div>
                     Follow-up report:{' '}
-                    <Link to={inboxReportDetailUrl(followUp.report_id, urls.inbox('monitoring'))}>
+                    <Link
+                        to={inboxReportDetailUrl(followUp.report_id, urls.inbox('monitoring'))}
+                        data-attr="inbox-monitoring-open-follow-up"
+                        onClick={() => captureMonitoringAction({ action: 'open_follow_up', reportId })}
+                    >
                         {followUp.title ?? 'Untitled report'}
                     </Link>
                 </div>

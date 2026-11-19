@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { captureMonitoringAction } from '../../inboxAnalytics'
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
 import { verdictsDueWithin } from '../../utils/monitoringTimeline'
 import { useMinuteClock } from '../cards/useMinuteClock'
@@ -43,7 +44,15 @@ export function MonitoringTab(): JSX.Element {
                     <span>
                         Couldn't load the fixes being checked. Try again, and if it keeps happening, refresh the page.
                     </span>
-                    <LemonButton size="small" type="secondary" onClick={() => loadReports()}>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        data-attr="inbox-monitoring-retry"
+                        onClick={() => {
+                            captureMonitoringAction({ action: 'retry' })
+                            loadReports()
+                        }}
+                    >
                         Try again
                     </LemonButton>
                 </div>
@@ -62,7 +71,11 @@ export function MonitoringTab(): JSX.Element {
                             <LemonButton
                                 size="small"
                                 type="secondary"
-                                onClick={() => setScope({ ...scope, everyone: true })}
+                                data-attr="inbox-monitoring-show-everyone"
+                                onClick={() => {
+                                    captureMonitoringAction({ action: 'show_everyone' })
+                                    setScope({ ...scope, everyone: true })
+                                }}
                             >
                                 Show everyone's
                             </LemonButton>
@@ -78,7 +91,10 @@ export function MonitoringTab(): JSX.Element {
                                 size="small"
                                 type="secondary"
                                 loading={pageLoading}
-                                onClick={() => loadMore()}
+                                onClick={() => {
+                                    captureMonitoringAction({ action: 'load_more' })
+                                    loadMore()
+                                }}
                                 data-attr="inbox-monitoring-load-more"
                             >
                                 Load more

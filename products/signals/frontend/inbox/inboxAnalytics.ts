@@ -109,6 +109,7 @@ export const INBOX_EVENTS = {
     // Cloud-only: the desktop app has no Monitoring tab.
     MONITORING_ROW_EXPANDED: 'Inbox monitoring row expanded',
     MONITORING_SCOPE_CHANGED: 'Inbox monitoring scope changed',
+    MONITORING_ACTION: 'Inbox monitoring action',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -1702,5 +1703,21 @@ export function captureMonitoringScopeChanged(params: { everyone: boolean; conne
     captureInboxEvent(INBOX_EVENTS.MONITORING_SCOPE_CHANGED, {
         everyone: params.everyone,
         connections: params.connections,
+    })
+}
+
+/** pinned: `action` values on `Inbox monitoring action`; dashboards break them down by name. */
+export type MonitoringAction =
+    | 'open_report'
+    | 'open_pull_request'
+    | 'open_follow_up'
+    | 'load_more'
+    | 'retry'
+    | 'show_everyone'
+
+export function captureMonitoringAction(params: { action: MonitoringAction; reportId?: string }): void {
+    captureInboxEvent(INBOX_EVENTS.MONITORING_ACTION, {
+        action: params.action,
+        report_id: params.reportId ?? null,
     })
 }

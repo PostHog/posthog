@@ -167,7 +167,7 @@ export const monitoringTabLogic = kea<monitoringTabLogicType>([
         reports: [(s) => [s.page], (page): SignalReportListApi[] | null => page?.results ?? null],
         sortedReports: [(s) => [s.reports], (reports): SignalReportListApi[] => sortByVerdict(reports ?? [])],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         setScope: ({ scope }) => {
             captureMonitoringScopeChanged(scope)
             // Clear the previous scope's rows, so neither they nor its empty state show under the new scope.
@@ -182,10 +182,6 @@ export const monitoringTabLogic = kea<monitoringTabLogicType>([
         loadReportsSuccess: ({ page }) => {
             if (!page) {
                 return
-            }
-            if (!cache.panelViewCaptured) {
-                cache.panelViewCaptured = true
-                captureInboxPanelViewed({ panel: 'monitoring', itemCount: page.results.length })
             }
             actions.refreshReportMetrics(staleMetricReportIds(page.results))
         },
@@ -221,6 +217,8 @@ export const monitoringTabLogic = kea<monitoringTabLogicType>([
         },
     })),
     afterMount(({ actions }) => {
+        // On opening the tab, not on load, so a visit whose load fails still counts.
+        captureInboxPanelViewed({ panel: 'monitoring' })
         actions.loadReports()
     }),
 ])

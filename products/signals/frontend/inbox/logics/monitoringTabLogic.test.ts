@@ -1,6 +1,7 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper. */
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -56,6 +57,27 @@ describe('monitoringTabLogic', () => {
 
         expect(logic.values.loadFailed).toBe(false)
         expect(logic.values.page?.results.map((r) => r.id)).toEqual(['everyone-report'])
+    })
+
+    it('records the visit on opening the tab and each row opened, not closed', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        useMocks({ get: { [REPORTS_URL]: () => [500, { detail: 'boom' }] } })
+        logic = monitoringTabLogic()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.loadReportsSuccess({ results: page(['a']).results as never, count: 1, hasMore: false })
+
+        logic.actions.toggleExpanded('a')
+        logic.actions.toggleExpanded('a')
+
+        const events = capture.mock.calls
+            .filter(([event]) => event.startsWith('Inbox'))
+            .map(([event, properties]) => [event, properties?.panel ?? properties?.report_id])
+        expect(events).toEqual([
+            ['Inbox panel viewed', 'monitoring'],
+            ['Inbox monitoring row expanded', 'a'],
+        ])
     })
 
     it('appends the next page without repeating rows', async () => {

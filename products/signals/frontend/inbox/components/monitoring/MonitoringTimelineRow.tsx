@@ -37,6 +37,7 @@ export function MonitoringTimelineRow({
             <button
                 type="button"
                 aria-expanded={expanded}
+                data-attr="inbox-monitoring-row-toggle"
                 onClick={onToggle}
                 className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1.5 py-3 text-left @2xl:flex-nowrap"
             >
