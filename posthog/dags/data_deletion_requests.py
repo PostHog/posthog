@@ -749,11 +749,6 @@ def _event_removal_placements(
     for placement in [p for p in unsweepable if p.target.copied_from is not None]:
         target = placement.target
         uncopied_predicate = uncopied_rows_predicate(deletion_request, target)
-        # The copy check reads the uuid of every matching event, so it runs only when the target holds
-        # matching rows in the request's window. This count also runs the compiled fragment before
-        # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
-        if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
-            continue
         copy_cluster = next((p.cluster for p in placements if p.target.data_table == target.copied_from), None)
         if copy_cluster is not placement.cluster:
             _refuse_unsweepable(
@@ -763,6 +758,11 @@ def _event_removal_placements(
                 _same_criteria(uncopied_predicate.narrow(criteria)),
                 reason=_HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON,
             )
+            continue
+        # The copy check reads the uuid of every matching event, so it runs only when the target holds
+        # matching rows in the request's window. This count also runs the compiled fragment before
+        # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
+        if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
             continue
         deferred = reaches_target_through_event_uuids(deletion_request, target)
         if uncopied_predicate.compiled is None:
