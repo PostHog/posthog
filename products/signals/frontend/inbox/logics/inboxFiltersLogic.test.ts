@@ -120,6 +120,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['needs-you scope only', { ...DEFAULT_STATE, scope: 'needs-you' }, { scope: 'needs-you' }],
             ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             [
                 'monitoring status only',

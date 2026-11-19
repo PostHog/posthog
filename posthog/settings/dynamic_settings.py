@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "STATIC_COHORT_RECONCILIATION_ENABLED": (
+        True,
+        "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
+        bool,
+    ),
     "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
         False,
         "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
@@ -464,9 +469,22 @@ CONSTANCE_CONFIG = {
         "realtime cohorts miss the person merges of a project that list leaves out.",
         bool,
     ),
+    "WORKOS_RADAR_LOGIN_MODE": (
+        "off",
+        "Whether password logins go to WorkOS Radar. 'off' skips Radar. 'shadow' records the verdict "
+        "and never refuses a login. 'enforce' refuses a login that Radar blocks.",
+        str,
+    ),
+    "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT": (
+        100,
+        "Percentage of email addresses whose password logins go to WorkOS Radar, from 0 to 100. An "
+        "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "STATIC_COHORT_RECONCILIATION_ENABLED",
     "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
@@ -537,6 +555,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED",
     "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT",
     "REALTIME_COHORT_JOIN_OPEN",
+    "WORKOS_RADAR_LOGIN_MODE",
+    "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

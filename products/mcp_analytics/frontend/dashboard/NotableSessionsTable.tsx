@@ -21,6 +21,7 @@ import {
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { dimWhileLoading } from '../components/loadingFeedback'
+import { TableLoadingBar } from '../components/TableLoadingBar'
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
 import { CardError } from './Card'
@@ -152,24 +153,27 @@ export function NotableSessionsTable({
             <CardHeader className="border-b border-border pb-3">
                 <CardTitle>Sessions flagged for review</CardTitle>
             </CardHeader>
-            <Table fullWidth>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Session</TableHead>
-                        <TableHead align="right">Calls</TableHead>
-                        <TableHead align="right">Duration</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead expand>Why notable</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <SessionRows
-                    sessions={sessions}
-                    loading={loading}
-                    failed={failed}
-                    onRetry={onRetry}
-                    searchParams={searchParams}
-                />
-            </Table>
+            <div className="relative">
+                <Table fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Session</TableHead>
+                            <TableHead align="right">Calls</TableHead>
+                            <TableHead align="right">Duration</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead expand>Why notable</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <SessionRows
+                        sessions={sessions}
+                        loading={loading}
+                        failed={failed}
+                        onRetry={onRetry}
+                        searchParams={searchParams}
+                    />
+                </Table>
+                <TableLoadingBar loading={loading && sessions.length > 0} />
+            </div>
             <CardFooter className="justify-end">
                 <Link to={mcpSessionsUrl(searchParams)} className="text-xs">
                     Open in Sessions tab

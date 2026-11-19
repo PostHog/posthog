@@ -474,6 +474,51 @@ describe('inboxReportDetailLogic', () => {
             capture.mockRestore()
         })
 
+        it('sends one actionability change and takes the status the change moved the report to', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            const bodies: Record<string, unknown>[] = []
+            const save = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, SignalReport]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                return [
+                    200,
+                    {
+                        ...REPORT,
+                        actionability: 'requires_human_input',
+                        already_addressed: body.already_addressed === true,
+                        status: SignalReportStatus.PENDING_INPUT,
+                        updated_at: '2026-10-10T12:00:00Z',
+                    },
+                ]
+            })
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/actionability/': save } })
+            logic.actions.setReport({ ...REPORT, actionability: 'immediately_actionable', already_addressed: false })
+            logic.actions.updateActionability({ actionability: 'requires_human_input' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report).toMatchObject({
+                actionability: 'requires_human_input',
+                already_addressed: false,
+                status: SignalReportStatus.PENDING_INPUT,
+            })
+            logic.actions.updateActionability({ alreadyAddressed: true })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.already_addressed).toBe(true)
+            expect(logic.values.actionabilitySaving).toBe(false)
+            expect(bodies).toEqual([{ actionability: 'requires_human_input' }, { already_addressed: true }])
+            const decisionEvents = capture.mock.calls
+                .filter(([event]) => event === INBOX_EVENTS.REPORT_DECISION_CHANGED)
+                .map(([, properties]) => properties)
+            expect(decisionEvents).toEqual([
+                expect.objectContaining({
+                    decision: 'actionability',
+                    previous_value: 'immediately_actionable',
+                    new_value: 'requires_human_input',
+                }),
+                expect.objectContaining({ decision: 'already_addressed', previous_value: 'false', new_value: 'true' }),
+            ])
+            capture.mockRestore()
+        })
+
         it.each([200, 500])(
             'guards Monitoring submissions and releases the guard after response %s',
             async (responseStatus) => {

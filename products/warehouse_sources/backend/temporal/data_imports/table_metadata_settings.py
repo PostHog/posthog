@@ -5,6 +5,8 @@ statistics. They run on their own worker (DATA_WAREHOUSE_METADATA_TASK_QUEUE) so
 the import pipeline. The import workflow starts them as fire-and-forget children on this queue.
 """
 
+from collections.abc import Callable
+
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
     ComputeTableStatisticsWorkflow,
     compute_table_statistics_activity,
@@ -25,7 +27,7 @@ WORKFLOWS = [
     CrawlWarehouseMigrationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     enrich_table_semantics_activity,
     compute_table_statistics_activity,
     crawl_warehouse_migration_activity,
