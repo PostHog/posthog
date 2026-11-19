@@ -77,9 +77,29 @@ export const MIN_NESTING_LIMIT = 256
 // short email can build elements with the square of its size. Allowing a few per tag keeps the tree linear.
 export const ELEMENTS_PER_TAG = 2
 export const MIN_ELEMENT_BUDGET = 50_000
+// The parser compares each formatting element a start tag opens with every one still open, attribute by attribute, so
+// formatting elements nested deep with many attributes cost their depth times their attributes. The copies it rebuilds
+// from an earlier tag are not compared.
+export const FORMATTING_BUDGET = 10_000_000
+const FORMATTING_TAGS = new Set([
+    'a',
+    'b',
+    'big',
+    'code',
+    'em',
+    'font',
+    'i',
+    'nobr',
+    's',
+    'small',
+    'strike',
+    'strong',
+    'tt',
+    'u',
+])
 
 // Shared by the document and every comment read as markup, so the elements they build together stay in budget.
-type ParseBounds = { depth: number; elementsLeft: number }
+type ParseBounds = { depth: number; elementsLeft: number; formattingLeft: number }
 
 const parseBoundsFor = (html: string): ParseBounds => {
     let tags = 0
@@ -89,6 +109,7 @@ const parseBoundsFor = (html: string): ParseBounds => {
     return {
         depth: Math.max(MIN_NESTING_LIMIT, Math.floor(NESTING_BUDGET / Math.max(tags, 1))),
         elementsLeft: MIN_ELEMENT_BUDGET + ELEMENTS_PER_TAG * tags,
+        formattingLeft: FORMATTING_BUDGET,
     }
 }
 
@@ -103,28 +124,41 @@ export class EmailNestingTooDeepError extends EmailHtmlTooComplexError {
     }
 }
 
-export class EmailTooManyElementsError extends EmailHtmlTooComplexError {
+export class EmailFormattingTooCostlyError extends EmailHtmlTooComplexError {
     constructor() {
         super(
-            'This email repeats formatting tags left open, such as <b> or <font>, in so many places that its links are too costly to read. Close those tags and send it again.'
+            'This email leaves formatting tags such as <b> or <font> open across so much of it that its links are too costly to read. Close those tags and send it again.'
         )
-        this.name = 'EmailTooManyElementsError'
+        this.name = 'EmailFormattingTooCostlyError'
     }
 }
 
 type ParentNode = DefaultTreeAdapterMap['parentNode']
 
-// Stops a parse when an element nests deeper than the limit, or when the parse builds more elements than the email's
-// budget. A template's content counts from the template.
+// Stops a parse when an element nests deeper than the limit, or when the parse builds more elements or formatting work
+// than the email's budget. A template's content counts from the template.
 const boundedAdapter = (bounds: ParseBounds): TreeAdapter<DefaultTreeAdapterMap> => {
     const depths = new WeakMap<Node, number>()
     const templates = new WeakMap<Node, Node>()
     const attributeNames = new WeakMap<Element, Set<string>>()
+    // A rebuilt copy shares its tag's attribute list, so a list seen before marks a copy.
+    const tagAttributes = new WeakSet<Element['attrs']>()
+    const opened = new WeakSet<Element>()
     const place = (parent: ParentNode, node: Node): void => {
+        // A comment holds no elements, so it adds no nesting.
+        if (!('attrs' in node)) {
+            return
+        }
         const owner = templates.get(parent)
         const depth = (depths.get(parent) ?? (owner ? depths.get(owner) : undefined) ?? 0) + 1
         if (depth > bounds.depth) {
             throw new EmailNestingTooDeepError(bounds.depth)
+        }
+        if (opened.delete(node)) {
+            bounds.formattingLeft -= depth * (node.attrs.length + 1)
+            if (bounds.formattingLeft < 0) {
+                throw new EmailFormattingTooCostlyError()
+            }
         }
         depths.set(node, depth)
     }
@@ -132,9 +166,14 @@ const boundedAdapter = (bounds: ParseBounds): TreeAdapter<DefaultTreeAdapterMap>
         ...defaultTreeAdapter,
         createElement(tagName, namespaceURI, attrs) {
             if (--bounds.elementsLeft < 0) {
-                throw new EmailTooManyElementsError()
+                throw new EmailFormattingTooCostlyError()
             }
-            return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
+            const element = defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
+            if (FORMATTING_TAGS.has(tagName) && !tagAttributes.has(attrs)) {
+                tagAttributes.add(attrs)
+                opened.add(element)
+            }
+            return element
         },
         appendChild(parent, node) {
             place(parent, node)

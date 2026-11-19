@@ -54,8 +54,8 @@ import {
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
 import {
+    EmailFormattingTooCostlyError,
     EmailNestingTooDeepError,
-    EmailTooManyElementsError,
     MIN_NESTING_LIMIT,
     NESTING_BUDGET,
 } from './helpers/href-anchors'
@@ -535,6 +535,13 @@ describe('EmailTrackingService', () => {
                     )
                 })
 
+                it('is sent with a plain comment one level below its deepest element', () => {
+                    // html and body take two levels, so the comment sits one past the limit.
+                    const around = MIN_NESTING_LIMIT - 2
+                    const html = `<body>${tags}${'<div>'.repeat(around)}<!-- note -->${'</div>'.repeat(around)}${link}</body>`
+                    expect(sesTrack(html)).toContain('phl:0')
+                })
+
                 it('is sent when the nesting is in a plain comment, whose links stay as written', () => {
                     const hidden = '<a href="https://example.com/hidden">h</a>'
                     const out = sesTrack(`<body>${tags}<!--${deep}${hidden}-->${link}</body>`)
@@ -553,8 +560,14 @@ describe('EmailTrackingService', () => {
 
                 it('is refused', () => {
                     expect(() => sesTrack(`<body>${openTags(300)}${blocks}${link}</body>`)).toThrow(
-                        EmailTooManyElementsError
+                        EmailFormattingTooCostlyError
                     )
+                })
+
+                it('is refused when tags nested in one another share many attributes', () => {
+                    const shared = Array.from({ length: 60 }, (_, i) => `a${i}`).join(' ')
+                    const nested = Array.from({ length: 3_000 }, (_, i) => `<b ${shared} data-i="${i}">`).join('')
+                    expect(() => sesTrack(`<body>${nested}${link}</body>`)).toThrow(EmailFormattingTooCostlyError)
                 })
 
                 it('is sent when a few tags are left open', () => {
