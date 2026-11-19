@@ -14,8 +14,6 @@ from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 from django_redis.cache import RedisCache
-from django_redis.client import DefaultClient
-from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.connection import parse_url
@@ -1219,7 +1217,7 @@ class TestReserveUnits(BaseTest):
             assert response is not None
             self.assertEqual(response.headers["Retry-After"], "60")
 
-    def _lagging_reader_caches(self) -> dict[str, Any]:
+    def _lagging_reader_caches(self, primary_location: str | None = None) -> dict[str, Any]:
         primary = urlsplit(settings.REDIS_URL)
         reader_db = 14 if int(parse_url(settings.REDIS_URL).get("db", 0)) == 15 else 15
         query = urlencode([(name, value) for name, value in parse_qsl(primary.query) if name != "db"])
@@ -1227,7 +1225,7 @@ class TestReserveUnits(BaseTest):
         return {
             "default": {
                 "BACKEND": "django_redis.cache.RedisCache",
-                "LOCATION": [settings.REDIS_URL, reader],
+                "LOCATION": [primary_location or settings.REDIS_URL, reader],
                 "KEY_PREFIX": "test-reserve-units",
             }
         }
@@ -1335,28 +1333,18 @@ class TestReserveUnits(BaseTest):
     @parameterized.expand([("single", 1), ("batch", 3)])
     def test_a_send_passes_when_the_primary_read_fails(self, _name, recipients):
         with (
-            override_settings(CACHES=self._lagging_reader_caches()),
+            override_settings(CACHES=self._lagging_reader_caches(primary_location="redis://127.0.0.1:1/0")),
             patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
         ):
             redis_cache = caches["default"]
             assert isinstance(redis_cache, RedisCache)
             key = TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
-            primary_client = redis_cache.client.get_client(write=True)
-            read = DefaultClient.get
-
-            def primary_down(redis_client: DefaultClient, *args: Any, **kwargs: Any) -> Any:
-                if kwargs.get("client") is primary_client:
-                    raise ConnectionInterrupted(connection=None)
-                return read(redis_client, *args, **kwargs)
-
+            reader_client = redis_cache.client.get_client(write=False)
             try:
-                self.assertIsNone(self._send([TransactionalEmailBurstThrottle], 3))
-                redis_cache.set(key, [time.time()] * 3, 60, client=redis_cache.client.get_client(write=False))
-                with patch.object(DefaultClient, "get", autospec=True, side_effect=primary_down):
-                    outcome = self._send([TransactionalEmailBurstThrottle], recipients)
+                redis_cache.set(key, [time.time()] * 3, 60, client=reader_client)
+                outcome = self._send([TransactionalEmailBurstThrottle], recipients)
             finally:
-                for client in (redis_cache.client.get_client(write=True), redis_cache.client.get_client(write=False)):
-                    redis_cache.delete(key, client=client)
+                redis_cache.delete(key, client=reader_client)
 
         self.assertIsNone(outcome)
 
