@@ -587,7 +587,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     listeners(({ actions, values, selectors, cache }) => ({
         setEnvironment: () => actions.requestReload(),
         setTimeRange: () => actions.requestReload(),
-        // Moving between tabs with different default windows changes what the services list covers.
+        // Tabs have different default windows, so a tab change can move the effective window. The
+        // services list then reloads too, so it never shows one window's data under another's label.
         setTab: (_, __, ___, previousState) =>
             actions.requestReload(selectors.timeRange(previousState) !== values.timeRange),
         refresh: () => actions.requestReload(),
@@ -598,7 +599,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             }
         },
         setEndpointsService: () => actions.requestReload(false),
-        showServiceEndpoints: () => actions.requestReload(false),
+        showServiceEndpoints: (_, __, ___, previousState) =>
+            actions.requestReload(selectors.timeRange(previousState) !== values.timeRange),
         loadServiceMapSuccess: () => actions.layoutServiceMap(),
         loadServicesHealthSuccess: () => {
             if (values.tab === 'map' && values.serviceMap) {

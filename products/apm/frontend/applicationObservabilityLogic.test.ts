@@ -408,6 +408,19 @@ describe('applicationObservabilityLogic', () => {
             expect(requests.length).toBe(servicesRequestsBefore)
         })
 
+        it('reloads service health when opening endpoints moves the window off the dependencies default', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'dependencies' })
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(logic.values.timeRange).toBe('-15m')
+            const servicesRequestsBefore = requests.length
+
+            logic.actions.showServiceEndpoints('web')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(logic.values.timeRange).toBe('-1h')
+            expect(requests.length).toBe(servicesRequestsBefore + 1)
+        })
+
         it('loads the map for the environment and lays out every service node', async () => {
             router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map', environment: 'staging' })
             await expectLogic(logic).toDispatchActions(['loadServiceMapSuccess', 'layoutServiceMapSuccess'])
