@@ -41,14 +41,9 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
     return (
         <WrappedCard cardKey={cardKey} kicker={kicker}>
             {leader && (
-                <>
-                    <div className="MCPWrapped__pop flex size-16 items-center justify-center rounded-2xl bg-white text-black shadow-lg">
-                        <Logo cardKey={cardKey} name={leader.name} className="size-9" />
-                    </div>
-                    <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
-                        {headline(leader.name, formatPercent(leader.share))}
-                    </h2>
-                </>
+                <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
+                    {headline(leader.name, formatPercent(leader.share))}
+                </h2>
             )}
             <ol className="m-0 mt-2 flex list-none flex-col gap-3 p-0">
                 {named.map((share, index) => (
