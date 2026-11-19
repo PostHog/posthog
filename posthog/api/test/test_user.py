@@ -34,7 +34,7 @@ from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_o
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
-from posthog.helpers.two_factor_session import code_based_verification_token_generator
+from posthog.helpers.two_factor_session import CodeBasedVerificationTokenGenerator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
@@ -4025,17 +4025,23 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         assert self.user.is_email_verified
         assert self.user.email != "staged@posthog.com"
 
-    def test_codes_for_different_addresses_in_the_same_second_do_not_collide(self):
-        # Two email changes in the same second must not derive the same code. The code binds to the
-        # address it authorizes. So a code mailed to an address the user owns cannot verify a
-        # different staged address.
+    @parameterized.expand(
+        [
+            ("mailboxes", "owned@example.com", "other@example.com", "", ""),
+            ("identities", "member@example.com", "member@example.com", "identity-a", "identity-b"),
+        ]
+    )
+    @time_machine.travel("2023-11-14T22:13:20Z", tick=False)
+    def test_codes_bind_to_the_mailbox_and_identity(
+        self, _name: str, target: str, other_target: str, identity: str, other_identity: str
+    ):
+        user = User.objects.create(pk=2_000_000_001, email="member@example.com", password="", is_active=True)
+        generator = CodeBasedVerificationTokenGenerator()
+        generator.secret = "example-code-binding-secret"
         issued_at = 1_700_000_000
-        code_owned = code_based_verification_token_generator.make_code(self.user, issued_at, "attacker@owns.example")
-        code_victim = code_based_verification_token_generator.make_code(self.user, issued_at, "victim@corp.example")
-        assert code_owned != code_victim
-        assert not code_based_verification_token_generator.check_code(
-            self.user, code_owned, issued_at, "victim@corp.example"
-        )
+        code = generator.make_code(user, issued_at, target, identity)
+        assert generator.check_code(user, code, issued_at, target, identity)
+        assert not generator.check_code(user, code, issued_at, other_target, other_identity)
 
     def test_code_dies_when_a_different_pending_address_is_staged(self):
         self.user.is_email_verified = True

@@ -796,6 +796,17 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
 
+        it('runs a bare SQL string sent to execute-sql as its query', async () => {
+            const tool = makeMockTool({
+                name: 'execute-sql',
+                schema: z.object({ query: z.string() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json execute-sql "SELECT 1"' })
+            expect(JSON.parse(result as string)).toEqual({ query: 'SELECT 1' })
+        })
+
         it.each([
             { case: 'is malformed', body: '{not-json}', expected: /Invalid JSON input:/ },
             { case: 'is a JSON string', body: '"funnels"', expected: /expected a JSON object, got a string/ },
