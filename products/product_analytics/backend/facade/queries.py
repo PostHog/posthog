@@ -18,11 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from posthog.clickhouse.workload import Workload
 
-from products.product_analytics.backend.facade.contracts import (
-    ClosedSeriesValues,
-    SeriesValuesUnavailable,
-    TrendsQueryRunResult,
-)
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 
 _B = "products.product_analytics.backend.hogql_queries."
 
@@ -41,6 +37,7 @@ _LAZY = {
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "TrendsDisplay": "trends.display",
     "TrendsQueryRunner": "trends.trends_query_runner",
+    "closed_series_values": "trends.series_values_precompute",
     "trends_actors_date_window": "trends.trends_actors_date_window",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",
     "edge_to_funnels_query": "paths_v2.funnel_converter",
@@ -50,7 +47,7 @@ _LAZY = {
     "step_source_for_event": "paths_v2.path_item",
 }
 
-__all__ = sorted((*_LAZY, "closed_trends_series_values", "run_cached_trends_query"))
+__all__ = sorted((*_LAZY, "run_cached_trends_query"))
 
 
 if TYPE_CHECKING:
@@ -74,6 +71,9 @@ if TYPE_CHECKING:
         CalendarHeatmapTrendsQueryRunner,
     )
     from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
+    from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (  # noqa: F401
+        closed_series_values,
+    )
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
     )
@@ -124,14 +124,6 @@ def run_cached_trends_query(
         results=results,
         last_refresh=last_refresh if isinstance(last_refresh, datetime) else None,
     )
-
-
-def closed_trends_series_values(
-    runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
-) -> ClosedSeriesValues | SeriesValuesUnavailable:
-    from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import closed_series_values
-
-    return closed_series_values(runner, run_inserts=run_inserts, wait_timeout_seconds=wait_timeout_seconds)
 
 
 def __getattr__(name: str):
