@@ -605,7 +605,7 @@ describe('todayLogic', () => {
         const pin = { id: 'dash', path: 'Dashboards/Private', type: 'dashboard', ref: '1' }
 
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'first-person' })
-        logic.actions.toggleJumpBackPin(logic.values.jumpBackPinScope as string, pin)
+        logic.actions.toggleJumpBackPin(logic.values.jumpBackPinScope as string, pin, 'picker')
         expect(logic.values.pinnedObjects.map((entry) => entry.id)).toEqual(['dash'])
 
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'second-person' })
