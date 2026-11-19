@@ -16,6 +16,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -113,6 +114,7 @@ def create_custom_agent_ready_report(
                 report_id=report_id,
                 content=reviewers,
                 attribution=attribution,
+                implementation_authorization=ImplementationAuthorization(mode="reviewer"),
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="custom_agent"),
                 reevaluate_autostart=False,
             )
