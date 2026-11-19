@@ -1,6 +1,7 @@
 import os
 import gzip
 import json
+import time
 import uuid
 import base64
 import logging
@@ -44,6 +45,7 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.ph_client import ph_scoped_capture
+from posthog.redis import get_celery_broker_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
@@ -212,6 +214,44 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
     "acks_late": False,
     "reject_on_worker_lost": False,
 }
+
+# The parent publishes one capture_report task per organization, far faster than the
+# usage_reports workers run them. Without a limit the whole run (hundreds of thousands of
+# tasks, tens of KB each) sits in the broker at once. The parent waits for the queue
+# instead; the run takes as long as before, because the workers set the pace either way.
+USAGE_REPORT_QUEUE_MAX_DEPTH = 20_000
+USAGE_REPORT_QUEUE_CHECK_INTERVAL = 1_000
+USAGE_REPORT_QUEUE_POLL_SECONDS = 5
+USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS = 600
+
+
+def _wait_for_usage_reports_queue() -> bool:
+    """Wait until the usage_reports queue is at or below USAGE_REPORT_QUEUE_MAX_DEPTH.
+
+    Returns False if the depth can't be read or stays above the limit for
+    USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS. The workers aren't draining it then, so the caller
+    stops waiting and publishes the rest of the run straight away, as it did before pacing.
+    """
+    deadline = time.monotonic() + USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS
+    while True:
+        try:
+            depth = get_celery_broker_client().llen(CeleryQueue.USAGE_REPORTS.value)
+        except Exception as err:
+            logger.warning("Could not read the usage_reports queue depth, no longer pacing", error=str(err))
+            return False
+
+        if depth <= USAGE_REPORT_QUEUE_MAX_DEPTH:
+            return True
+
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "usage_reports queue did not drain in time, no longer pacing",
+                depth=depth,
+                max_depth=USAGE_REPORT_QUEUE_MAX_DEPTH,
+            )
+            return False
+
+        time.sleep(USAGE_REPORT_QUEUE_POLL_SECONDS)
 
 
 # Mutable: `_add_team_report_to_org_reports` accumulates each team's counters into the org's
@@ -4196,6 +4236,9 @@ def send_all_org_usage_reports(
 
     total_orgs = len(org_reports)
     total_orgs_sent = 0
+    capture_tasks_queued = 0
+    pace_capture_tasks = True
+    queue_wait_seconds = 0.0
 
     logger.info("Sending usage reports to billing")
     queue_time_start = datetime.now()
@@ -4225,12 +4268,18 @@ def send_all_org_usage_reports(
             # First capture the events to PostHog
             if not skip_capture_event:
                 try:
+                    if pace_capture_tasks and capture_tasks_queued % USAGE_REPORT_QUEUE_CHECK_INTERVAL == 0:
+                        wait_start = time.monotonic()
+                        pace_capture_tasks = _wait_for_usage_reports_queue()
+                        queue_wait_seconds += time.monotonic() - wait_start
+
                     at_date_str = at_date.isoformat() if at_date else None
                     capture_report.delay(
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
                     )
+                    capture_tasks_queued += 1
                 except Exception as capture_err:
                     logger.exception(
                         f"Failed to capture report for organization {organization_id}",
@@ -4262,6 +4311,7 @@ def send_all_org_usage_reports(
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,
+            "queue_wait_time": queue_wait_seconds,
             "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
             **filtering_properties,
