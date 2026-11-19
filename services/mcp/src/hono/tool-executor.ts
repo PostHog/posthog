@@ -22,6 +22,7 @@ import {
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    getApiLimitErrorType,
     hasTimeoutCause,
     isTimeoutError,
     parseApiErrorIdentifiers,
@@ -1240,13 +1241,14 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
             ...(errorField ? { errorField } : {}),
         }
     }
-    if (apiError instanceof PostHogApiError && apiError.status === 429) {
-        return { errorType: 'rate_limited', status: apiError.status }
-    }
-    if (apiError instanceof PostHogApiError && apiError.status >= 500) {
-        return { errorType: 'api_5xx', status: apiError.status }
-    }
     if (apiError instanceof PostHogApiError) {
+        const limitErrorType = getApiLimitErrorType(apiError)
+        if (limitErrorType) {
+            return { errorType: limitErrorType, status: apiError.status }
+        }
+        if (apiError.status >= 500) {
+            return { errorType: 'api_5xx', status: apiError.status }
+        }
         // Only identifier-shaped values survive `parseApiErrorIdentifiers`, never the body's free text.
         const { code, attr } = parseApiErrorIdentifiers(apiError.body)
         const errorField = attr ? normalizeErrorField(attr) : undefined

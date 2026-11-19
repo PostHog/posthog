@@ -7,6 +7,7 @@ import {
     mapErrorToAuthResponse,
     validateBearerToken,
 } from '@/lib/auth-errors'
+import { findRecoverableApiError, getApiLimitErrorType, PostHogApiError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { validateCredentialForPath } from '@/lib/project-secret-key'
 import {
@@ -157,6 +158,15 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
         authFailuresTotal.inc({ reason })
         trackAuthFailure(props, classifyAuthFailure(error))
         return authResponse
+    }
+    const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogApiError && getApiLimitErrorType(apiError)) {
+        return new Response(apiError.message, {
+            status: apiError.status,
+            ...(apiError.retryAfterSeconds === null
+                ? {}
+                : { headers: { 'Retry-After': String(apiError.retryAfterSeconds) } }),
+        })
     }
     try {
         if (error instanceof Error) {

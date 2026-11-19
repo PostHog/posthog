@@ -15,7 +15,7 @@ vi.mock('@/lib/posthog', () => ({
 import { handleCatchError } from '@/hono/request-utils'
 import { classifyAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { ErrorCode, PostHogPermissionError, wrapError } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError, PostHogRateLimitError, wrapError } from '@/lib/errors'
 import type { RequestProperties } from '@/lib/request-properties'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -122,6 +122,21 @@ describe('MCP auth instrumentation', () => {
         handleCatchError(permissionError(), makeProps({ apiToken: 'pha_super-secret' }))
 
         expect(JSON.stringify(mockCapture.mock.calls[0]![0])).not.toContain('pha_super-secret')
+    })
+
+    it('returns the upstream rate limit when state resolution is throttled', () => {
+        const error = new PostHogRateLimitError({
+            body: '{}',
+            url: '/api/users/@me/',
+            method: 'GET',
+            retryAfterSeconds: 12,
+        })
+
+        const response = handleCatchError(wrapError('Failed to resolve state', error), makeProps())
+
+        expect(response.status).toBe(429)
+        expect(response.headers.get('Retry-After')).toBe('12')
+        expect(mockCaptureException).not.toHaveBeenCalled()
     })
 
     it('leaves non-auth failures on the exception path', () => {
