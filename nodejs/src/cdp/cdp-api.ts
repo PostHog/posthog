@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -206,8 +206,8 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps & {
-    /** Holds caller-supplied idempotency keys. Null or unset makes the store report itself unavailable. */
-    idempotencyValkey?: RedisV2 | null
+    /** Holds the daily upload byte budget. Null or unset makes the upload route answer 503. */
+    emailAttachmentsValkey?: RedisV2 | null
 }
 
 // Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
@@ -464,7 +464,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
-        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
+        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
             maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
         })
@@ -1718,7 +1718,12 @@ export class CdpApi {
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
                 intake: {
                     modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(this.outputs, undefined, createInvocationSanitizer(this.config).seal),
+                    producer: new IntakeProducer(
+                        this.outputs,
+                        undefined,
+                        createInvocationSanitizer(this.config).seal,
+                        intakeClusterOf(this.config)
+                    ),
                     sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
                 },
             }),

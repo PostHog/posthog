@@ -9,6 +9,7 @@ class GithubStep(OnboardingStep):
     key = OnboardingStepKey.GITHUB
     title = "GitHub"
     done_text = "GitHub connected"
+    completed_by_continue = True
 
     def applies(self, ctx: OnboardingContext) -> bool:
         # A member's personal GitHub only helps once the team has the GitHub app, which an admin installs.

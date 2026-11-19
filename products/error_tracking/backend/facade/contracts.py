@@ -362,6 +362,20 @@ class ErrorTrackingSeverityRule:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagRule:
+    id: UUID
+    key: str
+    label: str
+    description: str
+    filters: dict
+    version: int
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class ErrorTrackingGroupingRuleIssue:
     id: UUID
     name: str | None
@@ -552,6 +566,10 @@ class ErrorTrackingIssueSummary:
     generated_at: datetime
     # When generation last wrote the summary.
     checked_at: datetime
+
+
+class ErrorTrackingAIFeature(LabeledStrEnum):
+    ISSUE_SUMMARIES = "issue_summaries"
 
 
 class IssueSummaryStatus(LabeledStrEnum):
