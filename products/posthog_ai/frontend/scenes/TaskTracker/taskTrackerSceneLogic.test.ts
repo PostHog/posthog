@@ -194,6 +194,46 @@ describe('taskTrackerSceneLogic', () => {
         }
     )
 
+    it.each([
+        { target: 'environment:env-1', expected: { sandbox_environment_id: 'env-1' } },
+        { target: 'image:img-1', expected: { custom_image_id: 'img-1' } },
+    ])('waits for the saved cloud target before warming on focus ($target)', async ({ target, expected }) => {
+        let finishConfig!: (response: [number, Record<string, unknown>]) => void
+        const config = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishConfig = resolve
+        })
+        const warmBodies: Record<string, unknown>[] = []
+        useMocks({
+            get: { '/api/projects/:team/tasks/@me/config/': () => config },
+            post: {
+                '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                    warmBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, { task_id: 'warm-task', run_id: 'warm-run' }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        logic.mount()
+        logic.actions.setCloudTargets(
+            [{ id: 'env-1', name: 'Example environment' } as SandboxEnvironmentDTOApi],
+            [{ id: 'img-1', name: 'Example image', status: 'ready' } as SandboxCustomImageDTOApi]
+        )
+        const warm = taskWarmLogic({ panelId: undefined })
+
+        jest.useFakeTimers()
+        logic.actions.setComposerFocused(true)
+        await jest.advanceTimersByTimeAsync(700)
+        jest.useRealTimers()
+        const beforeConfig = [...warmBodies]
+
+        finishConfig([200, { ...myConfigResponse(null), task_defaults: { default_cloud_target: target } }])
+        await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        expect(beforeConfig).toEqual([])
+        await waitFor(() => expect(warmBodies).toEqual([expect.objectContaining(expected)]), { timeout: 5000 })
+        await expectLogic(warm).toFinishAllListeners()
+        expect(warm.values.warmLease).toMatchObject({ taskId: 'warm-task', runId: 'warm-run' })
+    })
+
     it('releases an unused warm run when a repository is attached', async () => {
         useMocks({
             post: {

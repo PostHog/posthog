@@ -26,6 +26,7 @@ A successful submission gives the next draft a fresh warm-up budget. Remounting 
 
 The PostHog AI web composer starts warm-up when its input gets focus, including automatic focus when the composer opens, only when no repository is attached.
 Warm-up requires AI data processing approval.
+Warm-up waits for the saved task settings to load.
 Attaching a repository releases an unused warm run and stops composer warm-up, including after typing.
 An empty draft releases its unused warm run five seconds after the input loses focus.
 
