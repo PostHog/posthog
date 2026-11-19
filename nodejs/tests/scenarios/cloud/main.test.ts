@@ -234,7 +234,7 @@ describe('cloud controller', () => {
 
         expect(err.join('\n')).toContain(problem)
         expect(cloud.schedules.size).toBe(0)
-        expect([...cloud.objects.keys()].filter((key) => key.startsWith('runs/'))).toEqual([])
+        expect([...cloud.objects.keys()]).toEqual([])
     })
 
     it('leases the run by registering both stack-delete schedules and the private inputs', async () => {
