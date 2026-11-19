@@ -26,6 +26,7 @@ from products.workflows.backend.services.email_sending_tier import (
 )
 from products.workflows.backend.services.email_sending_tier_audit import (
     EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
+    TIER_EVENTS_PER_FLUSH,
     log_email_sending_tier_change,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -37,7 +38,6 @@ from products.workflows.backend.utils.email_sending_tiers import (
 logger = structlog.get_logger(__name__)
 
 DEFAULT_HISTORY_DAYS = 90
-TIER_EVENTS_PER_FLUSH = 500
 
 
 class Command(BaseCommand):

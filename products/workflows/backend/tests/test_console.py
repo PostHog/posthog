@@ -188,7 +188,7 @@ class TestEmailSendingConsolePanel(BaseTest):
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
             response = self.client.post(self._operation_url("suspend"), {"reason": "Hard bounce rate above 5%"})
-        repeat = suspend_email_sending(self.team.pk, "second", user_id=self.user.pk)
+            repeat = suspend_email_sending(self.team.pk, "second", user_id=self.user.pk)
 
         assert response.status_code == 302
         assert repeat.previously_suspended_at is not None

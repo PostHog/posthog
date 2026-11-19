@@ -12,6 +12,7 @@ EMAIL_SENDING_TIER_CHANGED_ACTIVITY = "email_sending_tier_changed"
 EMAIL_SENDING_TIER_SWEEP_JOB_TYPE = "workflows_email_sending_tier_sweep"
 EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE = "backfill_workflows_email_sending_tiers"
 EMAIL_SENDING_TIER_CHANGED_EVENT = "workflows email sending tier changed"
+TIER_EVENTS_PER_FLUSH = 500
 
 
 @dataclasses.dataclass(frozen=True)

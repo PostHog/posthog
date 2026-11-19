@@ -15,7 +15,10 @@ from posthog.ph_client import ScopedCapture
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.services.email_sending_tier_audit import (
+    TIER_EVENTS_PER_FLUSH,
+    log_email_sending_tier_change,
+)
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -462,7 +465,7 @@ def recompute_email_sending_tiers(
 
     # select_related bypasses TeamManager's defer, so without only() the join pulls every wide Team
     # column, including the deprecated taxonomy blobs, for every candidate. The decision reads only
-    # created_at from Team, the audit row reads name and organization, and its analytics event reads uuid, so restrict the load to
+    # created_at from Team and the audit row reads name and organization, so restrict the load to
     # those plus the config fields it uses.
     configs = {
         config.team_id: config
@@ -484,6 +487,7 @@ def recompute_email_sending_tiers(
     }
 
     decisions: list[TierDecision] = []
+    written = 0
     for team_id in sorted(candidate_ids):
         config = configs.get(team_id)
         if config is None:
@@ -505,10 +509,15 @@ def recompute_email_sending_tiers(
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
-        if not decision.changed or apply_tier_decision(
+        if not decision.changed:
+            decisions.append(decision)
+        elif apply_tier_decision(
             config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated, capture=capture
         ):
             decisions.append(decision)
+            written += 1
+            if capture is not None and written % TIER_EVENTS_PER_FLUSH == 0:
+                capture.flush()
     return decisions
 
 

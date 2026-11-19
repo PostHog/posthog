@@ -421,6 +421,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
                 "products.workflows.backend.tasks.email_sending_tiers.ph_scoped_capture",
                 return_value=nullcontext(scoped_capture := MagicMock()),
             ),
+            patch("products.workflows.backend.services.email_sending_tier.TIER_EVENTS_PER_FLUSH", 1),
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
@@ -437,6 +438,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert tier_events["scoped" if by_staff else "global"] == []
         assert event["distinct_id"] == str(self.team.uuid)
         assert event["groups"] == groups(team=self.team)
+        assert scoped_capture.flush.call_count == (0 if by_staff else 1)
         assert event["properties"] == {
             "previous_tier": 0,
             "new_tier": 1,
