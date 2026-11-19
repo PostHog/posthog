@@ -1113,7 +1113,7 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
 - [x] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high) — the `job_children` table describes children by their derived IDs (`parentId:index`, `parentId#node`) with DescribeJobs, because ListJobs ignores its all-status filter for children and would need one walk per status
 - [x] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium) — the `service_jobs` table uses the ListServiceJobs summaries; DescribeServiceJob takes one request per job, so it is not called
-- [ ] `Job queue snapshots (GetJobQueueSnapshot, POST /v1/getjobqueuesnapshot)` — measures queued demand, dispatch order, and capacity utilization over time (medium)
+- [x] `Job queue snapshots (GetJobQueueSnapshot, POST /v1/getjobqueuesnapshot)` — measures queued demand, dispatch order, and capacity utilization over time (medium) — the `job_queue_snapshots` table holds one current snapshot per queue and each full refresh replaces it
 
 Note: Parsed read operations, request fields, and response shapes in the official botocore service model. AWS reads mainly use POST; existing jobs already call DescribeJobs, but child discovery needs arrayJobId or multiNodeJobId. Scheduling policies and consumable resources need detail reads, and queue snapshots need retained timestamps. Excluded writes and tag plumbing.
 
@@ -5861,9 +5861,9 @@ Diffed against: <https://developer.helpscout.com/mailbox-api/>
 - [x] `Teams (GET /v2/teams)` — identify support teams that receive conversations and compare team workloads (high)
 - [x] `Inbox custom fields (GET /v2/mailboxes/{mailboxId}/fields)` — resolve conversation field IDs and dropdown option IDs to names and labels (high)
 - [x] `Happiness Ratings Report (GET /v2/reports/happiness/ratings)` — measure customer satisfaction and connect ratings to support conversations and agents (high)
-- [ ] `Team members (GET /v2/teams/{teamId}/members)` — join agents to teams for staffing, workload, and performance comparisons (medium)
-- [ ] `Productivity Overall Report (GET /v2/reports/productivity)` — compare response times, resolution times, and support productivity with the vendor's reported metrics (medium)
-- [ ] `User Conversation History (GET /v2/reports/user/conversation-history)` — measure each agent's participation in conversations beyond the current assigned agent (medium)
+- [x] `Team members (GET /v2/teams/{teamId}/members)` — join agents to teams for staffing, workload, and performance comparisons (medium). Added as `team_members` (fan-out over `teams`).
+- [ ] `Productivity Overall Report (GET /v2/reports/productivity)` — compare response times, resolution times, and support productivity with the vendor's reported metrics (medium). Skipped: returns one aggregate snapshot per date window (averages and range buckets), not rows; the per-conversation data comes from the drilldown reports.
+- [x] `User Conversation History (GET /v2/reports/user/conversation-history)` — measure each agent's participation in conversations beyond the current assigned agent (medium). Added as `user_conversation_history` (fan-out over `users`).
 
 Note: Compared the official endpoint index and individual request examples with the static catalog, including conversation threads. Reports require Plus or Pro plans and date windows. Team members and custom fields need parent fan-out; auth, attachments, and webhook configuration are excluded.
 
@@ -8803,17 +8803,17 @@ Note: Parsed the current endpoint index and entity references, including the col
 
 ## OpenAQ — gaps
 
-Today (16): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameters`, `providers`, `sensor_flags`, `sensors`
+Today (17): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameter_latest`, `parameters`, `providers`, `sensor_flags`, `sensors`
 
 Diffed against: <https://api.openaq.org/openapi.json>
 
 - [x] `/v3/locations/{id}/latest` — most recent value per location - the headline 'current air quality' read (high)
 - [x] `/v3/sensors/{id}/flags` — data-quality flags needed to exclude bad readings from measurement aggregates (medium)
 - [x] `/v3/locations/{id}/flags` — location-level data-quality flags for the same filtering (medium)
-- [ ] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
+- [x] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
 - [x] `/v3/sensors/{id}/years` — yearly rollups, cheaper than aggregating hourly data for long-range trends (medium)
-- [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low)
-- [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low)
+- [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low) Skipped: the instruments table already embeds each instrument's manufacturer.
+- [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low) Skipped: window-dependent summaries of measurements_hourly and measurements_daily, which we already sync.
 
 Note: measurements_hourly maps to /sensors/{id}/hours and measurements_daily to /sensors/{id}/days, so the main time grains are covered; sensors are already materialized from each location's embedded sensor list.
 
@@ -9049,13 +9049,13 @@ Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-documen
 - [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
 - [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
 - [x] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
-- [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
-- [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
+- [x] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
+- [x] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
 - [x] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
 - [x] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
 - [x] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
-- [ ] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
-- [ ] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
+- [x] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
+- [x] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
 
 Note: Static endpoint list in settings.py (6 paths: /marketers, /marketers/{id}/campaigns, /marketers/{id}/budgets, /campaigns/{id}/promotedLinks, /reports/marketers/{id}/periodic, /reports/marketers/{id}/campaigns) - no dynamic table discovery. The apiary HTML site 502s; the machine-readable API Blueprint JSON at the jsapi.apiary.io URL above works and was parsed for the full resource list. Outbrain's Performance Reporting group is by far the largest part of the API and PostHog currently exposes only 2 of its ~20 report endpoints.
 
@@ -11283,10 +11283,10 @@ Today (7): `Comments`, `Posts`, `Promoter`, `Satisfaction`, `Updates`, `Users`, 
 
 Diffed against: <https://sleekplan.com/docs/api/openapi-v2.yaml>
 
-- [ ] `List groups (GET /v2/groups)` — analyze customer accounts and aggregate their feedback, votes, and satisfaction (medium)
-- [ ] `List a group's members (GET /v2/groups/{group_id}/members)` — join existing users to customer accounts for account-level feedback analysis (medium)
-- [ ] `Get post metadata (GET /v1/post/{postid}/meta)` — use custom feedback attributes to segment requests and connect them with business data (medium)
-- [ ] `List documents (GET /v2/documents)` — analyze product decisions and specifications alongside customer feedback (medium)
+- [x] `List groups (GET /v2/groups)` — analyze customer accounts and aggregate their feedback, votes, and satisfaction (medium) → `Groups` (full refresh)
+- [x] `List a group's members (GET /v2/groups/{group_id}/members)` — join existing users to customer accounts for account-level feedback analysis (medium) → `GroupMembers` (full refresh, fan-out over `Groups`)
+- [ ] `Get post metadata (GET /v1/post/{postid}/meta)` — use custom feedback attributes to segment requests and connect them with business data (medium) Skipped: the vendor spec and reference page document no response body, so no row shape or primary key can be chosen.
+- [x] `List documents (GET /v2/documents)` — analyze product decisions and specifications alongside customer feedback (medium) → `Documents` (full refresh)
 
 Note: Parsed both official OpenAPI files, openapi.yaml for V1 and openapi-v2.yaml for the newer namespace. Current comments and votes already use requests for each post; the seven fixed tables cover most V1 collections. Group members and post metadata require parent requests; full document content requires the document detail endpoint. Excluded notifications, mutations, and undocumented category, tag, or document history collections.
 

@@ -146,7 +146,7 @@ describe("Slack product", () => {
       "slack",
       { slack_thread_url: "https://example.com/t" },
       true,
-      "*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](https://example.com/t)*",
+      "*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](https://example.com/t)*",
     ],
     [
       "workflow",

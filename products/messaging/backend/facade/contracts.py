@@ -267,6 +267,7 @@ class QueuedEmail:
     warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    sent_from_sandbox: bool = False
 
 
 class SupabaseEmailActionType(LabeledStrEnum):
@@ -330,10 +331,20 @@ class EmailDeliveryStatus(LabeledStrEnum):
     COMPLAINED = "complained", "Complained"
 
 
+class EmailSendStatus(LabeledStrEnum):
+    SCHEDULED = "scheduled", "Scheduled"
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+
+
 @frozen
 class EmailStatus:
     message_id: str
-    status: EmailDeliveryStatus
+    status: EmailSendStatus
     created_at: datetime
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.
