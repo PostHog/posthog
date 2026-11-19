@@ -386,7 +386,7 @@ def _first_breach(
         )
         if decision is not None:
             return decision
-    for threshold in thresholds:
+    for threshold in (threshold for threshold in thresholds if threshold.signal == "bounce"):
         decision = _project_breach(
             flow=flow,
             flow_name=flow_name,

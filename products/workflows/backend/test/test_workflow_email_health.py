@@ -285,6 +285,17 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert under_the_rate.email_sending_paused_at is None
         assert self.warning_email.call_count == 0
 
+    def test_complaints_spread_across_workflows_pause_and_warn_no_workflow(self):
+        spreading = HogFlow.objects.create(name="Second blast", team=self.team)
+        self._seed(sent=150, complaints=4)
+        self._seed(source_id=str(spreading.id), sent=150, complaints=4)
+
+        applied, paused_email = self._sweep()
+
+        assert applied == []
+        assert paused_email.call_count == 0
+        assert self.warning_email.call_count == 0
+
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(self):
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)
         self._seed(sent=150, hard_bounces=12)

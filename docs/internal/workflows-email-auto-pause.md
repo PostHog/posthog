@@ -35,9 +35,10 @@ So a rate must also cross against the larger of two send counts: the window's ow
 Late bounces from a large send the day before then cannot pause a workflow that is quiet now, and a workflow that sends steadily keeps its full rate.
 The volume gates and the reason the customer reads use the window's own sends.
 
-The detector also judges the whole project.
-When the project's unpaused workflows together pass both volume gates and a rate, it pauses (or warns) each of them whose own rate is at that rate, even when that workflow is under the volume gates alone.
+The detector also judges the whole project, on hard bounces only.
+When the project's unpaused workflows together pass both volume gates and a hard bounce rate, it pauses (or warns) each of them whose own rate is at that rate, even when that workflow is under the volume gates alone.
 A workflow under the rate keeps sending.
+Complaints stay per workflow: a complaint says one recipient objected to one workflow's email, so a sibling's complaints are no evidence against it, and complaint feedback replayed by SES during an incident would otherwise pause every workflow in the project.
 The reason then names the project's rate and the workflow's own, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
 
 ## Who pauses, who resumes
