@@ -67,7 +67,8 @@ use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
 
-pub use followed::{FollowerReads, EPOCH_HEADER, PARTITION_HEADER, PERSON_ID_HEADER};
+use followed::followed_or_stored;
+pub use followed::{Attached, FollowerReads};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
@@ -127,22 +128,17 @@ impl PersonHogReplica for PersonHogReplicaService {
         let (metadata, _, req) = request.into_parts();
         reject_strong_consistency(&req.read_options)?;
 
-        if Self::routed_to_a_follower(&metadata) {
-            let person = self
-                .followed_person(&metadata, req.team_id, req.person_id)
-                .await?;
-            return Ok(Response::new(GetPersonResponse { person }));
-        }
+        let followed = self.followed_person(&metadata, req.team_id, req.person_id);
+        let person = followed_or_stored(followed, || async {
+            self.storage
+                .get_person_by_id(req.team_id, req.person_id)
+                .await
+                .map(|person| person.map(Into::into))
+                .map_err(|e| log_and_convert_error(e, "get_person"))
+        })
+        .await?;
 
-        let person = self
-            .storage
-            .get_person_by_id(req.team_id, req.person_id)
-            .await
-            .map_err(|e| log_and_convert_error(e, "get_person"))?;
-
-        Ok(Response::new(GetPersonResponse {
-            person: person.map(Into::into),
-        }))
+        Ok(Response::new(GetPersonResponse { person }))
     }
 
     async fn get_persons(
@@ -194,22 +190,17 @@ impl PersonHogReplica for PersonHogReplicaService {
         let uuid = Uuid::parse_str(&req.uuid)
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        if Self::routed_to_a_follower(&metadata) {
-            let person = self
-                .followed_person_by_uuid(&metadata, req.team_id, &uuid.to_string())
-                .await?;
-            return Ok(Response::new(GetPersonResponse { person }));
-        }
+        let followed = self.followed_person_by_uuid(&metadata, req.team_id, &uuid.to_string());
+        let person = followed_or_stored(followed, || async {
+            self.storage
+                .get_person_by_uuid(req.team_id, uuid)
+                .await
+                .map(|person| person.map(Into::into))
+                .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))
+        })
+        .await?;
 
-        let person = self
-            .storage
-            .get_person_by_uuid(req.team_id, uuid)
-            .await
-            .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))?;
-
-        Ok(Response::new(GetPersonResponse {
-            person: person.map(Into::into),
-        }))
+        Ok(Response::new(GetPersonResponse { person }))
     }
 
     async fn get_persons_by_uuids(
