@@ -229,6 +229,7 @@ import {
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
+import { deferOffscreenTiles, isTelemetryInsight, dashboardV2Logic, telemetryTileLoadQueue } from './dashboardV2Logic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
@@ -284,12 +285,6 @@ function reportDashboardTileRefreshed(
 }
 
 const TILE_REFRESH_CONCURRENCY = 4
-// Metrics tiles still share the server's per-organization dashboard slots with analytics tiles.
-// Both queues together stay within those 6 slots (DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES).
-const TELEMETRY_TILE_REFRESH_CONCURRENCY = 2
-// With dashboard-v2, a first load queries this many tiles up front, in layout order.
-// The rest load when they scroll near the viewport.
-const EAGER_TILE_LOADS = 12
 // Matches WORKERS_PER_STREAM in the backend's query sharing stream.
 const QUERY_SHARING_STREAM_WORKERS = 4
 const LAYOUT_UNDO_LIMIT = 20
@@ -342,15 +337,8 @@ function insightTileQueues(
     const queue = tileLoadQueue(cache)
     return {
         queue,
-        telemetryQueue: dashboardV2Enabled
-            ? (cache.telemetryTileLoadQueue ??= new TaskQueue(TELEMETRY_TILE_REFRESH_CONCURRENCY))
-            : queue,
+        telemetryQueue: dashboardV2Enabled ? telemetryTileLoadQueue(cache) : queue,
     }
-}
-
-function isTelemetryInsight(insight: InsightModel): boolean {
-    const kind = insight.query?.kind
-    return kind === NodeKind.MetricsQuery || kind === NodeKind.MetricsHistogramQuery
 }
 
 function tileLoads(cache: Record<string, any>): TileLoads<TileLoadRefresh> {
@@ -372,52 +360,6 @@ function tileLoadsToCancelOnTabSwitch(
             : widgetRefreshStatus[tile.id]?.loading
     )
     return loading.length > TILE_REFRESH_CONCURRENCY ? loading.map((tile) => tile.id) : []
-}
-
-interface OffscreenTileSplit<T extends DashboardTile> {
-    tilesToRefresh: T[]
-    deferredTileIds: number[]
-}
-
-/**
- * Splits a refresh into the tiles to query now and the tiles to query once they scroll into view.
- * Only a first load and an automatic refresh on the dashboard page defer tiles. Every other refresh queries them all.
- */
-function splitOffscreenTiles<T extends DashboardTile>(
-    tiles: T[],
-    {
-        isInitialLoad,
-        forceRefresh,
-        isAutomatic,
-        onDashboardPage,
-        tilesInView,
-        visibilityReported,
-    }: {
-        isInitialLoad: boolean
-        forceRefresh: boolean
-        isAutomatic: boolean
-        onDashboardPage: boolean
-        tilesInView: Set<number>
-        visibilityReported: boolean
-    }
-): OffscreenTileSplit<T> {
-    const split = (shouldLoadNow: (tile: T, index: number) => boolean): OffscreenTileSplit<T> => ({
-        tilesToRefresh: tiles.filter(shouldLoadNow),
-        deferredTileIds: tiles.filter((tile, index) => !shouldLoadNow(tile, index)).map((tile) => tile.id),
-    })
-    if (!onDashboardPage) {
-        return { tilesToRefresh: tiles, deferredTileIds: [] }
-    }
-    if (isInitialLoad && !forceRefresh && tiles.length > EAGER_TILE_LOADS) {
-        // A tile past the first screen that already reported itself in view will not report again, so it loads now.
-        return split((tile, index) => index < EAGER_TILE_LOADS || tilesInView.has(tile.id))
-    }
-    // Until a tile reports its visibility, an automatic refresh queries every tile.
-    // Once tiles have reported, an empty view (only text or widgets on screen) defers every insight.
-    if (isAutomatic && visibilityReported) {
-        return split((tile) => tilesInView.has(tile.id))
-    }
-    return { tilesToRefresh: tiles, deferredTileIds: [] }
 }
 
 async function refreshInsightTile(
@@ -858,6 +800,8 @@ function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTi
 export interface dashboardLogicValues {
     internetConnectionIssue: boolean // apiStatusLogic
     tileGroupChoices: TileGroupChoices // dashboardTileGroupChoicesLogic
+    dashboardV2Enabled: boolean // dashboardV2Logic
+    deferredTileIds: number[] // dashboardV2Logic
     deletionCutoff: Dayjs | null // dataRetentionBannerLogic
     dismissed: boolean // dataRetentionBannerLogic
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
@@ -926,12 +870,8 @@ export interface dashboardLogicValues {
     dashboardSettingsState: DashboardSettingsState
     dashboardStreaming: boolean
     dashboardTileSpacingSaving: boolean
-    dashboardV2Enabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
-    deferredTileIds: number[]
-    deferredTilesForceRefresh: boolean
-    deferredTilesSettings: DashboardSettings | null
     draftLayouts: ResponsiveLayouts | null
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveEditBarFilters: DashboardFilter
@@ -1027,9 +967,7 @@ export interface dashboardLogicValues {
     tileGroupSections: DashboardSection[]
     tileGroupSectionsEnabled: boolean
     tileSavesPending: boolean
-    tileVisibilityReported: boolean
     tiles: DashboardTile[]
-    tilesInView: number[]
     undoLayoutDisabledReason: string | null
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
@@ -1056,6 +994,22 @@ export interface dashboardLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dashboardLogicActions {
+    refreshDeferredTiles: (
+        tileIds: number[],
+        forceRefresh: boolean,
+        settings: DashboardSettings | null
+    ) => {
+        forceRefresh: boolean
+        settings: DashboardSettings | null
+        tileIds: number[]
+    } // dashboardV2Logic
+    setTileInView: (
+        tileId: number,
+        inView: boolean
+    ) => {
+        inView: boolean
+        tileId: number
+    } // dashboardV2Logic
     abortAnyRunningQuery: () => {
         value: true
     }
@@ -1277,9 +1231,6 @@ export interface dashboardLogicActions {
         payload?: {
             action: DashboardLoadAction
         }
-    }
-    loadDeferredTiles: (tileIds: number[]) => {
-        tileIds: number[]
     }
     loadingDashboardItemsStarted: (action: DashboardLoadAction) => {
         action: DashboardLoadAction
@@ -1637,15 +1588,6 @@ export interface dashboardLogicActions {
         dateTo: string | null | undefined
         explicitDate: boolean | undefined
     }
-    setDeferredTileIds: (
-        tileIds: number[],
-        forceRefresh?: boolean,
-        settings?: DashboardSettings | null
-    ) => {
-        forceRefresh: boolean
-        settings: DashboardSettings | null
-        tileIds: number[]
-    }
     setExternalFilters: (filters: DashboardFilter) => {
         filters: DashboardFilter
     }
@@ -1741,13 +1683,6 @@ export interface dashboardLogicActions {
     }
     setTileGroups: (groups: Record<string, DashboardTileGroupApi>) => {
         groups: Record<string, DashboardTileGroupApi>
-    }
-    setTileInView: (
-        tileId: number,
-        inView: boolean
-    ) => {
-        inView: boolean
-        tileId: number
     }
     setTileOverride: (tile: DashboardTile) => {
         tile: DashboardTile
@@ -2076,7 +2011,6 @@ export interface dashboardLogicMeta {
         tiles: (dashboard: DashboardType | null) => DashboardTile[]
         widgetTiles: (tiles: DashboardTile[]) => DashboardTile[]
         tileGroupSectionsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        dashboardV2Enabled: (featureFlags: FeatureFlagsSet) => boolean
         tileGroupDisplay: (dashboard: DashboardType | null, placement: DashboardPlacement) => TileGroupDisplay
         tileGroupKeys: (tiles: DashboardTile[]) => Map<number, string>
         activeTileGroupTab: (
@@ -2357,8 +2291,19 @@ function preloadTextTileRenderer(dashboard: DashboardType): void {
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
-    connect(() => ({
+    props({ id: NaN } as DashboardLogicProps),
+
+    key((props) => {
+        if (!Number.isFinite(props.id)) {
+            return 'invalid'
+        }
+        return props.id
+    }),
+
+    connect((props: DashboardLogicProps) => ({
         values: [
+            dashboardV2Logic(props),
+            ['dashboardV2Enabled', 'deferredTileIds'],
             teamLogic,
             ['currentTeamId'],
             featureFlagLogic,
@@ -2374,17 +2319,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dashboardTileGroupChoicesLogic,
             ['tileGroupChoices'],
         ],
+        actions: [dashboardV2Logic(props), ['setTileInView', 'refreshDeferredTiles']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
-
-    props({ id: NaN } as DashboardLogicProps),
-
-    key((props) => {
-        if (!Number.isFinite(props.id)) {
-            return 'invalid'
-        }
-        return props.id
-    }),
 
     actions(() => ({
         revealHighlightedInsight: true,
@@ -2451,14 +2388,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshTileGroup: (groupKey: string) => ({ groupKey }),
         setWaitingTileRefresh: (waiting: WaitingTileRefresh) => ({ waiting }),
         clearWaitingTileRefresh: (tileIds: number[]) => ({ tileIds }),
-        /** Tiles a refresh skipped because they were off screen, and whether that refresh forced fresh results. */
-        setDeferredTileIds: (
-            tileIds: number[],
-            forceRefresh: boolean = false,
-            settings: DashboardSettings | null = null
-        ) => ({ tileIds, forceRefresh, settings }),
-        setTileInView: (tileId: number, inView: boolean) => ({ tileId, inView }),
-        loadDeferredTiles: (tileIds: number[]) => ({ tileIds }),
         setRevealedTileGroup: (revealedTileGroup: RevealedTileGroup | null) => ({ revealedTileGroup }),
         /** A band grid reports its own layout, which joins the other bands into one dashboard layout. */
         updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => ({ layouts }),
@@ -3600,43 +3529,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cancelDashboardRefresh: () => ({}),
             },
         ],
-        deferredTileIds: [
-            [] as number[],
-            {
-                setDeferredTileIds: (_, { tileIds }) => tileIds,
-            },
-        ],
-        deferredTilesForceRefresh: [
-            false,
-            {
-                setDeferredTileIds: (_, { forceRefresh }) => forceRefresh,
-            },
-        ],
-        // The settings of the refresh that skipped the tiles, so a tile that loads later matches the tiles around it.
-        deferredTilesSettings: [
-            null as DashboardSettings | null,
-            {
-                setDeferredTileIds: (_, { settings }) => settings,
-            },
-        ],
-        // Whether any tile has reported its visibility, so an empty view is not mistaken for unknown visibility.
-        tileVisibilityReported: [
-            false,
-            {
-                setTileInView: () => true,
-            },
-        ],
-        tilesInView: [
-            [] as number[],
-            {
-                setTileInView: (state, { tileId, inView }) =>
-                    inView
-                        ? state.includes(tileId)
-                            ? state
-                            : [...state, tileId]
-                        : state.filter((id) => id !== tileId),
-            },
-        ],
         // Kept when a viewer cancels a refresh, so a group opened later still loads with that refresh's settings.
         waitingTileRefresh: [
             null as WaitingTileRefresh | null,
@@ -4441,12 +4333,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tileGroupSectionsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
-        ],
-        // dashboard-v2 (by project) turns the behaviour on; dashboard-v2-users (by person) picks who sees it.
-        dashboardV2Enabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] && !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS],
         ],
         tileGroupDisplay: [
             (s) => [s.dashboard, s.placement],
@@ -6094,19 +5980,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
             const openStaleTiles = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
-            const { deferredTileIds, tilesToRefresh: sortedTilesToRefresh } = values.dashboardV2Enabled
-                ? splitOffscreenTiles(openStaleTiles, {
+            const sortedTilesToRefresh = values.dashboardV2Enabled
+                ? deferOffscreenTiles(dashboardV2Logic(props), openStaleTiles, {
                       isInitialLoad,
                       forceRefresh: !!forceRefresh,
                       isAutomatic: !!isAutomatic,
                       onDashboardPage: values.placement === DashboardPlacement.Dashboard && !isSharedView(),
-                      tilesInView: new Set(values.tilesInView),
-                      visibilityReported: values.tileVisibilityReported,
+                      settings: settingsToRefresh,
                   })
-                : { deferredTileIds: [], tilesToRefresh: openStaleTiles }
-            if (values.dashboardV2Enabled) {
-                actions.setDeferredTileIds(deferredTileIds, !!forceRefresh, settingsToRefresh)
-            }
+                : openStaleTiles
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
             const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
             const waiting = nextWaitingTileRefresh({
@@ -6671,26 +6553,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.removedTileGroupKeys = new Set([...(cache.removedTileGroupKeys ?? []), groupKey])
             actions.setTileGroups(groups)
         },
-        setTileInView: ({ tileId, inView }) => {
-            if (inView) {
-                actions.loadDeferredTiles([tileId])
-            }
-        },
-        loadDeferredTiles: async ({ tileIds }) => {
-            const deferred = values.deferredTileIds.filter((tileId) => tileIds.includes(tileId))
-            if (deferred.length === 0) {
-                return
-            }
-            const forceRefresh = values.deferredTilesForceRefresh
-            const settings = values.deferredTilesSettings ?? values.settingsForRefresh
-            actions.setDeferredTileIds(
-                values.deferredTileIds.filter((tileId) => !deferred.includes(tileId)),
-                forceRefresh,
-                settings
-            )
+        // dashboard-v2: tiles a refresh deferred came into view.
+        refreshDeferredTiles: async ({ tileIds, forceRefresh, settings: deferredSettings }) => {
+            const settings = deferredSettings ?? values.settingsForRefresh
             const tiles = (values.insightTiles || []).filter(
-                (tile): tile is DashboardTile & { insight: InsightModel } =>
-                    !!tile.insight && deferred.includes(tile.id)
+                (tile): tile is DashboardTile & { insight: InsightModel } => !!tile.insight && tileIds.includes(tile.id)
             )
             if (tiles.length === 0) {
                 return
