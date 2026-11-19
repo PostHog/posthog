@@ -508,6 +508,23 @@ class FreeFieldCollector(TraversingVisitor):
         return node
 
 
+class ScalarCTEReferenceCollector(FreeFieldCollector):
+    def visit_select_query(self, node: ast.SelectQuery):
+        self._local_vars.append(set(node.ctes or {}))
+        try:
+            return TraversingVisitor.visit_select_query(self, node)
+        finally:
+            self._local_vars.pop()
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        initial = node.initial_select_query
+        self._local_vars.append(set(initial.ctes or {}) if isinstance(initial, ast.SelectQuery) else set())
+        try:
+            return TraversingVisitor.visit_select_set_query(self, node)
+        finally:
+            self._local_vars.pop()
+
+
 def _table_has_field(table: ast.Type, name: str, context: HogQLContext) -> bool:
     try:
         return table.has_child(name, context)
@@ -682,9 +699,7 @@ class Resolver(CloningVisitor):
     def _inherit_scalar_ctes(self, node: ast.SelectQuery | ast.SelectSetQuery, inherited: dict[str, ast.CTE]) -> None:
         if isinstance(node, ast.SelectSetQuery):
             first_branch = node.initial_select_query
-            while isinstance(first_branch, ast.SelectSetQuery):
-                first_branch = first_branch.initial_select_query
-            branch_ctes = first_branch.ctes or {}
+            branch_ctes = (first_branch.ctes or {}) if isinstance(first_branch, ast.SelectQuery) else {}
             subsequent_ctes = {name: cte for name, cte in inherited.items() if name not in branch_ctes}
             subsequent_ctes.update((name, cte) for name, cte in branch_ctes.items() if cte.cte_type == "column")
             self._inherit_scalar_ctes(node.initial_select_query, inherited)
@@ -695,25 +710,20 @@ class Resolver(CloningVisitor):
         available = {**inherited, **(node.ctes or {})}
         ordered: dict[str, ast.CTE] = {}
         visiting: set[str] = set()
-
-        def include(name: str) -> None:
-            if name not in available or name in visiting:
-                return
-            visiting.add(name)
-            collector = FieldCollector()
-            collector.visit(available[name].expr)
-            for field in collector.fields:
-                if field.chain:
-                    include(str(field.chain[0]))
-            ordered[name] = available[name]
-
-        for name in node.ctes or {}:
-            include(name)
-        collector = FieldCollector()
+        collector = ScalarCTEReferenceCollector()
         collector.visit(node)
-        for field in collector.fields:
-            if field.chain:
-                include(str(field.chain[0]))
+        roots = [*(node.ctes or {}), *(str(field.chain[0]) for field in collector.fields if field.chain)]
+        stack = [(name, False) for name in reversed(roots)]
+        while stack:
+            name, expanded = stack.pop()
+            if expanded:
+                ordered[name] = available[name]
+            elif name in available and name not in visiting:
+                visiting.add(name)
+                stack.append((name, True))
+                collector = ScalarCTEReferenceCollector()
+                collector.visit(available[name].expr)
+                stack.extend((str(field.chain[0]), False) for field in reversed(collector.fields) if field.chain)
         node.ctes = ordered or None
 
     def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:

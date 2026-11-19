@@ -1336,12 +1336,38 @@ class TestResolver(BaseTest):
                 "local_dependency",
                 "WITH 1 AS a, (SELECT a)+a AS b SELECT b UNION ALL WITH 2 AS a SELECT b",
             ),
+            (
+                "nested_local_dependency",
+                "WITH 1 AS a, (SELECT a)+a AS b SELECT b UNION ALL WITH (WITH 2 AS b SELECT b) AS a SELECT b",
+            ),
         ]
     )
     def test_union_scalar_aliases_only_resolve_in_branches_that_use_them(self, _name: str, query: str):
         resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
         self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
         self.assertEqual(self.context.errors, [])
+
+    def test_union_scalar_alias_dependency_chain_does_not_use_python_recursion(self):
+        aliases = ["1 AS a0", *(f"a{index - 1}+1 AS a{index}" for index in range(1, 1100))]
+        query = f"WITH {', '.join(aliases)} SELECT a1099 UNION ALL SELECT a1099"
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
+
+    def test_parenthesized_union_scalar_override_does_not_escape_its_scope(self):
+        resolved = resolve_types(
+            parse_select(
+                "WITH 1 AS a, a AS n SELECT n UNION ALL ((WITH 2 AS n SELECT n UNION ALL SELECT n) UNION ALL SELECT n)"
+            ),
+            self.context,
+            dialect="clickhouse",
+        )
+        assert isinstance(resolved, ast.SelectSetQuery)
+        nested_union = resolved.subsequent_select_queries[0].select_query
+        assert isinstance(nested_union, ast.SelectSetQuery)
+        final_branch = nested_union.subsequent_select_queries[0].select_query
+        assert isinstance(final_branch, ast.SelectQuery) and final_branch.ctes is not None
+        assert isinstance(final_branch.ctes["n"].expr, ast.Field)
+        self.assertEqual(final_branch.ctes["n"].expr.chain, ["a"])
 
     def test_with_clause_before_parens_select_set(self):
         printed = self._print_hogql("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
