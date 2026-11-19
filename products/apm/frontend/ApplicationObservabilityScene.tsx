@@ -1,12 +1,18 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
 
 import { IconPauseFilled, IconPlayFilled, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import { TracesAlertFromRowModals } from 'products/tracing/frontend/alerting/TracesAlertFromRowModals'
+import type { TracesAlertFormType } from 'products/tracing/frontend/alerting/tracesAlertUtils'
 
 import {
     ApplicationObservabilityTab,
@@ -30,6 +36,15 @@ export const scene: SceneExport = {
 export function ApplicationObservabilityScene(): JSX.Element {
     const { environment, environments, timeRange, tab, paused, refreshing } = useValues(applicationObservabilityLogic)
     const { setEnvironment, setTimeRange, setTab, setPaused, refresh } = useActions(applicationObservabilityLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The platform API serves traces alerts only with both flags on.
+    const alertsAvailable = !!(
+        featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS] && featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]
+    )
+    // Held here, not in the row, so a refresh that drops the row keeps the draft open.
+    const [alertDraft, setAlertDraft] = useState<TracesAlertFormType | null>(null)
+    const closeAlertDraft = useCallback((): void => setAlertDraft(null), [])
+    const onCreateAlert = alertsAvailable ? setAlertDraft : undefined
 
     return (
         <SceneContent>
@@ -85,8 +100,8 @@ export function ApplicationObservabilityScene(): JSX.Element {
                 activeKey={tab}
                 onChange={setTab}
                 tabs={[
-                    { key: 'services', label: 'Services', content: <ServicesTab /> },
-                    { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab /> },
+                    { key: 'services', label: 'Services', content: <ServicesTab onCreateAlert={onCreateAlert} /> },
+                    { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab onCreateAlert={onCreateAlert} /> },
                     { key: 'map', label: 'Map', content: <ServiceMapTab /> },
                     { key: 'dependencies', label: 'Dependencies', content: <DependenciesTab /> },
                     { key: 'deployments', label: 'Deployments', content: <DeploymentsTab /> },
@@ -94,6 +109,7 @@ export function ApplicationObservabilityScene(): JSX.Element {
                 ]}
                 data-attr="apm-tabs"
             />
+            {alertDraft !== null && <TracesAlertFromRowModals initialForm={alertDraft} onDone={closeAlertDraft} />}
         </SceneContent>
     )
 }
