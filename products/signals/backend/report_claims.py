@@ -169,16 +169,18 @@ def is_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
 
 
 def _actor_person_id(claim: ReportClaim, actor: ArtefactAttribution, user_id: int | None) -> int | None:
-    """The person an actor acts for, given `user_id`, the authenticated principal of the request.
+    """The person an actor acts for, given `user_id` or the attribution's `request_user_id`, the authenticated
+    principal of the request.
 
     The task id is caller-supplied, so a task acts for its creator only when the creator made the request.
     """
     if actor.kind in ("user", "agent"):
         return actor.user_id
-    if actor.task_id is None or user_id is None:
+    principal = user_id if user_id is not None else actor.request_user_id
+    if actor.task_id is None or principal is None:
         return None
     tasks = tasks_facade.get_tasks_by_ids([actor.task_id], [claim.team_id])
-    return user_id if tasks and tasks[0].created_by_id == user_id else None
+    return principal if tasks and tasks[0].created_by_id == principal else None
 
 
 def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution, *, user_id: int | None = None) -> bool:
@@ -186,14 +188,14 @@ def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution, *, u
 
     A person's claim, direct or through an agent, covers all of their actors: themselves, their agents, and
     tasks they started. Without `user_id`, a task inherits its creator's direct claim, and an agent claim
-    only when task creation already associated the task with it, which is a server-side fact. With `user_id`,
+    only when task creation already associated the task with it, which is a server-side fact. On a request,
     the task id is caller-supplied, so a task counts only through the person check.
     """
     if actor_owns_claim(claim, actor):
         return True
     if is_claim_of_person(claim, _actor_person_id(claim, actor, user_id)):
         return True
-    if actor.task_id is None or user_id is not None:
+    if actor.task_id is None or user_id is not None or actor.request_user_id is not None:
         return False
     if claim.actor_kind == "user":
         return is_claim_of_task_creator(claim, actor.task_id)

@@ -741,8 +741,26 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             format="json",
             headers={"X-PostHog-Task-Id": str(task.id)},
         )
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+        note = self.client.post(
+            artefacts_url,
+            {"artefact_type": "note", "content": {"note": "Opened the PR"}},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        reviewers = self.client.post(
+            artefacts_url,
+            {"artefact_type": "suggested_reviewers", "content": [], "claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
 
         assert resumed.status_code == expected_status
+        assert note.status_code == status.HTTP_201_CREATED
+        assert note.json()["claim_id"] == (claim_id if expected_status == status.HTTP_200_OK else None)
+        assert reviewers.status_code == (
+            status.HTTP_201_CREATED if expected_status == status.HTTP_200_OK else status.HTTP_400_BAD_REQUEST
+        ), reviewers.content
         claim = get_active_claim(team_id=self.team.id, report_id=report.id)
         assert claim is not None and str(claim.claim_id) == claim_id
         if expected_status == status.HTTP_200_OK:
