@@ -15,6 +15,9 @@ describe('email link tracking benchmark', () => {
     const unmatchedEndTags = '</x>'.repeat(400_000)
     const attributes = Array.from({ length: 200_000 }, (_, i) => `a${i}`).join(' ')
     const textBeforeTable = 'x<b></b>'.repeat(200_000)
+    const longTag = `<a href="https://example.com/x" ${Array.from({ length: 2_000 }, (_, i) => `a${i}`).join(' ')}>`
+    const rebuiltLinks = '<p>x</p>'.repeat(20_000)
+    const blockChildren = '<br>'.repeat(400_000)
 
     it.each<{ shape: string; mode: EmailTrackingMode; body: string; tagged: string; pixel?: boolean }>([
         {
@@ -66,6 +69,18 @@ describe('email link tracking benchmark', () => {
             mode: 'ses',
             body: `<table>${textBeforeTable}<a href="https://example.com/x">x</a>`,
             tagged: `<table>${textBeforeTable}<a href="https://example.com/x" ses:tags="phl:0">x</a>`,
+        },
+        {
+            shape: 'copies of a long anchor tag that misnested end tags rebuild',
+            mode: 'ses',
+            body: `<p>${longTag}x</p>${rebuiltLinks}`,
+            tagged: `<p>${longTag.slice(0, -1)} ses:tags="phl:0">x</p>${rebuiltLinks}`,
+        },
+        {
+            shape: 'children of a block that a misnested anchor end tag moves',
+            mode: 'ses',
+            body: `<a href="https://example.com/x"><div>${blockChildren}</a>`,
+            tagged: `<a href="https://example.com/x" ses:tags="phl:0"><div>${blockChildren}</a>`,
         },
         {
             shape: 'spaces inside an anchor tag',

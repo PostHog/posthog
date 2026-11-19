@@ -1,3 +1,23 @@
+diff --git a/dist/cjs/parser/index.js b/dist/cjs/parser/index.js
+index 4dbf9d5..b52a908 100644
+--- a/dist/cjs/parser/index.js
++++ b/dist/cjs/parser/index.js
+@@ -328,8 +328,13 @@ class Parser {
+         }
+     }
+     _adoptNodes(donor, recipient) {
+-        for (let child = this.treeAdapter.getFirstChild(donor); child; child = this.treeAdapter.getFirstChild(donor)) {
+-            this.treeAdapter.detachNode(child);
++        // Detach from the end, where the default adapter removes a child without shifting the others, then append in
++        // document order. A copy, because some adapters return a live list and others a new one.
++        const children = [...this.treeAdapter.getChildNodes(donor)];
++        for (let i = children.length - 1; i >= 0; i--) {
++            this.treeAdapter.detachNode(children[i]);
++        }
++        for (const child of children) {
+             this.treeAdapter.appendChild(recipient, child);
+         }
+     }
 diff --git a/dist/cjs/tokenizer/index.js b/dist/cjs/tokenizer/index.js
 index b8a5970..7de79d9 100644
 --- a/dist/cjs/tokenizer/index.js
@@ -87,6 +107,26 @@ index 7d723aa..0db072d 100644
          if (prevNode && exports.defaultTreeAdapter.isTextNode(prevNode)) {
              prevNode.value += text;
          }
+diff --git a/dist/parser/index.js b/dist/parser/index.js
+index 4a3dc7a..6b932e4 100644
+--- a/dist/parser/index.js
++++ b/dist/parser/index.js
+@@ -334,8 +334,13 @@ export class Parser {
+         }
+     }
+     _adoptNodes(donor, recipient) {
+-        for (let child = this.treeAdapter.getFirstChild(donor); child; child = this.treeAdapter.getFirstChild(donor)) {
+-            this.treeAdapter.detachNode(child);
++        // Detach from the end, where the default adapter removes a child without shifting the others, then append in
++        // document order. A copy, because some adapters return a live list and others a new one.
++        const children = [...this.treeAdapter.getChildNodes(donor)];
++        for (let i = children.length - 1; i >= 0; i--) {
++            this.treeAdapter.detachNode(children[i]);
++        }
++        for (const child of children) {
+             this.treeAdapter.appendChild(recipient, child);
+         }
+     }
 diff --git a/dist/tokenizer/index.js b/dist/tokenizer/index.js
 index 217b7bc..28e91c1 100644
 --- a/dist/tokenizer/index.js

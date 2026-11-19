@@ -209,7 +209,7 @@ const scanAnchors = (
     base: number,
     inComment: boolean,
     limit: number,
-    anchors: ScannedTag[]
+    anchors: Map<number, ScannedTag>
 ): void => {
     const pending: Node[] = [root]
     while (pending.length > 0) {
@@ -220,10 +220,13 @@ const scanAnchors = (
             }
             continue
         }
-        if (node.nodeName === 'a') {
+        const startTag = (node as Element).sourceCodeLocation?.startTag
+        // A link that a misnested end tag closes early is rebuilt as a copy with the same start tag, as often as the
+        // email repeats the pattern, so each tag is read once.
+        if (node.nodeName === 'a' && startTag && !anchors.has(base + startTag.startOffset)) {
             const anchor = readAnchor(html, base, node as Element, inComment)
             if (anchor) {
-                anchors.push(anchor)
+                anchors.set(base + startTag.startOffset, anchor)
             }
         }
         if ('childNodes' in node) {
@@ -243,7 +246,7 @@ const scanComment = (
     html: string,
     comment: DefaultTreeAdapterMap['commentNode'],
     limit: number,
-    anchors: ScannedTag[]
+    anchors: Map<number, ScannedTag>
 ): void => {
     const location = comment.sourceCodeLocation
     if (!location || !html.startsWith(COMMENT_OPENING, location.startOffset)) {
@@ -284,15 +287,10 @@ const scanHtml = (html: string): Scan => {
     const limit = nestingLimitFor(html)
     const parser = new BodyEndParser({ ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
     parser.tokenizer.write(html, true)
-    const anchors: ScannedTag[] = []
+    const anchors = new Map<number, ScannedTag>()
     scanAnchors(html, parser.document, 0, false, limit, anchors)
     // Tree order is not source order: a link written inside a table moves before it.
-    anchors.sort((a, b) => a.start - b.start)
-    // A link that a misnested end tag closes early is reopened with the same tag, so it appears twice.
-    return {
-        anchors: anchors.filter((anchor, index) => anchor.start !== anchors[index - 1]?.start),
-        bodyEnd: parser.bodyEnd,
-    }
+    return { anchors: [...anchors.values()].sort((a, b) => a.start - b.start), bodyEnd: parser.bodyEnd }
 }
 
 const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribute> => {

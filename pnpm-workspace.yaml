@@ -154,9 +154,10 @@ patchedDependencies:
     # Upstream set margin 0 to fix RTL overflow (mui/base-ui#5661), which brought them back inside.
     '@base-ui/utils@0.5.0': patches/@base-ui__utils@0.5.0.patch
     # The email link scan parses customer HTML on the shared CDP worker. In 7.1.2 a new attribute is checked against
-    # every earlier one in its tag, and content fostered before an open table searches all its siblings, so both grow
-    # with the square of the input. The patch backports the name set and the last-child check of parse5 8.1.1.
-    # Remove it after the scan moves to parse5 8, which ships ESM only.
+    # every earlier one in its tag, content fostered before an open table searches all its siblings, and a misnested
+    # formatting tag moves its block's children one at a time from the front, so each grows with the square of the
+    # input. The patch adds a name set and a last-child check, as parse5 8.1.1 has, and moves children from the end.
+    # Remove it after the scan moves to a parse5 release without these paths.
     parse5@7.1.2: patches/parse5@7.1.2.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
