@@ -172,6 +172,31 @@ def test_a_page_takes_the_answer_from_state_and_the_message_from_the_first_gener
     }
 
 
+VIDEO_PART = {"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4"}}
+
+
+@parameterized.expand(
+    [
+        (
+            "with text previews the text",
+            [{"type": "text", "text": "Describe this clip"}, VIDEO_PART],
+            "Describe this clip",
+        ),
+        ("alone previews nothing", [VIDEO_PART], None),
+    ]
+)
+def test_a_video_part_is_never_the_message(_name: str, content: Value, expected: str | None) -> None:
+    source = generation("g1", input=[{"role": "user", "content": content}])
+
+    turns = page_turns(
+        {"trace-1": TracePreviewSources(state=None, first_generation=source, latest_generation=source)},
+        build_normalizer=RecipeNormalizer,
+        team_id=TEAM_ID,
+    )
+
+    assert turns["trace-1"].message == expected
+
+
 @parameterized.expand(
     [
         ("after the first trace is read", False, Turn(message="Where is my parcel?", answer="On its way.")),
