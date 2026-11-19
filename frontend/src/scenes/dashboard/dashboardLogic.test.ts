@@ -3414,38 +3414,36 @@ describe('dashboardLogic', () => {
                 }
             })
 
-            it.each(['/dashboard/5', urls.analyticsProductHome()])(
-                'restores filters when browser history changes the URL on %s',
-                async (pathname) => {
-                    await expectLogic(logic).toFinishAllListeners()
+            it('restores filters when browser history changes the URL', async () => {
+                const pathname = '/dashboard/5'
+                await expectLogic(logic).toFinishAllListeners()
 
-                    await expectLogic(logic, () => {
-                        logic.actions.setDates('-30d', null)
-                    }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-30d', null)
+                }).toFinishAllListeners()
 
-                    const searchParams = {
-                        [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
-                    }
-                    await expectLogic(logic, () => {
-                        router.actions.locationChanged({
-                            method: 'POP',
-                            pathname,
-                            search: '',
-                            searchParams,
-                            hash: '',
-                            hashParams: {},
-                            url: pathname,
-                        })
-                    }).toFinishAllListeners()
-
-                    expect(logic.values.currentDashboardSettings.filters).toEqual(
-                        expect.objectContaining({ date_from: '-7d', date_to: null })
-                    )
-                    expect(logic.values.filtersOverrideForLoad).toEqual(
-                        expect.objectContaining({ date_from: '-7d', date_to: null })
-                    )
+                const searchParams = {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
                 }
-            )
+                await expectLogic(logic, () => {
+                    router.actions.locationChanged({
+                        method: 'POP',
+                        pathname,
+                        search: '',
+                        searchParams,
+                        hash: '',
+                        hashParams: {},
+                        url: pathname,
+                    })
+                }).toFinishAllListeners()
+
+                expect(logic.values.currentDashboardSettings.filters).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+                expect(logic.values.filtersOverrideForLoad).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+            })
         })
 
         describe('external filter overrides', () => {

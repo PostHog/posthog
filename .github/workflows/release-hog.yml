@@ -24,10 +24,11 @@ env:
     # The version the flox environment pins for hog, as in ci-hog.yml.
     BUN_VERSION: 1.4.2
     RELEASE_BRANCH: chore/release-hog
-    # Everything that decides what the build job ships, for the approval checks: hog, the MCP library and
-    # workspace packages it bundles, the product files that library imports or copies in, what picks and
-    # installs the dependencies (the root package's install scripts run during the build), and this
-    # workflow. Keep it in step with the build job's sparse checkout.
+    # Everything that decides what the build job ships: hog, the MCP library and workspace packages it
+    # bundles, the product files that library imports or copies in, what picks and installs the
+    # dependencies (the root package's install scripts run during the build), and this workflow. Keep it
+    # in step with the build job's sparse checkout. The approval check runs as the last release tag has
+    # it, and copies from before it checked changeset owners read this list.
     HOG_SOURCE_PATHS: >-
         hog
         services/mcp
@@ -88,20 +89,102 @@ jobs:
         name: Notify Slack - Approval Needed
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
         permissions:
             contents: read
-            # Lets the shared workflow list the PRs in the push and name who can't approve them.
+            # The pull requests that added the changesets, to name who can't approve them.
             pull-requests: read
-        uses: PostHog/.github/.github/workflows/notify-approval-needed.yml@a0e9881c025846e1a13633b6e795ac06bb4e3d43
-        with:
-            checkout_repository: false
-            slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
-            slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
-            tag_pattern: hog/v*
-            tag_sort: version
-        secrets:
-            slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-            posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+        outputs:
+            slack_ts: ${{ steps.notify.outputs.ts }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+                  sparse-checkout: |
+                      hog/package.json
+                  sparse-checkout-cone-mode: false
+
+            # Informational only: prepare-release enforces the rule. The report runs as the last release
+            # shipped the check, so it never names a different group of people than the check blocks.
+            - name: List who can't approve
+              id: owners
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  last_tag="hog/v$(jq -r '.version' hog/package.json)"
+                  echo "last-tag=$last_tag" >> "$GITHUB_OUTPUT"
+                  base=$(git rev-parse --verify "refs/tags/$last_tag^{commit}")
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"
+                  if ! grep -q -- '--report' "$checker"; then
+                      echo "The approver check at $last_tag has no report mode, so the message names nobody"
+                      exit 0
+                  fi
+                  bash "$checker" --report "$base" HEAD
+
+            - name: Build Slack payload
+              id: payload
+              env:
+                  CHANNEL: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  USER_GROUP: ${{ vars.SLACK_HOG_RELEASE_APPROVERS_GROUP_ID }}
+                  REPOSITORY: ${{ github.repository }}
+                  RUN_ID: ${{ github.run_id }}
+                  LAST_TAG: ${{ steps.owners.outputs.last-tag }}
+                  SHA: ${{ github.sha }}
+                  PRS_MRKDWN: ${{ steps.owners.outputs.prs_mrkdwn }}
+                  OWNERS_MRKDWN: ${{ steps.owners.outputs.owners_mrkdwn }}
+              run: |
+                  set -euo pipefail
+                  payload=$(jq -nc '
+                    {
+                      channel: $ENV.CHANNEL,
+                      text: "🚀 hog release approval needed",
+                      blocks: (
+                        [
+                          {type: "header", text: {type: "plain_text", text: "🚀 hog release approval needed", emoji: true}},
+                          {type: "section", text: {type: "mrkdwn", text: "A hog release is ready for approval in `\($ENV.REPOSITORY)`."}}
+                        ]
+                        + (if $ENV.PRS_MRKDWN != "" then [{type: "section", text: {type: "mrkdwn", verbatim: true, text: "*Changesets from:*\n\($ENV.PRS_MRKDWN)"}}] else [] end)
+                        + (if $ENV.OWNERS_MRKDWN != "" then [
+                            {type: "section", text: {type: "mrkdwn", text: "⛔ *Cannot approve this release:* \($ENV.OWNERS_MRKDWN)"}},
+                            {type: "context", elements: [{type: "mrkdwn", text: "Whoever opened, merged or pushed commits to a pull request whose changeset this release ships can'"'"'t approve it."}]}
+                          ] else [] end)
+                        + (if $ENV.USER_GROUP != "" then [{type: "section", text: {type: "mrkdwn", text: "<!subteam^\($ENV.USER_GROUP)> Please review and approve the release."}}] else [] end)
+                        + [{
+                            type: "actions",
+                            elements: [
+                              {type: "button", text: {type: "plain_text", text: "View Diff on GitHub", emoji: true},
+                               url: "https://github.com/\($ENV.REPOSITORY)/compare/\(if $ENV.LAST_TAG != "" then $ENV.LAST_TAG else "master" end)...\($ENV.SHA)"},
+                              {type: "button", text: {type: "plain_text", text: "Approve/Reject on GitHub", emoji: true},
+                               url: "https://github.com/\($ENV.REPOSITORY)/actions/runs/\($ENV.RUN_ID)", style: "primary"}
+                            ]
+                          }]
+                      )
+                    }')
+                  delimiter="payload_$(openssl rand -hex 8)"
+                  {
+                      echo "payload<<$delimiter"
+                      echo "$payload"
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Send Slack notification
+              id: notify
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              continue-on-error: true
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  payload: ${{ steps.payload.outputs.payload }}
 
     prepare-release:
         name: Prepare hog release pull request
@@ -127,43 +210,6 @@ jobs:
             new-version: ${{ steps.prepare-release.outputs.new-version }}
             release-pr: ${{ steps.release-pr.outputs.url }}
         steps:
-            - name: Block approval by the authors of the released PRs
-              id: guard
-              uses: PostHog/.github/.github/actions/release-approval-guard@f0431489d137b9e7474fc428cf176e4c668cc4a2 # main
-              with:
-                  environment: hog-release
-
-            - name: Notify Slack - Approval rejected by the guard
-              if: failure() && steps.guard.outcome == 'failure' && steps.guard.outputs.violations_mrkdwn != '' && needs.notify-approval-needed.outputs.slack_ts != ''
-              continue-on-error: true
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
-              with:
-                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '🚫 Approval by ${{ steps.guard.outputs.violations_mrkdwn }} rejected: authors and mergers of the released PRs cannot approve. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
-                  emoji_reaction: 'no_entry'
-
-            - name: Notify Slack - Approval guard failed
-              if: failure() && steps.guard.outcome == 'failure' && steps.guard.outputs.violations_mrkdwn == '' && needs.notify-approval-needed.outputs.slack_ts != ''
-              continue-on-error: true
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
-              with:
-                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '⚠️ The release approval guard could not run, so the hog release stopped before the version bump. Check the <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|job log> and re-run the failed jobs.'
-                  emoji_reaction: 'warning'
-
-            - name: Get the hog releaser token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_HOG_RELEASER_PRIVATE_KEY }}
-                  permission-contents: write
-                  permission-pull-requests: write
-
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -177,11 +223,11 @@ jobs:
             - name: Update to latest master before preparing release
               run: git pull --ff-only origin master
 
-            # The release ships every change to hog's sources since the last release, so nobody who
-            # opened, merged or pushed commits to one of those pull requests may approve it. The range
-            # ends at the commit checked out here. The release job checks what merged after it, while
-            # the release pull request waited in the merge queue.
-            - name: Check approvers against every change since the last release
+            # Nobody who opened, merged or pushed commits to a pull request that added one of the
+            # released changesets may approve the release. It runs before the releaser token exists. The
+            # range ends at the commit checked out here. The release job checks what merged after it,
+            # while the release pull request waited in the merge queue.
+            - name: Check approvers against the owners of the released changesets
               id: range-guard
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -230,8 +276,17 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a hog change this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
+                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a pull request whose changeset this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
                   emoji_reaction: 'no_entry'
+
+            - name: Get the hog releaser token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_HOG_RELEASER_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
 
             - name: Check for remaining changesets
               id: recheck-changesets
@@ -327,12 +382,17 @@ jobs:
 
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
-            - name: Ensure master did not advance during release prep
+            # master moves every few minutes, so only a hog changeset that landed during prep matters: it
+            # would miss this release. The release job's approver check covers every other merge.
+            - name: Ensure no hog changeset landed during release prep
               if: steps.check-changes.outputs.committed == 'true'
               run: |
-                  git fetch origin master
-                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-                      echo "::error::master advanced while preparing the hog release. Re-run the workflow so the release includes the latest changesets."
+                  set -euo pipefail
+                  git fetch --no-tags origin master
+                  landed=$(git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- 'hog/.sampo/changesets/*.md')
+                  if [ -n "$landed" ]; then
+                      echo "::error::A hog changeset landed on master while preparing the release. Re-run the workflow so the release includes it:"
+                      printf '%s\n' "$landed"
                       exit 1
                   fi
 
@@ -496,7 +556,7 @@ jobs:
                       }
 
             - name: Notify Slack - Failed
-              if: ${{ failure() && steps.guard.outcome == 'success' && steps.range-guard.outputs.violations == '' && needs.notify-approval-needed.outputs.slack_ts != '' }}
+              if: ${{ failure() && steps.range-guard.outputs.violations == '' && needs.notify-approval-needed.outputs.slack_ts != '' }}
               continue-on-error: true
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
@@ -593,14 +653,22 @@ jobs:
                   set -euo pipefail
 
                   # Every master commit comes from a merged pull request. None listed means GitHub hasn't
-                  # linked it yet, and skipping would leave a release unpublished without a word.
-                  merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
-                      --jq '.[] | select(.merged_at != null and .base.ref == "master") | "\(.number) \(.head.ref)"')
+                  # linked it yet, which takes a little while after the merge queue lands a commit, and
+                  # skipping would leave a release unpublished without a word. A stacked pull request keeps
+                  # its parent layer as its base, so only the release pull request has to target master.
+                  merged_prs=""
+                  for attempt in $(seq 1 12); do
+                      merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                          --jq '.[] | select(.merged_at != null) | "\(.number) \(.head.ref) \(.base.ref)"')
+                      [ -n "$merged_prs" ] && break
+                      echo "GitHub lists no merged pull request for $RELEASE_COMMIT yet (attempt $attempt of 12)"
+                      sleep 10
+                  done
                   if [ -z "$merged_prs" ]; then
-                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT yet. Re-run the failed jobs in a minute."
+                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT after 2 minutes. Re-run the failed jobs."
                       exit 1
                   fi
-                  release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch { print $1 }' <<<"$merged_prs")
+                  release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch && $3 == "master" { print $1 }' <<<"$merged_prs")
                   release_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
                   if [ "$release_count" -eq 0 ]; then
                       echo "is-release=false" >> "$GITHUB_OUTPUT"
@@ -974,7 +1042,10 @@ jobs:
                           --entitlements hog/release/entitlements.plist \
                           --identifier com.posthog.hog --sign "$identity" "$binary"
                       codesign --verify --strict --verbose=2 "$binary"
-                      codesign -dv "$binary" 2>&1 | grep -q 'Authority=Developer ID Application' \
+                      # The Authority lines need --verbose=2, and the output goes through a variable because
+                      # grep -q closing a pipe early fails the pipeline under pipefail.
+                      signature=$(codesign -d --verbose=2 "$binary" 2>&1)
+                      grep -q 'Authority=Developer ID Application' <<<"$signature" \
                           || { echo "::error::$target is not signed with a Developer ID"; exit 1; }
 
                       # A bare executable can't be stapled, so Gatekeeper checks the ticket online.

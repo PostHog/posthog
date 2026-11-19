@@ -7,10 +7,10 @@ import { workflowEmailSandboxStatus } from '../generated/api'
 import type { WorkflowEmailSandboxStatusApi } from '../generated/api.schemas'
 import { SandboxSenderSurface, canAdoptSandboxSender, provisionSandboxSender } from './sandboxSender'
 
-const PROVISION_FAILED = "Couldn't set up the sandbox sender. Try again, or choose your own sender."
-const NOT_SET_UP = "The sandbox sender isn't set up for this project yet."
-const ORGANIZATION_BLOCKED = 'Sandbox email is turned off for your organization. Choose your own sender.'
-const UNAVAILABLE = "The sandbox sender isn't available for this project. Choose your own sender."
+const PROVISION_FAILED = "Couldn't set up the PostHog test sender. Try again, or choose your own sender."
+const NOT_SET_UP = "The PostHog test sender isn't set up for this project yet."
+const ORGANIZATION_BLOCKED = 'The PostHog test sender is turned off for your organization. Choose your own sender.'
+const UNAVAILABLE = "The PostHog test sender isn't available for this project. Choose your own sender."
 
 export interface SandboxSetup {
     problem: string
