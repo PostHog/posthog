@@ -74,7 +74,7 @@ class TestSqlSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("count_by_day", _DAILY_COUNT, "value"),
             (
                 "count_by_hour",
-                "SELECT toStartOfHour(timestamp) AS hour, count() AS value FROM events "
+                "SELECT toStartOfHour(timestamp) AS hour, count(*) AS value FROM events "
                 "WHERE timestamp >= now() - INTERVAL 7 DAY AND timestamp < now() AND event = 'signed_up' GROUP BY hour",
                 "value",
             ),
@@ -201,6 +201,27 @@ class TestSqlSeriesValuesRefusals(SimpleTestCase):
             (
                 "source",
                 HogQLQuery(query=_DAILY_COUNT.replace("event = 'signed_up'", "person_id IN COHORT 5")),
+                "value",
+                "UTC",
+            ),
+            *(
+                ("source", HogQLQuery(query=_DAILY_COUNT.replace("event = 'signed_up'", condition)), "value", "UTC")
+                for condition in (
+                    "poe.revenue_analytics.revenue > 0",
+                    "crm_account.plan = 'pro'",
+                    "matchesAction(1)",
+                    "distinct_id IN person_distinct_ids",
+                    "issue_status = 'active'",
+                    "arrayExists(issue_status -> 1, [1]) AND issue_status = 'active'",
+                    "arrayExists(x -> (x AS issue_status) = 1, [1]) AND issue_status = 'active'",
+                    "issue_status = 'active' AND (event AS issue_status) != ''",
+                )
+            ),
+            (
+                "source",
+                HogQLQuery(
+                    query=_DAILY_COUNT.replace("count() AS value", "count() AS value, issue_status AS issue_status")
+                ),
                 "value",
                 "UTC",
             ),

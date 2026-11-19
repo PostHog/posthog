@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -7,7 +8,10 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import ExecutionTarget, HogQLQuery
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import DatabaseField, ExpressionField
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions.mapping import find_hogql_posthog_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
@@ -40,7 +44,18 @@ ENGINE_VERSION = "sql_series_values_v1"
 SOURCE_ALIAS = "user_query"
 
 _TIMESTAMP = "timestamp"
-_JOINED_FIELDS = {"person", "pdi", "session", "revenue_analytics", *(f"group_{index}" for index in range(5))}
+_EVENT_COLUMNS = {
+    "person_id",
+    *(
+        name
+        for name, field in EventsTable().fields.items()
+        if isinstance(field, DatabaseField) and not isinstance(field, ExpressionField)
+    ),
+}
+_EVENT_SUBTABLE_FIELDS = {
+    "poe": {"id", "created_at", "properties"},
+    **{f"goe_{index}": {"key", "created_at", "properties"} for index in range(5)},
+}
 _ANCHORS = {"now", "today"}
 _INTERVAL_UNITS: dict[str, Callable[[int], relativedelta]] = {
     "Second": lambda count: relativedelta(seconds=count),
@@ -51,6 +66,12 @@ _INTERVAL_UNITS: dict[str, Callable[[int], relativedelta]] = {
     "Month": lambda count: relativedelta(months=count),
     "Quarter": lambda count: relativedelta(months=3 * count),
     "Year": lambda count: relativedelta(years=count),
+}
+_IN_OPS = {
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
 }
 _LOWER_BOUND_OPS = {ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Gt}
 _UPPER_BOUND_OPS = {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq}
@@ -64,13 +85,18 @@ class _Window:
 
 
 @frozen
+class _Where:
+    window: _Window
+    other_conjuncts: tuple[ast.Expr, ...]
+
+
+@frozen
 class _SqlShape:
     select: ast.SelectQuery
     bucket_alias: str
     hourly: bool
     utc_bucket: bool
-    window: _Window
-    other_conjuncts: tuple[ast.Expr, ...]
+    where: _Where
 
 
 @frozen
@@ -81,10 +107,14 @@ class _Bucket:
 
 
 class _OtherSourceFinder(TraversingVisitor):
-    def __init__(self, root: ast.SelectQuery, qualifiers: set[str]) -> None:
+    def __init__(self, root: ast.SelectQuery) -> None:
         super().__init__()
         self.root = root
-        self.qualifiers = qualifiers
+        self.qualifiers = _qualifiers(root)
+        self.select_aliases = [item for item in root.select if isinstance(item, ast.Alias)]
+        self.aliases = {item.alias for item in self.select_aliases}
+        self.alias_depth = 0
+        self.lambda_args: list[str] = []
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -96,19 +126,48 @@ class _OtherSourceFinder(TraversingVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         self.found = True
 
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        pass
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if not any(node is item for item in self.select_aliases):
+            self.found = True
+        self.alias_depth += 1
+        super().visit_alias(node)
+        self.alias_depth -= 1
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.lambda_args.extend(node.args)
+        super().visit_lambda(node)
+        del self.lambda_args[len(self.lambda_args) - len(node.args) :]
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+        cohort = node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort)
+        if cohort or (node.op in _IN_OPS and isinstance(node.right, ast.Field)):
             self.found = True
         super().visit_compare_operation(node)
 
     def visit_call(self, node: ast.Call) -> None:
-        if node.name.lower() == "cohort":
+        if node.name.lower() == "cohort" or find_hogql_posthog_function(node.name) is not None:
             self.found = True
-        super().visit_call(node)
+        star = len(node.args) == 1 and isinstance(node.args[0], ast.Field) and node.args[0].chain == ["*"]
+        super().visit_call(replace(node, args=[]) if star and node.name.lower() == "count" else node)
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        self.found = True
 
     def visit_field(self, node: ast.Field) -> None:
         chain = node.chain[1:] if len(node.chain) > 1 and node.chain[0] in self.qualifiers else node.chain
-        self.found = self.found or (bool(chain) and chain[0] in _JOINED_FIELDS)
+        if not chain or not self._reads_events_only(chain):
+            self.found = True
+
+    def _reads_events_only(self, chain: list[str | int]) -> bool:
+        head = str(chain[0])
+        if len(chain) > 1:
+            return head == "properties" or str(chain[1]) in _EVENT_SUBTABLE_FIELDS.get(head, ())
+        if head in self.lambda_args or head in _EVENT_COLUMNS:
+            return True
+        return head in self.aliases and self.alias_depth == 0
 
 
 class _PlaceholderFinder(TraversingVisitor):
@@ -144,9 +203,11 @@ def _source_refusal(select: ast.SelectQuery) -> str | None:
         return "source"
     if select.array_join_op is not None or select.prewhere is not None:
         return "source"
+    if source.table_args is not None or source.column_aliases is not None:
+        return "source"
     if not isinstance(source.table, ast.Field) or source.table.chain != ["events"]:
         return "source"
-    finder = _OtherSourceFinder(select, _qualifiers(select))
+    finder = _OtherSourceFinder(select)
     finder.visit(select)
     return "source" if finder.found else None
 
@@ -237,7 +298,7 @@ def _lower_bound(expr: ast.Expr) -> tuple[str, relativedelta] | None:
     return anchor_name, lookback
 
 
-def _window(select: ast.SelectQuery) -> tuple[_Window, tuple[ast.Expr, ...]] | str:
+def _where(select: ast.SelectQuery) -> _Where | str:
     where = select.where
     conjuncts = list(where.exprs) if isinstance(where, ast.And) else [where] if where is not None else []
     lower: list[tuple[ast.Field, tuple[str, relativedelta]]] = []
@@ -257,7 +318,7 @@ def _window(select: ast.SelectQuery) -> tuple[_Window, tuple[ast.Expr, ...]] | s
     if len(lower) != 1 or len(upper) > 1:
         return "window"
     [(timestamp, (anchor, lookback))] = lower
-    return _Window(anchor=anchor, lookback=lookback, timestamp=timestamp), tuple(other)
+    return _Where(window=_Window(anchor=anchor, lookback=lookback, timestamp=timestamp), other_conjuncts=tuple(other))
 
 
 def _shape(sql: str) -> _SqlShape | str:
@@ -284,16 +345,18 @@ def _shape(sql: str) -> _SqlShape | str:
         return "limit"
     if node.limit is not None and _positive_int(node.limit) is None:
         return "limit"
-    window = _window(node)
-    if isinstance(window, str):
-        return window
+    where = _where(node)
+    if isinstance(where, str):
+        return where
     return _SqlShape(
         select=clone_expr(node, clear_locations=True),
         bucket_alias=bucket.alias.alias,
         hourly=bucket.hourly,
         utc_bucket=bucket.utc,
-        window=window[0],
-        other_conjuncts=tuple(clear_locations(conjunct) for conjunct in window[1]),
+        where=_Where(
+            window=where.window,
+            other_conjuncts=tuple(clear_locations(conjunct) for conjunct in where.other_conjuncts),
+        ),
     )
 
 
@@ -309,7 +372,7 @@ def _with_where(shape: _SqlShape, *extra: ast.Expr) -> ast.SelectQuery:
     select = clone_expr(shape.select)
     select.order_by = None
     select.limit = None
-    conjuncts = [*shape.other_conjuncts, *extra]
+    conjuncts = [*shape.where.other_conjuncts, *extra]
     select.where = None if not conjuncts else conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts)
     return select
 
@@ -356,7 +419,7 @@ def _placeholder(name: str) -> ast.Placeholder:
 
 
 def _insert_query(shape: _SqlShape, value_column: str) -> ast.SelectQuery:
-    timestamp = shape.window.timestamp
+    timestamp = shape.where.window.timestamp
     source = _with_where(
         shape,
         ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=timestamp, right=_placeholder("time_window_min")),
@@ -434,7 +497,7 @@ def closed_sql_series_values(
 
     now_utc = datetime.now(UTC)
     range_end = _midnight(now_utc)
-    range_start = _midnight(_window_start(shape.window, team, now_utc))
+    range_start = _midnight(_window_start(shape.where.window, team, now_utc))
     if range_start >= range_end:
         return SeriesValuesUnavailable(reason="nothing_closed")
     if (range_end - range_start).days > MAX_RANGE_DAYS:
