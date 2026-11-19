@@ -29,10 +29,10 @@ export async function fetchStoredWorkflow(id: string): Promise<HogFlow | null> {
     }
 }
 
-// For a publish preview from a worker that predates `moves_to_sandbox_sender`. The live steps can change
-// through the API without the editor seeing it, so any test sender step in the draft counts.
-export function draftUsesSandboxSender(workflow: Pick<HogFlow, 'status' | 'draft'>): boolean {
-    return workflow.status === 'active' && (workflow.draft?.actions ?? []).some((a) => a.type === 'email_sandbox')
+// For a publish preview from a worker that predates `moves_to_sandbox_sender`. The live steps and the status
+// can change elsewhere without the editor seeing it, so any test sender step in the draft counts.
+export function draftUsesSandboxSender(workflow: Pick<HogFlow, 'draft'>): boolean {
+    return (workflow.draft?.actions ?? []).some((a) => a.type === 'email_sandbox')
 }
 
 export async function provisionSandboxSender(teamId: string, surface: SandboxSenderSurface): Promise<number> {

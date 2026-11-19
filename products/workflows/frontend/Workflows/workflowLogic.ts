@@ -481,6 +481,7 @@ export interface workflowLogicValues {
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     awaitsSenderFix: boolean
+    checkingSandboxSender: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
@@ -2956,6 +2957,9 @@ export interface workflowLogicActions {
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
+    setCheckingSandboxSender: (checking: boolean) => {
+        checking: boolean
+    }
     setDraftActionPending: (pending: 'discard' | 'publish' | null) => {
         pending: 'discard' | 'publish' | null
     }
@@ -3811,6 +3815,7 @@ export const workflowLogic = kea<workflowLogicType>([
         leaveConfirmed: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
+        setCheckingSandboxSender: (checking: boolean) => ({ checking }),
         replayDeferredResourceEdited: true,
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
@@ -4334,6 +4339,13 @@ export const workflowLogic = kea<workflowLogicType>([
             null as 'publish' | 'discard' | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+            },
+        ],
+        // The enable reads the stored workflow before it writes, so the button shows that read.
+        checkingSandboxSender: [
+            false,
+            {
+                setCheckingSandboxSender: (_, { checking }) => checking,
             },
         ],
         resumeEmailSendingPending: [
@@ -4960,6 +4972,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
             } finally {
                 actions.setDraftActionPending(null)
+                // An edit from elsewhere that arrived during the request waited for it. Without a reload to
+                // replay it, it would wait until the next save.
+                actions.replayDeferredResourceEdited()
             }
         },
         resumeEmailSending: () => {
@@ -5054,10 +5069,10 @@ export const workflowLogic = kea<workflowLogicType>([
             const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
             if (enabling && !sandboxSenderConfirmed) {
                 // A second click while the check below runs would open a second dialog.
-                if (cache.checkingSandboxSender || cache.enablingWorkflow) {
+                if (values.checkingSandboxSender || cache.enablingWorkflow) {
                     return
                 }
-                cache.checkingSandboxSender = true
+                actions.setCheckingSandboxSender(true)
                 // Another tab can enable or archive the workflow while the check runs or the dialog is open,
                 // and the editor may reload that copy first. Enabling then would undo an archive.
                 const statusAtClick = values.originalWorkflow?.status
@@ -5074,7 +5089,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     // sender check reads the steps that will actually run.
                     live = await fetchStoredWorkflow(merged.id)
                 } finally {
-                    cache.checkingSandboxSender = false
+                    actions.setCheckingSandboxSender(false)
                 }
                 if (!live) {
                     lemonToast.error("Couldn't check this workflow's email steps. Refresh the page and try again.")

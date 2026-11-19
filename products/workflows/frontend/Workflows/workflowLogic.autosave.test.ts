@@ -884,6 +884,8 @@ describe('workflowLogic auto-save', () => {
 
                 logic.actions.saveWorkflowPartial({ status: 'active' })
                 await checking
+                // The button shows the read as loading while it runs.
+                expect(logic.values.checkingSandboxSender).toBe(true)
                 logic.actions.setWorkflowValue(
                     'actions',
                     renameExit(logic.values.workflow.actions, 'Renamed during check')
@@ -892,6 +894,7 @@ describe('workflowLogic auto-save', () => {
                 await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
 
                 // The status write comes first; the kept rename saves after it.
+                expect(logic.values.checkingSandboxSender).toBe(false)
                 expect(patchBodies[0]).toMatchObject({ status: 'active' })
                 expect(logic.values.workflow.actions.find((action) => action.id === 'exit_node')?.name).toBe(
                     'Renamed during check'
@@ -1512,6 +1515,13 @@ describe('workflowLogic auto-save', () => {
                     stagedKeepingSandbox,
                     true,
                 ],
+                // Another tab can enable the workflow while the preview runs, and the editor's copy still says draft.
+                [
+                    'an older preview omits the field and the editor still shows the workflow disabled',
+                    undefined,
+                    { ...stagedAddingSandbox, status: 'draft' } as HogFlow,
+                    true,
+                ],
                 ['an older preview omits the field and the draft adds no test sender step', undefined, staged, false],
             ] as const)(
                 'shows the test sender warning when %s, and confirms once with what it showed',
@@ -1664,6 +1674,53 @@ describe('workflowLogic auto-save', () => {
                     expect(logic.values.workflow.name).toBe('Renamed while publishing')
                 }
             )
+
+            it('applies an edit from elsewhere that arrived while an invalid publish confirm ran', async () => {
+                resourceEditedLogic.mount()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markConfirming: () => void = () => {}
+                const confirming = new Promise<void>((resolve) => {
+                    markConfirming = resolve
+                })
+                useMocks(
+                    serverMocks({
+                        [PUBLISH_URL]: recordPublish(async (body) => {
+                            if (!body.confirm) {
+                                return [200, preview]
+                            }
+                            markConfirming()
+                            await held
+                            return [400, { detail: 'Fix the email step first.' }]
+                        }),
+                    })
+                )
+                jest.mocked(LemonDialog.open).mockRestore()
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                await userEvent.click(await screen.findByText('Publish'))
+                await confirming
+                logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
+                resourceEditedLogic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'HogFlow',
+                    resource_id: WORKFLOW_ID,
+                    updated_at: '2027-01-01T00:00:00.000Z',
+                    actor_user_id: 2,
+                })
+                const reloadsBefore = reloads
+                release()
+                await expectLogic(logic).toFinishAllListeners()
+
+                // The edit from elsewhere waited for the confirm, and loads once it settles.
+                expect({ reloads: reloads - reloadsBefore, banner: logic.values.externallyEdited }).toEqual({
+                    reloads: 1,
+                    banner: false,
+                })
+            })
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))
