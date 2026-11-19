@@ -54,9 +54,8 @@ def _thread_messages(block: str) -> tuple[str, list[ThreadMessage], bool]:
 
 
 def split_thread_context(text: str) -> SplitPrompt:
-    """Separate the Slack thread blocks in a prompt from the request around them."""
+    """Separate the Slack thread blocks in a prompt, or in a history of prompts, from the requests around them."""
     thread: list[ThreadMessage] = []
-    mentioner = ""
     subject = ""
     rest = text
     while True:
@@ -71,18 +70,19 @@ def split_thread_context(text: str) -> SplitPrompt:
         end = rest.find(closing, start)
         if end < 0:
             break
-        block_mentioner, messages, requester_opened = _thread_messages(rest[start + len(tag) + 2 : end])
-        mentioner = mentioner or block_mentioner
+        mentioner, messages, requester_opened = _thread_messages(rest[start + len(tag) + 2 : end])
         # Only the original block starts at the thread's root. When the requester opened the thread,
         # the root is their request, not a subject to add.
         if tag == THREAD_CONTEXT_TAGS[0] and messages and not requester_opened and not subject:
             subject = _first_line(messages[0].body)
+        after = rest[end + len(closing) :]
+        lead = len(after) - len(after.lstrip("\n"))
+        title_end = lead + len(_EMPTY_REQUEST)
+        own = [i for i, message in enumerate(messages) if mentioner and message.author == mentioner]
+        if after[lead:title_end] == _EMPTY_REQUEST and after[title_end : title_end + 1] in ("", "\n") and own:
+            # A textless mention's request is the mentioner's own message in this block. Replies can follow
+            # it, so it is their last message, and no one else's words stand in for it.
+            after = after[:lead] + messages.pop(own[-1]).body + after[title_end:]
         thread.extend(messages)
-        rest = rest[:start] + rest[end + len(closing) :]
-    request = rest.strip()
-    mentioned = [i for i, message in enumerate(thread) if mentioner and message.author == mentioner]
-    if request == _EMPTY_REQUEST and mentioned:
-        # Replies posted after the mention can follow it in the block, so the last message is not
-        # always the request. Without the mentioner's message, no one else's words stand in for it.
-        request = thread.pop(mentioned[-1]).body
-    return SplitPrompt(request=request, thread=tuple(thread), subject=subject)
+        rest = rest[:start] + after
+    return SplitPrompt(request=rest.strip(), thread=tuple(thread), subject=subject)
