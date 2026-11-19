@@ -40,6 +40,7 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
+    ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
     OrganizationTeamBasicApi,
@@ -953,6 +954,7 @@ export interface TeamType extends TeamBasicType {
     flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
+    available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: TeamWorkflowsConfigApi

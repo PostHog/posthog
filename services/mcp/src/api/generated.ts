@@ -43777,6 +43777,16 @@ export namespace Schemas {
       error: string;
     }
 
+    /**
+     * * `issue_summaries` - Issue Summaries
+     */
+    export type ErrorTrackingAIFeatureEnum = typeof ErrorTrackingAIFeatureEnum[keyof typeof ErrorTrackingAIFeatureEnum];
+
+
+    export const ErrorTrackingAIFeatureEnum = {
+      IssueSummaries: 'issue_summaries',
+    } as const;
+
     export interface ErrorTrackingVolumeBucket {
       /** Bucket timestamp label. */
       label: string;
@@ -95775,6 +95785,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Realtime cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts?: TeamRealtimeCohorts;
+      /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+      readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnum[];
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -102214,6 +102226,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Realtime cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts: TeamRealtimeCohorts;
+      /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+      readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnum[];
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
