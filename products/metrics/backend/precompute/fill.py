@@ -95,7 +95,7 @@ _PROMQL_FUNCTIONS = {
 }
 
 
-def _query_promql_buckets(
+def query_promql_buckets(
     team: Team, precomputed_metric: MetricPrecomputedMetric, start: dt.datetime, end: dt.datetime
 ) -> dict[EntryKey, Entry]:
     """The buckets of `[start, end)` from Snuffle. Its point at `t` reads `(t - R, t]`, which is the bucket at `t - R`."""
@@ -129,7 +129,7 @@ def _query_hours(
     team: Team, precomputed_metric: MetricPrecomputedMetric, start: dt.datetime, end: dt.datetime
 ) -> dict[EntryKey, Entry]:
     if precomputed_metric.kind in _PROMQL_FUNCTIONS:
-        return _query_promql_buckets(team, precomputed_metric, start, end)
+        return query_promql_buckets(team, precomputed_metric, start, end)
     labels = labels_of(precomputed_metric)
     kind = PrecomputedMetricKind(precomputed_metric.kind)
     histogram = kind == PrecomputedMetricKind.HISTOGRAM

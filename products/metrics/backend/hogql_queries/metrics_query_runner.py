@@ -63,6 +63,7 @@ from products.metrics.backend.facade.enums import (
     AttributeScope,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
 )
@@ -100,6 +101,13 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
+# `query executed` reports a tile answered wholly from stored buckets as `derived`, the value that the precompute
+# measurement queries filter on.
+_EVENT_PROVENANCE = {
+    MetricQueryProvenanceMode.PRECOMPUTED: "derived",
+    MetricQueryProvenanceMode.MIXED: "mixed",
+    MetricQueryProvenanceMode.RAW: "raw",
+}
 
 
 class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResponse]):
@@ -384,7 +392,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         if self._provenance is None:
             return {}
         return {
-            "precompute_provenance": self._provenance.mode.value,
+            "precompute_provenance": _EVENT_PROVENANCE[self._provenance.mode],
             "precompute_shadow_checked": self._shadow is not None,
             "precompute_shadow_max_rel_diff": self._shadow.max_relative_difference if self._shadow else None,
             "precompute_shadow_mismatched_points": self._shadow.mismatched_points if self._shadow else None,

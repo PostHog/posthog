@@ -6,13 +6,14 @@ Two shapes are planned, and every other query runs raw, exactly as without the p
   `sort_desc`. It reads `sum_over_time(m[R])` stored per bucket `R` and by the labels in `G` and `M`, so a step's
   window `(t - w, t]` is the sum of the buckets inside it. That is exact.
 - `histogram_quantile(q, sum by (le) (increase(m_bucket{M}[w])))`. It reads `increase(m_bucket[R])` stored per
-  bucket by `le` and `M`'s labels. When `w` is one bucket that is exact. A wider window sums per-bucket increases,
-  which skip the step between buckets that Prometheus' extrapolation adds back, so it reads slightly low. Delta
-  histograms use 6-hour buckets, which keeps that gap small on the tiles that read them (see DERIVED_METRICS.md).
+  bucket by `le` and `M`'s labels. Snuffle's `increase` over a delta histogram is the sum of its points in the
+  window, so summed buckets are exact for any `w`. Delta histograms use 6-hour buckets, the windows their tiles
+  read (see DERIVED_METRICS.md). Over a cumulative histogram, a window wider than one bucket sums per-bucket
+  increases, which skip the step between buckets that Prometheus' extrapolation adds back, so it can read low.
 
-Fills and the raw tail both go through Snuffle, so stored buckets are what a raw query would read. A step is
-answered from storage when its whole window is stored, and the steps after the stored buckets run raw as the same
-query over the shorter range. `w`, the step and the first step must all fall on bucket boundaries.
+Fills and the raw tail both go through Snuffle with the same bucket query, so stored buckets are what a raw query
+would read. The buckets after the stored ones are read raw, and every step sums its window from both, so a 7-day
+window reads at most the newest few hours raw. `w`, the step and the first step must all fall on bucket boundaries.
 """
 
 import re
@@ -52,6 +53,7 @@ from products.metrics.backend.precompute.definitions import (
     get_or_create_precomputed_metric,
     labels_of,
 )
+from products.metrics.backend.precompute.fill import query_promql_buckets
 from products.metrics.backend.precompute.store import (
     Entry,
     EntryKey,
@@ -59,7 +61,7 @@ from products.metrics.backend.precompute.store import (
     bucket_width,
     read_entries,
 )
-from products.metrics.backend.promql import fill_range_variables, promql_range_results
+from products.metrics.backend.promql import fill_range_variables
 
 HOUR = dt.timedelta(hours=1)
 DELTA_HISTOGRAM_BUCKET = dt.timedelta(hours=6)
@@ -376,7 +378,7 @@ def bucket_for(team: Team, query: PromQLLeafQuery) -> dt.timedelta:
 
 @frozen
 class PromQLPlan:
-    """A PromQL tile whose steps up to `cut` are answered from storage, and the rest raw."""
+    """A PromQL tile whose buckets before `cut` are stored, and whose buckets from `cut` to `last_step` read raw."""
 
     query: PromQLLeafQuery
     precomputed_metric: MetricPrecomputedMetric
@@ -385,7 +387,7 @@ class PromQLPlan:
     step: dt.timedelta
     window: dt.timedelta
     cut: dt.datetime
-    date_to: dt.datetime
+    last_step: dt.datetime
 
 
 def _on_boundary(value: dt.datetime | dt.timedelta, bucket: dt.timedelta) -> bool:
@@ -438,10 +440,7 @@ def plan_promql(
         return "the precomputed metric is still filling"
     if date_to - covered_to > MAX_RAW_TAIL:
         return "the precomputed metric is behind"
-    last_stored = min(covered_to, date_to)
-    if last_stored < first_step:
-        return "less than one step is stored"
-    cut = first_step + (last_stored - first_step) // step * step
+    last_step = first_step + (date_to - first_step) // step * step
     return PromQLPlan(
         query=query,
         precomputed_metric=precomputed_metric,
@@ -449,8 +448,8 @@ def plan_promql(
         first_step=first_step,
         step=step,
         window=window,
-        cut=cut,
-        date_to=date_to,
+        cut=min(covered_to, last_step),
+        last_step=last_step,
     )
 
 
@@ -467,9 +466,16 @@ def read_promql_entries(plan: PromQLPlan) -> dict[EntryKey, Entry]:
     return read_entries(plan.precomputed_metric, plan.first_step - plan.window, plan.cut, max_points=MAX_STORED_POINTS)
 
 
+def read_raw_tail_entries(team: Team, plan: PromQLPlan) -> dict[EntryKey, Entry]:
+    """The buckets from `cut` to the last step, from Snuffle with the fill's query. The caller records the query."""
+    if plan.cut >= plan.last_step:
+        return {}
+    return query_promql_buckets(team, plan.precomputed_metric, plan.cut, plan.last_step)
+
+
 def _steps(plan: PromQLPlan) -> Iterator[dt.datetime]:
     step = plan.first_step
-    while step <= plan.cut:
+    while step <= plan.last_step:
         yield step
         step += plan.step
 
@@ -529,7 +535,7 @@ def _output_labels(labels: dict[str, str]) -> dict[str, str]:
 
 
 def evaluate_stored(plan: PromQLPlan, entries: dict[EntryKey, Entry]) -> list[dict[str, Any]]:
-    """The stored steps, shaped like Snuffle's `matrix` results."""
+    """The planned steps from stored and raw tail buckets, shaped like Snuffle's `matrix` results."""
     query = plan.query
     kept = [label.key for label in labels_of(plan.precomputed_metric)]
     bucket = bucket_width(plan.precomputed_metric)
@@ -594,21 +600,3 @@ def _rank(by_group: dict[tuple[str, ...], dict[dt.datetime, float]], rank: str, 
         for value, group in present[:k]:
             kept.setdefault(group, {})[step] = value
     return kept
-
-
-def raw_tail(team: Team, plan: PromQLPlan) -> list[dict[str, Any]]:
-    """The steps after the stored ones, from Snuffle with the tile's own query. The caller records the query."""
-    first_raw = plan.cut + plan.step
-    if first_raw > plan.date_to:
-        return []
-    return promql_range_results(team, plan.expr, first_raw, plan.date_to, plan.step, record_query=False)
-
-
-def merge_results(*parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    merged: dict[tuple, dict[str, Any]] = {}
-    for part in parts:
-        for result in part:
-            key = tuple(sorted((result.get("metric") or {}).items()))
-            target = merged.setdefault(key, {"metric": dict(key), "values": []})
-            target["values"].extend(result.get("values") or [])
-    return list(merged.values())

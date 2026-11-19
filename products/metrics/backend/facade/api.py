@@ -68,6 +68,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryRequest,
     MetricQueryResult,
     MetricQueryShadowCheck,
+    MetricQueryTooManyRowsError,
     MetricSeries,
     MetricsOverview,
     PanelQueryCheckRequest,
@@ -121,12 +122,11 @@ from products.metrics.backend.precompute.planner import (
 )
 from products.metrics.backend.precompute.promql_plan import (
     evaluate_stored,
-    merge_results,
     plan_promql,
-    raw_tail,
     read_promql_entries,
+    read_raw_tail_entries,
 )
-from products.metrics.backend.precompute.store import TooManyStoredPointsError
+from products.metrics.backend.precompute.store import TooManySeriesError, TooManyStoredPointsError, merge_entries
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range, series_from_results
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -523,8 +523,8 @@ def run_precomputed_promql_query(
     interval: str | None,
     record_use: bool = True,
 ) -> MetricQueryResult:
-    """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored steps and runs raw only for the
-    newest ones. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
+    """`run_promql_range` for a dashboard-v2 tile: a planned query reads its stored buckets and only the newer
+    buckets raw. The first long-range tile that needs a precomputed metric creates it and runs raw meanwhile."""
 
     def raw(record_query: bool = True) -> list[MetricSeries]:
         return run_promql_range(team, promql, date_from, date_to, interval, record_query=record_query)
@@ -540,16 +540,18 @@ def run_precomputed_promql_query(
     if isinstance(plan, str):
         return raw_result(plan)
     try:
-        stored = evaluate_stored(plan, read_promql_entries(plan))
+        entries = read_promql_entries(plan)
+        merge_entries(entries, read_raw_tail_entries(team, plan))
+        results = evaluate_stored(plan, entries)
     except TooManyStoredPointsError:
         return raw_result("too much stored data to load")
+    except (MetricQueryTooManyRowsError, TooManySeriesError):
+        return raw_result("the newest buckets have too many label sets")
     # The raw tail doesn't record the query, so a tile answered fully from storage still counts as a query.
     _record_promql_query(team, plan.expr)
-    series = series_from_results(team, promql, merge_results(stored, raw_tail(team, plan)))
+    series = series_from_results(team, promql, results)
     provenance = MetricQueryProvenance(
-        mode=MetricQueryProvenanceMode.MIXED
-        if plan.cut + plan.step <= date_to
-        else MetricQueryProvenanceMode.PRECOMPUTED,
+        mode=MetricQueryProvenanceMode.MIXED if plan.cut < plan.last_step else MetricQueryProvenanceMode.PRECOMPUTED,
         precomputed_until=plan.cut,
     )
     shadow = None

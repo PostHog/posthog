@@ -2,8 +2,9 @@
 
 It knows the shapes the precompute planner and its fills send: `sum by (G) (sum_over_time(m{M}[w]))` with
 `topk`, `bottomk`, `sort` and `sort_desc`, `sum by (le, G) (increase(m_bucket{M}[w]))`, and `histogram_quantile`
-over the latter. `increase` extrapolates to the window's edges as Prometheus does, so a test that compares a
-planned tile with this raw answer sees the same gap a real one would.
+over the latter. `increase` over a cumulative series extrapolates to the window's edges as Prometheus does, so a test
+that compares a planned tile with this raw answer sees the same gap a real one would. Over a delta series it sums the
+points in the window, as Snuffle does.
 """
 
 import json
@@ -29,6 +30,7 @@ class _Series:
     labels: dict[str, str]
     times: list[float]
     values: list[float]
+    delta: bool = False
 
 
 @frozen
@@ -52,11 +54,16 @@ class FakeSnuffle:
     def __init__(self) -> None:
         # Per series: its labels (with `__name__`), and its samples sorted by time.
         self.series: dict[tuple[tuple[str, str], ...], tuple[list[float], list[float]]] = {}
+        self.delta: set[tuple[tuple[str, str], ...]] = set()
         self.queries: list[str] = []
 
-    def add(self, name: str, labels: dict[str, str], samples: list[tuple[dt.datetime, float]]) -> None:
+    def add(
+        self, name: str, labels: dict[str, str], samples: list[tuple[dt.datetime, float]], *, delta: bool = False
+    ) -> None:
         key = tuple(sorted({"__name__": name, **labels}.items()))
         times, values = self.series.setdefault(key, ([], []))
+        if delta:
+            self.delta.add(key)
         for time, value in sorted(samples):
             times.append(time.timestamp())
             values.append(value)
@@ -67,13 +74,15 @@ class FakeSnuffle:
             if labels["__name__"] != query.metric_name:
                 continue
             if all(matcher.matches(labels.get(matcher.label, "")) for matcher in query.matchers):
-                yield _Series(labels=labels, times=times, values=values)
+                yield _Series(labels=labels, times=times, values=values, delta=key in self.delta)
 
     @staticmethod
     def _window(series: _Series, start: float, end: float) -> _Series:
         """The samples in `(start, end]`."""
         low, high = bisect.bisect_right(series.times, start), bisect.bisect_right(series.times, end)
-        return _Series(labels=series.labels, times=series.times[low:high], values=series.values[low:high])
+        return _Series(
+            labels=series.labels, times=series.times[low:high], values=series.values[low:high], delta=series.delta
+        )
 
     @staticmethod
     def _increase(times: list[float], values: list[float], start: float, end: float) -> float | None:
@@ -133,11 +142,10 @@ class FakeSnuffle:
             sums: dict[tuple[str, ...], float] = {}
             for series in selected:
                 inside = self._window(series, time - window, time)
-                value = (
-                    self._increase(inside.times, inside.values, time - window, time)
-                    if histogram
-                    else (math.fsum(inside.values) if inside.values else None)
-                )
+                if histogram and not series.delta:
+                    value = self._increase(inside.times, inside.values, time - window, time)
+                else:
+                    value = math.fsum(inside.values) if inside.values else None
                 if value is None:
                     continue
                 group = tuple(series.labels.get(label, "") for label in group_by)

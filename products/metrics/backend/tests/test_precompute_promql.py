@@ -152,7 +152,8 @@ def _snuffle() -> FakeSnuffle:
             for minute in range(0, minutes, every)
         ]
         snuffle.add("llm_cost_usd", {"provider": provider, "model": model, "product": product}, samples)
-    for metric in ("llm_latency_seconds_bucket", "llm_ttft_seconds_bucket"):
+    # The ttft histogram is a delta one: each point holds only its own observations.
+    for metric, delta in (("llm_latency_seconds_bucket", False), ("llm_ttft_seconds_bucket", True)):
         for index, (model, every) in enumerate((("gpt", 5), ("claude", 7), ("slow", 45))):
             totals = [0.0] * len(LE)
             by_le: dict[str, list[tuple[dt.datetime, float]]] = {le: [] for le in LE}
@@ -164,9 +165,10 @@ def _snuffle() -> FakeSnuffle:
                 for bucket, le in enumerate(LE):
                     running += observed[bucket]
                     totals[bucket] += running
-                    by_le[le].append((SEED_FROM + dt.timedelta(minutes=minute, seconds=13), totals[bucket]))
+                    point = running if delta else totals[bucket]
+                    by_le[le].append((SEED_FROM + dt.timedelta(minutes=minute, seconds=13), point))
             for le, points in by_le.items():
-                snuffle.add(metric, {"model": model, "le": le}, points)
+                snuffle.add(metric, {"model": model, "le": le}, points, delta=delta)
     return snuffle
 
 
@@ -200,6 +202,10 @@ class TestPrecomputedPromQL(APIBaseTest):
             )
             patcher.start()
             self.addCleanup(patcher.stop)
+        # A sampled shadow check runs the tile raw, which would add its whole-window query at random.
+        shadow = patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 0.0)
+        shadow.start()
+        self.addCleanup(shadow.stop)
         self.snuffle = _snuffle()
 
     def _run(self, promql: str, days: int, interval: str):
@@ -278,17 +284,25 @@ class TestPrecomputedPromQL(APIBaseTest):
                 "hour_6",
                 EXACT,
             ),
-            # Wider than one bucket, so per-bucket increases skip the steps between buckets.
+            # A delta histogram's increase is the sum of its points, so summed buckets are exact for any window.
             (
                 "p95_delta_daily",
                 "histogram_quantile(0.95, sum by (le) (increase(llm_ttft_seconds_bucket[$__interval])))",
                 7,
                 "day",
-                0.05,
+                EXACT,
             ),
             (
                 "p50_delta_over_the_range",
                 "histogram_quantile(0.5, sum by (le) (increase(llm_ttft_seconds_bucket[$__range])))",
+                7,
+                "hour_6",
+                EXACT,
+            ),
+            # A cumulative histogram's increase extrapolates per window, so summed buckets can read slightly low.
+            (
+                "p95_cumulative_over_the_range",
+                "histogram_quantile(0.95, sum by (le) (increase(llm_latency_seconds_bucket[$__range])))",
                 7,
                 "hour_6",
                 0.05,
@@ -299,9 +313,14 @@ class TestPrecomputedPromQL(APIBaseTest):
         self, name: str, promql: str, days: int, interval: str, tolerance: float
     ):
         self._precompute(promql, days, interval)
+        precomputed = MetricPrecomputedMetric.objects.for_team(self.team.pk).get()
+        queried_before = len(self.snuffle.queries)
 
         result = self._run(promql, days, interval)
 
+        # The raw tail reads only the buckets after the stored ones, never the tile's whole window.
+        bucket_window = f"[{precomputed.bucket_seconds}s]"
+        assert all(bucket_window in query for query in self.snuffle.queries[queried_before:]), self.snuffle.queries
         # A daily tile's last step is midnight, which is stored, so it has no raw tail.
         expected = MetricQueryProvenanceMode.PRECOMPUTED if interval == "day" else MetricQueryProvenanceMode.MIXED
         assert result.provenance.mode == expected, result.provenance
@@ -428,13 +447,13 @@ class TestDeltaHistogramLookup(ClickhouseTestMixin, APIBaseTest):
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
-    def _run(self, snuffle: FakeSnuffle, user: User | SharedLinkUser | None = None):
+    def _run(self, snuffle: FakeSnuffle, user: User | SharedLinkUser | None = None, interval: str = "hour"):
         runner = MetricsQueryRunner(
             query=MetricsQuery(
                 language="promql",
                 clauses=[],
                 promql="sum by (provider) (sum_over_time(llm_cost_usd[$__interval]))",
-                interval="hour",
+                interval=interval,
                 dateRange={"date_from": "-2d"},
             ),
             team=self.team,
@@ -454,22 +473,32 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
         (properties,) = [call.args[1] for call in report.call_args_list if call.args[0] == "query executed"]
         return response, properties
 
-    def test_a_planned_tile_puts_its_provenance_and_shadow_check_on_query_executed(self):
+    @parameterized.expand(
+        [
+            # The last hourly step is newer than the stored buckets, so it reads raw.
+            ("hour", "mixed", "mixed"),
+            # The last daily step is midnight, which is stored.
+            ("day", "precomputed", "derived"),
+        ]
+    )
+    def test_a_planned_tile_puts_its_provenance_and_shadow_check_on_query_executed(
+        self, interval: str, response_mode: str, event_provenance: str
+    ):
         snuffle = _snuffle()
         with time_machine.travel(NOW, tick=False):
-            first, first_properties = self._run(snuffle)
+            first, first_properties = self._run(snuffle, interval=interval)
             with (
                 fake_snuffle(snuffle),
                 patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=True),
             ):
                 fill_precomputed_metrics(self.team.pk, now=NOW)
-            response, properties = self._run(snuffle)
+            response, properties = self._run(snuffle, interval=interval)
 
         assert first.provenance is not None and first.provenance.mode == "raw"
         assert first_properties["precompute_provenance"] == "raw"
         assert first_properties["precompute_shadow_checked"] is False
-        assert response.provenance is not None and response.provenance.mode == "mixed"
-        assert properties["precompute_provenance"] == "mixed"
+        assert response.provenance is not None and response.provenance.mode == response_mode
+        assert properties["precompute_provenance"] == event_provenance
         assert properties["precompute_shadow_checked"] is True
         assert properties["precompute_shadow_max_rel_diff"] == pytest.approx(0.0, abs=EXACT)
         assert properties["precompute_shadow_mismatched_points"] == 0
