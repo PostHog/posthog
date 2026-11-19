@@ -292,18 +292,25 @@ describe('stepFacts', () => {
         expect(stepFacts(workflow([action]), action).headline).toBe(headline)
     })
 
+    const LOGIC_SUBJECT = "{% if person.properties.role == 'founder' %}Ask the team{% else %}See stuck users{% endif %}"
+    const FOUNDER = { id: 'p', properties: { role: 'founder' } }
+
     it.each([
-        ['falls back to the step name without a person', undefined, 'Pitch by role'],
-        ['renders the branch for the preview person', { id: 'p', properties: { role: 'founder' } }, 'Ask the team'],
-    ])('reads a subject with logic: %s', (_, person, headline) => {
-        const subject = "{% if person.properties.role == 'founder' %}Ask the team{% else %}See stuck users{% endif %}"
+        ['falls back to the step name without a person', LOGIC_SUBJECT, undefined, undefined, 'Pitch by role'],
+        ['renders the branch for the preview person', LOGIC_SUBJECT, FOUNDER, undefined, 'Ask the team'],
+        [
+            'falls back to the step name when the logic renders nothing',
+            "{% if person.properties.role == 'engineer' %}Ship it{% endif %}",
+            FOUNDER,
+            undefined,
+            'Pitch by role',
+        ],
+        ['leaves a hog template as plain words', 'Hi {person.properties.first_name}', FOUNDER, 'hog', 'Hi first name'],
+    ])('reads an email subject: %s', (_, subject, person, templating, headline) => {
         const action = step(
             'pitch',
             'function_email',
-            {
-                template_id: 'template-email',
-                inputs: inputs({ email: { subject, html: '<p>Hi</p>' } }),
-            },
+            { template_id: 'template-email', inputs: { email: { value: { subject, html: '<p>Hi</p>' }, templating } } },
             'Pitch by role'
         )
 

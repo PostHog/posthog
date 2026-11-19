@@ -11,7 +11,8 @@ import { CanvasPreviewPersonContext } from '../CanvasPreviewPersonContext'
 import { EmailContent, plainVariables } from '../stepValues'
 
 export function EmailPreview({ email, title }: { email: EmailContent; title: string }): JSX.Element | null {
-    const person = useContext(CanvasPreviewPersonContext)
+    const contextPerson = useContext(CanvasPreviewPersonContext)
+    const person = email.liquid ? contextPerson : undefined
     if (email.html) {
         const html = person ? withUnresolvedChips(renderEmailPreviewMarked(email.html, person)) : email.html
         return (

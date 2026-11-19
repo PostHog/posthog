@@ -36,7 +36,7 @@ const fieldIf = (label: string, value: string | undefined): Field[] => (value ? 
 
 function emailFacts(email: EmailContent, action: HogFlowAction, person: PreviewPersonInput): StepFacts {
     const text = (template: string): string =>
-        person ? renderEmailPreviewText(template, person) : plainVariables(template)
+        person && email.liquid ? renderEmailPreviewText(template, person) : plainVariables(template)
     const subject = text(email.subject)
     const isTransactional =
         (action.type === 'function_email' || action.type === 'email_sandbox') &&
@@ -44,7 +44,7 @@ function emailFacts(email: EmailContent, action: HogFlowAction, person: PreviewP
     const preheader = email.preheader && text(email.preheader)
     return {
         // A subject whose logic no person has resolved reads as code, so the step's own name stands in.
-        headline: subject.includes('{%') ? action.name || 'Email' : subject,
+        headline: subject.trim() && !subject.includes('{%') ? subject : action.name || 'Email',
         detail: preheader,
         fields: [
             ['Preview', preheader ?? 'None'],
