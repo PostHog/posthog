@@ -535,7 +535,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
-    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
+    const personalSort = params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
