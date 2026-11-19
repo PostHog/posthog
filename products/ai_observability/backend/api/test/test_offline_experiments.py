@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -217,7 +217,9 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(self.client.post(upload, {"results": body["results"][:1]}).status_code, 200)
         self.assertEqual(self.client.post(upload, body).data["code"], "identity_deleted")
         self.assertEqual(self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"], 1)
-        self.assertFalse(OfflineDeletedIdentity.objects.for_team(self.team.id).filter(experiment_id=exp_id).exists())
+        self.assertFalse(
+            OfflineDeletedIdentity.objects.for_team(self.team.id).filter(experiment_id=UUID(exp_id)).exists()
+        )
         self.assertEqual(self.client.post(upload, body).data["code"], "experiment_closed")
 
     def test_mutating_a_source_requires_access_to_affected_composite(self) -> None:
