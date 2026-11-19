@@ -1,6 +1,6 @@
 # Temporal workflows
 
-The scheduled half of autoresearch. Four workflows and their activities, registered on `settings.AUTORESEARCH_TASK_QUEUE` by `start_temporal_worker`, which imports `WORKFLOWS` and `ACTIVITIES` from `__init__.py`.
+The scheduled half of autoresearch. Four workflows and their activities, bound to `AUTORESEARCH_TASK_QUEUE` by the product's `TEMPORAL` declaration in `../facade/temporal.py`, which takes `WORKFLOWS` and `ACTIVITIES` from `__init__.py`.
 
 Scoring, validation and training live in `../inference/`, `../evaluation/`, and `../training/` — the same functions the management commands and the API reach — and the activities call them, so the scheduled path cannot drift from the headless one. What stays here is the sweep's own logic: discovery (cadence, rollout, creator access) and the kickoff's eligibility gates, research schedule and row lock.
 
@@ -81,8 +81,7 @@ Temporal activity payloads are capped at roughly 2 MiB, and autoresearch moves g
 
 ## Where the rest of the system meets this package
 
-- **Registered by** — `posthog/management/commands/start_temporal_worker.py`, which imports `WORKFLOWS` / `ACTIVITIES` from here.
-- **Scheduled by** — `posthog/temporal/schedule.py`, which calls `create_autoresearch_daily_schedule()`.
+- **Registered and scheduled by** — the `TEMPORAL` declaration in `../facade/temporal.py`, which binds `WORKFLOWS` / `ACTIVITIES` from here and lists `create_autoresearch_daily_schedule()`.
 - **Calls into** — `../inference/scoring.py`, `../evaluation/online_validation.py`, `../training/runner.py`.
 - **Result handoff** — training results come back through the `TaskRun` `post_save` signal wired in `../apps.py`, not through this workflow.
 

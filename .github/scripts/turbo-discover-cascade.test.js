@@ -18,6 +18,7 @@ const path = require('node:path')
 const {
     productGraphFromTachMap,
     tachDependents,
+    contractCascadeIsDirect,
     loadTachModuleGraph,
     getAffectedLibPackages,
     libImportName,
@@ -67,14 +68,26 @@ test('cycle safety: terminates and returns correct dependents with a 2-cycle and
     assert.deepEqual(tachDependents(['x'], cyclic).sort(), ['downstream', 'y', 'z'])
 })
 
-// Test selection must stay transitive by default: a change in c can break a's
-// tests through b even though a never imports c. Only merge-queue lane
-// assignment asks for one hop, so a flipped default here would silently
-// under-test every contract change.
+// The default must stay transitive: a change in c can break a's tests through b
+// even though a never imports c, and the merge gate relies on the full walk to
+// catch that before master. A flipped default would under-test every gate run.
 test('direct stops at the first hop while the default stays transitive', () => {
     const chain = graph({ a: ['b'], b: ['c'], c: [] })
     assert.deepEqual(tachDependents(['c'], chain, { direct: true }), ['b'])
     assert.deepEqual(tachDependents(['c'], chain).sort(), ['a', 'b'])
+})
+
+// The merge queue and master never select, so a one-hop cascade there would let
+// a break mediated through an intermediate product land on master.
+test('a contract change takes one hop only on a selecting run with the kill switch off', () => {
+    const cases = [
+        { applies: true, disabled: false, direct: true },
+        { applies: false, disabled: false, direct: false },
+        { applies: true, disabled: true, direct: false },
+    ]
+    for (const { applies, disabled, direct } of cases) {
+        assert.equal(contractCascadeIsDirect({ applies, disabled }), direct, JSON.stringify({ applies, disabled }))
+    }
 })
 
 test('direct dependents terminate on a cycle rather than walking it', () => {

@@ -9,9 +9,11 @@ import { initKeaTests } from '~/test/init'
 import {
     APPLICATION_OBSERVABILITY_PATH,
     applicationObservabilityLogic,
+    applicationObservabilityTabUrl,
     drillDownParams,
     metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
+import { deploymentsLogic } from './deploymentsLogic'
 import type {
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
@@ -23,7 +25,7 @@ const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'cri
     service_name,
     environment: 'prod',
     status,
-    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0 },
+    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0, apdex: 1 },
     sparkline: [1],
 })
 
@@ -40,9 +42,12 @@ const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
         {
             service_name: 'queue',
             endpoint: 'orders process',
+            span_name: 'orders process',
+            route_attribute: null,
+            route: null,
             environment: 'prod',
             status: 'serious',
-            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },
+            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1, apdex: 0.5 },
         },
     ],
     environment: 'prod',
@@ -206,6 +211,72 @@ describe('applicationObservabilityLogic', () => {
         expect(url.searchParams.get('dateFrom')).toBe('-24h')
     })
 
+    it('filters services and endpoints by the search without reloading, and keeps it in the URL', async () => {
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints' })
+        await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+        // LemonTable writes its sort to `order` when a column header is clicked.
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints', order: '-error_rate' })
+        await expectLogic(logic).toFinishAllListeners()
+        const servicesBefore = requests.length
+        const endpointsBefore = endpointRequests.length
+
+        logic.actions.setSearch('QUE')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['queue'])
+        // An endpoint matches on its service name as well as its own name.
+        expect(logic.values.filteredEndpoints.map((row) => row.endpoint)).toEqual(['orders process'])
+        expect(router.values.searchParams).toMatchObject({ tab: 'endpoints', search: 'QUE', order: '-error_rate' })
+        expect(requests.length).toBe(servicesBefore)
+        expect(endpointRequests.length).toBe(endpointsBefore)
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { search: 'web' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['web'])
+        expect(logic.values.filteredEndpoints).toEqual([])
+
+        logic.actions.setSearch('01')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.search).toBe('01')
+    })
+
+    it('skips the poll while paused, catches up on resume, and keeps paused in the URL', async () => {
+        logic.unmount()
+        const setIntervalSpy = jest.spyOn(window, 'setInterval')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        const poll = setIntervalSpy.mock.calls.find((call: unknown[]) => call[1] === 5 * 60 * 1000)?.[0] as () => void
+        setIntervalSpy.mockRestore()
+        const before = requests.length
+
+        logic.actions.setPaused(true)
+        expect(router.values.searchParams).toMatchObject({ paused: true })
+        jest.useFakeTimers()
+        try {
+            poll()
+            // Runs the debounced reload, which would start loading synchronously if the poll went through.
+            jest.runOnlyPendingTimers()
+            expect(logic.values.servicesHealthLoading).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(requests.length).toBe(before)
+
+        logic.actions.refresh()
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 1)
+
+        logic.actions.setPaused(false)
+        await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+        expect(requests.length).toBe(before + 2)
+        expect(router.values.searchParams.paused).toBeUndefined()
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { paused: 'true' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.paused).toBe(true)
+    })
+
     describe('tabs', () => {
         it('opens on the services tab and does not load other tabs until they are open', async () => {
             await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
@@ -249,6 +320,76 @@ describe('applicationObservabilityLogic', () => {
 
             expect(logic.values.usageLoadError).toBe(true)
             expect(logic.values.usageRows).toHaveLength(2)
+        })
+
+        it('loads deployments once per refresh while the deployments tab is open', async () => {
+            const deploymentRequests: string[] = []
+            useMocks({
+                get: {
+                    // A real services response lands after the deployments request has gone out.
+                    '/api/projects/:team_id/apm/services/': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 20))
+                        return [200, RESPONSE]
+                    },
+                    '/api/projects/:team_id/apm/deployments/': ({ request }) => {
+                        deploymentRequests.push(new URL(request.url).search)
+                        return [200, { results: [], service: 'queue', environment: 'prod', date_from: '', date_to: '' }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            logic.actions.setTab('deployments')
+            const deployments = deploymentsLogic()
+            deployments.mount()
+            await expectLogic(deployments).toFinishAllListeners()
+            deploymentRequests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(1)
+            expect(deploymentRequests[0]).toContain('service=queue')
+
+            useMocks({ get: { '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }] } })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(2)
+            expect(deploymentRequests[1]).toContain('environment=staging')
+            deployments.unmount()
+        })
+
+        it('follows the URL service on the deployments tab: numeric-looking, picked, then cleared', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/apm/deployments/': () => [
+                        200,
+                        { results: [], service: '1.0', environment: 'true', date_from: '', date_to: '' },
+                    ],
+                },
+            })
+            const deployments = deploymentsLogic()
+            deployments.mount()
+            router.actions.push(
+                applicationObservabilityTabUrl('deployments', {
+                    service: '1.0',
+                    timeRange: '-6h',
+                    environment: 'true',
+                })
+            )
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(logic.values.environment).toBe('true')
+            expect(deployments.values.deploymentsService).toBe('1.0')
+
+            deployments.actions.setDeploymentsService('payments')
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deployments.values.deploymentsService).toBe('payments')
+
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'deployments' })
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deployments.values.pickedService).toBeNull()
+            deployments.unmount()
         })
 
         it('ignores an unknown tab in the URL', async () => {
