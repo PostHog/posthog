@@ -20,7 +20,7 @@ export function CanvasPreviewPersonPanel(): JSX.Element | null {
         return null
     }
     return (
-        <Panel position="top-right" className="!m-2 overflow-hidden rounded border">
+        <Panel position="top-right" className="!m-2 overflow-hidden rounded border @max-[56rem]/tile-canvas:hidden">
             <EmailPreviewPersonBar templates={templates} unresolvedCount={0} />
         </Panel>
     )
