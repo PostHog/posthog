@@ -19,7 +19,7 @@ import { CARD_DURATION_MS, mcpWrappedLogic } from './mcpWrappedLogic'
 import { WrappedCardKey } from './storyCards'
 
 const CONTROL_CLASS =
-    'flex size-7 items-center justify-center rounded-full bg-black/20 text-current hover:bg-black/30 focus-visible:outline'
+    'flex size-7 items-center justify-center rounded-full bg-black/20 text-current hover:bg-black/30 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-white'
 
 function CurrentCard({ cardKey }: { cardKey: WrappedCardKey }): JSX.Element | null {
     const { wrapped } = useValues(mcpWrappedLogic)
