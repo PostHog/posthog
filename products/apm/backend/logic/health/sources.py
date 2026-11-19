@@ -35,6 +35,9 @@ SERVICES_LIMIT = 500
 # Buckets are a share of the window, not a fixed width, so every window has exactly SPARKLINE_POINTS.
 SPARKLINE_ROWS_LIMIT = SERVICES_LIMIT * SPARKLINE_POINTS
 ENDPOINTS_LIMIT = 500
+# Rows are ranked worst first, so without a per-service cap one service with many failing endpoints
+# (an outgoing-call job labelled by host fills hundreds) pushes every other service off the list.
+ENDPOINTS_PER_SERVICE_LIMIT = 50
 # The map joins spans to their parents, so it reads a bounded sample of traces, not the whole window.
 MAP_TRACE_LIMIT = 2000
 MAP_EDGES_LIMIT = 1000
@@ -271,6 +274,10 @@ def _endpoints_query(
         },
     )
     assert isinstance(query, ast.SelectQuery)
+    if not service:
+        query.limit_by = ast.LimitByExpr(
+            n=ast.Constant(value=ENDPOINTS_PER_SERVICE_LIMIT), exprs=[ast.Field(chain=["service_name"])]
+        )
     return query
 
 
