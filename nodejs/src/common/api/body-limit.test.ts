@@ -245,9 +245,8 @@ describe('setupExpressApp JSON body limit', () => {
                         published: ['valid'],
                     })
                 } finally {
-                    await subscriber.unsubscribe(channel)
                     subscriber.removeAllListeners('message')
-                    await redisPool.release(subscriber)
+                    await subscriber.unsubscribe(channel).finally(() => redisPool.release(subscriber))
                 }
             }
         )
