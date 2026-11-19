@@ -1,29 +1,22 @@
 """SQL for the events batch export model."""
 
-import re
 import typing
 from collections.abc import Sequence
 from string import Template
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.printer.events_json_document import (
     EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
     json_document_sql,
     person_document_sql,
 )
 
-from posthog.clickhouse.events_json import (
-    EVENTS_JSON_INSERT_SETTINGS,
-    EVENTS_JSON_RECENT_TABLE,
-    PERMANENT_SDK_DEBUG_PROPERTIES,
-    TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
-    TEMPORARY_EVENT_PROPERTY_ROOTS,
-    TEMPORARY_PROPERTIES_JSON_TYPE,
-)
-from posthog.models.event.sql import (
-    EVENTS_JSON_ELEMENTS_COLUMNS,
-    EVENTS_PROPERTIES_JSON_TYPE,
-    PERSON_PROPERTIES_JSON_TYPE,
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS, EVENTS_JSON_RECENT_TABLE
+
+from products.batch_exports.backend.temporal.sql.typed_events_json_recent import (
+    STORED_DOCUMENT_FIELD_EXPRESSIONS,
+    STORED_TEMPORARY_PROPERTIES_COLUMN,
+    build_typed_events_json_recent_source,
+    needs_typed_columns,
 )
 
 if typing.TYPE_CHECKING:
@@ -517,89 +510,6 @@ def _select_fields(fields: Sequence["BatchExportField"], replacements: dict[str,
     )
 
 
-# `events_json_recent` keeps the export's own `properties` and `person_properties` documents as text, so the export
-# sends them as stored. These columns hold the stored text when the query also reads the typed columns.
-_STORED_DOCUMENT_COLUMNS = {
-    "properties": "_stored_properties",
-    "person_properties": "_stored_person_properties",
-}
-_STORED_TEMPORARY_PROPERTIES_COLUMN = "_stored_temporary_properties"
-# Columns that are typed JSON in `events_json` but are text (or absent) in `events_json_recent`. Filters and custom
-# fields printed for the new events schema read them with JSON subcolumn syntax, which fails on text.
-_TYPED_COLUMN_REFERENCE = re.compile(r"\b(?:properties|person_properties|temporary_properties|elements_chain_\w+)\b")
-
-
-def _reads_typed_columns(fields: Sequence["BatchExportField"], filters: str) -> bool:
-    return bool(filters) or any(
-        field["expression"] not in _NATIVE_EVENTS_FIELD_EXPRESSIONS
-        and _TYPED_COLUMN_REFERENCE.search(field["expression"]) is not None
-        for field in fields
-    )
-
-
-def _parse_materialized_columns(columns_sql: str) -> list[str]:
-    """`<expression> AS <name>` for each `, <name> <type> MATERIALIZED <expression>` line of a column list."""
-    selected = []
-    for line in columns_sql.strip().splitlines():
-        name, definition = line.strip().removeprefix(",").strip().split(" ", 1)
-        expression = definition.split(" MATERIALIZED ", 1)[1]
-        selected.append(f"{expression} AS {name}")
-    return selected
-
-
-def _build_temporary_property_skip_clauses() -> str:
-    """JSON type `SKIP` clauses for the paths that `is_temporary_event_property` puts in `temporary_properties`.
-
-    RE2 has no lookahead, so the pattern for the `$sdk_debug_` prefix lists every way a root key can differ from the
-    permanent key: it ends early, it has a different character, or it continues past the permanent key's name. A
-    root key that equals the permanent key ends the path or is followed by a nested path's `.`. The pattern handles
-    one permanent key, so the unpacking below fails at import when a second one is added.
-    """
-    (permanent_key,) = PERMANENT_SDK_DEBUG_PROPERTIES
-    permanent_suffix = permanent_key.removeprefix(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
-    differs_from_permanent = [
-        f"{re.escape(permanent_suffix[:index])}(?:$|[^{re.escape(character)}])"
-        for index, character in enumerate(permanent_suffix)
-    ]
-    differs_from_permanent.append(f"{re.escape(permanent_suffix)}[^.]")
-    prefix_pattern = f"^{re.escape(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)}(?:{'|'.join(differs_from_permanent)})"
-    roots = (f"SKIP {escape_clickhouse_identifier(root)}" for root in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS))
-    return ", ".join([*roots, f"SKIP REGEXP {escape_clickhouse_string(prefix_pattern)}"])
-
-
-_EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE = (
-    f"{EVENTS_PROPERTIES_JSON_TYPE().removesuffix(')')}, {_build_temporary_property_skip_clauses()})"
-)
-
-
-def _build_typed_events_json_recent_source(table: str) -> str:
-    """`events_json_recent` with its document columns converted to the column types of `events_json`.
-
-    The stored documents leave out the declared defaults that `events_json` reads back, and a declared path converts
-    back to its default when it is absent, so filters and fields match what they match on `events_json`. The stored
-    `properties` document also carries the temporary properties, which `events_json` keeps in `temporary_properties`
-    only, so the conversion skips them there. The `elements_chain_*` columns are materialized in `events_json` only,
-    so this computes them the same way.
-    """
-    elements_chain_columns = ",\n        ".join(_parse_materialized_columns(EVENTS_JSON_ELEMENTS_COLUMNS))
-    return f"""(
-    SELECT
-        * REPLACE (
-            CAST(properties, {escape_clickhouse_string(_EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE)}) AS properties,
-            CAST(person_properties, '{PERSON_PROPERTIES_JSON_TYPE()}') AS person_properties,
-            CAST(temporary_properties, '{TEMPORARY_PROPERTIES_JSON_TYPE}') AS temporary_properties
-        ),
-        {table}.properties AS {_STORED_DOCUMENT_COLUMNS["properties"]},
-        {table}.person_properties AS {_STORED_DOCUMENT_COLUMNS["person_properties"]},
-        {table}.temporary_properties AS {_STORED_TEMPORARY_PROPERTIES_COLUMN},
-        {elements_chain_columns}
-    FROM {table}
-    WHERE team_id = %(team_id)s::Int64
-        AND inserted_at >= %(interval_start)s::DateTime64
-        AND inserted_at < %(interval_end)s::DateTime64
-)"""
-
-
 def native_recent_events_export_query(
     fields: Sequence["BatchExportField"],
     filters: str = "",
@@ -611,22 +521,18 @@ def native_recent_events_export_query(
 ) -> str:
     """The export query for `events_json_recent`, which recent runs of a team on the new events schema read.
 
-    `filters` and any custom field expressions must be printed for the new events schema, as for
-    `native_events_export_query`. They read typed JSON columns, so when there are any the query converts the stored
-    text back to those types. That conversion parses every row again, so a query without them sends the stored text
-    without reading it.
+    The query sends the stored `properties` and `person_properties` text as it is. `filters` and any custom field
+    expressions must be printed for the new events schema, as for `native_events_export_query`. They read typed JSON
+    columns, so an export that has any reads them through `typed_events_json_recent` instead.
     """
-    reads_typed_columns = _reads_typed_columns(fields, filters)
-    replacements = (
-        _STORED_DOCUMENT_COLUMNS | _build_temporary_property_fields(f"events.{_STORED_TEMPORARY_PROPERTIES_COLUMN}")
-        if reads_typed_columns
-        else _build_temporary_property_fields("events.temporary_properties")
-    )
-    source = (
-        _build_typed_events_json_recent_source(EVENTS_JSON_RECENT_TABLE)
-        if reads_typed_columns
-        else EVENTS_JSON_RECENT_TABLE
-    )
+    if needs_typed_columns(fields, filters, plain_expressions=_NATIVE_EVENTS_FIELD_EXPRESSIONS.keys()):
+        source = build_typed_events_json_recent_source(EVENTS_JSON_RECENT_TABLE)
+        replacements = STORED_DOCUMENT_FIELD_EXPRESSIONS | _build_temporary_property_fields(
+            f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}"
+        )
+    else:
+        source = EVENTS_JSON_RECENT_TABLE
+        replacements = _build_temporary_property_fields("events.temporary_properties")
     # A 5-minute run reads straight after the data interval ends, so it accepts only fully replicated rows. Other
     # recent runs accept up to a minute of replication lag, and fail rather than read a replica that is further behind.
     replica_settings = (
