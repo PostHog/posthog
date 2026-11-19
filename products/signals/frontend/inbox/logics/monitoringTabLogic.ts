@@ -6,7 +6,8 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { signalsReportsList, signalsReportsRefreshMetricsCreate } from '../../generated/api'
 import type { SignalReportListApi, SignalReportMetricSnapshotsApi } from '../../generated/api.schemas'
-import { captureInboxPanelViewed, captureMonitoringRowExpanded, captureMonitoringScopeChanged } from '../inboxAnalytics'
+import { captureInboxPanelViewed } from '../inboxAnalytics'
+import { captureMonitoringRowExpanded, captureMonitoringScopeChanged } from '../monitoringAnalytics'
 import { monitoringRowStatus, sortByVerdict } from '../utils/monitoringTimeline'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 

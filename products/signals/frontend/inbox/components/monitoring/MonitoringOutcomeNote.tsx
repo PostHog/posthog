@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReportMonitoringOutcomeApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureMonitoringAction } from '../../inboxAnalytics'
+import { captureMonitoringAction } from '../../monitoringAnalytics'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { MonitoringTime } from './MonitoringTime'
 

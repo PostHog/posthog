@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -18,7 +18,6 @@ import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
-import { MonitoringTab } from './components/monitoring/MonitoringTab'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
@@ -44,6 +43,12 @@ export const scene: SceneExport = {
 const LazyScoutCreateModal = React.lazy(async () => {
     const { ScoutCreateModal } = await import('./components/config/scouts/ScoutCreateModal')
     return { default: ScoutCreateModal }
+})
+
+// Behind a feature flag, so its code loads only for people who open the tab.
+const LazyMonitoringTab = React.lazy(async () => {
+    const { MonitoringTab } = await import('./components/monitoring/MonitoringTab')
+    return { default: MonitoringTab }
 })
 
 /** Hosts the `#createScout=` modal at the scene level, so it opens from any tab, not just the roster. */
@@ -74,7 +79,11 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
         case 'reports':
             return <ReportsTab />
         case 'monitoring':
-            return <MonitoringTab />
+            return (
+                <React.Suspense fallback={<LemonSkeleton className="h-64 w-full" />}>
+                    <LazyMonitoringTab />
+                </React.Suspense>
+            )
         case 'scouts':
             return <ScoutsRoster />
         case 'sources':

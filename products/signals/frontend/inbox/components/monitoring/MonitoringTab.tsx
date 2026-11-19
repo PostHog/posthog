@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { captureMonitoringAction } from '../../inboxAnalytics'
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
+import { captureMonitoringAction } from '../../monitoringAnalytics'
 import { verdictsDueWithin } from '../../utils/monitoringTimeline'
 import { useMinuteClock } from '../cards/useMinuteClock'
 import { MonitoringScopeControl } from './MonitoringScopeControl'

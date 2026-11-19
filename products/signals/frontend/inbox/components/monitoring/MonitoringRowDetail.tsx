@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureMonitoringAction } from '../../inboxAnalytics'
+import { captureMonitoringAction } from '../../monitoringAnalytics'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { latestMergedPullRequest } from '../../utils/reportMonitoringSummary'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
