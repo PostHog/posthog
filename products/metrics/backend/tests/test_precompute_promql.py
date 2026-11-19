@@ -47,6 +47,7 @@ class TestParsePromQL(SimpleTestCase):
         [
             ("sum_by", "sum by (span) (sum_over_time(llm_generations[$__interval]))", None, ("span",), None),
             ("sum_trailing_by", 'sum(sum_over_time(m{a="x"}[1d])) by (b)', dt.timedelta(days=1), ("b",), None),
+            ("repeated_group_label", "sum by (a, a, a) (sum_over_time(m[1h]))", dt.timedelta(hours=1), ("a",), None),
             (
                 "topk_in_sort_desc",
                 "sort_desc(topk(15, sum by (p) (sum_over_time(m[604800s]))))",

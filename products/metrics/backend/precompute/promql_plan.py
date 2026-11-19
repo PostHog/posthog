@@ -192,7 +192,12 @@ def _labels(parser: _Parser) -> tuple[str, ...]:
     parser.take("(")
     labels: list[str] = []
     while not parser.at(")"):
-        labels.append(parser.take(kind="ident").text)
+        label = parser.take(kind="ident").text
+        if label not in labels:
+            labels.append(label)
+        # `le` plus the kept labels is the most a planned query can group by.
+        if len(labels) > MAX_KEPT_LABELS + 1:
+            raise _Unsupported
         if not parser.at(")"):
             parser.take(",")
     parser.take(")")
