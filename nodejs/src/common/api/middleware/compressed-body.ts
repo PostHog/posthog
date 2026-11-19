@@ -42,8 +42,18 @@ function contentEncodingOf(req: Request): string {
     return (req.headers['content-encoding'] ?? '').trim().toLowerCase() || 'identity'
 }
 
-function isJsonBody(req: Request): boolean {
-    return (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() === 'application/json'
+const JSON_MEDIA_TYPE = 'application/json'
+const TEXT_MEDIA_TYPE = 'text/plain'
+const TEXT_CHARSETS = new Set(['utf-8', 'utf-16le', 'latin1'])
+const DEFAULT_TEXT_PARSER_LIMIT_BYTES = 100 * 1024
+
+function mediaTypeOf(req: Request): string {
+    return (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase()
+}
+
+function charsetOf(req: Request): string {
+    const match = /;\s*charset\s*=\s*([^;]+)/i.exec(req.headers['content-type'] ?? '')
+    return match ? match[1].trim().toLowerCase() : 'utf-8'
 }
 
 const BODY_READING_METHODS = new Set(['POST', 'PUT', 'PATCH'])
@@ -74,15 +84,29 @@ function onceOnly(callback: (error?: unknown) => void): (error?: unknown) => voi
 export function createCompressedBodyMiddleware(limitBytes: number): RequestHandler {
     const readRawBody = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(limitBytes) })
 
-    const decodeJson = async (req: Request, res: Response, next: NextFunction, decompress: Decompress) => {
+    const decodeBody = async (
+        req: Request,
+        res: Response,
+        next: NextFunction,
+        decompress: Decompress,
+        mediaType: string
+    ) => {
+        const isText = mediaType === TEXT_MEDIA_TYPE
         let decoded: Buffer
         try {
-            decoded = await decompress(req.body, limitBytes)
+            decoded = await decompress(
+                req.body,
+                isText ? Math.min(limitBytes, DEFAULT_TEXT_PARSER_LIMIT_BYTES) : limitBytes
+            )
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
                 return next(tooLarge())
             }
             return refuse(res, 400, 'Malformed compressed body')
+        }
+        if (isText) {
+            req.body = decoded.toString(charsetOf(req) as BufferEncoding)
+            return next()
         }
         const text = decoded.toString('utf8')
         ;(req as Request & { rawBody?: string }).rawBody = text
@@ -96,8 +120,12 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
             return next()
         }
         const decompress = decompressorFor(encoding)
-        if (!decompress || !isJsonBody(req)) {
+        const mediaType = mediaTypeOf(req)
+        if (!decompress || (mediaType !== JSON_MEDIA_TYPE && mediaType !== TEXT_MEDIA_TYPE)) {
             return refuse(res, 415, 'Unsupported content encoding')
+        }
+        if (mediaType === TEXT_MEDIA_TYPE && !TEXT_CHARSETS.has(charsetOf(req))) {
+            return refuse(res, 415, 'Unsupported charset')
         }
 
         readRawBody(
@@ -112,7 +140,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
                         req.body = {}
                         return next()
                     }
-                    decodeJson(req, res, next, decompress).catch(next)
+                    decodeBody(req, res, next, decompress, mediaType).catch(next)
                 } catch (error) {
                     next(error)
                 }
