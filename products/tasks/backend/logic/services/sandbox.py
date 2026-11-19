@@ -838,12 +838,6 @@ class SandboxBase(ABC):
     def exit_status(self) -> str | None:
         return None
 
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return None
-
-    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
-        return {}
-
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return None, {}
 
@@ -858,15 +852,6 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
-
-    def _read_health_session_init_ms(self, port: int) -> int | None:
-        try:
-            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
-            payload = json.loads(result.stdout or "{}")
-            session_init_ms = payload.get("sessionInitMs")
-            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
-        except Exception:
-            return None
 
     def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
         try:
@@ -908,28 +893,6 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}
-
-    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
-        try:
-            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
-            payload = json.loads(result.stdout or "{}")
-            raw_phases = payload.get("boot", {}).get("phasesMs", {})
-            allowed_phases = {
-                "context_fetch",
-                "acp_initialize",
-                "repository_ready",
-                "session_dependencies",
-                "session_create",
-            }
-            if not isinstance(raw_phases, dict):
-                return {}
-            return {
-                phase: max(0, int(duration))
-                for phase, duration in raw_phases.items()
-                if phase in allowed_phases and isinstance(duration, int | float)
-            }
-        except Exception:
-            return {}
 
     def __enter__(self) -> Self:
         return self

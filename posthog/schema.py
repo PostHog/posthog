@@ -4119,6 +4119,12 @@ class AggregatedSpanRow(BaseModel):
     )
     avg_duration_nano: float
     count: int
+    entry_span_count: int | None = Field(
+        default=None,
+        description=(
+            "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+        ),
+    )
     error_count: int
     health_reason: str | None = Field(
         default=None,
@@ -7401,7 +7407,7 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     )
     adTable: str | None = Field(
         default=None,
-        description="Google Ads ad table, used to read the ad copy of each ad group.",
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
     )
     campaignConversionActionTable: str | None = Field(
         default=None,
@@ -22478,6 +22484,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,
