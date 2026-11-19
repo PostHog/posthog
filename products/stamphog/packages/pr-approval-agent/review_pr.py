@@ -513,10 +513,10 @@ class Pipeline:
         additive = additive_files(pr.files)
         deny_files = deny_matches(pr.deny_paths, lifted, additive=additive)
         deny = list(deny_files)
-        exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False, additive=additive) != deny
-        )
-        attestation_lifted = bool(lifted) and detect_deny_categories(pr.deny_paths, additive=additive) != deny
+        # Compared with a deny that skips nothing, so a file that a deny exception, an attestation
+        # and an edit_paths addition each skip still counts. Comparing each skip with the other two
+        # applied let one hide another.
+        deny_skipped = detect_deny_categories(pr.deny_paths, apply_exceptions=False) != deny
         additions_lifted = detect_deny_categories(pr.deny_paths, lifted) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
@@ -553,25 +553,17 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        # An owner-only exemption or an attestation lifts the deny, not the review: a workflow is
-        # .yml, so without this it rides the allow-list to a T0 approval with no reviewer.
-        # An addition to an edit_paths file (an owners.yaml rule) is the same case.
+        # An owner-only exemption, a deny exception, an attestation or an addition to an edit_paths
+        # file (an owners.yaml rule) lifts the deny, not the review: a workflow is .yml, so without
+        # this it rides the allow-list to a T0 approval with no reviewer.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
-            and not exception_lifted
-            and not attestation_lifted
-            and not additions_lifted
+            and not deny_skipped
         )
-        is_test = (
-            test_only(categories)
-            and not owner_exempted
-            and not exception_lifted
-            and not attestation_lifted
-            and not additions_lifted
-        )
+        is_test = test_only(categories) and not owner_exempted and not deny_skipped
         # The checkout is the PR head, so a PR that changes an ownership file could name the
         # author's team as the owner of its own files. Such a PR, which only an addition lift or an
         # owner exemption lets through, reads ownership at the merge base instead.
