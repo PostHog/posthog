@@ -772,7 +772,7 @@ const workflowsPublish = (): ToolBase<
             ]) as typeof result
             return withAgentNote(
                 filtered,
-                "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n"
+                "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n"
             )
         }
     ),
@@ -816,7 +816,7 @@ const workflowsEnable = (): ToolBase<ReturnType<typeof WorkflowsEnableSchema>, W
                 ]) as typeof result
                 return withAgentNote(
                     filtered,
-                    "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n"
+                    "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n"
                 )
             }
         ),

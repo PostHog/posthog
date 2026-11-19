@@ -56922,7 +56922,7 @@
             },
             "stripNulls": false,
             "enrich": null,
-            "agentNote": "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n",
+            "agentNote": "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n",
             "informational": null,
             "textInclude": []
         },
@@ -57766,7 +57766,7 @@
             },
             "stripNulls": false,
             "enrich": null,
-            "agentNote": "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n",
+            "agentNote": "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n",
             "informational": null,
             "textInclude": []
         },
