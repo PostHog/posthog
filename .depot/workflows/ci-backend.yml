@@ -1488,6 +1488,14 @@ jobs:
                       trunk-junit \
                       "$PRODUCT_FILTERS"
 
+            - name: Download the run's Trunk ownership map
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners
+
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -3499,8 +3507,10 @@ jobs:
               retry: 1
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
+            # Only the events_json rows can run product tests. Core, POE and compat rows run posthog/
+            # and ee/ alone, and no test there reaches the canvas builder.
             - name: Set up Node.js for canvas builder
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.json-targets && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
@@ -3508,7 +3518,7 @@ jobs:
             # A single `npm ci` on an empty npm cache intermittently fails with EEXIST or ENOENT on a
             # `_cacache/tmp` file, with no other process using the cache.
             - name: Install canvas builder dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.json-targets }}
               shell: bash
               retry: 2
               run: |
@@ -4126,6 +4136,14 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
+            - name: Download the run's Trunk ownership map
+              continue-on-error: true
+              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners
+
             # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
               if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
@@ -4174,6 +4192,32 @@ jobs:
               if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
+
+    # Test shards download this map instead of each spending seconds generating it, and generate
+    # their own when the download misses. No job needs it, so it cannot delay or fail the run.
+    trunk-ownership-map:
+        name: Build the Trunk ownership map
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Install uv
+              uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: 'false'
+            - name: Build the map
+              shell: bash
+              run: .github/scripts/trunk-codeowners.sh "$RUNNER_TEMP/trunk-codeowners"
+            - name: Upload the map
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners/CODEOWNERS
+                  if-no-files-found: ignore
+                  retention-days: 1
+                  overwrite: true # artifacts are immutable per run; a re-run would 409 otherwise
 
     # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:

@@ -1,6 +1,7 @@
 from django.db.models import QuerySet
 
 from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.restricted_properties import PERSON_PROPERTY_CONTAINERS
 
 from posthog.dataclasses import frozen
 from posthog.models import User
@@ -122,7 +123,9 @@ def _reads_restricted_property(filters: object, restricted: RestrictedPropertyNa
         return True
     match filters.get("type"):
         case "event":
-            names: frozenset[str] = restricted.event
+            names: frozenset[str] = restricted.event | {
+                f"{container}.{name}" for container in PERSON_PROPERTY_CONTAINERS for name in restricted.person
+            }
         case "person":
             names = restricted.person
         case "group":
