@@ -50,7 +50,7 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
-import { sourceSceneLogic } from '../SourceScene'
+import { SOURCE_PLACEHOLDER_NAME, sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
     id: string
@@ -1226,7 +1226,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         const setSceneBreadcrumbName = (): void => {
             const { source } = values
-            const label = source ? sourceTypeLabel(source.source_type, values.availableSources) : 'Source'
+            const label = source
+                ? sourceTypeLabel(source.source_type, values.availableSources)
+                : SOURCE_PLACEHOLDER_NAME
             const breadcrumbName = source?.access_method === 'direct' ? source.prefix || label : label
 
             const sceneLogicInstance =

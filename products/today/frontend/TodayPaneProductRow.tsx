@@ -2,17 +2,17 @@ import { useMemo } from 'react'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
-import { MonitorProduct } from '~/layout/today/todayMonitor'
+import { TodayPaneProduct } from '~/layout/today/todayPaneProducts'
 import { productPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-export function TodayMonitorProductRow({
+export function TodayPaneProductRow({
     product,
     active,
     dataAttr,
 }: {
-    product: MonitorProduct
+    product: TodayPaneProduct
     active: boolean
     dataAttr: string
 }): JSX.Element {

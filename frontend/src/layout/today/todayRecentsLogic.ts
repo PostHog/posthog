@@ -6,6 +6,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { TodayDataRecent } from './todayDataRecents'
 import { TodayMonitorRecent } from './todayMonitor'
 import { newestByName } from './todayNewestByName'
 import { isTodayPaneEnabled } from './todayPaneFlags'
@@ -16,6 +17,8 @@ import {
     TodayRecent,
     StoredReleaseRecent,
     addTodayRecent,
+    isDataRecent,
+    isMonitorRecent,
     isPeopleRecent,
     recentPane,
 } from './todayRecents'
@@ -34,6 +37,8 @@ function rowsByName<T extends TodayRecent>(recents: T[]): T[] {
 export interface todayRecentsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentRecent: TodayRecent | null
+    dataRecentRows: TodayDataRecent[]
+    dataRecents: TodayDataRecent[]
     monitorRecentRows: TodayMonitorRecent[]
     monitorRecents: TodayMonitorRecent[]
     peopleRecentRows: TodayPeopleRecent[]
@@ -54,6 +59,7 @@ export interface todayRecentsLogicMeta {
         currentRecent: (featureFlags: FeatureFlagsSet, arg: TodayRecent | null) => TodayRecent | null
         peopleRecentRows: (peopleRecents: TodayPeopleRecent[]) => TodayPeopleRecent[]
         monitorRecentRows: (monitorRecents: TodayMonitorRecent[]) => TodayMonitorRecent[]
+        dataRecentRows: (dataRecents: TodayDataRecent[]) => TodayDataRecent[]
     }
 }
 
@@ -89,8 +95,15 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
             [] as TodayMonitorRecent[],
             TODAY_USER_PERSIST_OPTIONS,
             {
-                addRecent: (state, { recent }) =>
-                    recent.type !== 'release' && !isPeopleRecent(recent) ? addTodayRecent(state, recent) : state,
+                addRecent: (state, { recent }) => (isMonitorRecent(recent) ? addTodayRecent(state, recent) : state),
+            },
+        ],
+        // pinned: storage key for the saved Data Recents. Renaming it empties everyone's Data Recents.
+        dataRecents: [
+            [] as TodayDataRecent[],
+            TODAY_USER_PERSIST_OPTIONS,
+            {
+                addRecent: (state, { recent }) => (isDataRecent(recent) ? addTodayRecent(state, recent) : state),
             },
         ],
         releaseRecents: [
@@ -141,6 +154,7 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
         ],
         peopleRecentRows: [(s) => [s.peopleRecents], (recents: TodayPeopleRecent[]) => rowsByName(recents)],
         monitorRecentRows: [(s) => [s.monitorRecents], (recents: TodayMonitorRecent[]) => rowsByName(recents)],
+        dataRecentRows: [(s) => [s.dataRecents], (recents: TodayDataRecent[]) => rowsByName(recents)],
     }),
     subscriptions(({ actions }) => ({
         currentRecent: (recent: TodayRecent | null) => {
