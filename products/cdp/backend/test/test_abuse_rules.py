@@ -544,25 +544,25 @@ class TestAbuseRules(SimpleTestCase):
                 content(hog="print('fetch(inputs.url)')\n// fetch(inputs.url)\nreturn event", inputs={}),
                 False,
             ),
-            ("fetch_shadowed_by_a_local_function", content(hog="fun fetch(url) {\n  return url\n}\nfetch('x')"), False),
-            ("fetch_shadowed_by_a_local_lambda", content(hog="let fetch := (url) -> url\nfetch('x')"), False),
             (
-                "fetch_beside_a_local_of_that_name_in_another_scope",
-                content(hog="fun f() {\n  let fetch := 1\n}\nfetch('x')"),
+                "call_to_a_local_function_named_fetch",
+                content(hog="fun fetch(url) {\n  return url\n}\nfetch('x')"),
                 True,
             ),
-            ("fetch_assigned_to_a_variable", content(hog="let send := fetch\nsend(inputs.url)"), True),
-            ("fetch_called_as_an_expression", content(hog="(fetch)(inputs.url)"), True),
-            ("fetch_kept_in_a_dict", content(hog="let senders := {'a': fetch}\nsenders.a(inputs.url)"), True),
-            ("fetch_in_a_lambda", content(hog="let send := (url) -> fetch(url)\nsend(inputs.url)"), True),
             (
-                "property_rewrite_with_local_functions_and_lambdas",
+                "fetch_beside_a_local_of_that_name_in_another_scope",
+                content(hog="fun f() {\n  let fetch := 1\n}\nprint(fetch('x'))"),
+                True,
+            ),
+            ("fetch_referenced_without_a_call", content(hog="let senders := {'a': fetch}\nreturn senders"), True),
+            ("fetch_in_a_lambda_callback", content(hog="arrayMap(url -> fetch(url), [inputs.url])"), True),
+            (
+                "property_rewrite_with_builtins_and_lambda_callbacks",
                 content(
-                    hog="fun isInternal(ip) {\n  return has(inputs.internal_ips, ip)\n}\n"
-                    "let clean := (value) -> trim(value)\n"
-                    "event.properties.internal := isInternal(clean(event.properties.$ip))\n"
-                    "event.properties.tags := arrayMap(tag -> lower(tag), event.properties.tags ?? [])\n"
-                    "event.properties.internal_tags := arrayFilter(isInternal, event.properties.tags)\n"
+                    hog="event.properties.internal := has(inputs.internal_ips, event.properties.$ip)\n"
+                    "event.properties.tags := arrayMap(tag -> lower(trim(tag)), event.properties.tags ?? [])\n"
+                    "event.properties.internal_tags := arrayFilter(tag -> has(inputs.internal_tags, tag), "
+                    "event.properties.tags)\n"
                     "return event",
                     function_type="transformation",
                     inputs={},
@@ -570,12 +570,25 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             ("closure_from_an_input_called_by_name", content(hog="let send := inputs.sender\nsend(inputs.url)"), True),
-            ("closure_called_as_a_parameter", content(hog="fun go(f) {\n  return f(1)\n}\ngo(inputs.sender)"), True),
             ("closure_called_as_a_member", content(hog="inputs.sender(inputs.url)"), True),
             ("closure_from_an_input_as_a_callback", content(hog="arrayMap(inputs.sender, [inputs.url])"), True),
             (
-                "local_function_replaced_by_a_closure",
-                content(hog="fun send(url) {\n  return url\n}\nsend := inputs.sender\nsend(inputs.url)"),
+                "closure_returned_by_a_local_function",
+                content(hog="fun identity(x) {\n  return x\n}\nidentity(inputs.sender)(inputs.url)"),
+                True,
+            ),
+            ("closure_returned_by_a_builtin", content(hog="coalesce(inputs.sender)(inputs.url)"), True),
+            (
+                "closure_swapped_in_through_upvalues",
+                content(
+                    hog="let evil := inputs.sender\nlet good := x -> x\nlet send := x -> good(x)\n"
+                    "let capture := () -> evil\nsend.upvalues[1] := capture.upvalues[1]\nsend(inputs.url)"
+                ),
+                True,
+            ),
+            (
+                "closure_called_as_a_tag",
+                content(hog="let send := inputs.sender\nlet response := <send url={inputs.url} />"),
                 True,
             ),
             ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),

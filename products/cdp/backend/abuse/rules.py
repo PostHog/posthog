@@ -9,7 +9,7 @@ import math
 import ipaddress
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from enum import Enum, StrEnum, auto
+from enum import StrEnum
 from urllib.parse import unquote, urlsplit
 
 from posthog.hogql import ast
@@ -235,12 +235,6 @@ def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterato
             yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
-class _Binding(Enum):
-    FUNCTION = auto()
-    # A variable, parameter or loop or catch variable. An input value can hold a closure that calls an async function.
-    VALUE = auto()
-
-
 class _HogCodeVisitor(TraversingVisitor):
     """Tracks the names in scope in source order, as the bytecode compiler does, because a call to a declared name
     runs the local and never reaches the standard library or the async function registry."""
@@ -249,26 +243,14 @@ class _HogCodeVisitor(TraversingVisitor):
         super().__init__()
         self.matched: set[Rule] = set()
         self.calls_out = False
-        self._scopes: list[dict[str, _Binding]] = [{}]
-
-    def _binding(self, name: str) -> _Binding | None:
-        return next((scope[name] for scope in reversed(self._scopes) if name in scope), None)
+        self._scopes: list[set[str]] = [set()]
 
     def _is_local(self, name: str) -> bool:
-        return self._binding(name) is not None
-
-    def _is_known_function(self, expr: ast.Expr) -> bool:
-        if isinstance(expr, ast.Lambda):
-            return True
-        return (
-            isinstance(expr, ast.Field)
-            and len(expr.chain) == 1
-            and self._binding(str(expr.chain[0])) is _Binding.FUNCTION
-        )
+        return any(name in scope for scope in self._scopes)
 
     @contextmanager
     def _scope(self, names: Iterable[str] = ()) -> Iterator[None]:
-        self._scopes.append(dict.fromkeys(names, _Binding.VALUE))
+        self._scopes.append(set(names))
         try:
             yield
         finally:
@@ -279,7 +261,7 @@ class _HogCodeVisitor(TraversingVisitor):
             super().visit_block(node)
 
     def visit_function(self, node: ast.Function) -> None:
-        self._scopes[-1][node.name] = _Binding.FUNCTION
+        self._scopes[-1].add(node.name)
         with self._scope(node.params):
             super().visit_function(node)
 
@@ -305,27 +287,26 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
         super().visit_variable_declaration(node)
-        self._scopes[-1][node.name] = _Binding.FUNCTION if isinstance(node.expr, ast.Lambda) else _Binding.VALUE
+        self._scopes[-1].add(node.name)
 
-    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
-        # A call before the assignment can run after it in a loop, so replacing a declared function counts by itself.
-        super().visit_variable_assignment(node)
-        if self._is_known_function(node.left):
-            self.calls_out = True
-
+    # An input value can hold a closure that calls an async function, and code can swap the upvalues of a local
+    # function, so any call that does not name a builtin could reach one. A lambda literal passed as a callback is safe
+    # because its body is visited.
     def visit_expr_call(self, node: ast.ExprCall) -> None:
         super().visit_expr_call(node)
-        if not self._is_known_function(node.expr):
-            self.calls_out = True
+        self.calls_out = True
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        super().visit_hogqlx_tag(node)
+        self.calls_out |= self._is_local(node.kind)
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
-        binding = self._binding(node.name)
-        if binding is not None:
-            self.calls_out |= binding is _Binding.VALUE
+        if self._is_local(node.name):
+            self.calls_out = True
             return
-        self.calls_out |= node.name in OUTBOUND_FUNCTIONS
-        if node.name in _CALLBACK_FUNCTIONS and node.args and not self._is_known_function(node.args[0]):
+        self.calls_out |= node.params is not None or node.name in OUTBOUND_FUNCTIONS
+        if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
             self.calls_out = True
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
