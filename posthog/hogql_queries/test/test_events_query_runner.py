@@ -1799,6 +1799,45 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"display_name": "unnamed-user", "id": str(unnamed.uuid), "distinct_id": "unnamed-user"},
         ]
 
+    @parameterized.expand(
+        [
+            ("display_name_lookup", ["timestamp ASC"]),
+            ("persons_join", ["person_display_name -- Person ASC"]),
+        ]
+    )
+    def test_flag_evaluations_person_display_name_follows_a_merge_on_a_team_that_reads_the_stored_person(
+        self, _name: str, order_by: list[str]
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+        merged = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["merged-user", "merged-user-anon"],
+            properties={"email": "merged-user@example.com"},
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation("merged-user-anon", uuid.uuid4())
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [(self.team.pk, "merged-user-anon", str(merged.uuid), 1, 0)],
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=order_by,
+                after="-30d",
+            )
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0] for row in response.results] == [
+            {"display_name": "merged-user@example.com", "id": str(merged.uuid), "distinct_id": "merged-user-anon"}
+        ]
+
     @parameterized.expand([("default_order", None), ("requested_order", ["person_display_name -- Person ASC"])])
     def test_flag_evaluations_sort_by_person_display_name(self, _name: str, order_by: list[str] | None):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
