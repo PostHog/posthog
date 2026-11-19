@@ -14,6 +14,7 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -2751,7 +2752,7 @@ class Resolver(CloningVisitor):
                 fix = function_call if node.start is not None and node.end is not None else None
             else:
                 fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
-            if self.dialect == "clickhouse":
+            if self.dialect == "clickhouse" or self._column_restricted_table_in_scope():
                 # To debug, add a breakpoint() here and print self.context.database
                 #
                 # from rich.pretty import pprint
@@ -3085,6 +3086,19 @@ class Resolver(CloningVisitor):
             return isinstance(node.type.resolve_constant_type(self.context), ast.UUIDType)
         except Exception:
             return False
+
+    def _column_restricted_table_in_scope(self) -> bool:
+        # Every enclosing scope counts, because the external server resolves an unknown name in a
+        # correlated subquery against the outer tables too. A bare table alias, which reads the whole
+        # row, is also an unknown name here.
+        for scope in self.scopes:
+            for table_type in scope.tables.values():
+                if not isinstance(table_type, ast.BaseTableType):
+                    continue
+                table = table_type.resolve_database_table(self.context)
+                if isinstance(table, DirectSQLTable) and table.column_restricted:
+                    return True
+        return False
 
     def _get_scope(self):
         if len(self.scopes) > 0:

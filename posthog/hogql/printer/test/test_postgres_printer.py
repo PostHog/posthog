@@ -2,14 +2,19 @@
 
 from typing import Optional, cast
 
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect, HogQLParserBackend, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1183,3 +1188,49 @@ class TestPostgresPrinter(BaseTest):
             self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
         )
+
+
+def _live_postgres_context(*, orders_column_restricted: bool) -> HogQLContext:
+    database = Database(include_posthog_tables=False)
+    for name, column_restricted in (("orders", orders_column_restricted), ("notes", False)):
+        database.tables.add_child(
+            TableNode(
+                name=name,
+                table=DirectPostgresTable(
+                    name=name,
+                    fields={
+                        "id": IntegerDatabaseField(name="id", nullable=False),
+                        "email": StringDatabaseField(name="email"),
+                    },
+                    external_data_source_id="source-id",
+                    postgres_schema="public",
+                    postgres_table_name=name,
+                    column_restricted=column_restricted,
+                ),
+            )
+        )
+    # A pinned events schema keeps printing off the instance setting, which this test has no database to read.
+    return HogQLContext(
+        database=database, enable_select_queries=True, modifiers=HogQLQueryModifiers(useNewEventsSchema=False)
+    )
+
+
+@pytest.mark.parametrize(
+    "query, error",
+    [
+        ("SELECT email FROM orders WHERE secret IS NULL", "Unable to resolve field: secret"),
+        ("SELECT (SELECT secret FROM notes LIMIT 1) FROM orders", "Unable to resolve field: secret"),
+        ("SELECT toString(o) FROM orders AS o", "Unable to resolve field: o"),
+        ("SELECT secret FROM notes", None),
+    ],
+    ids=["unknown_name", "correlated_subquery", "whole_row", "unrestricted_table_passes_through"],
+)
+def test_column_restricted_live_table_rejects_names_outside_its_fields(query: str, error: str | None) -> None:
+    context = _live_postgres_context(orders_column_restricted=True)
+
+    if error is not None:
+        with pytest.raises(QueryError, match=error):
+            prepare_and_print_ast(parse_select(query), context, "postgres")
+        return
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "postgres")
+    assert "SELECT secret FROM" in sql

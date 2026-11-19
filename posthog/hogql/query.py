@@ -46,9 +46,11 @@ from posthog.hogql.database.warehouse_usage import (
 )
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
+    RAW_QUERY_COLUMN_RESTRICTED_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
+    raw_query_denied_by_column_restriction,
     raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import (
@@ -1044,6 +1046,8 @@ class HogQLQueryExecutor:
             bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
         ):
             raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
+        if raw_query_denied_by_column_restriction(source):
+            raise ExposedHogQLError(RAW_QUERY_COLUMN_RESTRICTED_ERROR)
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
         self._execute_direct_sql_query(adapter)

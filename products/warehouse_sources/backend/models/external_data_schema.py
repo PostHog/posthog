@@ -2457,6 +2457,13 @@ def get_undeleted_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) 
     )
 
 
+def source_has_column_restricted_schemas(source_id: str | uuid.UUID, team_id: int) -> bool:
+    """Whether the column picker hides columns on any table of this source."""
+    return ExternalDataSchema.objects.filter(
+        team_id=team_id, source_id=source_id, deleted=False, enabled_columns__isnull=False
+    ).exists()
+
+
 def get_schemas_for_direct_reconciliation(
     source_id: str | uuid.UUID,
     team_id: int,

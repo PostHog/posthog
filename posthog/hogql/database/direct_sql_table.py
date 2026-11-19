@@ -20,6 +20,9 @@ class DirectSQLTable(FunctionCallTable):
     # effect the fields are a subset, so the star must expand from them rather than let the external
     # server expand against the unrestricted physical table (which would leak the hidden columns).
     has_complete_columns: bool = False
+    # True when the column picker hides some of the table's columns. The resolver then rejects any name
+    # outside `fields`, because the external server would otherwise resolve it against the full table.
+    column_restricted: bool = False
 
     def to_printed_hogql(self) -> str:
         return escape_hogql_identifier(self.name)

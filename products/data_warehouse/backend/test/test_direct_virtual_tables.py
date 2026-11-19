@@ -1,10 +1,17 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
+from posthog.hogql.database.models import TableNode
+from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 
 from products.data_warehouse.backend.direct_virtual_tables import (
     build_direct_table_for_schema,
@@ -88,6 +95,12 @@ class TestBuildDirectTableForSchema(APIBaseTest):
         assert "secret" not in table.fields
         assert "email" in table.fields
         assert "id" in table.fields  # primary key always retained
+
+        database = Database(include_posthog_tables=False)
+        database.tables.add_child(TableNode(name="customers", table=table))
+        context = HogQLContext(database=database, enable_select_queries=True)
+        with pytest.raises(QueryError, match="Unable to resolve field: secret"):
+            prepare_and_print_ast(parse_select("SELECT email FROM customers WHERE secret IS NULL"), context, "postgres")
 
     def test_masked_schema_is_not_exposed_to_live_queries(self):
         # A live query reads the source directly, so it would return the masked values in plaintext.

@@ -1093,6 +1093,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return False
         return len(schema_rows) > 0 and all(row.enabled_columns is None for row in schema_rows)
 
+    def _direct_columns_are_restricted(self) -> bool:
+        """Whether a column-picker restriction hides some of this direct table's columns. Reads the
+        same preloaded schema rows as `_direct_columns_are_complete`."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas") or []
+        return any(row.enabled_columns is not None for row in schema_rows)
+
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> (
@@ -1170,6 +1176,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 source_type=self.external_data_source.source_type,
                 connection_metadata=self.external_data_source.connection_metadata,
             )
@@ -1192,6 +1199,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 mysql_schema=mysql_schema,
                 mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1219,6 +1227,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_schema=snowflake_schema,
                 snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1248,6 +1257,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=redshift_schema,
                 postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1281,6 +1291,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 motherduck_schema=motherduck_schema,
                 motherduck_table_name=motherduck_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1313,6 +1324,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 trino_schema=trino_schema,
                 trino_table_name=trino_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1349,6 +1361,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_database=clickhouse_database,
                 clickhouse_table_name=clickhouse_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
