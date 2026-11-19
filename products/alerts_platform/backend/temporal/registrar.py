@@ -6,6 +6,7 @@ identities it would record. Appearance checks read the registry and never wait o
 
 import asyncio
 import datetime as dt
+from collections.abc import Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -93,5 +94,8 @@ class AlertsPlatformRegisterOccurrencesWorkflow(PostHogWorkflow):
         return sum(registered)
 
 
-REGISTRAR_WORKFLOWS = [AlertsPlatformRegisterOccurrencesWorkflow]
-REGISTRAR_ACTIVITIES = [alerts_platform_registrar_targets_activity, alerts_platform_register_occurrences_activity]
+REGISTRAR_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformRegisterOccurrencesWorkflow]
+REGISTRAR_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_platform_registrar_targets_activity,
+    alerts_platform_register_occurrences_activity,
+]
