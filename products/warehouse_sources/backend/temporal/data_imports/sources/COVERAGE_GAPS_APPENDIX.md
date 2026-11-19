@@ -5999,8 +5999,8 @@ Diffed against: <https://docs.hitpayapp.com/openapi.json>
 - [x] `Balance Transactions (GET /v1/balances/{balance_provider}/transactions)` — explain balance changes from payments, fees, refunds, and settlements (high)
 - [x] `Invoices (GET /v1/invoices)` — measure invoiced revenue, unpaid balances, and collection status alongside payment requests (high)
 - [ ] `Orders (GET /v1/orders)` — analyze order revenue and purchase activity beyond individual payment records (high); skipped, the spec documents no page or cursor parameter for this endpoint and describes the response as a single order, so a full sync cannot be paged reliably
-- [ ] `Products (GET /v1/products)` — analyze product sales, prices, inventory, and catalog status (medium)
-- [ ] `Transfers (GET /v1/transfers)` — track outgoing payments to third parties, including their amounts and completion status (medium)
+- [x] `Products (GET /v1/products)` — analyze product sales, prices, inventory, and catalog status (medium)
+- [x] `Transfers (GET /v1/transfers)` — track outgoing payments to third parties, including their amounts and completion status (medium)
 
 Note: Parsed all GET paths in the official OpenAPI specification against the five static tables. Balance transactions are restricted to Singapore merchants with Cards by Adyen balances. Charges already embed location labels, and payout charges reuse existing charges data. No refund collection is documented; auth and payment hardware are excluded.
 
