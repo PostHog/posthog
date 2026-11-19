@@ -53,6 +53,7 @@ import {
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
+import { EmailNestingTooDeepError, MAX_NESTING_DEPTH } from './helpers/href-anchors'
 import { SesWebhookHandler } from './helpers/ses'
 import {
     EmailTrackingCodeSigner,
@@ -120,6 +121,11 @@ describe('EmailTrackingService', () => {
                 'uppercase named entity &AMP;',
                 '<body><a href="https://example.com/?a=1&AMP;b=2">x</a></body>',
                 'https://example.com/?a=1&b=2',
+            ],
+            [
+                'a <_-- next to a <!-- in a link inside an Outlook comment',
+                '<body><!--[if mso]><a href="https://example.com/<_--p<!--x">x</a><![endif]--></body>',
+                'https://example.com/<_--p<!--x',
             ],
             [
                 'plain URL with no entities',
@@ -475,6 +481,16 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/" href="" ses:tags="phl:0">a</a>',
                 ],
                 [
+                    'an SVG template, which holds no content',
+                    '<svg><template/></svg><a href="https://example.com/">a</a>',
+                    '<svg><template/></svg><a href="https://example.com/" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a link that a misnested end tag reopens',
+                    '<b><a href="https://example.com/a">a</b>b</a><a href="https://example.com/c">c</a>',
+                    '<b><a href="https://example.com/a" ses:tags="phl:0">a</b>b</a><a href="https://example.com/c" ses:tags="phl:1">c</a>',
+                ],
+                [
                     'a quoted href that closes inside the next tag, as a browser reads it',
                     '<a href="https://example.com/>a</a><a href="https://example.com/b">b</a>',
                     '<a href="https://example.com/>a</a><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -482,6 +498,32 @@ describe('EmailTrackingService', () => {
             ])('tags the anchors in %s', (_name, body, tagged) => {
                 const out = sesTrack(`<body>${body}</body>`)
                 expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+            })
+
+            it('places the pixel before the first body end tag of an email that holds a second document', () => {
+                const html = '<html><body><p>a</p><html><body><p>b</p></body></html><p>c</p></body></html>'
+                const out = sesTrack(html)
+                expect(out.indexOf('<img src="')).toBe(html.indexOf('</body>'))
+                expect(out.replace(/<img src="[^"]*" style="display: none;" \/>/, '')).toBe(html)
+            })
+
+            it('places the pixel before the body end tag of an email whose body start tag is left out', () => {
+                const html = '<!doctype html><title>Email</title><p>Hello</p></body>'
+                const out = sesTrack(html)
+                expect(out.indexOf('<img src="')).toBe(html.indexOf('</body>'))
+                expect(out.replace(/<img src="[^"]*" style="display: none;" \/>/, '')).toBe(html)
+            })
+
+            it('refuses an email nested deeper than the limit, in a comment too', () => {
+                const link = '<a href="https://example.com/">a</a>'
+                // html, body and the link take three levels.
+                expect(sesTrack(`<body>${'<div>'.repeat(MAX_NESTING_DEPTH - 3)}${link}</body>`)).toContain('phl:0')
+                expect(() => sesTrack(`<body>${'<div>'.repeat(MAX_NESTING_DEPTH - 2)}${link}</body>`)).toThrow(
+                    EmailNestingTooDeepError
+                )
+                expect(() => sesTrack(`<body><!--${'<div>'.repeat(MAX_NESTING_DEPTH)}--></body>`)).toThrow(
+                    EmailNestingTooDeepError
+                )
             })
 
             it('places the pixel before a body end tag written with a slash', () => {

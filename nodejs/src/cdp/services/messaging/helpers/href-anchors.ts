@@ -1,4 +1,4 @@
-import { DefaultTreeAdapterMap, parse, parseFragment } from 'parse5'
+import { DefaultTreeAdapterMap, TreeAdapter, defaultTreeAdapter, parse, parseFragment } from 'parse5'
 
 import { escapeHtml } from './escape-html'
 
@@ -58,6 +58,50 @@ const COMMENT_OPENING_AS_TEXT = '<_--'
 
 type SourceAttribute = Omit<ScannedAttribute, 'name' | 'value'>
 
+// The parser looks back through the open elements for some tags, so its time grows with the nesting depth times the
+// number of tags. A limit well above how deep real emails nest keeps the read of an email of any size linear.
+export const MAX_NESTING_DEPTH = 256
+
+export class EmailNestingTooDeepError extends Error {
+    constructor() {
+        super(
+            `This email nests HTML elements more than ${MAX_NESTING_DEPTH} levels deep, which is too deep to read its links. Remove some of the nesting and send it again.`
+        )
+        this.name = 'EmailNestingTooDeepError'
+    }
+}
+
+type ParentNode = DefaultTreeAdapterMap['parentNode']
+
+// Stops a parse when an element nests deeper than the limit. A template's content counts from the template.
+const nestingLimitedAdapter = (): TreeAdapter<DefaultTreeAdapterMap> => {
+    const depths = new WeakMap<Node, number>()
+    const templates = new WeakMap<Node, Node>()
+    const place = (parent: ParentNode, node: Node): void => {
+        const owner = templates.get(parent)
+        const depth = (depths.get(parent) ?? (owner ? depths.get(owner) : undefined) ?? 0) + 1
+        if (depth > MAX_NESTING_DEPTH) {
+            throw new EmailNestingTooDeepError()
+        }
+        depths.set(node, depth)
+    }
+    return {
+        ...defaultTreeAdapter,
+        appendChild(parent, node) {
+            place(parent, node)
+            defaultTreeAdapter.appendChild(parent, node)
+        },
+        insertBefore(parent, node, reference) {
+            place(parent, node)
+            defaultTreeAdapter.insertBefore(parent, node, reference)
+        },
+        setTemplateContent(template, content) {
+            templates.set(content, template)
+            defaultTreeAdapter.setTemplateContent(template, content)
+        },
+    }
+}
+
 // Splits a start tag into its attributes as the HTML tokenizer does, repeats included. `close` is the tag's `>`.
 const readSourceAttributes = (html: string, tagStart: number, close: number): SourceAttribute[] => {
     const attributes: SourceAttribute[] = []
@@ -114,12 +158,19 @@ const readSourceAttributes = (html: string, tagStart: number, close: number): So
 // ends at the name when no space follows the value.
 const readAnchor = (html: string, base: number, element: Element, inComment: boolean): ScannedTag | null => {
     const location = element.sourceCodeLocation?.startTag
-    // An anchor the parser reopens after a misnested end tag has no location: it is the same link again.
     if (!location) {
         return null
     }
     const start = base + location.startOffset
     const close = base + location.endOffset - 1
+    if (inComment && html.slice(start, close).includes(COMMENT_OPENING)) {
+        // The comment read saw the stand-in, which can also be written as itself. Inside a tag `<!--` opens no
+        // comment, so the tag's own source reads it as written.
+        const tag = parseFragment(html.slice(start, close + 1), PARSE_OPTIONS).childNodes.find(
+            (node): node is Element => node.nodeName === 'a'
+        )
+        return tag ? readAnchor(html, start, tag, false) : null
+    }
     const source = readSourceAttributes(html, start, close)
     const byStart = new Map(source.map((attribute) => [attribute.start, attribute]))
     const attributes: ScannedAttribute[] = []
@@ -132,11 +183,7 @@ const readAnchor = (html: string, base: number, element: Element, inComment: boo
         if (!attribute) {
             return
         }
-        let value = element.attrs[index]?.value ?? ''
-        if (inComment && html.slice(attribute.start, attribute.end).includes(COMMENT_OPENING)) {
-            value = value.replaceAll(COMMENT_OPENING_AS_TEXT, COMMENT_OPENING)
-        }
-        attributes.push({ ...attribute, name, value })
+        attributes.push({ ...attribute, name, value: element.attrs[index]?.value ?? '' })
     })
     const last = source[source.length - 1]
     const selfClosing = html[close - 1] === '/' && (!last || last.end < close)
@@ -168,8 +215,9 @@ const scanAnchors = (html: string, root: Node, base: number, inComment: boolean,
                 pending.push(child)
             }
         }
-        if (node.nodeName === 'template') {
-            pending.push((node as DefaultTreeAdapterMap['template']).content)
+        // An SVG or MathML element named template holds its children like any other element.
+        if (node.nodeName === 'template' && 'content' in node) {
+            pending.push(node.content)
         }
     }
 }
@@ -186,24 +234,53 @@ const scanComment = (html: string, comment: DefaultTreeAdapterMap['commentNode']
         return
     }
     const content = html.slice(contentStart, contentEnd).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
-    scanAnchors(html, parseFragment(content, PARSE_OPTIONS), contentStart, true, anchors)
+    const fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter() })
+    scanAnchors(html, fragment, contentStart, true, anchors)
+}
+
+const IMPLIED_START_TAG = {
+    startLine: 0,
+    startCol: 0,
+    startOffset: -1,
+    endLine: 0,
+    endCol: 0,
+    endOffset: -1,
 }
 
 type Scan = {
     anchors: ScannedTag[]
-    // The `<` of the body end tag a browser reads last, or -1.
+    // The `<` of the first body end tag a browser reads, or -1.
     bodyEnd: number
 }
 
 const scanHtml = (html: string): Scan => {
-    const document = parse(html, PARSE_OPTIONS)
+    let bodyEnd = -1
+    // parse5 keeps the location of the last body end tag, but an email that holds a second whole document has its
+    // first one mid-email, where the pixel has always gone. parse5 reports each one to the tree adapter.
+    const treeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
+        ...nestingLimitedAdapter(),
+        setNodeSourceCodeLocation(node, location) {
+            // parse5 records an end tag only for an element with a location, and a body whose start tag is left out
+            // has none. Its end tag still places the pixel.
+            if (!location && node.nodeName === 'body') {
+                location = { ...IMPLIED_START_TAG }
+            }
+            defaultTreeAdapter.setNodeSourceCodeLocation(node, location)
+        },
+        updateNodeSourceCodeLocation(node, endLocation) {
+            if (bodyEnd < 0 && node.nodeName === 'body' && endLocation.endTag) {
+                bodyEnd = endLocation.endTag.startOffset
+            }
+            defaultTreeAdapter.updateNodeSourceCodeLocation(node, endLocation)
+        },
+    }
+    const document = parse(html, { ...PARSE_OPTIONS, treeAdapter })
     const anchors: ScannedTag[] = []
     scanAnchors(html, document, 0, false, anchors)
     // Tree order is not source order: a link written inside a table moves before it.
     anchors.sort((a, b) => a.start - b.start)
-    const root = document.childNodes.find((node): node is Element => node.nodeName === 'html')
-    const body = root?.childNodes.find((node): node is Element => node.nodeName === 'body')
-    return { anchors, bodyEnd: body?.sourceCodeLocation?.endTag?.startOffset ?? -1 }
+    // A link that a misnested end tag closes early is reopened with the same tag, so it appears twice.
+    return { anchors: anchors.filter((anchor, index) => anchor.start !== anchors[index - 1]?.start), bodyEnd }
 }
 
 const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribute> => {
