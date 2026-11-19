@@ -236,6 +236,16 @@ describe('addUtmTagsToEmail', () => {
             expected: '<!--[if mso]><a href="https://example.com/p&lt;!--x?ph_workflow_run=run-1">x</a><![endif]-->',
         },
         {
+            case: 'tags the whole unquoted href that holds a bang comment end',
+            html: '<a href=https://example.com/p--!>x</a>',
+            expected: '<a href="https://example.com/p--!?ph_workflow_run=run-1">x</a>',
+        },
+        {
+            case: 'tags the whole unquoted href that holds a style end tag with a slash',
+            html: '<a href=https://example.com/</style/p>x</a>',
+            expected: '<a href="https://example.com/&lt;/style/p?ph_workflow_run=run-1">x</a>',
+        },
+        {
             case: 'reads the first of two clicktracking values',
             html: '<a clicktracking="on" clicktracking="off" href="https://example.com/">x</a><a clicktracking="off" clicktracking="on" href="https://example.com/">y</a>',
             expected:

@@ -27,7 +27,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
-import { editHrefAnchors } from './helpers/href-anchors'
+import { editHrefAnchors, insertBeforeBodyEnd } from './helpers/href-anchors'
 import { hasClickTrackingOptOutAttribute } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { SnsEnvelope } from './helpers/sns-envelope'
@@ -247,7 +247,7 @@ export const addTrackingToEmail = (
         return { name: 'href', value: signer.redirectUrl(trackingInvocation, anchor.href, isTest) }
     })
 
-    html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
+    html = insertBeforeBodyEnd(html, openPixelTag(trackingUrl))
 
     return html
 }

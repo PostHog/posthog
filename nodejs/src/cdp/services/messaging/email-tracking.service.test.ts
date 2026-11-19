@@ -320,6 +320,31 @@ describe('EmailTrackingService', () => {
                     '<!-- <a title=" --!><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
                 ],
                 [
+                    'an opted-out link whose attribute name holds --!',
+                    '<a href="https://example.com/" data-ph-no-track ses:no-track--!>a</a>',
+                    '<a href="https://example.com/" data-ph-no-track ses:no-track--! ses:no-track>a</a>',
+                ],
+                [
+                    'an opted-out link after an empty bogus comment',
+                    '<!><a href="https://example.com/" data-ph-no-track>a</a>',
+                    '<!><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'an opted-out link after a bogus comment that opens with a dash',
+                    '<!-><a href="https://example.com/" data-ph-no-track>a</a>',
+                    '<!-><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'a link written as text inside xmp',
+                    '<xmp><a href="https://example.com/a"></xmp><a href="https://example.com/b">b</a>',
+                    '<xmp><a href="https://example.com/a"></xmp><a href="https://example.com/b" ses:tags="phl:0">b</a>',
+                ],
+                [
+                    'a quoted href that holds a body end tag',
+                    '<a href="https://example.com/?q=</body>">a</a>',
+                    '<a href="https://example.com/?q=</body>" ses:tags="phl:0">a</a>',
+                ],
+                [
                     'an entity-encoded javascript href before a link',
                     '<a href="java&#x73;cript:x">j</a><a href="https://example.com/">a</a>',
                     '<a href="java&#x73;cript:x">j</a><a href="https://example.com/" ses:tags="phl:1">a</a>',
@@ -420,11 +445,6 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/" clicktracking="offline" ses:tags="phl:0">a</a>',
                 ],
                 [
-                    'a quoted href that never closes',
-                    '<a href="https://example.com/>a</a>',
-                    '<a href="https://example.com/>a</a>',
-                ],
-                [
                     'a quoted href that closes inside the next tag, as a browser reads it',
                     '<a href="https://example.com/>a</a><a href="https://example.com/b">b</a>',
                     '<a href="https://example.com/>a</a><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -432,6 +452,11 @@ describe('EmailTrackingService', () => {
             ])('tags the anchors in %s', (_name, body, tagged) => {
                 const out = sesTrack(`<body>${body}</body>`)
                 expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+            })
+
+            it('leaves an email whose quoted href never closes as written, with no pixel inside the href', () => {
+                const html = '<body><a href="https://example.com/>a</a></body>'
+                expect(sesTrack(html)).toBe(html)
             })
 
             it.each([
