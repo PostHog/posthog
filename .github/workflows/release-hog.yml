@@ -1133,7 +1133,8 @@ jobs:
         name: Promote and publish
         needs: [release, publish, check-macos-build]
         runs-on: ubuntu-24.04
-        timeout-minutes: 20
+        # Up to 45 minutes of that is waiting for npm to serve the packages.
+        timeout-minutes: 75
         environment: hog-publish
         concurrency:
             group: release-hog-promote
@@ -1213,6 +1214,80 @@ jobs:
                       *) echo "::error::release/is-latest.ts printed '$latest' instead of true or false"; exit 1 ;;
                   esac
 
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  registry-url: 'https://registry.npmjs.org'
+
+            - name: Ensure modern npm (OIDC support)
+              run: npm install -g npm@11.6.4
+
+            # Before the GitHub release, the manifest and Homebrew, so nothing names this version before npm
+            # can install it. npm accepts a publish minutes before it serves the file, and an install in
+            # between skips the missing platform package, an optional dependency, without an error. So the
+            # wrapper waits until npm serves every platform package. In this job because npm sets the
+            # dist-tag at publish time, and trusted publishing can't move it later. A version npm already
+            # has is skipped, so a rerun finishes what a failed run started.
+            - name: Publish the npm packages
+              working-directory: hog/dist/release/out
+              env:
+                  DIST_TAG: ${{ steps.latest.outputs.latest == 'true' && 'latest' || 'backfill' }}
+                  NPM_CONFIG_PROVENANCE: true
+                  NODE_AUTH_TOKEN: ''
+              run: |
+                  set -euo pipefail
+                  deadline=$((SECONDS + 45 * 60))
+
+                  publish() {
+                      local folder=$1 name
+                      chmod +x "$folder"/bin/* 2>/dev/null || true
+                      name=$(jq -r '.name' "$folder/package.json")
+                      if npm view "$name@$VERSION" version --prefer-online >/dev/null 2>&1; then
+                          echo "$name@$VERSION is already on npm"
+                          return
+                      fi
+                      # ./ makes npm read the folder: npm/hog-linux-x64 alone is GitHub shorthand.
+                      npm publish "./$folder" --access public --tag "$DIST_TAG" --ignore-scripts
+                  }
+
+                  wait_until_served() {
+                      local name url
+                      name=$(jq -r '.name' "$1/package.json")
+                      until url=$(npm view "$name@$VERSION" dist.tarball --prefer-online 2>/dev/null) \
+                          && [ -n "$url" ] && curl -fsI -o /dev/null "$url"; do
+                          if [ "$SECONDS" -ge "$deadline" ]; then
+                              echo "::error::npm doesn't serve $name@$VERSION yet. Rerun this job to finish the release."
+                              return 1
+                          fi
+                          sleep 20
+                      done
+                      echo "npm serves $name@$VERSION"
+                  }
+
+                  for folder in npm/hog-*; do publish "$folder"; done
+                  for folder in npm/hog-*; do wait_until_served "$folder"; done
+                  publish npm/hog
+                  wait_until_served npm/hog
+
+            # Installs the version the way a person does, with an empty cache and no user npmrc, so a
+            # package npm doesn't serve fails the job before the release, the manifest or Homebrew name it.
+            - name: Check npm installs this version
+              run: |
+                  set -euo pipefail
+                  project="$RUNNER_TEMP/npm-install-check"
+                  mkdir -p "$project"
+                  cd "$project"
+                  touch "$RUNNER_TEMP/empty-npmrc"
+                  npm init -y >/dev/null
+                  npm install "hog@$VERSION" --userconfig "$RUNNER_TEMP/empty-npmrc" \
+                      --cache "$RUNNER_TEMP/npm-install-check-cache" --no-audit --no-fund
+                  installed=$(./node_modules/.bin/hog --version)
+                  if [ "$installed" != "$VERSION" ]; then
+                      echo "::error::npm install hog@$VERSION runs hog '$installed'."
+                      exit 1
+                  fi
+                  echo "npm install hog@$VERSION runs hog $installed"
+
             - name: Get the hog releaser token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1223,8 +1298,8 @@ jobs:
                   repositories: posthog,homebrew-tap
                   permission-contents: write
 
-            # Before latest moves, so the GitHub mirror the install scripts fall back to has the files.
-            # Creating the release creates the tag. A rerun uploads the files to the existing release.
+            # After npm and before latest moves, so the GitHub mirror the install scripts fall back to has
+            # the files. Creating the release creates the tag. A rerun uploads the files to the existing release.
             - name: Create or update the GitHub release
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1289,36 +1364,6 @@ jobs:
                       -f branch=main)
                   [ -z "$current_sha" ] || args+=(-f sha="$current_sha")
                   gh api "${args[@]}" >/dev/null
-
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  registry-url: 'https://registry.npmjs.org'
-
-            - name: Ensure modern npm (OIDC support)
-              run: npm install -g npm@11.6.4
-
-            # In this job because npm sets the dist-tag at publish time, and trusted publishing can't move
-            # it later. Platform packages first, so the wrapper never points at a version npm doesn't have.
-            # A version npm already has is skipped, so a rerun finishes what a failed run started.
-            - name: Publish the npm packages
-              working-directory: hog/dist/release/out
-              env:
-                  DIST_TAG: ${{ steps.latest.outputs.latest == 'true' && 'latest' || 'backfill' }}
-                  NPM_CONFIG_PROVENANCE: true
-                  NODE_AUTH_TOKEN: ''
-              run: |
-                  set -euo pipefail
-                  for folder in npm/hog-* npm/hog; do
-                      chmod +x "$folder"/bin/* 2>/dev/null || true
-                      name=$(jq -r '.name' "$folder/package.json")
-                      if npm view "$name@$VERSION" version >/dev/null 2>&1; then
-                          echo "$name@$VERSION is already on npm"
-                          continue
-                      fi
-                      # ./ makes npm read the folder: npm/hog-linux-x64 alone is GitHub shorthand.
-                      npm publish "./$folder" --access public --tag "$DIST_TAG" --ignore-scripts
-                  done
 
     notify-released:
         name: Notify Slack - Release published
