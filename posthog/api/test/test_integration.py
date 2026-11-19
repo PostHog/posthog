@@ -1051,41 +1051,51 @@ class TestGitLabIntegration:
         assert "isn't JSON" in response.json()["detail"]
         assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
 
+    @staticmethod
+    def _gitlab_api(project: dict, on_project_fetch=None):
+        def respond(method, url, **kwargs):
+            if url.endswith("/personal_access_tokens/self"):
+                return MagicMock(status_code=200, **{"json.return_value": {"scopes": ["api"], "expires_at": None}})
+            if on_project_fetch is not None:
+                on_project_fetch()
+            return MagicMock(status_code=200, **{"json.return_value": project})
+
+        return respond
+
+    def _connect(self, client: HttpClient, hostname: str, project_id: str, token: str):
+        return client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {"hostname": hostname, "project_id": project_id, "project_access_token": token},
+            },
+            content_type="application/json",
+        )
+
+    def _connected_project(self, **overrides) -> Integration:
+        fields = {
+            "team": self.team,
+            "kind": "gitlab",
+            "integration_id": "Acme / App",
+            "config": {"hostname": "https://gitlab.example.com", "path_with_namespace": "acme/app", "project_id": 1},
+            "sensitive_config": {"access_token": "old-token"},
+            **overrides,
+        }
+        return Integration.objects.create(**fields)
+
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
     def test_reconnecting_a_connected_project_replaces_its_token(
         self, _mock_is_url_allowed, mock_request, client: HttpClient
     ):
-        project = {"id": 1, "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
-
-        def gitlab_response(method, url, **kwargs):
-            if url.endswith("/personal_access_tokens/self"):
-                return MagicMock(status_code=200, **{"json.return_value": {"scopes": ["api"], "expires_at": None}})
-            return MagicMock(status_code=200, **{"json.return_value": project})
-
-        mock_request.side_effect = gitlab_response
-        existing = Integration.objects.create(
-            team=self.team,
-            kind="gitlab",
-            integration_id="Acme / App",
-            config={"hostname": "https://gitlab.example.com", "path_with_namespace": "acme/app", "project_id": 1},
-            sensitive_config={"access_token": "old-token"},
-            errors=ERROR_TOKEN_REFRESH_FAILED,
+        mock_request.side_effect = self._gitlab_api(
+            {"id": 1, "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
         )
+        first_connector = User.objects.create_and_join(self.organization, "first@posthog.com", "test")
+        existing = self._connected_project(errors=ERROR_TOKEN_REFRESH_FAILED, created_by=first_connector)
         client.force_login(self.user)
 
-        response = client.post(
-            f"/api/environments/{self.team.pk}/integrations",
-            {
-                "kind": "gitlab",
-                "config": {
-                    "hostname": "https://gitlab.example.com",
-                    "project_id": "1",
-                    "project_access_token": "new-token",
-                },
-            },
-            content_type="application/json",
-        )
+        response = self._connect(client, "https://gitlab.example.com/", "1", "new-token")
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["id"] == existing.id
@@ -1093,6 +1103,52 @@ class TestGitLabIntegration:
         assert existing.sensitive_config["access_token"] == "new-token"
         assert existing.config["token_scopes"] == ["api"]
         assert existing.errors == ""
+        assert existing.created_by_id == first_connector.id
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_member_cannot_overwrite_a_project_connected_while_their_request_waits_on_gitlab(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        # Stands in for an admin's connect that commits after the serializer has listed the team's
+        # integrations. The row is written in the request's transaction, so the 403 rolls it back too.
+        mock_request.side_effect = self._gitlab_api(
+            {"id": 1, "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"},
+            on_project_fetch=lambda: self._connected_project(sensitive_config={"access_token": "admin-token"}),
+        )
+        client.force_login(member)
+
+        response = self._connect(client, "https://gitlab.example.com", "1", "member-token")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @pytest.mark.parametrize(
+        "hostname,project_id",
+        [("https://gitlab.other.example.com", "1"), ("https://gitlab.example.com", "2")],
+        ids=["other_host", "other_project_id"],
+    )
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_connecting_another_project_with_the_same_name_keeps_the_existing_connection(
+        self, _mock_is_url_allowed, mock_request, hostname, project_id, client: HttpClient
+    ):
+        mock_request.side_effect = self._gitlab_api(
+            {"id": int(project_id), "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
+        )
+        existing = self._connected_project()
+        client.force_login(self.user)
+
+        response = self._connect(client, hostname, project_id, "new-token")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already connected" in response.json()["detail"]
+        existing.refresh_from_db()
+        assert existing.config["hostname"] == "https://gitlab.example.com"
+        assert existing.config["project_id"] == 1
+        assert existing.sensitive_config["access_token"] == "old-token"
 
 
 class TestGoogleCloudServiceAccountIntegration:
