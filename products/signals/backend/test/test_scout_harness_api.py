@@ -6692,6 +6692,42 @@ class TestScoutSpendOverview(APIBaseTest):
         assert data["period_end"] == end
         assert data["total_credits"] == credits
 
+    @parameterized.expand([("2026-11", "2026-12-01"), ("2026-12", "2027-01-01")])
+    @time_machine.travel("2027-03-15T12:00:00Z", tick=False)
+    def test_usage_rejects_expired_and_partially_expired_months(self, month: str, end: str) -> None:
+        self.client.force_login(self.user)
+        monthly = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")
+        direct = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "InboxUsageQuery",
+                    "dateRange": {"date_from": f"{month}-01", "date_to": end, "explicitDate": True},
+                }
+            },
+            format="json",
+        )
+        for response in (monthly, direct):
+            assert response.status_code == 400, response.content
+            assert "Usage receipts expire after three calendar months" in response.json()["detail"]
+
+    @time_machine.travel("2027-02-01T00:00:00Z", tick=False)
+    def test_usage_rejects_expired_range_before_cache_lookup(self) -> None:
+        self.client.force_login(self.user)
+        path = f"/api/projects/{self.team.id}/signals/usage/?month=2026-11"
+        response = self.client.get(path)
+        assert response.status_code == 200, response.content
+        assert Decimal(response.json()["total_credits"]) == 0
+        assert response.json()["incomplete"] is False
+
+        with time_machine.travel("2027-02-01T00:00:01Z", tick=False):
+            expired = self.client.get(path)
+            retained = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-12")
+        assert expired.status_code == 400, expired.content
+        assert "Usage receipts expire after three calendar months" in expired.json()["detail"]
+        assert retained.status_code == 200, retained.content
+        assert Decimal(retained.json()["total_credits"]) == 0
+
     @parameterized.expand(["2026-13", "2026-09"])
     def test_monthly_usage_rejects_invalid_month(self, month: str) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")

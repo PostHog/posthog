@@ -4262,6 +4262,12 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """Deliberately transient receipts for monthly billing and cost displays.
+
+    Rows expire three calendar months after creation, including failed and unsettled spend.
+    Consumers must tolerate expiry rather than depend on lifetime accounting or deduplication.
+    """
+
     class Kind(models.TextChoices):
         RESEARCH = "research"
         REPO_SELECTION = "repo_selection"
@@ -4311,6 +4317,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["created_at"], name="signals_spend_created_at_idx"),
             models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
             models.Index(
                 fields=["updated_at"],

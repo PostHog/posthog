@@ -14176,7 +14176,7 @@ export type SignalsSourceConfigsListParams = {
 
 export type SignalsMonthlyUsageParams = {
     /**
-     * UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.
+     * UTC calendar month in YYYY-MM format, from 2026-10 onward and entirely within the last three calendar months. Defaults to the current month. Usage is grouped by finalization time.
      * @minLength 1
      * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])$
      */
