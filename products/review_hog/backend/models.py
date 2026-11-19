@@ -601,10 +601,12 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     `selected` includes the repository into this project, also when another project takes all
     repositories of the installation. `flash_for` is the repository exception: null follows the
     project rule (`ReviewProjectSettings.flash_for`). `review_drafts` lets draft pull requests get
-    their automatic review when they open. `deep_review_gated_prs` makes the automatic review a Deep
-    review when stamphog's size, restricted-path or tier gates send the pull request to a person. A row
-    that is not selected, has no exception and turns neither switch on has no meaning and is deleted. A
-    repository has at most one row across all projects, so it belongs to one project only.
+    their automatic review when they open, and one more when they are marked ready. `review_pushes`
+    lets later pushes get an automatic review too, as the push gate allows. `deep_review_gated_prs` makes
+    the automatic review a Deep review when stamphog's size, restricted-path or tier gates send the pull
+    request to a person. A row that is not selected, has no exception and turns no switch on has no
+    meaning and is deleted. A repository has at most one row across all projects, so it belongs to one
+    project only.
     """
 
     activity_logging_on_delete = True
@@ -624,6 +626,7 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     flash_for = models.CharField(max_length=20, choices=AutomaticFlashFor.choices, null=True, blank=True)
     review_drafts = models.BooleanField(default=False, db_default=False)
     deep_review_gated_prs = models.BooleanField(default=False, db_default=False)
+    review_pushes = models.BooleanField(default=False, db_default=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

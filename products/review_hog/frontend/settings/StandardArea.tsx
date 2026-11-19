@@ -7,7 +7,7 @@ export function StandardArea(): JSX.Element {
     return (
         <SceneSection
             title="Standard reviews"
-            description="One automatic review per pull request, unless it already has a Deep review. Never changes your branch."
+            description="Automatic comments when a pull request is ready. Each repository can add drafts and later pushes. Never changes your branch. Stops after a Deep review."
         >
             <InstallationClaims />
             <RepositoriesPanes />

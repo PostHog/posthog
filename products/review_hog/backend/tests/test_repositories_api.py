@@ -98,6 +98,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             ),
             ("turn_drafts_on", "all", None, {"review_drafts": True}, 200),
             ("turn_deep_reviews_on", "all", None, {"deep_review_gated_prs": True}, 200),
+            ("turn_pushes_on", "all", None, {"review_pushes": True}, 200),
             ("lower_everyone_to_off", "all", {"flash_for": "everyone"}, {"flash_for": "off"}, 403),
             ("clear_the_exception", "all", {"flash_for": "everyone"}, {"flash_for": None}, 403),
             ("pin_the_project_default", "all", None, {"flash_for": "off"}, 403),
@@ -110,6 +111,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
                 {"deep_review_gated_prs": False},
                 403,
             ),
+            ("turn_pushes_off", "all", {"review_pushes": True}, {"review_pushes": False}, 403),
             ("take_from_another_project", "selected_while_other_claims_all", None, {"selected": True}, 403),
         ]
     )
@@ -129,7 +131,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
                 ReviewRepositoryPerson.objects.for_team(self.team.id).create(
                     team=self.team, repository=repository, user=self.user, kind=kind
                 )
-        compared = ("team_id", "selected", "flash_for", "review_drafts", "deep_review_gated_prs")
+        compared = ("team_id", "selected", "flash_for", "review_drafts", "review_pushes", "deep_review_gated_prs")
         before = list(ReviewRepository.objects.unscoped().values(*compared))
         self._set_level(OrganizationMembership.Level.MEMBER)
 
@@ -361,6 +363,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
             ("drafts_without_ownership", {**WEB, "review_drafts": True}, 400),
             ("deep_reviews_without_ownership", {**WEB, "deep_review_gated_prs": True}, 400),
+            ("pushes_without_ownership", {**WEB, "review_pushes": True}, 400),
             ("nothing_to_store", {**WEB, "selected": False}, 200),
             ("drafts_off_is_nothing_to_store", {**WEB, "review_drafts": False}, 200),
             ("deep_reviews_off_is_nothing_to_store", {**WEB, "deep_review_gated_prs": False}, 200),
@@ -488,7 +491,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
         assert searched["folded"] == 0
 
-    @parameterized.expand([("review_drafts",), ("deep_review_gated_prs",)])
+    @parameterized.expand([("review_drafts",), ("review_pushes",), ("deep_review_gated_prs",)])
     @patch(
         "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
     )

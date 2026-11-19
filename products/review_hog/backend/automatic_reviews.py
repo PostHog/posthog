@@ -13,6 +13,7 @@ from products.review_hog.backend.automatic_review_rules import AutomaticReviewRe
 from products.review_hog.backend.models import ReviewReport, ReviewRepository, ReviewUserSettings
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.review_request_rules import full_review_published
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.progress import turn_recorded_in_mode
@@ -168,11 +169,11 @@ class AutomaticDispatch:
 def drafts_reviewed(team_id: int, row: ReviewRepository | None, *, author_user_id: int | None) -> bool:
     """Whether a draft gets its automatic review: the repository turned draft reviews on, and the author did not
     turn them off for their own pull requests. A bot or an unmapped author follows the repository."""
-    if row is None or not row.review_drafts:
+    cadence = ReviewCadence.of(row)
+    if not cadence.review_drafts:
         return False
-    if author_user_id is None:
-        return True
-    return ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
+    author_allows = author_user_id is None or ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
+    return cadence.reviews_opening_draft(author_allows=author_allows)
 
 
 def plan_automatic_review(
@@ -277,7 +278,6 @@ class AuthoredPRReview:
     def _dispatch(self) -> AutomaticDispatch:
         """Start the automatic review if the rules allow it. The outcome tells whether a workflow started."""
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
-        from products.review_hog.backend.reviewer.push_gate import SKIP_FOLLOW_UPS  # noqa: PLC0415
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
@@ -302,9 +302,10 @@ class AuthoredPRReview:
         if full_review_published(report):
             observe_dispatch("full_review_published")
             return AutomaticDispatch(outcome="full_review_published", team_id=dispatch.team_id)
-        # One automatic review per PR: a person or an agent asks for the next one. The push gate skips
-        # the pushes queued while the first review runs.
-        if SKIP_FOLLOW_UPS and report is not None and report.automatic_reviewed_head_sha is not None:
+        # The push gate judges a turn queued while the first review runs, so it checks the cadence again.
+        reviewed = report is not None and report.automatic_reviewed_head_sha is not None
+        cadence = ReviewCadence.of(owner.row if owner is not None else None)
+        if reviewed and not cadence.dispatches_follow_up(self.action):
             observe_dispatch("follow_up_skipped")
             return AutomaticDispatch(outcome="follow_up_skipped", team_id=dispatch.team_id)
         mode = choose_automatic_review_mode(

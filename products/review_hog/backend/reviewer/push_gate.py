@@ -6,11 +6,11 @@ sees a first review or a human trigger: the workflow calls it only for automatic
 
 The rules, in order. The first rule that matches gives the reason:
 
-0. `follow_up`: every automatic follow-up, before the gate reads GitHub. A PR gets one automatic review,
-   and a person or an agent asks for the next one (`@posthog review`, the UI, MCP). The automatic dispatch
-   (`automatic_reviews.py`) already skips a push to a PR with an automatically reviewed head, so this rule
-   catches the pushes that were queued while the first review ran. Unlike the other switches, this one
-   records no shadow decision when it is off, so the rules below keep their data.
+0. `follow_up`: the repository's review cadence (`review_cadence.py`) has no review for this turn. Without
+   push reviews, the only automatic review after the first one is the review at ready after a draft review.
+   The automatic dispatch (`automatic_reviews.py`) already skips most such events, so this rule catches the
+   turns that were queued while the first review ran. It is a repository setting, not a switch below, so
+   it always skips.
 1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
 2. `reviewhog_commits_only`: the ReviewHog app authored every new commit, for example the fixes the
    resolution stage pushed. Reviewing them again would review ReviewHog's own answer to its review.
@@ -75,9 +75,6 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import Chang
 
 logger = logging.getLogger(__name__)
 
-# Rule 0. The note that ends an automatic review (`review_notes.py`) tells the author no later push gets an
-# automatic review, so change that note with this switch.
-SKIP_FOLLOW_UPS = True
 # A rule that is off only records the skip it would make, so production data can calibrate it first.
 SKIP_NO_NEW_COMMITS = True
 SKIP_REVIEWHOG_COMMITS_ONLY = True
@@ -247,8 +244,6 @@ class _PRDiff:
 
 
 def _rule_enabled(reason: SkipReason) -> bool:
-    if reason == "follow_up":
-        return SKIP_FOLLOW_UPS
     if reason == "no_new_commits":
         return SKIP_NO_NEW_COMMITS
     if reason == "reviewhog_commits_only":
@@ -415,9 +410,9 @@ class PushGate:
         return _runs("no_rule_matched", own_commits=len(own_shas), own_code_lines=own_code_lines)
 
 
-def skip_follow_up() -> PushGateDecision | None:
-    """Rule 0, first: the skip of every automatic follow-up, or None when the switch is off."""
-    return _matched("follow_up") if SKIP_FOLLOW_UPS else None
+def skip_follow_up() -> PushGateDecision:
+    """Rule 0, first: the skip of a turn the repository's review cadence has no review for."""
+    return PushGateDecision(skip=True, would_skip=True, reason="follow_up")
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:

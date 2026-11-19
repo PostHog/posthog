@@ -440,6 +440,7 @@ interface StoryRepositoryRow {
     selected: boolean
     flash_for: AutomaticFlashForEnumApi | null
     review_drafts: boolean
+    review_pushes: boolean
     deep_review_gated_prs: boolean
     people: ReviewRepositoryPersonApi[]
 }
@@ -491,6 +492,7 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             selected: true,
             flash_for: 'everyone',
             review_drafts: true,
+            review_pushes: true,
             deep_review_gated_prs: true,
             people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(VIEWER, 'excepted')],
         },
@@ -499,6 +501,7 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             selected: true,
             flash_for: 'listed',
             review_drafts: false,
+            review_pushes: false,
             deep_review_gated_prs: false,
             people: [person(MOCK_SECOND_BASIC_USER, 'listed'), person(ADA, 'listed')],
         },
@@ -507,6 +510,7 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             selected: true,
             flash_for: null,
             review_drafts: true,
+            review_pushes: false,
             deep_review_gated_prs: false,
             people: [],
         },
@@ -563,6 +567,7 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         repository_id: row?.id ?? null,
         exception: own && row?.flash_for ? { flash_for: row.flash_for, people: row.people } : null,
         review_drafts: own && !!row?.review_drafts,
+        review_pushes: own && !!row?.review_pushes,
         deep_review_gated_prs: own && !!row?.deep_review_gated_prs,
         my_choice: own ? (choice?.mode ?? null) : null,
         my_choice_id: own ? (choice?.id ?? null) : null,
@@ -584,6 +589,7 @@ function saveRepository(write: ReviewRepositoryWriteApi): void {
         selected: false,
         flash_for: null,
         review_drafts: false,
+        review_pushes: false,
         deep_review_gated_prs: false,
         people: [],
     }
@@ -592,9 +598,16 @@ function saveRepository(write: ReviewRepositoryWriteApi): void {
         selected: write.selected ?? current.selected,
         flash_for: write.flash_for !== undefined ? write.flash_for : current.flash_for,
         review_drafts: write.review_drafts ?? current.review_drafts,
+        review_pushes: write.review_pushes ?? current.review_pushes,
         deep_review_gated_prs: write.deep_review_gated_prs ?? current.deep_review_gated_prs,
     }
-    if (!next.selected && next.flash_for === null && !next.review_drafts && !next.deep_review_gated_prs) {
+    if (
+        !next.selected &&
+        next.flash_for === null &&
+        !next.review_drafts &&
+        !next.review_pushes &&
+        !next.deep_review_gated_prs
+    ) {
         delete storyState.rows[write.full_name]
         return
     }
@@ -859,6 +872,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                             entry.in_project &&
                             entry.exception === null &&
                             !entry.review_drafts &&
+                            !entry.review_pushes &&
                             !entry.deep_review_gated_prs &&
                             entry.my_choice === null
                         const entries = matching.filter(

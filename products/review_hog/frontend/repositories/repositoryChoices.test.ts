@@ -14,6 +14,7 @@ function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepo
         exception: null,
         review_drafts: false,
         deep_review_gated_prs: false,
+        review_pushes: false,
         my_choice: null,
         my_choice_id: null,
         my_result: { flash: false, reason: 'project_opt_in' },

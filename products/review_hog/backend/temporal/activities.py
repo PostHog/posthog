@@ -47,10 +47,12 @@ from products.review_hog.backend.models import ReviewProjectSettings, ReviewRepo
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.review_notes import (
-    automatic_review_notice,
     comment_commands_enabled,
+    draft_review_notice,
     first_review_note,
+    last_review_notice,
 )
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
@@ -2322,13 +2324,16 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    # Only an automatic turn ends with the automatic review note: a comment or UI review runs for authors
-    # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
-    automatic_notice = ""
+    # Only an automatic turn ends with a note about the next automatic review: a comment or UI review runs for
+    # authors without automatic reviews too. Only an automatic turn is held to the finding budget, too.
+    draft_notice = ""
+    ready_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
-        automatic_notice = automatic_review_notice(comment_commands_on)
+        draft_notice = draft_review_notice(comment_commands_on)
+        if ReviewCadence.load(input.team_id, f"{input.owner}/{input.repo}").ends_after_ready_review():
+            ready_notice = last_review_notice(comment_commands_on)
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
         deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
@@ -2346,7 +2351,8 @@ def _publish(input: PublishInput) -> PublishResult:
         installation_id=installation_id,
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
-        automatic_notice=automatic_notice,
+        draft_notice=draft_notice,
+        ready_notice=ready_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
         comment_commands_on=comment_commands_on,
@@ -2651,16 +2657,31 @@ def _gate_automatic_deep_push(input: GatePushInput) -> PushGateDecision:
     return apply_draft_rule(review, draft=True)
 
 
+def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact | None, draft: bool | None) -> bool:
+    """Rule 0: whether the repository's review cadence has a review for this turn."""
+    cadence = ReviewCadence.load(input.team_id, input.repository)
+    if cadence.review_pushes:
+        return True
+    earlier = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.previous_head_sha)
+    reviewed_draft = _pr_draft(earlier)
+    if reviewed_draft and draft and current is not None:
+        # The queue drops a ready request for the head this turn holds, as for the draft rule below.
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+        draft = _pr_draft_on_github(
+            input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+        )
+    return cadence.allows_follow_up(reviewed_draft=reviewed_draft, draft=draft)
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
-    # The decision for an automatic Deep turn lives here because the workflow calls this activity for every
-    # automatic follow-up, and a new condition there would change its command sequence.
-    follow_up = skip_follow_up()
-    if follow_up is not None:
-        return _record_gate_decision(input, follow_up, draft=None)
-    if input.review_mode == REVIEW_MODE_FULL:
-        return _gate_automatic_deep_push(input)
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
+    if not _cadence_allows_follow_up(input, current, draft):
+        return _record_gate_decision(input, skip_follow_up(), draft)
+    # The decision for an automatic Deep turn lives here because the workflow calls this activity for every
+    # automatic follow-up, and a new condition there would change its command sequence.
+    if input.review_mode == REVIEW_MODE_FULL:
+        return _gate_automatic_deep_push(input)
     snapshot: PRSnapshotArtefact | None = None
     change: PRChange | None = None
     if current is None:

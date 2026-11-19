@@ -295,6 +295,8 @@ class ReviewRepositorySettings:
     flash_for: AutomaticFlashFor | None
     review_drafts: bool
     deep_review_gated_prs: bool
+
+    review_pushes: bool
     people: Sequence[ReviewRepositoryPersonEntry]
     created_by: ReviewUserRef | None
     created_at: datetime
@@ -380,6 +382,8 @@ class ReviewRepositoryOverviewEntry:
     exception: ReviewRepositoryException | None
     review_drafts: bool
     deep_review_gated_prs: bool
+
+    review_pushes: bool
     my_choice: ReviewUserRepositoryChoiceMode | None
     my_choice_id: UUID | None
     my_result: AutomaticReviewDecision

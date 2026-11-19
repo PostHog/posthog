@@ -409,7 +409,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("unmapped", "bot_skipped", True),
             ("missing_installation", "installation_mismatch", True),
             ("full_review_published", "full_review_published", True),
-            ("automatically_reviewed", "follow_up_skipped", True),
+            ("automatically_reviewed", "follow_up_skipped", False),
             ("draft_with_drafts_off", "draft_skipped", False),
             ("draft_in_a_repository_without_drafts", "draft_skipped", False),
             ("skip_agent_review_label", "label_skipped", True),
@@ -432,6 +432,7 @@ class TestAuthoredPRReviewTask(BaseTest):
         queued = self._queued_event(
             draft=change in ("draft_with_drafts_off", "draft_in_a_repository_without_drafts"),
             labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
+            action="synchronize" if change == "automatically_reviewed" else "opened",
         )
         if change == "draft_with_drafts_off":
             self.repository.review_drafts = True
@@ -591,6 +592,34 @@ class TestAuthoredPRReviewTask(BaseTest):
         # A Deep turn starts no silent stamphog review, so stamphog routes the ready head now instead of after the turn.
         reported = [call(team_id=self.team.id, repository="PostHog/posthog", pr_number=42, head_sha=_HEAD_SHA)]
         assert report_to_stamphog.call_args_list == (reported if expected_mode == "full" else [])
+
+    @parameterized.expand(
+        [
+            ("push_in_a_repository_that_reviews_pushes", "synchronize", True),
+            ("ready_event_in_a_repository_without_push_reviews", "ready_for_review", False),
+        ]
+    )
+    @patch(_QUEUE_ROUTING)
+    @patch(_START)
+    def test_follow_up_events_start_a_turn_when_the_cadence_has_one(
+        self, _name: str, action: str, review_pushes: bool, start: MagicMock, report: MagicMock
+    ) -> None:
+        self.repository.review_pushes = review_pushes
+        self.repository.save()
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="PostHog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            automatic_reviewed_head_sha="earlier-head",
+        )
+        started_before = _dispatch_count("started")
+
+        process_authored_pr_event.run(**self._queued_event(action=action))
+
+        assert start.call_args.kwargs["trigger_action"] == action
+        assert _dispatch_count("started") - started_before == 1.0
 
     @parameterized.expand(
         [

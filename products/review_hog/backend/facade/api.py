@@ -204,6 +204,7 @@ def _repository_settings(
         flash_for=AutomaticFlashFor(row.flash_for) if row.flash_for is not None else None,
         review_drafts=row.review_drafts,
         deep_review_gated_prs=row.deep_review_gated_prs,
+        review_pushes=row.review_pushes,
         people=_person_entries(people.get(row.id, [])),
         created_by=_user_ref(row.created_by),
         created_at=row.created_at,
@@ -260,6 +261,7 @@ def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
         exception=exception,
         review_drafts=repository is not None and repository.review_drafts,
         deep_review_gated_prs=repository is not None and repository.deep_review_gated_prs,
+        review_pushes=repository is not None and repository.review_pushes,
         my_choice=ReviewUserRepositoryChoiceMode(entry.my_choice.mode) if entry.my_choice is not None else None,
         my_choice_id=entry.my_choice.id if entry.my_choice is not None else None,
         my_result=entry.my_result,
@@ -301,10 +303,11 @@ def save_review_repository(
     flash_for: AutomaticFlashFor | None | Unset = UNSET,
     review_drafts: bool | None = None,
     deep_review_gated_prs: bool | None = None,
+    review_pushes: bool | None = None,
     raise_only: bool = False,
 ) -> ReviewRepositoryWriteOutcome:
-    """Include or remove a repository, set or clear its exception, or turn its draft reviews or its Deep reviews
-    of pull requests that need a person on or off.
+    """Include or remove a repository, set or clear its exception, or turn its draft reviews, push reviews or
+    Deep reviews of pull requests that need a person on or off.
 
     Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
 
@@ -318,6 +321,7 @@ def save_review_repository(
         flash_for=flash_for,
         review_drafts=review_drafts,
         deep_review_gated_prs=deep_review_gated_prs,
+        review_pushes=review_pushes,
         raise_only=raise_only,
     )
     repository = None
