@@ -19,7 +19,7 @@ from products.metrics.backend.facade.api import run_precomputed_promql_query
 from products.metrics.backend.facade.contracts import MetricSeries
 from products.metrics.backend.facade.enums import MetricQueryProvenanceMode, PrecomputedMetricKind
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
-from products.metrics.backend.models import MetricPrecomputedMetric
+from products.metrics.backend.models import MetricDailyQueryCount, MetricPrecomputedMetric
 from products.metrics.backend.precompute.fill import fill_precomputed_metrics
 from products.metrics.backend.precompute.promql_plan import (
     DELTA_HISTOGRAM_BUCKET,
@@ -305,11 +305,12 @@ class TestPrecomputedPromQL(APIBaseTest):
 
     def test_fills_read_whole_buckets_without_counting_as_user_queries(self):
         promql = "sum by (provider) (sum_over_time(llm_cost_usd[$__interval]))"
-        with patch("products.metrics.backend.promql.record_promql_query") as record:
-            self._precompute(promql, 2, "hour")
+
+        self._precompute(promql, 2, "hour")
 
         assert "sum by (provider) (sum_over_time(llm_cost_usd[3600s]))" in self.snuffle.queries
-        record.assert_not_called()
+        # Only the tile that created the metric counts, not the fill's queries.
+        assert MetricDailyQueryCount.objects.for_team(self.team.pk).get(metric_name="llm_cost_usd").query_count == 1
 
     @parameterized.expand(
         [

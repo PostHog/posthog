@@ -30,6 +30,15 @@ class _Series:
     values: list[float]
 
 
+@frozen
+class _Response:
+    body: dict[str, Any]
+    status_code: int = 200
+
+    def json(self) -> dict[str, Any]:
+        return self.body
+
+
 class FakeSnuffle:
     def __init__(self) -> None:
         # Per series: its labels (with `__name__`), and its samples sorted by time.
@@ -156,13 +165,13 @@ class FakeSnuffle:
             for group, points in by_group.items()
         ]
 
-    def payload(self, team: Any, method: str, path: str, *, data: dict[str, str], **kwargs: Any) -> dict[str, Any]:
+    def request(self, team_id: int, method: str, path: str, *, data: dict[str, str], **kwargs: Any) -> _Response:
         assert path == "/api/v1/query_range", path
         results = self.evaluate(data["query"], float(data["start"]), float(data["end"]), float(data["step"]))
-        return {"status": "success", "data": {"resultType": "matrix", "result": results}}
+        return _Response(body={"status": "success", "data": {"resultType": "matrix", "result": results}})
 
 
 @contextmanager
 def fake_snuffle(snuffle: FakeSnuffle) -> Iterator[FakeSnuffle]:
-    with patch("products.metrics.backend.promql.snuffle_payload", side_effect=snuffle.payload):
+    with patch("products.metrics.backend.promql.snuffle_request", side_effect=snuffle.request):
         yield snuffle
