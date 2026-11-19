@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { DotMatrixColumnMapping } from '../Accounts/DotMatrixColumnMapping'
 import { getMatrixHogQLScope } from '../Accounts/dotMatrixHogQLScope'
@@ -20,8 +20,10 @@ export function ProductUsageQueryEditor(): JSX.Element {
         saveError,
         controls,
         customerAnalyticsConfig,
+        canUseProducts,
     } = useValues(productUsageGridLogic)
-    const { setQueryDraft, setMappingDraft, runQuery, saveSource, cancelEditor } = useActions(productUsageGridLogic)
+    const { setQueryDraft, setMappingDraft, runQuery, saveSource, cancelEditor, openEditor } =
+        useActions(productUsageGridLogic)
     const bindings = getActivityHogQLBindings({
         accounts: result?.accounts.results ?? [],
         dateRange: controls.dateRange,
@@ -31,6 +33,21 @@ export function ProductUsageQueryEditor(): JSX.Element {
     const columns = result?.hogql?.columns ?? []
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="product-activity-query-editor">
+            {(canUseProducts || draftKind === 'product_usage') && (
+                <LemonSegmentedButton
+                    value={draftKind}
+                    onChange={(kind) => openEditor(kind)}
+                    size="small"
+                    options={[
+                        {
+                            value: 'product_usage',
+                            label: 'Product usage',
+                            'data-attr': 'product-activity-source-product-usage',
+                        },
+                        { value: 'hogql', label: 'Custom HogQL', 'data-attr': 'product-activity-source-hogql' },
+                    ]}
+                />
+            )}
             {draftKind === 'hogql' ? (
                 <>
                     <ActivityQueryEditor
@@ -51,7 +68,10 @@ export function ProductUsageQueryEditor(): JSX.Element {
                     )}
                 </>
             ) : (
-                <p className="mb-0">Load the configured PostHog product usage rules for the filtered accounts.</p>
+                <p className="mb-0">
+                    Load the configured PostHog product usage rules for the filtered accounts. These rules have no query
+                    to edit. Choose Custom HogQL to write your own query.
+                </p>
             )}
             <ActivityQueryActions
                 loading={loading}
