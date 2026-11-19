@@ -626,6 +626,7 @@ class TestUserScopeTenantPermissions(SimpleTestCase):
             ("project_denied", {"team_id": 1}, None, [2], [], True, False),
             ("organization_denied", {"team_id": 1}, None, [], ["other"], True, False),
             ("policy_denied", {"team_id": 1}, None, [], [], False, False),
+            ("effective_admin", {"team_id": 1}, None, [], [], False, True, OrganizationMembership.Level.ADMIN),
             ("allowed", {"team_id": 1}, None, [1], None, True, True),
             ("current_team_denied", {}, "team_id", [2], [], True, False),
         ]
@@ -639,6 +640,7 @@ class TestUserScopeTenantPermissions(SimpleTestCase):
         scoped_organizations: list[str] | None,
         keys_allowed: bool,
         expected: bool,
+        effective_level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> None:
         organization = Organization(
             id=uuid4(),
@@ -660,9 +662,14 @@ class TestUserScopeTenantPermissions(SimpleTestCase):
             team=SimpleNamespace(id=1, organization=organization),
             organization=organization,
         )
-        with patch(
-            "posthog.permissions.get_cached_organization_membership",
-            return_value=OrganizationMembership(level=OrganizationMembership.Level.MEMBER),
+        with (
+            patch(
+                "posthog.permissions.get_cached_organization_membership",
+                return_value=OrganizationMembership(level=OrganizationMembership.Level.MEMBER),
+            ),
+            patch.object(
+                OrganizationMembership, "effective_level", new_callable=PropertyMock, return_value=effective_level
+            ),
         ):
             if expected:
                 assert APIScopePermission().has_permission(request, view)

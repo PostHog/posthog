@@ -725,8 +725,8 @@ jobs:
 
             # hoglint takes over from the two steps above, and runs in shadow until then. A
             # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
-            # the pull request adds or edits becomes an annotation, and the step summary lists the
-            # rest. The step always exits 0.
+            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
+            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
             - name: Check boundaries (hoglint, shadow)
               env:
                   HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24

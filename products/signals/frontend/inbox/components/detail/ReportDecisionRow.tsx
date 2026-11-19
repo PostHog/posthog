@@ -14,7 +14,13 @@ function setByLabel({ person, agent }: ReportDecisionAttribution): string {
     return agent ? `Set by ${fullNameOrEmail(person)} (via ${agent}),` : `Set by ${fullNameOrEmail(person)},`
 }
 
-function DecisionAttribution({ attribution }: { attribution: ReportDecisionAttribution }): JSX.Element {
+function DecisionAttribution({
+    attribution,
+    formatValue,
+}: {
+    attribution: ReportDecisionAttribution
+    formatValue: (value: string) => string
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-1 text-xs">
             <div className="flex flex-wrap items-center gap-1 font-semibold">
@@ -22,7 +28,7 @@ function DecisionAttribution({ attribution }: { attribution: ReportDecisionAttri
                 <TZLabel time={attribution.setAt} showPopover={false} />
             </div>
             {attribution.reason && <p className="m-0 whitespace-pre-wrap">{attribution.reason}</p>}
-            {attribution.previousValue && <span>{`Changed from ${attribution.previousValue}`}</span>}
+            {attribution.previousValue && <span>{`Changed from ${formatValue(attribution.previousValue)}`}</span>}
         </div>
     )
 }
@@ -38,6 +44,7 @@ export function ReportDecisionRow<T extends string>({
     optionsLoading = false,
     searchPlaceholder,
     onMenuOpen,
+    formatValue = (raw) => raw,
     'data-attr': dataAttr,
 }: {
     label: string
@@ -51,9 +58,11 @@ export function ReportDecisionRow<T extends string>({
     /** Adds a search box to the menu, for a list too long to scan. */
     searchPlaceholder?: string
     onMenuOpen?: () => void
+    /** Names a stored value, such as `requires_human_input`, in the row and in its change history. */
+    formatValue?: (value: string) => string
     'data-attr'?: string
 }): JSX.Element {
-    const details = attribution ? <DecisionAttribution attribution={attribution} /> : null
+    const details = attribution ? <DecisionAttribution attribution={attribution} formatValue={formatValue} /> : null
     const selectProps: LemonSelectPropsNonClearable<T> | null =
         options && onChange
             ? {
@@ -80,7 +89,9 @@ export function ReportDecisionRow<T extends string>({
                             },
                         ]
                       : options,
-                  renderButtonContent: () => <span className="truncate text-xs font-normal text-default">{value}</span>,
+                  renderButtonContent: () => (
+                      <span className="truncate text-xs font-normal text-default">{formatValue(value)}</span>
+                  ),
               }
             : null
 
@@ -101,7 +112,7 @@ export function ReportDecisionRow<T extends string>({
                 ) : (
                     <Tooltip title={details} openOnClick>
                         <span className="truncate" tabIndex={details ? 0 : undefined} data-attr={dataAttr}>
-                            {value}
+                            {formatValue(value)}
                         </span>
                     </Tooltip>
                 )}

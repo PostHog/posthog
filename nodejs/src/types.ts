@@ -17,6 +17,7 @@ import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
+    KafkaMskCdpIntakeProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
     KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -109,6 +110,7 @@ export interface PluginsServerConfig
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
+        KafkaMskCdpIntakeProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {

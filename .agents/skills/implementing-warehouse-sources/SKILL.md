@@ -731,6 +731,30 @@ skill — don't hand-roll version handling.
 - Keep comments minimal and only when intent is not obvious.
 - Python imports at the top of the module, not inside functions (unless needed to break circular imports).
 
+## Shaping rows with the shared helpers
+
+Do not write your own `_flatten*` function for these shapes.
+Import the helper from `products.warehouse_sources.sources.sdk`.
+The helpers are in `common/row_shaping.py`.
+
+| Response shape                                           | Helper                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| JSON:API resource (`id`, `type`, `attributes`)           | `flatten_jsonapi(item, relationships_as_ids=True, on_clash="root")`         |
+| One nested object to lift into the row (`metadata`)      | `lift_nested(row, key, on_clash="root")`                                    |
+| Nested camelCase objects to `parent_child` columns       | `flatten_nested(obj, sep="_", key_fn=camel_to_snake, keep_raw=frozenset())` |
+| One camelCase key to snake_case (AWS style, `SOARecord`) | `camel_to_snake(name)`                                                      |
+
+- Each helper returns a new dict.
+  Use the return value.
+- `on_clash` decides the winner when a lifted key is already in the row.
+  Keep the default `"root"` for a new source.
+  With `"nested"`, a JSON:API attribute named `id` or `type` replaces the resource's `id` (the primary key) or `type`.
+- `relationships_as_ids=True` gives one `<name>_id` column for each to-one relationship and drops to-many relationships.
+  Set it to `False` to keep `relationships` as one JSON column.
+- `keep_raw` names keys by their original API name.
+  Their values stay whole, as one JSON column.
+- Write vendor-specific work (date parsing, dropped secret fields, parent ids) around the helper call, not in a copy of it.
+
 ## Incremental sync guidance
 
 - **Only set `supports_incremental=True` when the API exposes a server-side timestamp filter** (`<field>_gte`, `since`, `modified_after`, etc.). A "client-side cursor" that fetches every page and skips already-seen rows in Python is **not** incremental — every run still hits every page, so the API cost of an "incremental" sync ends up identical to a full refresh. If the API has no server filter, ship full refresh only.
