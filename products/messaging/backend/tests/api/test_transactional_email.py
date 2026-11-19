@@ -54,15 +54,6 @@ TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename":
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
 SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
-VALID_CODE_SEND_BODY = json.dumps(
-    {"to": "user@example.com", "distinct_id": "user-1", "template_key": "welcome", "subject": "Hi", "html": "<p>Hi</p>"}
-)
-TWO_TIMES_AMONG_TOO_MANY_MEMBERS = (
-    VALID_CODE_SEND_BODY[:-1]
-    + ', "scheduled_at": "2026-11-21T09:00:00Z", "scheduled_at": null, '
-    + ", ".join(f'"padding": {i}' for i in range(1000))
-    + "}"
-)
 
 
 @frozen
@@ -181,27 +172,6 @@ class TestTransactionalEmail(APIBaseTest):
         if route == "send_email_list_value":
             body = {**self._flat(self.body), "scheduled_at": scheduled_at}
             return client.post(self.send_email_url, body, format="json", **headers)
-        if isinstance(scheduled_at, list) and route in (
-            "code",
-            "send_email",
-            "send_email_nested",
-            "send_email_escaped_key",
-            "template",
-        ):
-            url = self.url if route == "template" else self.send_email_url
-            body = {
-                "code": lambda: self._code_send(),
-                "send_email": lambda: self._flat(self.body),
-                "send_email_nested": lambda: {**self.body, "template": {"id": str(self.template.id)}},
-                "send_email_escaped_key": lambda: self._flat(self.body),
-                "template": lambda: self.body,
-            }[route]()
-            members = [f"{json.dumps(k)}:{json.dumps(v)}" for k, v in body.items() if k not in without]
-            keys = ['"scheduled_at"'] * len(scheduled_at)
-            if route == "send_email_escaped_key":
-                keys[1] = '"sch\\u0065duled_at"'
-            members += [f"{key}:{json.dumps(value)}" for key, value in zip(keys, scheduled_at)]
-            return client.post(url, "{" + ",".join(members) + "}", content_type="application/json", **headers)
         if route in ("code", "code_form", "code_key_scoped"):
             body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
             url = "/api/messaging/send/email/" if route == "code_key_scoped" else self.send_email_url
@@ -1449,29 +1419,7 @@ class TestTransactionalEmail(APIBaseTest):
                 )
             ),
             ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),
-            *(
-                (
-                    f"{name}_a_later_time_then_one_that_passed",
-                    route,
-                    ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
-                    "repeated",
-                )
-                for name, route in (("template_id_json", "send_email"), ("template_key_json", "code"))
-            ),
-            (
-                "template_id_json_the_key_escaped_the_second_time",
-                "send_email_escaped_key",
-                ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
-                "repeated",
-            ),
-            (
-                "nested_template_id_json_a_time_then_null",
-                "send_email_nested",
-                ["2026-11-21T09:00:00Z", None],
-                "repeated",
-            ),
             ("template_id_a_list", "send_email_list_value", ["2026-11-21T09:00:00Z"], "invalid_format"),
-            ("template_route_json_a_time_then_null", "template", ["2026-11-21T09:00:00Z", None], "repeated"),
             (
                 "template_route_form_two_times",
                 "template_form",
@@ -2302,28 +2250,6 @@ class TestTransactionalEmail(APIBaseTest):
         ] == [
             (self.team.id, "send_email" if route == "code" else "template", "rejected", "content_too_large", None, None)
         ]
-
-    @parameterized.expand(
-        [
-            ("a_cut_off_body", '{"to": "user@example.com", "template_key": ', "application/json"),
-            ("bytes_that_are_not_utf_8", b'{"to": "user@example.com", "template_key": "\xff"}', "application/json"),
-            ("a_send_cut_off_inside_a_character", VALID_CODE_SEND_BODY.encode() + b"\xe2\x82", "application/json"),
-            ("two_times_among_more_than_a_thousand_members", TWO_TIMES_AMONG_TOO_MANY_MEMBERS, "application/json"),
-            (
-                "utf_16_with_no_byte_order_mark",
-                VALID_CODE_SEND_BODY.encode("utf-16-le"),
-                "application/json; charset=utf-16",
-            ),
-        ]
-    )
-    def test_a_send_refuses_a_body_that_is_not_json(
-        self, mock_post, _flag, _capture, _name, body: str | bytes, content_type: str
-    ):
-        with FakeCdpApi().serving(mock_post) as cdp:
-            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, content_type=content_type)
-
-        assert (response.status_code, response.json().get("code")) == (status.HTTP_400_BAD_REQUEST, "parse_error")
-        assert cdp.received == []
 
     def test_a_body_over_the_request_cap_from_a_key_of_another_project_is_denied(self, mock_post, _flag, capture):
         other_team = Team.objects.create(organization=self.organization, name="Other project")

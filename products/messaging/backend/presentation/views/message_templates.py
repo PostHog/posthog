@@ -1,8 +1,5 @@
 import re
-import json
 import time
-import codecs
-import itertools
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
@@ -34,18 +31,11 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ErrorDetail, NotFound, ParseError
-from rest_framework.parsers import (  # type: ignore[attr-defined]  # the stubs predate get_encoding
-    FormParser,
-    JSONParser,
-    MultiPartParser,
-    get_encoding,
-)
+from rest_framework.exceptions import ErrorDetail, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
-from rest_framework.utils import json as drf_json
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
@@ -552,10 +542,7 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, Mapping) and (
-            "scheduled_at" in getattr(data, "repeated", {})
-            or (isinstance(data, MultiValueDict) and len(data.getlist("scheduled_at")) > 1)
-        ):
+        if isinstance(data, MultiValueDict) and len(data.getlist("scheduled_at")) > 1:
             raise serializers.ValidationError(
                 {"scheduled_at": ErrorDetail(str(ScheduledAtField.default_error_messages["repeated"]), code="repeated")}
             )
@@ -607,9 +594,6 @@ class ScheduledAtField(serializers.DateTimeField):
                 return _Repeated(values)
             if values == [""]:
                 return ""
-        repeated = getattr(dictionary, "repeated", {}).get(self.field_name)
-        if repeated is not None:
-            return repeated
         return super().get_value(dictionary)
 
     def enforce_timezone(self, value: datetime) -> datetime:
@@ -648,78 +632,6 @@ class ScheduledAtField(serializers.DateTimeField):
 
 class _Repeated(list):
     pass
-
-
-_JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
-# A key that decodes to `scheduled_at`, with any of its characters written as a `\u` escape.
-_SCHEDULED_AT_KEY = re.compile(
-    '"' + "".join(f"(?:{re.escape(c)}|\\\\u(?i:{ord(c):04x}))" for c in "scheduled_at") + '"[ \t\n\r]*:'
-)
-SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES = 1000
-
-
-def _past_json_whitespace(text: str, start: int) -> int:
-    match = _JSON_WHITESPACE.match(text, start)
-    return match.end() if match else start
-
-
-class _JsonObject(dict):
-    repeated: dict[str, _Repeated]
-
-    @classmethod
-    def with_repeats(cls, data: Mapping[str, Any], repeated: dict[str, _Repeated]) -> Mapping[str, Any]:
-        if not repeated:
-            return data
-        obj = cls(data)
-        obj.repeated = repeated
-        return obj
-
-    @classmethod
-    def from_parsed_object(cls, text: str, decoder: json.JSONDecoder) -> Mapping[str, Any]:
-        # `text` already parsed as one JSON object, so every member is well formed. Each value is decoded by the
-        # stock scanner and kept as the stock parser keeps it, so the walk holds no more memory than that parser.
-        skip = _past_json_whitespace
-        obj: dict[str, Any] = {}
-        times = members = 0
-        end = skip(text, skip(text, 0) + 1)
-        while text[end] != "}":
-            members += 1
-            if members > SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES:
-                raise ParseError(
-                    f"A body that names `scheduled_at` more than once can have at most "
-                    f"{SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES} top-level members."
-                )
-            key, end = decoder.raw_decode(text, end)
-            obj[key], end = decoder.raw_decode(text, skip(text, skip(text, end) + 1))
-            times += key == "scheduled_at"
-            end = skip(text, end)
-            if text[end] == ",":
-                end = skip(text, end + 1)
-        return cls.with_repeats(obj, {"scheduled_at": _Repeated()} if times > 1 else {})
-
-
-class SendBodyJSONParser(JSONParser):
-    # Python's JSON reader keeps only the last value of a repeated key, which can be an earlier send time than the
-    # one before it. A body that names `scheduled_at` as a key twice is read again member by member, so
-    # ScheduledAtField can refuse a repeated one.
-    def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None) -> Any:
-        encoding = get_encoding(parser_context or {})
-        try:
-            # `final=True` refuses a character cut off at the end, which DRF's stream reader drops.
-            text = codecs.getincrementaldecoder(encoding)().decode(stream.read(), final=True)
-            parse_constant = drf_json.strict_constant if self.strict else None
-            data = drf_json.loads(text, parse_constant=parse_constant)
-            if not (isinstance(data, dict) and "scheduled_at" in data):
-                return data
-            if len(list(itertools.islice(_SCHEDULED_AT_KEY.finditer(text), 2))) < 2:
-                return data
-            del data
-            return _JsonObject.from_parsed_object(text, json.JSONDecoder(parse_constant=parse_constant))
-        except ValueError as exc:
-            raise ParseError(f"JSON parse error - {exc}")
-
-
-SEND_BODY_PARSERS = [SendBodyJSONParser, FormParser, MultiPartParser]
 
 
 CODE_SEND_FIELDS = (
@@ -838,8 +750,9 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as "
         "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and "
         "rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out "
-        "or send null to send now. Scheduling is on only in some projects so far, and a project without it refuses "
-        "a time with a 400.",
+        "or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body "
+        "that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it "
+        "refuses a time with a 400.",
     )
     sensitive = OmittableBooleanField(
         required=False,
@@ -853,13 +766,11 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         # posthog-node 5.61.0 and posthog 7.81.0 send `template.id` and `identifiers.distinct_id`, so that shape
         # stays accepted. It is left out of the schema so that new callers use the flat fields.
         if isinstance(data, Mapping):
-            source = data
             template, identifiers = data.get("template"), data.get("identifiers")
             if "template_id" not in data and isinstance(template, Mapping):
                 data = {**data, "template_id": template.get("id")}
             if "distinct_id" not in data and isinstance(identifiers, Mapping):
                 data = {**data, "distinct_id": identifiers.get("distinct_id")}
-            data = _JsonObject.with_repeats(data, getattr(source, "repeated", {}))
         return super().to_internal_value(data)
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -1711,13 +1622,7 @@ class MessageTemplatesViewSet(
         ),
         parameters=[TEMPLATE_ID_PARAMETER, IDEMPOTENCY_KEY_PARAMETER],
     )
-    @action(
-        detail=True,
-        methods=["POST"],
-        pagination_class=None,
-        required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE],
-        parser_classes=SEND_BODY_PARSERS,
-    )
+    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._end_request_validation()
         with transactional_email_stage("feature_flag"):
@@ -1791,7 +1696,6 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
     transactional_email_route = "send_email"
-    parser_classes = SEND_BODY_PARSERS
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
