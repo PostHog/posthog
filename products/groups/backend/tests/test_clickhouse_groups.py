@@ -2945,4 +2945,4 @@ class TestGroupTypeMetadataUpdateRequestSerializer(SimpleTestCase):
         )
         assert serializer.is_valid() is expected_valid
         if not expected_valid:
-            assert serializer.errors["updates"]["non_field_errors"][0].code == "max_length"
+            assert serializer.errors["updates"][0].code == "max_length"

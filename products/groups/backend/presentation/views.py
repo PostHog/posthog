@@ -127,8 +127,8 @@ class GroupTypeMetadataUpdateSerializer(serializers.Serializer):
 
 
 class GroupTypeMetadataUpdateRequestSerializer(serializers.Serializer):
-    updates = GroupTypeMetadataUpdateSerializer(
-        many=True,
+    updates = serializers.ListField(
+        child=GroupTypeMetadataUpdateSerializer(),
         max_length=GROUP_TYPES_LIMIT,
         help_text=f"Group type metadata updates to apply, at most {GROUP_TYPES_LIMIT}, one per group type.",
     )

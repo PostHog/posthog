@@ -67,6 +67,8 @@ export const groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesItemNameS
 
 export const groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesItemNamePluralMax = 400
 
+export const groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesMax = 5
+
 export const GroupsTypesUpdateMetadataForAgentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     updates: zod
         .array(
@@ -84,6 +86,7 @@ export const GroupsTypesUpdateMetadataForAgentsPartialUpdateBody = /* @__PURE__ 
                     .describe('Plural display name of the group type.'),
             })
         )
+        .max(groupsTypesUpdateMetadataForAgentsPartialUpdateBodyUpdatesMax)
         .optional()
         .describe('Group type metadata updates to apply, at most 5, one per group type.'),
 })
