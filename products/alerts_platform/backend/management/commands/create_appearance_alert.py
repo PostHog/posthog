@@ -11,7 +11,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from products.alerts_platform.backend.facade.appearance import appearance_create_warning, create_appearance_alert
+from products.alerts_platform.backend.facade.appearance import create_appearance_alert
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -22,7 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 
-APPEARANCE_SOURCES = (SourceKind.LOGS.value, SourceKind.ERROR_TRACKING.value)
+APPEARANCE_SOURCES = (SourceKind.LOGS.value,)
 
 
 def parse_filter(raw: str) -> dict[str, Any]:
@@ -49,8 +49,6 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         destination = _destination(options)
         source = SourceKind(options["source"])
-        if warning := appearance_create_warning(options["team_id"], source):
-            self.stderr.write(f"Warning: {warning}")
         try:
             view = create_appearance_alert(
                 team_id=options["team_id"],

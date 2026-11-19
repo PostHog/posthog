@@ -79,7 +79,6 @@ def appearance_source_config(
     filter_keys: tuple[str, ...],
     rollout_flag: str,
     alert_url: Callable[[int, UUID], str] | None = None,
-    create_warning: Callable[[int], str | None] | None = None,
 ) -> SourceConfigSpec:
     """The `source_config` schema and native lifecycle for a source's appearance alerts.
 
@@ -105,7 +104,6 @@ def appearance_source_config(
         native=NativeAlertLifecycle(check_interval_minutes=APPEARANCE_CHECK_INTERVAL_MINUTES),
         alert_url=alert_url,
         rollout_flag=rollout_flag,
-        create_warning=create_warning,
     )
 
 
@@ -177,10 +175,3 @@ def create_appearance_alert(
         destinations=destinations,
         created_by_id=created_by_id,
     )
-
-
-def appearance_create_warning(team_id: int, source: SourceKind) -> str | None:
-    """Why a new appearance alert on this source may surprise the project, or None."""
-    from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
-
-    return appearance_alerts.create_warning(team_id, source)

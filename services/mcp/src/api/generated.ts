@@ -81062,7 +81062,6 @@ export namespace Schemas {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
-     * * `error_tracking` - Error tracking
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -81074,7 +81073,6 @@ export namespace Schemas {
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
       Traces: 'traces',
-      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -81198,8 +81196,7 @@ export namespace Schemas {
        * * `warehouse_source` - Warehouse source
        * * `warehouse_destination` - Warehouse destination
        * * `metrics` - Metrics
-       * * `traces` - Traces
-       * * `error_tracking` - Error tracking */
+       * * `traces` - Traces */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** How the alert's checks decide. threshold compares a value with a bound. appearance announces each new, or returning, identity once, such as a new log pattern.
        *
@@ -146977,7 +146974,6 @@ export namespace Schemas {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
-     * * `error_tracking` - Error tracking
      * @minLength 1
      */
     source_kind?: PlatformAlertsListSourceKind;
@@ -146993,7 +146989,6 @@ export namespace Schemas {
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
       Traces: 'traces',
-      ErrorTracking: 'error_tracking',
     } as const;
 
     export type PlatformAlertsEventsListParams = {

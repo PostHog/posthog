@@ -15,7 +15,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertKind
-from products.alerts_platform.backend.logic import alert_destinations, platform_writes, source_configs
+from products.alerts_platform.backend.logic import alert_destinations, platform_writes
 
 
 def create_appearance_alert(
@@ -49,10 +49,3 @@ def create_appearance_alert(
             team_id=team_id, configuration_id=view.id, destinations=destinations
         )
     return view
-
-
-def create_warning(team_id: int, source: SourceKind) -> str | None:
-    spec = source_configs.spec(source, PlatformAlertKind.APPEARANCE)
-    if spec is None or spec.create_warning is None:
-        return None
-    return spec.create_warning(team_id)
