@@ -104,6 +104,7 @@ class TestTaskDigestDelivery(BaseTest):
 
     def test_workflows_timeout_retries_and_a_reused_key_counts_as_sent(self) -> None:
         queued: dict[str, Any] = {}
+        reused_keys: list[str] = []
 
         def send_api(_url: str, *, headers: dict[str, str], json: dict[str, Any], **_kwargs: Any) -> MagicMock:
             key = headers["Idempotency-Key"]
@@ -112,6 +113,7 @@ class TestTaskDigestDelivery(BaseTest):
                 queued[key] = json
                 raise requests.Timeout("no response")
             if queued[key] != json:
+                reused_keys.append(key)
                 return MagicMock(
                     status_code=422, text="reused", json=MagicMock(return_value={"code": "idempotency_key_reused"})
                 )
@@ -132,6 +134,7 @@ class TestTaskDigestDelivery(BaseTest):
             )
             deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
 
+        assert len(reused_keys) == 1
         assert len(mail.outbox) == 0
         record = MessagingRecord.objects.get(campaign_key=self.campaign_key)
         assert record.sent_at is not None

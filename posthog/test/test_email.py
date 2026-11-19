@@ -1,6 +1,7 @@
 import hashlib
 import smtplib
 import datetime
+import traceback
 import contextlib
 import dataclasses
 from decimal import Decimal
@@ -690,7 +691,7 @@ class TestEmail(BaseTest):
             with self.assertRaises(WorkflowsEmailError) as raised:
                 message.send(send_async=False, retry=False)
 
-        self.assertNotIn("phs_secret_value", str(raised.exception))
+        self.assertNotIn("phs_secret_value", "".join(traceback.format_exception(raised.exception)))
 
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")

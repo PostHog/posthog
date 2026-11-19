@@ -329,9 +329,9 @@ def _queue_workflows_email(
     except requests.Timeout as err:
         raise WorkflowsEmailError(str(err), code="timeout") from err
     except requests.RequestException as err:
-        # Such as a body cut off after the headers arrived, so Workflows may have queued the email. The message is
-        # left out because some of these errors, such as InvalidHeader, quote the Authorization header.
-        raise WorkflowsEmailError(type(err).__name__, code="network_error") from err
+        # Such as a body cut off after the headers arrived, so Workflows may have queued the email. The message and the
+        # chained error are left out because some of these errors, such as InvalidHeader, quote the Authorization header.
+        raise WorkflowsEmailError(type(err).__name__, code="network_error") from None
 
     if response.status_code != 202:
         try:
