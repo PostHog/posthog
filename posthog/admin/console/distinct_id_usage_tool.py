@@ -224,7 +224,7 @@ class DistinctIdUsageTool(ConsoleTool):
     key = "distinct-id-usage"
     title = "Distinct ID usage"
     owner = INGESTION
-    group = "Data"
+    group = "Ingestion"
     description = "Finds distinct IDs and teams that send unusually many events, and restricts their ingestion."
 
     def page(self, request: HttpRequest) -> Page:

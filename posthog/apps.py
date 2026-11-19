@@ -54,6 +54,7 @@ class PostHogConfig(AppConfig):
         # ready() through an API module, even one that looks light today.
         import posthog.checks  # noqa: F401, PLC0415
         import posthog.request_log_signal_handlers  # noqa: F401, PLC0415
+        import posthog.workos_radar_signal_handlers  # noqa: F401, PLC0415
         import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
