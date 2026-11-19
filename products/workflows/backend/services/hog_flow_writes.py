@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional
@@ -23,6 +24,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     RECHECKED_TRIGGER_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
+    SANDBOX_EMAIL_ACTION_TYPE,
     HogFlow,
     exit_condition_that_runs,
 )
@@ -101,9 +103,17 @@ def trigger_has_audience(trigger: Optional[dict]) -> bool:
     return (trigger or {}).get("type") == "batch"
 
 
-def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime]) -> str:
+def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime], live_actions: Any) -> str:
     draft_stamp = draft_updated_at.isoformat() if draft_updated_at else ""
-    return f"{hog_flow_id}:{draft_stamp}"
+    # The preview warns when a publish moves steps onto the PostHog test sender, judged against the live
+    # steps it saw. A live write since then can turn that warning wrong, so the token covers those steps.
+    sandbox_ids = sorted(
+        str(action.get("id"))
+        for action in (live_actions if isinstance(live_actions, list) else [])
+        if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+    )
+    live_sandbox = hashlib.sha256(",".join(sandbox_ids).encode()).hexdigest()[:16]
+    return f"{hog_flow_id}:{draft_stamp}:{live_sandbox}"
 
 
 def _without_bytecode_contracts(node: Any) -> Any:
@@ -646,7 +656,9 @@ def publish_draft(
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if not locked.draft:
             raise WorkflowHasNoDraft()
-        if previewed_value != publish_confirm_value(hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at):
+        if previewed_value != publish_confirm_value(
+            hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at, live_actions=locked.actions
+        ):
             raise WorkflowStale()
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)

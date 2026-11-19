@@ -27,11 +27,15 @@ export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element
     const restriction =
         'This live workflow has email steps on the PostHog test sender. Those steps reach only verified members of your organization, and everyone else is skipped.'
 
-    if (hasOwnSender(integrations)) {
+    const ownSender = hasOwnSender(integrations)
+    // Until the senders load, the banner can't tell setup from a switch, so it offers neither.
+    if (ownSender !== false) {
         return (
             <div className="shrink-0" data-attr="workflow-sandbox-sender-banner">
                 <LemonBanner type="warning">
-                    {restriction} To reach your users, switch those steps to your verified sender.
+                    {ownSender
+                        ? `${restriction} To reach your users, switch those steps to your verified sender.`
+                        : restriction}
                 </LemonBanner>
             </div>
         )

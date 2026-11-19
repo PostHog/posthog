@@ -5393,7 +5393,9 @@ _PUBLISH_CONFIRM_SALT = "hogflow-publish"
 
 def mint_publish_confirm_token(hog_flow: WorkflowEditState) -> str:
     return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(
-        publish_confirm_value(hog_flow_id=hog_flow.id, draft_updated_at=hog_flow.draft_updated_at)
+        publish_confirm_value(
+            hog_flow_id=hog_flow.id, draft_updated_at=hog_flow.draft_updated_at, live_actions=hog_flow.actions
+        )
     )
 
 

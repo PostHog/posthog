@@ -701,12 +701,12 @@ describe('workflowLogic auto-save', () => {
                 useMocks(activeMocks(loadedWith('none')))
                 await mountEditor()
                 useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [500, { detail: 'Server error' }] } })
-                const errorToast = jest.spyOn(lemonToast, 'error')
+                showToasts()
                 await enableFromEditor()
 
-                expect(errorToast).toHaveBeenCalledWith(
-                    "Couldn't check this workflow's email steps. Refresh the page and try again."
-                )
+                expect(
+                    await toastShown("Couldn't check this workflow's email steps. Refresh the page and try again.")
+                ).toBe('error-toast')
                 expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
                 expect(patchBodies).toEqual([])
                 expect(logic.values.originalWorkflow?.status).toBe('draft')
@@ -715,18 +715,55 @@ describe('workflowLogic auto-save', () => {
             it('opens one dialog when Enable is clicked again while the check runs', async () => {
                 useMocks(activeMocks(loadedWith('live')))
                 await mountEditor()
-                const captureSpy = jest.spyOn(posthog, 'capture')
+                // Calls through, so the dialog still renders. Each dialog renders on its own root outside
+                // act(), so counting the rendered copies can miss the second one.
+                const opened = jest.spyOn(LemonDialog, 'open')
                 await expectLogic(logic, () => {
                     logic.actions.saveWorkflowPartial({ status: 'active' })
                     logic.actions.saveWorkflowPartial({ status: 'active' })
                 }).toFinishAllListeners()
 
                 expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
-                // Each dialog records the warning as it opens, before it renders.
-                const shown = captureSpy.mock.calls.filter(
-                    ([event]) => event === 'workflows sandbox sender enable warning shown'
+                expect(opened).toHaveBeenCalledTimes(1)
+                opened.mockRestore()
+            })
+
+            it('keeps a rename typed while the enable check runs', async () => {
+                const loaded = loadedWith('none')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markChecking: () => void = () => {}
+                const checking = new Promise<void>((resolve) => {
+                    markChecking = resolve
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/hog_flows/:id/': async () => {
+                            markChecking()
+                            await held
+                            return [200, loaded]
+                        },
+                    },
+                })
+
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                await checking
+                logic.actions.setWorkflowValue(
+                    'actions',
+                    renameExit(logic.values.workflow.actions, 'Renamed during check')
                 )
-                expect(shown).toHaveLength(1)
+                release()
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+                // The status write comes first; the kept rename saves after it.
+                expect(patchBodies[0]).toMatchObject({ status: 'active' })
+                expect(logic.values.workflow.actions.find((action) => action.id === 'exit_node')?.name).toBe(
+                    'Renamed during check'
+                )
             })
         })
 
@@ -1292,23 +1329,25 @@ describe('workflowLogic auto-save', () => {
                     },
                     post: {
                         [PUBLISH_URL]: recordPublish((body) => {
+                            // The server publishes only with the token its preview issued.
+                            if (body.confirm && body.confirm_token !== preview.confirm_token) {
+                                return [409, { detail: 'stale' }]
+                            }
                             published = !!body.confirm
                             return [200, { ...preview, published }]
                         }),
                     },
                 })
-                const successToast = jest.spyOn(lemonToast, 'success')
+                showToasts()
 
                 logic.actions.publishDraft()
-                expect(logic.values.draftActionPending).toBe('publish')
                 await userEvent.click(await screen.findByText('Publish'))
                 await waitFor(() => expect(screen.queryByText('Publish staged changes?')).toBeNull())
                 await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
                 expect(publishBodies).toEqual([{ confirm: false }, { confirm: true, confirm_token: 'preview-token' }])
-                expect(successToast).toHaveBeenCalledWith('Changes published')
+                expect(await toastShown('Changes published')).toBe('success-toast')
                 expect(logic.values.hasStagedDraft).toBe(false)
-                expect(logic.values.draftActionPending).toBeNull()
             })
 
             it.each([
@@ -1399,7 +1438,13 @@ describe('workflowLogic auto-save', () => {
                 async (_, previewDraft) => {
                     jest.mocked(LemonDialog.open).mockRestore()
                     useMocks({
-                        get: { '/api/projects/:team_id/hog_flows/:id/': { ...staged, draft_updated_at: NEWER_DRAFT } },
+                        get: {
+                            '/api/projects/:team_id/hog_flows/:id/': {
+                                ...staged,
+                                draft: { ...staged.draft, name: 'Edited in another tab' },
+                                draft_updated_at: NEWER_DRAFT,
+                            },
+                        },
                         post: {
                             [PUBLISH_URL]: recordPublish(() => [200, { ...preview, draft_updated_at: previewDraft }]),
                         },
@@ -1417,17 +1462,32 @@ describe('workflowLogic auto-save', () => {
                     ).toBe('warning-toast')
                     expect(screen.queryByText('Publish staged changes?')).toBeNull()
                     expect(publishBodies).toEqual([{ confirm: false }])
-                    expect(logic.values.originalWorkflow?.draft_updated_at).toBe(NEWER_DRAFT)
+                    expect(logic.values.workflow.name).toBe('Edited in another tab')
                 }
             )
 
-            it('keeps edits typed while publish loads and asks which version to keep', async () => {
+            it.each([
+                // The conflict banner then asks which version to keep.
+                [
+                    'the draft moved',
+                    NEWER_DRAFT,
+                    'The staged changes were edited somewhere else. Review them, then publish again.',
+                    true,
+                ],
+                [
+                    'nothing else changed',
+                    staged.draft_updated_at,
+                    'Save your changes first, then publish again.',
+                    false,
+                ],
+            ])('keeps edits typed while publish loads when %s', async (_, serverDraft, message, conflictBanner) => {
+                jest.mocked(LemonDialog.open).mockRestore()
                 let release: () => void = () => {}
                 const held = new Promise<void>((resolve) => {
                     release = resolve
                 })
                 useMocks({
-                    get: { '/api/projects/:team_id/hog_flows/:id/': { ...staged, draft_updated_at: NEWER_DRAFT } },
+                    get: { '/api/projects/:team_id/hog_flows/:id/': { ...staged, draft_updated_at: serverDraft } },
                     post: {
                         [PUBLISH_URL]: recordPublish(async () => {
                             await held
@@ -1435,40 +1495,17 @@ describe('workflowLogic auto-save', () => {
                         }),
                     },
                 })
+                showToasts()
 
                 logic.actions.publishDraft()
                 logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
                 release()
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(logic.values.externallyEdited).toBe(true)
+                expect(await toastShown(message)).toBe('warning-toast')
+                expect(screen.queryByText('Publish staged changes?')).toBeNull()
+                expect(logic.values.externallyEdited).toBe(conflictBanner)
                 expect(logic.values.workflow.name).toBe('Renamed while publishing')
-                expect(dialogs).toEqual([])
-            })
-
-            it.each([
-                ['the live steps change', { updated_at: '2026-05-01T00:09:00.000Z' }],
-                ['the workflow can no longer be read', null],
-            ])('publishes nothing when %s while the dialog is open', async (_, change) => {
-                jest.mocked(LemonDialog.open).mockRestore()
-                useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [200, preview]) }))
-                showToasts()
-                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
-                expect(await screen.findByText('Publish staged changes?')).toBeTruthy()
-
-                useMocks({
-                    get: {
-                        '/api/projects/:team_id/hog_flows/:id/': () =>
-                            change ? [200, { ...staged, ...change }] : [500, { detail: 'Server error' }],
-                    },
-                })
-                await userEvent.click(screen.getByText('Publish'))
-
-                expect(
-                    await toastShown('This workflow changed while you reviewed it. Review it, then publish again.')
-                ).toBe('warning-toast')
-                await expectLogic(logic).toFinishAllListeners()
-                expect(publishBodies).toEqual([{ confirm: false }])
             })
 
             it('opens one dialog when Publish is clicked again during the sender check', async () => {
@@ -1491,27 +1528,34 @@ describe('workflowLogic auto-save', () => {
                     post: { [PUBLISH_URL]: recordPublish(() => [200, preview]) },
                 })
 
+                jest.mocked(LemonDialog.open).mockRestore()
+
                 logic.actions.publishDraft()
                 await checking
                 logic.actions.publishDraft()
                 release()
                 await expectLogic(logic).toFinishAllListeners()
+                // Each dialog renders on its own root, so flush them all before counting.
+                await act(async () => {})
 
-                expect(dialogs.map((d) => d.title)).toEqual(['Publish staged changes?'])
+                expect(screen.getAllByText('Publish staged changes?')).toHaveLength(1)
                 expect(publishBodies).toEqual([{ confirm: false }])
             })
 
-            it("shows no publish dialog when the server's copy can't be read", async () => {
+            it("shows no publish dialog when the server's copy can't be read, and publishes on a retry", async () => {
+                jest.mocked(LemonDialog.open).mockRestore()
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [200, preview]) }))
                 useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [500, { detail: 'Server error' }] } })
-                const errorToast = jest.spyOn(lemonToast, 'error')
+                showToasts()
 
                 await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
 
-                expect(dialogs).toEqual([])
-                expect(errorToast).toHaveBeenCalledWith('Could not load the publish preview. Please try again.')
-                expect(publishBodies).toEqual([{ confirm: false }])
-                expect(logic.values.draftActionPending).toBeNull()
+                expect(await toastShown('Could not load the publish preview. Please try again.')).toBe('error-toast')
+                expect(screen.queryByText('Publish staged changes?')).toBeNull()
+
+                useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': staged } })
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                expect(await screen.findByText('Publish staged changes?')).toBeTruthy()
             })
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {

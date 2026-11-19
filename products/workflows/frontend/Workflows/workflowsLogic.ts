@@ -378,7 +378,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             },
         ],
     })),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         workflows: [
             { results: [], count: 0 } as WorkflowsResult,
             {
@@ -393,8 +393,19 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     const status = workflow.status === 'active' ? 'draft' : 'active'
                     let baseUpdatedAt = checkedUpdatedAt
                     if (status === 'active' && !sandboxSenderConfirmed) {
-                        // The row can be older than the server's steps, so the check reads the server's copy.
-                        const live = await fetchStoredWorkflow(workflow.id)
+                        // A second Enable while the check below runs would open a second dialog.
+                        cache.checkingSenderIds ??= new Set<string>()
+                        if (cache.checkingSenderIds.has(workflow.id)) {
+                            return values.workflows
+                        }
+                        cache.checkingSenderIds.add(workflow.id)
+                        let live
+                        try {
+                            // The row can be older than the server's steps, so the check reads the server's copy.
+                            live = await fetchStoredWorkflow(workflow.id)
+                        } finally {
+                            cache.checkingSenderIds.delete(workflow.id)
+                        }
                         if (!live) {
                             lemonToast.error(
                                 "Couldn't check this workflow's email steps. Refresh the page and try again."

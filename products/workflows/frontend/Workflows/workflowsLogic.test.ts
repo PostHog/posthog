@@ -1,8 +1,9 @@
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -143,7 +144,7 @@ describe('workflowsLogic', () => {
         const useListMocks = (
             status = 200,
             response: unknown = { deleted: 1 },
-            stored: HogFlow | null = { ...workflow('draft'), updated_at: STORED_AT }
+            stored: HogFlow | null = { ...workflow('draft'), actions: [], updated_at: STORED_AT }
         ): void =>
             useMocks({
                 get: {
@@ -160,6 +161,12 @@ describe('workflowsLogic', () => {
                 post: { [LIST_URL]: record(status, response), [`${LIST_URL}bulk_delete/`]: record(status, response) },
                 delete: { [DETAIL_URL]: record(status === 200 ? 204 : status, status === 200 ? null : response) },
             })
+        const showToasts = (): void => {
+            lemonToast.dismiss()
+            render(createElement(jest.requireActual('react-toastify').ToastContainer))
+        }
+        const toastShown = async (message: string): Promise<string | null | undefined> =>
+            (await screen.findByText(message)).closest('[data-attr$="-toast"]')?.getAttribute('data-attr')
         const confirm = (title: string): void => {
             const onClick = dialogs.find((d) => d.title === title)?.primaryButton?.onClick
             if (!onClick) {
@@ -389,30 +396,94 @@ describe('workflowsLogic', () => {
             expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to, ...fence } }])
         })
 
-        it("enables nothing when the server's copy can't be read", async () => {
-            useListMocks(200, { deleted: 1 }, null)
-            const errorToast = jest.spyOn(lemonToast, 'error')
+        it.each([
+            ['fails', null],
+            // A response without steps would read as "no test sender steps" and skip the warning.
+            ['has no steps', {} as HogFlow],
+        ])("enables nothing when the server's copy %s", async (_, stored) => {
+            useListMocks(200, { deleted: 1 }, stored)
+            showToasts()
             await toggleFromList(withEmail('draft', 'function_email'))
 
-            expect(errorToast).toHaveBeenCalledWith(
-                "Couldn't check this workflow's email steps. Refresh the page and try again."
-            )
+            expect(
+                await toastShown("Couldn't check this workflow's email steps. Refresh the page and try again.")
+            ).toBe('error-toast')
             expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
             expect(writes).toEqual([])
         })
 
-        it('reloads instead of enabling when the steps changed after the check', async () => {
-            useListMocks(409, { detail: 'This workflow was updated elsewhere' }, withEmail('draft', 'function_email'))
-            const warningToast = jest.spyOn(lemonToast, 'warning')
+        it('opens one dialog when Enable is chosen again while the check runs', async () => {
+            const row = withEmail('draft', 'email_sandbox')
+            useListMocks(200, { deleted: 1 }, row)
+            let release: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            let markChecking: () => void = () => {}
+            const checking = new Promise<void>((resolve) => {
+                markChecking = resolve
+            })
+            useMocks({
+                get: {
+                    [DETAIL_URL]: async () => {
+                        markChecking()
+                        await held
+                        return [200, row]
+                    },
+                },
+            })
+            jest.mocked(LemonDialog.open).mockRestore()
+
+            logic.actions.toggleWorkflowStatus(row)
+            await checking
+            logic.actions.toggleWorkflowStatus(row)
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+            // Each dialog renders on its own root, so flush them all before counting.
+            await act(async () => {})
+
+            expect(screen.getAllByText(ENABLE_DIALOG)).toHaveLength(1)
+        })
+
+        it('keeps a draft off when another tab moves it to the test sender after the check', async () => {
+            let stored = withEmail('draft', 'function_email')
+            useListMocks()
+            useMocks({
+                get: {
+                    [DETAIL_URL]: () => {
+                        const checked = stored
+                        // Another tab saves right after this page's check reads the steps.
+                        stored = {
+                            ...withEmail('draft', 'email_sandbox'),
+                            updated_at: '2026-05-01T00:05:00.000Z',
+                        } as HogFlow
+                        return [200, checked]
+                    },
+                },
+                patch: {
+                    // The server's revision check: a write based on an older copy is refused.
+                    [DETAIL_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        writes.push({ method: 'PATCH', path: 'flow-1/', body })
+                        if (body.base_updated_at !== stored.updated_at) {
+                            return [409, { detail: 'This workflow was updated elsewhere' }]
+                        }
+                        stored = { ...stored, status: body.status }
+                        return [200, stored]
+                    },
+                },
+            })
+            showToasts()
             await toggleFromList(withEmail('draft', 'function_email'))
             await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess']).toFinishAllListeners()
 
+            expect(await toastShown('This workflow was edited somewhere else. Review it, then enable it again.')).toBe(
+                'warning-toast'
+            )
             expect(writes).toEqual([
                 { method: 'PATCH', path: 'flow-1/', body: { status: 'active', base_updated_at: STORED_AT } },
             ])
-            expect(warningToast).toHaveBeenCalledWith(
-                'This workflow was edited somewhere else. Review it, then enable it again.'
-            )
+            expect(stored.status).toBe('draft')
         })
 
         it('duplicates a workflow as a draft copy and reloads the list', async () => {

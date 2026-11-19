@@ -175,6 +175,15 @@ describe('email domain setup entry points', () => {
         expect(document.querySelector('[data-attr="workflow-sandbox-sender-set-up-domain"]')).toBeNull()
     })
 
+    it("offers no setup from the live workflow banner while the senders can't be read", async () => {
+        backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
+        useMocks({ get: { '/api/environments/:team_id/integrations/': () => [500, { detail: 'Server error' }] } })
+        await renderInApp(liveWorkflowBanner)
+
+        expect(await screen.findByText(/everyone else is skipped/)).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="workflow-sandbox-sender-set-up-domain"]')).toBeNull()
+    })
+
     it('starts from the broadcast sender modal', async () => {
         const onComplete = jest.fn()
         await renderInApp(<EmailSetupModal entry="broadcast" onClose={jest.fn()} onComplete={onComplete} />)

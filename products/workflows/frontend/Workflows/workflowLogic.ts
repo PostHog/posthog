@@ -4876,6 +4876,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 reloadAfterExternalEdit()
                 return
             }
+            // Publish reloads the workflow, which would drop edits typed while the requests ran.
+            if (values.hasUnsavedChanges) {
+                lemonToast.warning('Save your changes first, then publish again.')
+                return
+            }
             const movesToSandboxSender = publishMovesStepsToSandboxSender(stored)
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
@@ -4884,32 +4889,18 @@ export const workflowLogic = kea<workflowLogicType>([
                     surface: 'publish',
                 })
             }
-            const reviewed = stored
             // The dialog stays clickable while it animates closed, and a second click would publish twice.
+            // A live change since the preview fails the confirm, because the token covers the live steps.
             let confirmed = false
             openPublishConfirmDialog({
                 impact: preview.impact,
                 inFlightRuns: preview.in_flight_runs,
                 movesToSandboxSender,
-                onConfirm: async () => {
+                onConfirm: () => {
                     if (confirmed) {
                         return
                     }
                     confirmed = true
-                    // The token fences only the draft. An API write can change the live steps while the
-                    // dialog is open, and then the warning the user confirmed no longer describes this publish.
-                    const latest = await fetchStoredWorkflow(reviewed.id)
-                    if (
-                        !latest ||
-                        !dayjs(latest.updated_at).isSame(reviewed.updated_at) ||
-                        !dayjs(latest.draft_updated_at ?? undefined).isSame(previewDraft)
-                    ) {
-                        lemonToast.warning(
-                            'This workflow changed while you reviewed it. Review it, then publish again.'
-                        )
-                        reloadAfterExternalEdit()
-                        return
-                    }
                     if (movesToSandboxSender) {
                         posthog.capture('workflows sandbox sender enabled anyway', {
                             workflow_id: props.id,
@@ -5051,8 +5042,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
                 if (isLiveOnSandboxSender({ ...live, status: 'active' })) {
                     confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
-                    return
+                } else {
+                    // The form may have changed while the check ran, so the save starts again from it.
+                    actions.saveWorkflowPartial(workflow, true)
                 }
+                return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.

@@ -618,6 +618,31 @@ class TestHogFlowDraftPublish(APIBaseTest):
         entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
         assert entry is not None and entry.activity == "published"
 
+    @parameterized.expand(
+        [
+            # The preview's test sender warning was judged against the live steps, so moving one invalidates it.
+            ("live_step_moved_onto_the_test_sender", "email_sandbox", 409),
+            ("live_step_edited_on_its_own_sender", "function", 200),
+        ]
+    )
+    def test_publish_after_a_live_write_since_the_preview(self, _name, live_type, expected_status):
+        flow_id = self._create_active_flow()
+        self._stage_draft(flow_id)
+        confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
+        # A raw API save on an active workflow writes the live steps directly and leaves the draft alone.
+        flow = HogFlow.objects.get(id=flow_id)
+        live = [
+            {**action, "type": live_type, "name": "Changed live"} if action["id"] == "action_1" else action
+            for action in flow.actions
+        ]
+        HogFlow.objects.filter(id=flow_id).update(actions=live)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": confirm_token},
+        )
+        assert response.status_code == expected_status, response.json()
+
     def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)

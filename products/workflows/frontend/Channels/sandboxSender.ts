@@ -21,7 +21,9 @@ export function isLiveOnSandboxSender(workflow: Pick<HogFlow, 'status' | 'action
 // caller stops rather than check that.
 export async function fetchStoredWorkflow(id: string): Promise<HogFlow | null> {
     try {
-        return (await hogFlowsRetrieve(String(ApiConfig.getCurrentTeamId()), id)) as unknown as HogFlow
+        const stored = (await hogFlowsRetrieve(String(ApiConfig.getCurrentTeamId()), id)) as unknown as HogFlow
+        // A response without steps or a stamp would read as "no test sender steps" and skip the warning.
+        return Array.isArray(stored?.actions) && typeof stored.updated_at === 'string' ? stored : null
     } catch {
         return null
     }
