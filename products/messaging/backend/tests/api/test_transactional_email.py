@@ -2284,6 +2284,21 @@ class TestTransactionalEmail(APIBaseTest):
             (self.team.id, "send_email" if route == "code" else "template", "rejected", "content_too_large", None, None)
         ]
 
+    @parameterized.expand(
+        [
+            ("a_cut_off_body", '{"to": "user@example.com", "template_key": '),
+            ("bytes_that_are_not_utf_8", b'{"to": "user@example.com", "template_key": "\xff"}'),
+        ]
+    )
+    def test_a_send_refuses_a_body_that_is_not_json(self, mock_post, _flag, _capture, _name, body: str | bytes):
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, body, content_type="application/json"
+            )
+
+        assert (response.status_code, response.json()["code"]) == (status.HTTP_400_BAD_REQUEST, "parse_error")
+        assert cdp.received == []
+
     def test_a_body_over_the_request_cap_from_a_key_of_another_project_is_denied(self, mock_post, _flag, capture):
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         over_the_cap = "x" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1)
