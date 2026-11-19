@@ -84,10 +84,10 @@ class _Reads:
         self._deadline = time.monotonic() + _READ_DEADLINE_SECONDS
         self._futures: list[Future[Any]] = []
 
-    def submit(self, fetch: Callable[..., Any], *args: Any) -> Future[Any]:
+    def submit(self, fetch: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:
         # A pool thread starts with an empty context. Each read runs in its own copy of the caller's,
         # so its log lines keep the caller's bound fields, and one copy never runs in two threads.
-        future = _READ_POOL.submit(contextvars.copy_context().run, fetch, *args)
+        future = _READ_POOL.submit(contextvars.copy_context().run, fetch, *args, **kwargs)
         self._futures.append(future)
         return future
 
@@ -152,7 +152,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         if not author:
             raise _Unknown("no_author")
         # The review passes the same login, so the engine runs every gate for a bot the policy admits.
-        admission = admitted_bot_author(repo_config, pr)
+        admission = reads.result(reads.submit(admitted_bot_author, repo_config, pr, client=client))
         base_sha = (pr.get("base") or {}).get("sha") or ""
         # An object-form attestation proves one merge base, so a deny lift needs the PR's own.
         merge_base_future = reads.submit(client.get_merge_base_sha, repo, base_sha, head_sha)

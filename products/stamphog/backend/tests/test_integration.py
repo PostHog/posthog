@@ -18,6 +18,7 @@ from celery.exceptions import Retry
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
@@ -965,6 +966,9 @@ def test_the_approval_gate_check_answers_with_the_engine_pre_check(
 
     assert answer == scenario.expect
     assert recorder.github_writes == []
+    # No read can start without the installation token, so only its mint may skip the sheddable lane.
+    read_lanes = {priority for path, priority in recorder.request_priorities if not path.endswith("/access_tokens")}
+    assert read_lanes <= {Priority.BATCH}
 
 
 @pytest.mark.parametrize("teardown", ["raises", "hangs"])

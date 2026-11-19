@@ -158,7 +158,8 @@ def fetch_folder_policy_files(
             client.installation_token(),
             installation_id=client.installation_id,
             refresh=client.refresh_installation_token,
-            priority=Priority.NORMAL,
+            # The fetcher sends its own requests, so it follows the client's lane when the caller set one.
+            priority=client.lane or Priority.NORMAL,
         )
         exists = fetcher.files_exist(repo, head_sha, candidates, deadline)
         found: dict[str, str] = {}

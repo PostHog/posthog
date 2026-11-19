@@ -201,6 +201,8 @@ class GitHubRecorder:
         self.compare_files: list[dict] = []
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
         self.shed_batch = False
+        # (path, priority) of every request, in order, so a test can check the egress lane of each read.
+        self.request_priorities: list[tuple[str, Priority | None]] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -242,6 +244,7 @@ class GitHubRecorder:
         path = url[len(_API_PREFIX) :] if url.startswith(_API_PREFIX) else url
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
+        self.request_priorities.append((path, kwargs.get("priority")))
 
         if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
             raise GitHubEgressBudgetExhausted("the installation budget is spent")
