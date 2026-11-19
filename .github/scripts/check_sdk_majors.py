@@ -262,13 +262,12 @@ def check_node(root: Path) -> list[str]:
             )
     for _prefix, workspace_file, lock in NPM_WORKSPACES:
         catalog = pnpm_catalog(root / workspace_file)
+        lock_text = (root / lock).read_text(encoding="utf-8")
         for package in NPM_SDKS:
             if package in catalog and not npm_pinned_to(catalog[package], EXPECTED_MAJORS[package]):
                 problems.append(
                     f"{workspace_file} catalog: {package} is {catalog[package]!r}, expected major {EXPECTED_MAJORS[package]}"
                 )
-        lock_text = (root / lock).read_text(encoding="utf-8")
-        for package in NPM_SDKS:
             resolved = pnpm_lock_majors(lock_text, package)
             if resolved and resolved != {EXPECTED_MAJORS[package]}:
                 problems.append(
