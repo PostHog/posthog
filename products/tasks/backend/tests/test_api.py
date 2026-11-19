@@ -8759,18 +8759,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
         system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
-        pending_external_followups = [
-            {
-                "message": "server queued message",
-                "artifact_ids": [],
-                "source": "user",
-                "actor_user_id": self.user.id,
-                "message_id": "server-message",
-                "context": {},
-                "steer": False,
-                "sequence": 0,
-            }
-        ]
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -8811,11 +8799,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "handoff_resume_idle": False,
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
-                "pending_external_followups": pending_external_followups,
-                "pending_external_followups_generation": 7,
-                "task_management_ci_idle_skips": 1,
-                "task_management_ci_wait_checks": 10,
-                "pending_external_followups_checkpoint": {"generation": 8},
                 "sandbox_gone": False,
                 "ai_stage": "research",
                 "ai_agent_name": "signals-scout-errors",
@@ -8895,17 +8878,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "handoff_resume_idle": True,
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
-                    "pending_external_followups": [
-                        {
-                            "message": "attacker message",
-                            "actor_user_id": credential_target.id,
-                            "context": {"interaction_origin": "slack"},
-                        }
-                    ],
-                    "pending_external_followups_generation": 999,
-                    "task_management_ci_idle_skips": 0,
-                    "task_management_ci_wait_checks": 0,
-                    "pending_external_followups_checkpoint": {"generation": 99},
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
@@ -8984,11 +8956,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["ai_agent_name"] == "signals-scout-errors"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
-        assert run.state["pending_external_followups"] == pending_external_followups
-        assert run.state["pending_external_followups_generation"] == 7
-        assert run.state["task_management_ci_idle_skips"] == 1
-        assert run.state["task_management_ci_wait_checks"] == 10
-        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
         assert "stopped_before_turn_closed" not in run.state
@@ -9059,11 +9026,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "handoff_resume_idle",
                     "workflow_id",
                     "pending_dispatch",
-                    "pending_external_followups",
-                    "pending_external_followups_generation",
-                    "task_management_ci_idle_skips",
-                    "task_management_ci_wait_checks",
-                    "pending_external_followups_checkpoint",
                     "sandbox_gone",
                     "runtime_adapter",
                     "provider",
@@ -9113,11 +9075,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["handoff_resume_idle"] is False
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
-        assert run.state["pending_external_followups"] == pending_external_followups
-        assert run.state["pending_external_followups_generation"] == 7
-        assert run.state["task_management_ci_idle_skips"] == 1
-        assert run.state["task_management_ci_wait_checks"] == 10
-        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
@@ -9159,9 +9116,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "systemPrompt": "Caller-controlled instructions",
                     "scout_trial": {"version": 2},
                     "scout_trial_private": {"reports": {}},
-                    "task_management_ci_idle_skips": 0,
-                    "task_management_ci_wait_checks": 0,
-                    "pending_external_followups_checkpoint": {"generation": 99},
                     "slack_actor_slack_user_id": ["U_OTHER_ACTOR"],
                     "scratch": "ok",
                 }
@@ -9178,9 +9132,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["scratch"] == ["ok"]
         assert run.state["include_live_context"] is False
-        assert run.state["task_management_ci_idle_skips"] == 1
-        assert run.state["task_management_ci_wait_checks"] == 10
-        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["agent_egress_probe"] == egress_probe
 
@@ -19385,15 +19336,17 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
             [str(image.id)] if images_listed else [],
         )
 
-    def test_create_spawns_linked_builder_task_with_vm_override(self):
+    @parameterized.expand([("repository_omitted", {}), ("repository_blank", {"repository": ""})])
+    def test_create_spawns_linked_builder_task_with_vm_override(self, _name, repository_payload):
         response = self.client.post(
             self.base_url,
-            {"name": "ML tools", "description": "install pytorch and flox"},
+            {"name": "ML tools", "description": "install pytorch and flox", **repository_payload},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["status"], "draft")
+        self.assertEqual(SandboxCustomImage.objects.for_team(self.team.id).get(id=data["id"]).repository, "")
         self.assertIsNotNone(data["builder_task_id"])
 
         task = Task.objects.get(id=data["builder_task_id"])

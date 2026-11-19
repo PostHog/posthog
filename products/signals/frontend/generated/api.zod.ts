@@ -1446,6 +1446,22 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdateBodyRepositoryMax = 140
+
+export const SignalsReportsRepositoryUpdateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsRepositoryUpdateBodyRepositoryMax)
+        .describe(
+            "Repository the report's work targets, in 'owner\/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it."
+        ),
+})
+
+/**
  * Apply a human reviewer edit, including on reports without a reviewer artefact.
  * @summary Set a report's suggested reviewers
  */
@@ -4675,6 +4691,18 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `remember`.')
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.

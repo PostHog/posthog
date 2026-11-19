@@ -12,6 +12,8 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.user import User
@@ -224,6 +226,11 @@ def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.Error
     ]
 
 
+def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
+    """The issue tag keys whose rows a member with these property restrictions may read, or None for every key."""
+    return issue_tag_enabled.readable_issue_tag_keys(team_id, restrictions)
+
+
 def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
     issues_page = select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page)
     references = [reference for issue in issues_page.results for reference in issue.external_issues.all()]
@@ -265,6 +272,7 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ai_issue_summaries_enabled=settings.ai_issue_summaries_enabled,
         ingestion_enabled=ingestion_enabled,
     )
 

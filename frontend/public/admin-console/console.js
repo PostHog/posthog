@@ -163,3 +163,56 @@ async function refreshLiveBlock(element, failures) {
 for (const element of document.querySelectorAll('[data-console-live]')) {
     scheduleLiveRefresh(element, 0)
 }
+
+const toolFilter = document.querySelector('[data-tool-filter]')
+if (toolFilter instanceof HTMLInputElement) {
+    const groups = [...document.querySelectorAll('[data-tool-group]')]
+    const renderedOpen = new Map(groups.map((group) => [group, group.open]))
+    const emptyNote = document.querySelector('[data-tool-filter-empty]')
+    toolFilter.hidden = false
+    const applyFilter = () => {
+        const query = toolFilter.value.trim().toLowerCase()
+        let matches = 0
+        for (const group of groups) {
+            let groupMatches = 0
+            for (const item of group.querySelectorAll('[data-tool-title]')) {
+                const match = !query || item.dataset.toolTitle.includes(query)
+                item.hidden = !match
+                groupMatches += match ? 1 : 0
+            }
+            group.parentElement.hidden = groupMatches === 0
+            const count = group.querySelector('[data-tool-count]')
+            if (count) {
+                count.textContent = String(groupMatches)
+            }
+            group.open = query ? groupMatches > 0 : renderedOpen.get(group)
+            matches += groupMatches
+        }
+        if (emptyNote) {
+            emptyNote.hidden = matches > 0
+        }
+    }
+    toolFilter.addEventListener('input', applyFilter)
+    toolFilter.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && toolFilter.value) {
+            toolFilter.value = ''
+            applyFilter()
+        } else if (event.key === 'Enter' && toolFilter.value.trim()) {
+            const first = document.querySelector('[data-tool-group][open] [data-tool-title]:not([hidden]) a')
+            if (first instanceof HTMLAnchorElement) {
+                event.preventDefault()
+                first.click()
+            }
+        }
+    })
+}
+
+// The sidebar scrolls on its own, so the current tool can sit below its fold. Scroll the sidebar, not the page.
+const navScroller = document.querySelector('[data-nav-scroller]')
+const currentNavLink = navScroller?.querySelector('[aria-current="page"]')
+if (navScroller instanceof HTMLElement && currentNavLink instanceof HTMLElement) {
+    const linkBottom = currentNavLink.offsetTop + currentNavLink.offsetHeight
+    if (linkBottom > navScroller.clientHeight) {
+        navScroller.scrollTop = linkBottom - navScroller.clientHeight / 2
+    }
+}

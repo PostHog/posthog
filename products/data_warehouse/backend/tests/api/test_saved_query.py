@@ -3768,6 +3768,53 @@ class TestSavedQueryRun(APIBaseTest):
         node.refresh_from_db()
         self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
+    @parameterized.expand(
+        [
+            ("trino_only_this_view", "trino", None),
+            ("trino_downstream", "trino", "downstream"),
+            ("clickhouse_downstream", "clickhouse", "downstream"),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_of_a_view_that_names_the_window_start_starts(
+        self, _name, engine, direction, mock_sync_connect, mock_eligible
+    ):
+        saved_query, _dag, _node = self._make_saved_query_with_node("windowed_view")
+        saved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, timestamp FROM events "
+            "WHERE timestamp >= ifNull({incremental_window_start}, toDateTime('1970-01-01'))",
+        }
+        saved_query.save()
+        mock_eligible.return_value = True
+        mock_client = self._trino_client()
+        mock_sync_connect.return_value = mock_client
+        body: dict[str, Any] = {"engine": engine}
+        if direction:
+            body["direction"] = direction
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/", body
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_of_a_view_that_no_longer_resolves_is_a_bad_request_not_a_denial(self, mock_sync_connect):
+        saved_query, _dag, _node = self._make_saved_query_with_node("broken_view")
+        saved_query.query = {"kind": "HogQLQuery", "query": "SELECT a_column_that_was_renamed FROM events"}
+        saved_query.save()
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/")
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("a_column_that_was_renamed", response.json()["detail"])
+        mock_client.start_workflow.assert_not_called()
+
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_on_trino_without_a_managed_warehouse_is_forbidden(self, mock_sync_connect, mock_eligible):

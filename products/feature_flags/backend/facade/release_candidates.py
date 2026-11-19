@@ -166,6 +166,34 @@ def list_release_catalog_flags(
     ], len(rows) > limit
 
 
+@dataclass(frozen=True)
+class ReleaseFlagLabel:
+    id: int
+    key: str
+    name: str
+
+
+def release_flag_labels(*, team_id: int, flag_ids: list[int]) -> dict[int, ReleaseFlagLabel]:
+    if not flag_ids:
+        return {}
+    rows = FeatureFlag.objects.filter(team_id=team_id, id__in=flag_ids, deleted=False).values_list("id", "key", "name")
+    return {flag_id: ReleaseFlagLabel(id=flag_id, key=key, name=name or "") for flag_id, key, name in rows}
+
+
+def release_flag_ids_matching(*, team_id: int, terms: list[str], limit: int) -> list[int]:
+    if not terms:
+        return []
+    query = Q()
+    for term in terms:
+        query |= Q(key__icontains=term) | Q(name__icontains=term)
+    return list(
+        FeatureFlag.objects.filter(team_id=team_id, deleted=False)
+        .filter(query)
+        .order_by("-created_at", "-id")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
 def on_active_flag_saved(handler: Callable[[int, int], None]) -> None:
     def receiver(sender: Any, instance: FeatureFlag, raw: bool = False, **kwargs: Any) -> None:
         if not raw and instance.active and not instance.deleted:

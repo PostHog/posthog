@@ -358,6 +358,7 @@ tools:
             false when ingestion drops every exception the project sends, and the project-wide and per-issue exception
             rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each
             `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set.
+            Also returns `ai_issue_summaries_enabled`, which is true when the project has turned on AI issue summaries.
             Read these before updating so you can preserve the fields you don't intend to change.
     error-tracking-settings-update:
         operation: error_tracking_settings_update_settings_partial_update
@@ -378,7 +379,10 @@ tools:
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it. Setting `ingestion_enabled` to false drops every exception the project sends,
             within about a minute, until it is set back to true. Only change it when the user explicitly asks to stop or
-            resume exception ingestion.
+            resume exception ingestion. Setting `ai_issue_summaries_enabled` to true makes PostHog write an AI summary
+            of each new issue, and each summary uses the organization's AI credits. Only change it when the user
+            explicitly asks to turn issue summaries on or off. Turning it on fails until the organization approves AI
+            data processing.
     error-tracking-severity-rules-create:
         operation: error_tracking_severity_rules_create
         enabled: true

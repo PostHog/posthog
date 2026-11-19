@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
@@ -867,6 +868,28 @@ describe('emailTemplaterLogic', () => {
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('keeps the editor open and says so when an edit fails to save on close', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            logic.actions.closeWithConfirmation()
+            await jest.advanceTimersByTimeAsync(0)
+            jest.useRealTimers()
+
+            expect(logic.values.isModalOpen).toBe(true)
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"))
+            toast.mockRestore()
         })
 
         it.each([

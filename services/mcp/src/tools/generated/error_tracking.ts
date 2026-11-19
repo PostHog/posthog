@@ -562,6 +562,9 @@ const errorTrackingSettingsUpdate = (): ToolBase<
         if (params.ingestion_enabled !== undefined) {
             body['ingestion_enabled'] = params.ingestion_enabled
         }
+        if (params.ai_issue_summaries_enabled !== undefined) {
+            body['ai_issue_summaries_enabled'] = params.ai_issue_summaries_enabled
+        }
         const result = await context.api.request<Schemas.ErrorTrackingSettings>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/update_settings/`,

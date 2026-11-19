@@ -347,6 +347,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.facade.api import (
             TRINO_INCREMENTAL_SCOPE,
             MissingDagNodeError,
+            assert_user_can_read_saved_query,
             clear_incremental_state,
             materialize_saved_query,
             raise_if_manual_run_is_refused,
@@ -397,6 +398,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         hidden_types=hidden_types,
                     )
             else:
+                # A run publishes the view's rows, so it needs the same read access to the sources as the paths above.
+                assert_user_can_read_saved_query(saved_query, cast(User, request.user))
                 # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
                 raise_if_manual_run_is_refused(self.team_id, saved_query.id, from_browser_session=from_browser_session)
                 if body.validated_data["full_refresh"]:

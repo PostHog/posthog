@@ -7,6 +7,7 @@ plain function a test can call without Temporal.
 import datetime as dt
 import contextlib
 import dataclasses
+from collections.abc import Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -356,7 +357,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
 
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
-SOURCE_EVALUATION_ACTIVITIES = [
+SOURCE_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     evaluate_logs_alerts_activity,
     take_logs_batch_slot_activity,
     evaluate_held_logs_batch_activity,
@@ -364,4 +365,4 @@ SOURCE_EVALUATION_ACTIVITIES = [
 ]
 # Registered on the platform delivery queue, beside the deliveries the evaluation starts.
 PLATFORM_SIGNAL_WORKFLOWS = [LogsPlatformAlertSignalsWorkflow]
-PLATFORM_SIGNAL_ACTIVITIES = [emit_platform_alert_signals_activity]
+PLATFORM_SIGNAL_ACTIVITIES: list[Callable[..., object]] = [emit_platform_alert_signals_activity]

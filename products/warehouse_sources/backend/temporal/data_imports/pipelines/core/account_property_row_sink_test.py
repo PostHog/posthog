@@ -356,6 +356,107 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_full_re
 
 
 @pytest.mark.asyncio
+async def test_stage_delta_snapshot_retries_a_second_race_against_the_fallback_read() -> None:
+    # The fallback re-read of "whatever is committed now" can itself lose the same vacuum/full-refresh
+    # race it was meant to recover from, if another materialize run lands before it completes. Before
+    # this test, a second consecutive race propagated unhandled out of stage_delta_snapshot instead of
+    # being retried like the first one, failing the whole staging activity attempt.
+    sink = _sink()
+    fresh_table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
+    fresh_output = pa.BufferOutputStream()
+    pq.write_table(fresh_table, fresh_output)
+
+    stale_delta_table = MagicMock()
+    stale_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/stale.parquet"]
+    raced_delta_table = MagicMock()
+    raced_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/raced.parquet"]
+    current_delta_table = MagicMock()
+    current_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/current.parquet"]
+
+    def _open_input_file(path):
+        if path in ("data-warehouse/dlt/stale.parquet", "data-warehouse/dlt/raced.parquet"):
+            raise OSError(2, f"Path does not exist '{path}'. Detail: [errno 2] No such file or directory")
+        return pa.BufferReader(fresh_output.getvalue())
+
+    filesystem = MagicMock()
+    filesystem.open_input_file.side_effect = _open_input_file
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()) as clear,
+        patch.object(sink, "stage_chunk", new=AsyncMock()) as stage_chunk,
+        patch.object(sink, "_get_fs", return_value=filesystem),
+        patch(
+            f"{_MODULE}.deltalake.DeltaTable",
+            side_effect=[stale_delta_table, raced_delta_table, current_delta_table],
+        ) as open_delta,
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+    ):
+        staged = await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    assert staged is True
+    assert clear.await_count == 3
+    assert cast(AsyncMock, sink.logger.awarning).await_count == 2
+    assert open_delta.call_args_list == [
+        call("s3://data-warehouse/dlt/table", version=7, storage_options={"region_name": "us-east-1"}),
+        call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
+        call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
+    ]
+    stage_chunk.assert_awaited_once()
+    assert stage_chunk.await_args is not None
+    assert stage_chunk.await_args.args[1].to_pydict() == fresh_table.to_pydict()
+
+
+@pytest.mark.asyncio
+async def test_stage_delta_snapshot_raises_after_exhausting_stale_version_retries() -> None:
+    # A race that keeps recurring on every retry (the view materializes faster than we can stage it)
+    # must still fail the activity attempt rather than retry forever.
+    sink = _sink()
+
+    def _open_input_file(path):
+        raise OSError(2, f"Path does not exist '{path}'. Detail: [errno 2] No such file or directory")
+
+    filesystem = MagicMock()
+    filesystem.open_input_file.side_effect = _open_input_file
+    delta_table = MagicMock()
+    delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/always_missing.parquet"]
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()) as clear,
+        patch.object(sink, "_get_fs", return_value=filesystem),
+        patch(f"{_MODULE}.deltalake.DeltaTable", return_value=delta_table),
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+    ):
+        with pytest.raises(OSError, match="Path does not exist"):
+            await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    assert clear.await_count == 3
+
+
+@pytest.mark.asyncio
 async def test_retry_clears_its_staged_files_and_sweeps_abandoned_jobs() -> None:
     sink = _sink()
     stale_file = f"{sink._get_binding_prefix()}/job-old/chunk.parquet"

@@ -2212,15 +2212,53 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def forget(self, request: Request, **kwargs) -> Response:
-        data = request.validated_data
+        return self._forget_key(request, request.validated_data["key"])
+
+    @validated_request(
+        request_serializer=ForgetRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=ForgetResponseSerializer, description="Whether a row was removed."),
+            403: OpenApiResponse(description="The caller lacks editor access to skills."),
+        },
+        summary="Delete a scratchpad entry by key",
+        description=(
+            "Delete one scout memory by its exact key, so no scout reads it again. Use this to prune "
+            "entries a skill change left stale. Returns `deleted=false` if no entry has that key. "
+            "Requires editor access to skills, because the scratchpad steers the scout agents."
+        ),
+        operation_id="signals_scout_scratchpad_discard",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="discard",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+        pagination_class=None,
+    )
+    def discard(self, request: Request, **kwargs) -> Response:
+        _assert_can_steer_scouts(
+            self,
+            "Deleting scout memories requires editor access to skills, since the scratchpad steers the scout agents.",
+        )
+        return self._forget_key(request, request.validated_data["key"])
+
+    def _forget_key(self, request: Request, key: str) -> Response:
         private = trial_store_for_request(request, _canonical_team_id(self))
         with trial_state_errors():
             removed = (
-                private.forget(key=data["key"])
-                if private is not None
-                else forget(team_id=_canonical_team_id(self), key=data["key"])
+                private.forget(key=key) if private is not None else forget(team_id=_canonical_team_id(self), key=key)
             )
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
+
+
+def _assert_can_steer_scouts(view: TeamAndOrgViewSetMixin, denial: str) -> None:
+    # Bound to the CANONICAL team: scouts read the parent project's rows, so a child-environment
+    # request must clear the parent's RBAC, mirroring `ScoutCanonicalTeamAccessPermission`.
+    # (`view.user_access_control` binds to the URL team, hence the explicit construction.)
+    canonical_team = view.team.parent_team or view.team
+    access = UserAccessControl(user=cast(User, view.request.user), team=canonical_team)
+    if not access.check_access_level_for_resource("llm_skill", "editor"):
+        raise exceptions.PermissionDenied(denial)
 
 
 class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -2257,19 +2295,10 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return None
 
     def _assert_can_steer_scouts(self) -> None:
-        # RBAC leg of the write gate: session callers (and key holders) must hold the same
-        # `llm_skill` editor level that editing a scout's skill body requires — a member an
-        # admin restricted from skill editing must not steer scouts through notes instead.
-        # Bind the check to the CANONICAL team: the note lands on (and is read by) the parent
-        # project's scouts, so a child-environment request must clear the parent's RBAC, not
-        # the child's — mirroring `ScoutCanonicalTeamAccessPermission` for the resource level.
-        # (`self.user_access_control` binds to the URL team, hence the explicit construction.)
-        canonical_team = self.team.parent_team or self.team
-        access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
-        if not access.check_access_level_for_resource("llm_skill", "editor"):
-            raise exceptions.PermissionDenied(
-                "Leaving or deleting scout notes requires editor access to skills, since notes steer the scout agents."
-            )
+        _assert_can_steer_scouts(
+            self,
+            "Leaving or deleting scout notes requires editor access to skills, since notes steer the scout agents.",
+        )
 
     def _report_to_note_on(self, request: Request, team_id: int, report_id: uuid.UUID | None) -> SignalReport | None:
         if report_id is None:

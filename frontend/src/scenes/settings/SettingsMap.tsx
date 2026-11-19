@@ -1,6 +1,7 @@
 import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
+import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -514,7 +515,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -538,7 +539,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -950,6 +951,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
+            },
+            {
+                id: 'error-tracking-ai-features',
+                title: 'AI features',
+                component: <AIFeaturesSettings />,
+                flag: 'ERROR_TRACKING_ISSUE_SUMMARIES',
+                keywords: ['ai', 'llm', 'summary', 'summaries', 'credits'],
             },
             {
                 id: 'error-tracking-auto-assignment',

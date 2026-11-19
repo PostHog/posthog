@@ -124,4 +124,68 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "deliverable_id": "Jellyfish id of the deliverable this history is for (added by PostHog when absent).",
         },
     },
+    "team_sprint_summary": {
+        "description": "Issue count and, when available, story points for each sprint of a team.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "team_id": "Jellyfish id of the team this row was exported for (added by PostHog when absent).",
+        },
+    },
+    "allocations_by_investment_category_person": {
+        "description": "R&D allocation (FTE effort) per investment category and person for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_by_investment_category_team": {
+        "description": "R&D allocation (FTE effort) per investment category and top-level team for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_summary_by_investment_category": {
+        "description": "Total FTE amounts per investment category for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_summary_by_work_category": {
+        "description": "Total FTE amounts per deliverable within each work category for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "ai_company_adoption_analytics": {
+        "description": "Per-tool AI adoption analytics for the whole company (cohort counts and average usage percentage) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "ai_company_impact_analytics": {
+        "description": "Per-tool AI impact analytics for the whole company (median issue and pull request cycle time, pull request throughput, AI adoption lines) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "ai_team_adoption_analytics": {
+        "description": "Per-tool AI adoption analytics per team (cohort counts and average usage percentage) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "team_id": "Jellyfish id of the team this row was exported for (added by PostHog when absent).",
+        },
+    },
+    "ai_team_impact_analytics": {
+        "description": "Per-tool AI impact analytics per team (median issue and pull request cycle time, pull request throughput) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "team_id": "Jellyfish id of the team this row was exported for (added by PostHog when absent).",
+        },
+    },
+    "ai_person_adoption": {
+        "description": "Per-tool AI adoption usage dates per engineer for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "person_id": "Jellyfish id of the engineer this row was exported for (added by PostHog when absent).",
+        },
+    },
 }

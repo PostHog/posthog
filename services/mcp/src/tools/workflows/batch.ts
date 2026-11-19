@@ -48,7 +48,8 @@ async function sizeAudience(
     return await context.api.request<BlastRadius>({
         method: 'POST',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/user_blast_radius/`,
-        body: { filters, sends_email: sendsEmail },
+        // The run tools check the user's acknowledged count against this, so it must not reuse a cached count.
+        body: { filters, sends_email: sendsEmail, refresh: true },
     })
 }
 

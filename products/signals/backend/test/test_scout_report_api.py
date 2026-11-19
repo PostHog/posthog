@@ -1782,13 +1782,15 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("inferred_target_follows_the_rewrite", None, "acme/gadgets"),
+            ("inferred_target_follows_the_rewrite", None, False, "acme/gadgets"),
             # A repo the scout named is a decision, not a reading of the prose, so a rewrite never moves it.
-            ("scout_named_target_is_not_overturned", "acme/widgets", "acme/widgets"),
+            ("scout_named_target_is_not_overturned", "acme/widgets", False, "acme/widgets"),
+            # A person's pick is stored manual-only like an inferred target, so only its author tells them apart.
+            ("person_picked_target_is_not_overturned", None, True, "acme/widgets"),
         ]
     )
     def test_content_rewrite_refreshes_only_an_inferred_repository(
-        self, _name: str, repository: str | None, expected: str
+        self, _name: str, repository: str | None, person_picked: bool, expected: str
     ) -> None:
         run = _make_run(self.team)
         payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
@@ -1800,6 +1802,15 @@ class TestScoutReportAPI(APIBaseTest):
             patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
         ):
             created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            if person_picked:
+                SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=created["report_id"],
+                    content=RepoSelectionResult(
+                        repository="acme/widgets", reason="Selected by the user.", autostart_eligible=False
+                    ),
+                    attribution=ArtefactAttribution.from_user(self.user.id),
+                )
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], "summary": "Actually https://github.com/acme/gadgets/pull/2"},

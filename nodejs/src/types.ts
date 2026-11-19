@@ -17,6 +17,7 @@ import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
+    KafkaMskCdpIntakeProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
     KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -109,6 +110,7 @@ export interface PluginsServerConfig
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
+        KafkaMskCdpIntakeProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
@@ -498,8 +500,6 @@ export interface BasePerson {
     is_user_id: number | null
     is_identified: boolean
     uuid: string
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
 }
 
 /** Raw Person row from database. */
@@ -519,8 +519,6 @@ export interface InternalPerson extends BasePerson {
 /** Mutable fields that can be updated on a Person via updatePerson. */
 export interface PersonUpdateFields {
     properties: Properties
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version

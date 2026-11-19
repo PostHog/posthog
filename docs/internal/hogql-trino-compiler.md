@@ -271,6 +271,8 @@ When an eligible organization's ClickHouse DAG run starts, it starts one `manage
 The shadow run has a fixed workflow id per DAG and cadence tier: `execute-dag-trino-{dag_id}:{tier}`, or `execute-dag-trino-{dag_id}` for runs outside a tier schedule.
 If the previous shadow run with that id is still running, the new one is skipped, so a slow Trino never builds a backlog.
 Shadow runs record their outcomes in managed warehouse job rows and metrics only: they run no data quality checks and send no failure notifications.
+A failed shadow run carries an `error_code` label on `data_modeling_node_finished`: the Trino compiler code, the Trino error name, `HTTP_<status>`, `DEADLINE_EXCEEDED`, or `other`.
+The run failure rate understates broken views, because a view stops running after five consecutive failures. Count views by the latest managed warehouse job row of each saved query.
 Preemption is scoped to the run's engine, so the ClickHouse and Trino runs of a tier never cancel each other's jobs.
 A Trino run never cancels a running build, because cancelling a Trino build does not stop its SQL. It only reaps job rows whose workflow has ended.
 Each Trino build of a node has a fixed workflow id, so Temporal starts at most one build of that node at a time. A run that reaches a node another run is building skips it and its Trino dependents.
@@ -398,6 +400,8 @@ Typed `JSONExtract` maps convert individual scalar values too, but retain keys
 and use the requested type's default for values that cannot be converted.
 `splitByChar`/`splitByString` support an optional maximum substring count with the
 ClickHouse default behavior of excluding the remaining suffix.
+`splitByString` with an empty separator returns one item per character, because Trino's `split` rejects an empty delimiter.
+ClickHouse returns one item per byte, so the results differ for text outside ASCII.
 
 `parseDateTimeBestEffort` supports ISO timestamps with explicit offsets, ordinary
 date/timestamp strings, day-abbreviated-month-two-digit-year strings, and 9–10 digit Unix-second strings. An optional timezone
@@ -440,6 +444,7 @@ Additional build-oriented mappings cover UTF-8 string aliases, URL encoding,
 array enumeration and predicates, supported hashes and domain extraction, UUID
 conversion, dynamic JSON paths, and scalar tuple membership. Numeric
 and UUID values are aligned with string branches in subqueries and set operations.
+A column that gets such a cast keeps its name, so an outer query can still read it from the set operation.
 Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
 casts that Trino rejects.
 String rewrites also cover byte-based `locate`, Unicode tokens, subsequences,

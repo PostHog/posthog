@@ -2352,6 +2352,133 @@ export interface ReportSourceSuggestionApi {
     reason: string
 }
 
+/**
+ * * `user` - User
+ * * `task` - Task
+ * * `agent` - Agent
+ * * `system` - System
+ */
+export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
+
+export const SignalActorKindEnumApi = {
+    User: 'user',
+    Task: 'task',
+    Agent: 'agent',
+    System: 'system',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export interface ReportDecisionSetByApi {
+    /** Who set the value. `user`: a person in PostHog. `agent`: a person's external coding agent. `task`: a PostHog agent task, such as report research. `system`: the pipeline, or an older row with no recorded attribution.
+     *
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System */
+    kind: SignalActorKindEnumApi
+    /** The person who set the value, or whose external agent did. Null for task and system writes. */
+    user: _UserApi | null
+    /**
+     * External agent client name when kind is `agent`, otherwise null.
+     * @nullable
+     */
+    agent: string | null
+    /**
+     * PostHog task that set the value when kind is `task`.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export interface ReportRepositoryDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /**
+     * 'owner/repo' the report's work targets. Null when repository selection chose no repository.
+     * @nullable
+     */
+    value: string | null
+}
+
+export interface ReportPriorityDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /** Report priority, from P0 (critical) to P4.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    value: AutonomyPriorityEnumApi | null
+}
+
+export interface ReportActionabilityDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /**
+     * `immediately_actionable`, `requires_human_input`, or `not_actionable`: whether the report can be acted on now, needs a person's input first, or needs no action.
+     * @nullable
+     */
+    value: string | null
+}
+
+export interface ReportAlreadyAddressedDecisionApi {
+    /**
+     * The reason stored with the value by whoever set it. Null when none was stored.
+     * @nullable
+     */
+    reason: string | null
+    /** Who set the current value. */
+    set_by: ReportDecisionSetByApi
+    /** When the current value was set. */
+    set_at: string
+    /**
+     * Whether the issue is already fixed, or has a fix in flight that someone else is working on.
+     * @nullable
+     */
+    value: boolean | null
+}
+
+export interface ReportDecisionsApi {
+    /** From the latest repo_selection artefact. Null when there is none. */
+    repository: ReportRepositoryDecisionApi | null
+    /** From the latest priority_judgment artefact. Null when there is none. */
+    priority: ReportPriorityDecisionApi | null
+    /** From the latest actionability_judgment artefact. Null when there is none. */
+    actionability: ReportActionabilityDecisionApi | null
+    /** From the latest actionability_judgment artefact, so it shares the reason and the setter with actionability. Null when there is none. */
+    already_addressed: ReportAlreadyAddressedDecisionApi | null
+}
+
 export type SignalReportSuppressionSourceEnumApi =
     (typeof SignalReportSuppressionSourceEnumApi)[keyof typeof SignalReportSuppressionSourceEnumApi]
 
@@ -2438,23 +2565,6 @@ export const SignalReportPullRequestReviewDecisionEnumApi = {
     ChangesRequested: 'changes_requested',
     ReviewRequired: 'review_required',
 } as const
-
-export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
-
-export const SignalActorKindEnumApi = {
-    User: 'user',
-    Task: 'task',
-    Agent: 'agent',
-    System: 'system',
-} as const
-
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
 
 export interface SignalReportPullRequestAttachedByApi {
     /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
@@ -2995,6 +3105,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+    readonly decisions: ReportDecisionsApi | null
     /**
      * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
      * @nullable
@@ -3638,6 +3750,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+    readonly decisions: ReportDecisionsApi | null
     /**
      * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
      * @nullable
@@ -4321,6 +4435,15 @@ export interface SignalReportReingestionStatusApi {
     status: SignalReportReingestionStatusStatusEnumApi
     /** Report being re-ingested. */
     report_id: string
+}
+
+export interface SignalReportRepositoryUpdateApi {
+    /**
+     * Repository the report's work targets, in 'owner/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it.
+     * @minLength 1
+     * @maxLength 140
+     */
+    repository: string
 }
 
 /**
@@ -13171,7 +13294,7 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -13279,6 +13402,10 @@ export type SignalsReportsListParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean
     /**
      * The initial index from which to return the results.
      */
@@ -13576,6 +13703,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.
      */
     include_unlisted?: boolean
+    /**
+     * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
+     */
+    needs_you?: boolean
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */

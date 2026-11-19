@@ -322,16 +322,23 @@ def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
 )
 @with_team_scope()
 def release_clean_quarantines(team_id: int, run_id: str) -> None:
-    """Lift the quarantines that a clean week of trusted runs covers, as the repo's mode says."""
+    """Lift the quarantines gone clean, then extend the ones that run out while their story still differs.
+
+    Both follow the repo's mode.
+    """
     from posthog.egress.github.transport import GitHubRateLimitError
 
-    from ..logic import auto_lift  # noqa: PLC0415 — avoids the logic/tasks circular import
+    from ..logic import auto_extend, auto_lift  # noqa: PLC0415 — avoids the logic/tasks circular import
 
     try:
         auto_lift.release_clean_quarantines(UUID(run_id))
     except GitHubRateLimitError:
         # Nothing retries: a later default-branch run checks the same quarantines again.
         logger.warning("visual_review.release_clean_quarantines_rate_limited", run_id=run_id, team_id=team_id)
+    try:
+        auto_extend.extend_differing_quarantines(UUID(run_id))
+    except GitHubRateLimitError:
+        logger.warning("visual_review.extend_differing_quarantines_rate_limited", run_id=run_id, team_id=team_id)
 
 
 @shared_task(

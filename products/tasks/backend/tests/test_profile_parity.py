@@ -26,7 +26,7 @@ from products.tasks.backend.presentation.views.api import (
 )
 from products.tasks.backend.temporal.oauth import _oauth_application_for_task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
+from products.tasks.backend.temporal.process_task.ai_gateway_token import mint_refusal, resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
     USER_AUTHORABLE_ORIGIN_PRODUCTS,
     get_pr_authorship_mode,
@@ -116,6 +116,22 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     def test_billing_product_matches_master(self, _key: str, profile: TaskProfile) -> None:
         master = resolve_sandbox_ai_product(profile.origin_product, None, internal=not profile.listed)
         self.assertEqual(profile.billing_product, master)
+
+    @parameterized.expand(
+        [(key, profile) for key, profile in PROFILES if profile.billing_product == "background_agents"]
+    )
+    def test_background_agents_profile_can_mint_a_gateway_token(self, _key: str, profile: TaskProfile) -> None:
+        refusal = mint_refusal(
+            profile.billing_product,
+            team_id=1,
+            state=None,
+            model=None,
+            runtime=None,
+            internal=not profile.listed,
+            origin_product=profile.origin_product,
+        )
+        self.assertIsNone(refusal)
+        self.assertIn(profile.origin_product, Task.SERVER_ONLY_ORIGIN_PRODUCTS)
 
     @parameterized.expand(PROFILES)
     def test_bills_compute_matches_master(self, _key: str, profile: TaskProfile) -> None:

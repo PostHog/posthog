@@ -59,6 +59,7 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
+    parse_clone_phases,
     parse_requested_sandbox_template,
     pinned_agent_version,
     redact_sandbox_command,
@@ -74,6 +75,7 @@ from products.tasks.backend.temporal.metrics import (
     increment_snapshot_usage,
     modal_sandbox_backend_label,
     record_network_enforcement,
+    record_repository_clone_phases_ms,
     record_sandbox_created,
     resume_mode_label,
     sandbox_runtime_label,
@@ -642,9 +644,6 @@ def _build_environment_variables(
     # agent-server launch (see the sandbox services) so backend maintenance execs don't source
     # a script that a resume snapshot could control. It's blocked (constants.py) so a
     # user-supplied env var can't add it here.
-
-    if settings.SANDBOX_LLM_GATEWAY_URL:
-        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
@@ -1292,6 +1291,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
+                baked_repo_clone=ctx.baked_repo_clone_enabled,
                 gitlab_token=input.gitlab_token,
             )
 
@@ -1307,6 +1307,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
+                    baked_repo_clone=ctx.baked_repo_clone_enabled,
                     gitlab_token=input.gitlab_token,
                 )
 
@@ -1377,6 +1378,15 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                         "lock_acquired": acquired,
                     },
                 )
+
+        clone_phases = parse_clone_phases(clone_result.stdout)
+        if clone_phases is not None:
+            record_repository_clone_phases_ms(
+                clone_phases.mode,
+                {"fetch": clone_phases.fetch_ms, "checkout": clone_phases.checkout_ms},
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            )
 
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
