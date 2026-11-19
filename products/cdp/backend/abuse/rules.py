@@ -24,6 +24,9 @@ from posthog.security.url_validation import canonicalize_host, internal_host_nam
 from products.cdp.backend.abuse.classifier import MAX_STATE_CHARS, HogFunctionContent
 from products.ml_inference.backend.facade.contracts import JsonValue
 
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
 
 class Rule(StrEnum):
     # A destination sends a request to our own network: an input value or a literal `fetch` URL names the host.
@@ -80,6 +83,9 @@ OUTBOUND_FUNCTIONS = INTERNAL_FUNCTIONS | {
 _NON_HOG_TEMPLATE_PREFIXES = ("plugin-", "segment-", "native-")
 
 _CALLBACK_FUNCTIONS = frozenset({"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce"})
+# The compiler declares locals of its own, such as `e` and `type` in a catch block, so a call is safe only when it names
+# a standard library function.
+_BUILTIN_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
 
 # Source that names none of these cannot match a rule that reads parsed Hog, so it is not parsed.
 _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "replaceAll"})))
@@ -303,7 +309,9 @@ class _HogCodeVisitor(TraversingVisitor):
         if self._is_local(node.name):
             self.calls_out = True
             return
-        self.calls_out |= node.params is not None or node.name in OUTBOUND_FUNCTIONS
+        self.calls_out |= (
+            node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS
+        )
         if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
             self.calls_out = True
         if node.name in INTERNAL_FUNCTIONS:
