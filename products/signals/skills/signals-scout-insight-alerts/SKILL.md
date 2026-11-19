@@ -82,7 +82,7 @@ While a firing lasts, an AI alert can send a new notification on every check ([#
 Write a scratchpad entry whenever a future run should change behavior. Encode the category in the key prefix; key per-alert entries on the **alert id** (stable across firings).
 
 - `pattern:insight_alerts:baseline` — "~{N} enabled alerts, ~{X} firing/day, mostly hourly; many owners. {timestamp}"
-- `dedupe:insight_alerts:{alert_id}` — "Surfaced firing of '{name}' (alert {alert_id}, insight {short_id}) on {date}, value {v} vs bound {b}, silent. If still Firing next run, edit the report; if resolved + notified, treat as covered."
+- `dedupe:insight_alerts:{alert_id}` — "Surfaced firing of '{name}' (alert {alert_id}, insight {short_id}) on {date}, value {v} vs bound {b}, silent. If still Firing next run, edit the report; if resolved + notified, treat as covered." Set `expires_at` about two weeks past the last firing you saw: a firing after that much quiet is a new episode.
 - `noise:insight_alerts:{alert_id}` — "flaps every few hours on a too-tight bound; the firing itself isn't signal. Only surface as a one-off tuning hygiene finding, never per-flap."
 - `addressed:insight_alerts:{alert_id}` / `allowlist:insight_alerts:{alert_id}` — team fixed / acked it, or owner deliberately keeps it low-priority — skip.
 - `report:insight_alerts:{alert_id}` — the `report_id` of a report you filed for a firing on this alert, so the next run edits it (`append_evidence` with the fresh firing) instead of duplicating.
