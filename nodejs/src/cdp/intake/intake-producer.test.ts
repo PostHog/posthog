@@ -142,6 +142,27 @@ describe('IntakeProducer', () => {
         expect(drained).toBe('fulfilled')
     })
 
+    it("settles a handle without waiting on another handle's publish", async () => {
+        jest.useFakeTimers()
+        const held: (() => void)[] = []
+        produce = () => new Promise<void>((ack) => held.push(ack))
+        const producer = new IntakeProducer(outputs())
+        const [waiting, done] = [new PublishSettlement(), new PublishSettlement()]
+        let drained: 'pending' | 'fulfilled' = 'pending'
+
+        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', waiting)
+        void producer.produce({ kind: 'transactional-email', invocation: invocation() }, 'async', done)
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+        void publishesSettled(waiting).then(() => (drained = 'fulfilled'))
+        held[1]()
+
+        await expect(publishesSettled(done)).resolves.toBeUndefined()
+        expect(drained).toBe('pending')
+        held[0]()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(drained).toBe('fulfilled')
+    })
+
     const everyTrapThrows: ProxyHandler<PublishSettlement> = {
         get: () => {
             throw new Error('trap')
