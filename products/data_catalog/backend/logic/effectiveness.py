@@ -851,7 +851,7 @@ async def measure_team(
             if not motive.failed and not motive.scheduled and not motive.unclear
         ]
         needs: list[CatalogNeed] = await gather_each(
-            (classify_motive(client, motive.motive) for _session, motive in kept), heartbeat
+            (classify_motive(client, motive) for _session, motive in kept), heartbeat
         )
         if kept and all(need.failed for need in needs):
             raise SessionReadsUnavailable(f"All {len(needs)} motive classifications failed.")

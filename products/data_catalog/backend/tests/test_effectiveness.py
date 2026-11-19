@@ -403,22 +403,44 @@ class TestConversationClassifier(SimpleTestCase):
         [
             (
                 "a_full_reply",
-                '{"motive": " Weekly signups. ", "scheduled": true, "unclear": false}',
-                MotiveReading(motive="Weekly signups.", scheduled=True),
+                '{"motive": " Weekly signups. ", "deliverable": "number", "scope": "all", '
+                '"given_definition": "a saved signups insight", "scheduled": true, "unclear": false}',
+                MotiveReading(
+                    motive="Weekly signups.",
+                    deliverable="number",
+                    scope="all",
+                    given_definition="a saved signups insight",
+                    scheduled=True,
+                ),
             ),
             (
                 "no_unclear_flag",
-                '{"motive": "Weekly signups.", "scheduled": false}',
+                '{"motive": "Weekly signups.", "deliverable": "number", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": false}',
                 MotiveReading(motive="", failed=True),
             ),
             (
                 "a_word_for_the_scheduled_flag",
-                '{"motive": "Weekly signups.", "scheduled": "no", "unclear": false}',
+                '{"motive": "Weekly signups.", "deliverable": "number", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": "no", "unclear": false}',
                 MotiveReading(motive="", failed=True),
             ),
             (
                 "an_empty_motive",
-                '{"motive": " ", "scheduled": false, "unclear": false}',
+                '{"motive": " ", "deliverable": "number", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": false, "unclear": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+            (
+                "a_deliverable_outside_the_allowed_answers",
+                '{"motive": "Weekly signups.", "deliverable": "chart", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": false, "unclear": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+            (
+                "no_given_definition",
+                '{"motive": "Weekly signups.", "deliverable": "number", "scope": "all", "scheduled": false, '
+                '"unclear": false}',
                 MotiveReading(motive="", failed=True),
             ),
         ]
@@ -575,7 +597,16 @@ class _JudgeMessages:
         first_note = re.search(r"<first_calls[^>]*>\n- [^:]+: (.*)", prompt)
         motive = first_note.group(1) if first_note else ""
         return _Stream(
-            json.dumps({"motive": motive, "scheduled": "scheduled" in motive, "unclear": "unclear" in motive})
+            json.dumps(
+                {
+                    "motive": motive,
+                    "deliverable": "number",
+                    "scope": "all",
+                    "given_definition": "n/a",
+                    "scheduled": "scheduled" in motive,
+                    "unclear": "unclear" in motive,
+                }
+            )
         )
 
     async def create(
