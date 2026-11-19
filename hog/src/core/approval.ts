@@ -68,7 +68,8 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> extends Ap
     // Who approves, for a request only some people can approve. When the person who ran hog can't, hog
     // hands over the link instead of waiting. Admins set their own names, so `names` never go into the
     // instructions an agent follows.
-    approver?: (pending: Pending) => Approver
+    // Undefined when nobody has to approve it anymore.
+    approver?: (pending: Pending) => Approver | undefined
     // `timeoutMs` is how long the poll request may take before the request expires.
     poll: (pending: Pending, timeoutMs: number) => Promise<PollOutcome<Value>>
     // Set for a login, where the person may have no PostHog account yet, so the link explains signing up.
@@ -365,7 +366,7 @@ export async function runApproval<Pending extends PendingApproval, Value>(
     const { runtime } = ctx
     const prompts = ctx.prompts
     const pending = await startPending(runtime, flow)
-    if (!prompts || flow.approver?.(pending).isUser === false) {
+    if (!prompts || flow.approver?.(pending)?.isUser === false) {
         return pendingResult(flow, pending)
     }
     const code = pending.userCode ? `\n\nCode: ${escapeControls(pending.userCode)}` : ''

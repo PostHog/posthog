@@ -238,6 +238,11 @@ describe('hog ci setup', () => {
         expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
             created - 1
         )
+        // The person who runs it is a member, so an approval by an admin never makes them one, and once
+        // it is approved nobody is left to send it to.
+        expect(run.json(z.looseObject({}))).not.toMatchObject({ canApprove: true })
+        expect(run.stdout).not.toContain('they can approve it themselves')
+        expect('approver' in run.json(z.looseObject({}))).toBe(lastStatus !== 'approved')
     })
 
     test('--wait after the deadline still picks up an approval that came in before it', async () => {
