@@ -1929,6 +1929,8 @@ def get_stale_queued_task_run_ids(
     """
     now = django_timezone.now()
     stale = Q(updated_at__lt=now - older_than)
+    if environment == TaskRun.Environment.LOCAL:
+        stale &= Q(last_heartbeat_at__isnull=True) | Q(last_heartbeat_at__lt=now - older_than)
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
