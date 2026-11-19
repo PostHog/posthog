@@ -1,1 +1,1 @@
-0389_drop_surfacing_score_from_session_replay_events
+0390_embedding_model_small_256
