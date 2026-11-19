@@ -1246,6 +1246,23 @@ class TestQuotaLimiting(BaseTest):
                 is expected_limited
             )
 
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_limiting_a_resource_with_no_trust_score_leaves_billings_scores_alone(self) -> None:
+        self.organization.usage = {
+            "rows_exported": {"usage": 200, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = {"events": 10, "exceptions": 7}
+        self.organization.save()
+        Organization.objects.filter(id=self.organization.id).update(customer_trust_scores={"events": 10})
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            update_org_billing_quotas(self.organization)
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["rows_exported"]["quota_limited_until"] == 1612137599
+        assert self.organization.customer_trust_scores == {"events": 10}
+
     def test_update_org_billing_quotas(self):
         with time_machine.travel("2021-01-01T12:59:59Z", tick=False):
             other_team = create_team(organization=self.organization)

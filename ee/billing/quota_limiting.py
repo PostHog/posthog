@@ -733,11 +733,6 @@ def org_quota_limited_until(
 
     # 2b. no trust score
     if (not trust_score or resource in GRACE_PERIOD_EXEMPT_RESOURCES) and minimum_grace_period == 0:
-        # Set them to the default trust score and immediately limit
-        if trust_score is None:
-            organization.customer_trust_scores = {**(organization.customer_trust_scores or {}), resource.value: 0}
-            organization.save(update_fields=["customer_trust_scores"])
-
         report_action(
             organization,
             "org_quota_limited_until",
