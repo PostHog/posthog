@@ -142,6 +142,9 @@ from products.tasks.backend.logic.log_slice import (
     LogPart,
     LogPartSummary,
     log_entries,
+    page_log_entries,
+    page_log_objects,
+    page_log_parts,
     slice_log_parts_from,
     slice_log_parts_tail,
     summarize_log_part,
@@ -473,6 +476,8 @@ __all__ = [
     "read_task_run_conversation_logs",
     "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
+    "read_task_run_conversation_log_page",
+    "page_log_objects",
     "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
@@ -5779,6 +5784,10 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    return _conversation_log_content(run)
+
+
+def _conversation_log_content(run: TaskRun) -> str:
     chain = run.get_history_chain()
     if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
         return read_task_run_log_content([ancestor.log for ancestor in chain])
@@ -5870,10 +5879,7 @@ def read_task_run_conversation_log_slice(
     if run is None:
         return None
     if run.task.runtime == Task.Runtime.PI:
-        content = read_task_run_conversation_logs(run_id, task_id, team_id)
-        if content is None:
-            return None
-        return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
+        return contracts.TaskRunLogSliceDTO(content=_conversation_log_content(run), offset=0, count=0, sliced=False)
     chain = run.get_history_chain()
     parts = _conversation_log_parts([ancestor.log for ancestor in chain])
     if start is not None:
@@ -5887,6 +5893,26 @@ def read_task_run_conversation_log_slice(
         preamble=sliced.preamble,
         turns_before=sliced.turns_before,
         origin=str(chain[0].id),
+    )
+
+
+def read_task_run_conversation_log_page(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    start: int,
+    limit: int | None,
+    log_filter: contracts.TaskRunLogFilter,
+) -> contracts.TaskRunLogPageDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    if run.task.runtime != Task.Runtime.PI and log_filter == contracts.TaskRunLogFilter():
+        parts = _conversation_log_parts([ancestor.log for ancestor in run.get_history_chain()])
+        return page_log_parts(parts, start=start, limit=limit)
+    return page_log_entries(
+        log_entries(_conversation_log_content(run)), start=start, limit=limit, log_filter=log_filter
     )
 
 

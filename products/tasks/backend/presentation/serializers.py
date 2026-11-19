@@ -3748,7 +3748,25 @@ class TaskRunLogsView(models.TextChoices):
     THREAD = "thread", "thread"
 
 
-class TaskRunLogsQuerySerializer(serializers.Serializer):
+TASK_RUN_LOG_PAGE_FIELDS = ("limit", "after", "event_types", "exclude_types")
+
+
+class TaskRunLogFilterQuerySerializer(serializers.Serializer):
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return events after this ISO8601 timestamp",
+    )
+    event_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to include",
+    )
+    exclude_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to exclude",
+    )
+
+
+class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
     """Query parameters for reading part of a task run log"""
 
     view = serializers.ChoiceField(
@@ -3785,19 +3803,35 @@ class TaskRunLogsQuerySerializer(serializers.Serializer):
         required=False,
         min_value=0,
         help_text=(
-            "With tail_bytes, return every entry from this index to the end, with no preamble, so a client that "
-            "holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. "
-            "When those entries are too large, the response holds the latest turns as tail_bytes alone returns "
-            "them, and X-Log-Offset is greater than start."
+            "Return every entry from this index to the end, with no preamble, so a client that holds the entries "
+            "before it can catch up after a disconnect: pass the X-Log-Count of its last read. With tail_bytes, "
+            "when those entries are too large, the response holds the latest turns as tail_bytes alone returns "
+            "them, and X-Log-Offset is greater than start. With after, event_types or exclude_types, the index "
+            "counts only the matching entries."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=5000,
+        help_text=(
+            "Return at most this many entries from start, which defaults to 0. A page also stops before it "
+            "passes 16 MiB, so it can hold fewer entries. X-Log-Offset is the index of the first entry, and "
+            "X-Log-Count is the number of entries, counting only the matching entries when a filter is given. "
+            "More entries remain while X-Log-Offset plus the number of returned entries is below X-Log-Count. "
+            "Cannot be combined with tail_bytes or before."
         ),
     )
 
     def validate(self, attrs: dict) -> dict:
-        for field in ("before", "start"):
-            if field in attrs and "tail_bytes" not in attrs:
-                raise serializers.ValidationError(f"Use {field} together with tail_bytes.")
+        if "before" in attrs and "tail_bytes" not in attrs:
+            raise serializers.ValidationError("Use before together with tail_bytes.")
         if "before" in attrs and "start" in attrs:
             raise serializers.ValidationError("Use before or start, not both.")
+        if "tail_bytes" in attrs:
+            for field in TASK_RUN_LOG_PAGE_FIELDS:
+                if field in attrs:
+                    raise serializers.ValidationError(f"Use {field} or tail_bytes, not both.")
         return attrs
 
 
@@ -5005,21 +5039,9 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
+class TaskRunSessionLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
     """Query parameters for filtering task run log events"""
 
-    after = serializers.DateTimeField(
-        required=False,
-        help_text="Only return events after this ISO8601 timestamp",
-    )
-    event_types = serializers.CharField(
-        required=False,
-        help_text="Comma-separated list of event types to include",
-    )
-    exclude_types = serializers.CharField(
-        required=False,
-        help_text="Comma-separated list of event types to exclude",
-    )
     limit = serializers.IntegerField(
         required=False,
         default=1000,

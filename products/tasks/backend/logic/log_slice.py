@@ -2,14 +2,18 @@ import json
 import bisect
 import hashlib
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from datetime import datetime
 
 from posthog.dataclasses import frozen
 
 from products.posthog_ai.backend.turn_suggestions.transcript import HumanTurnCounter, human_text, is_turn_text
+from products.tasks.backend.facade.contracts import TaskRunLogFilter, TaskRunLogObjectPageDTO, TaskRunLogPageDTO
 
 TAIL_TURN_SLACK_FACTOR = 4
 START_READ_MAX_BYTES = 8 * 1024 * 1024
+PAGE_MAX_BYTES = 16 * 1024 * 1024
+JSON_PAGE_ENVELOPE_BYTES = 2
 
 STATE_METHODS = frozenset({"_posthog/run_started", "_posthog/sdk_session", "session/new"})
 STATE_SESSION_UPDATES = frozenset({"current_mode_update", "available_commands_update"})
@@ -89,20 +93,20 @@ def log_entries(content: str) -> list[str]:
     return [line for line in content.split("\n") if line.strip().startswith("{")]
 
 
+def _entry_object(line: str) -> dict | None:
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
 def log_part(entries: list[str]) -> LogPart:
     return LogPart(summary=summarize_log_part(entries), entries=lambda: entries)
 
 
-def _entry(line: str) -> dict:
-    try:
-        entry = json.loads(line)
-    except ValueError:
-        return {}
-    return entry if isinstance(entry, dict) else {}
-
-
 def _notification(line: str) -> dict:
-    notification = _entry(line).get("notification")
+    notification = (_entry_object(line) or {}).get("notification")
     return notification if isinstance(notification, dict) else {}
 
 
@@ -120,6 +124,56 @@ def _session_update(notification: dict) -> dict:
 def _session_update_type(notification: dict) -> str | None:
     session_update = _session_update(notification).get("sessionUpdate")
     return session_update if isinstance(session_update, str) else None
+
+
+def _entry_type(entry: dict) -> str:
+    """Extract the event type from a log entry for filtering purposes.
+
+    For _posthog/* events, returns the notification method (e.g., '_posthog/console').
+    For session/update events, returns the sessionUpdate value (e.g., 'agent_message_chunk').
+    """
+    notification = entry.get("notification")
+    method = _method(notification) if isinstance(notification, dict) else None
+    if method == "session/update":
+        return str(_session_update(notification).get("sessionUpdate", method))
+    return method or ""
+
+
+def _logged_after(entry: dict, after: datetime) -> bool:
+    # Filter by timestamp (parse to avoid Z vs +00:00 and fractional second mismatches)
+    timestamp = entry.get("timestamp", "")
+    if not timestamp:
+        return False  # Skip entries without timestamps
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")) > after
+    except (ValueError, TypeError, AttributeError):
+        return False  # Skip entries with unparseable timestamps
+
+
+def _entry_matches(entry: dict, log_filter: TaskRunLogFilter) -> bool:
+    if log_filter.after is not None and not _logged_after(entry, log_filter.after):
+        return False
+    # Determine the event type for filtering
+    entry_type = _entry_type(entry)
+    if log_filter.event_types and entry_type not in log_filter.event_types:
+        return False
+    return entry_type not in log_filter.exclude_types
+
+
+def _line_matches(line: str, log_filter: TaskRunLogFilter) -> bool:
+    entry = _entry_object(line)
+    return entry is not None and _entry_matches(entry, log_filter)
+
+
+def _page_length(sizes: Iterable[int], max_bytes: int) -> int:
+    length = 0
+    total = 0
+    for size in sizes:
+        total += size
+        if length > 0 and total > max_bytes:
+            break
+        length += 1
+    return length
 
 
 def _is_user_entry(line: str) -> bool:
@@ -529,6 +583,54 @@ def slice_log_parts_from(
         count=chain.count,
         turns_before=chain.turns_before(start),
     )
+
+
+def _page(window: list[str], *, offset: int, count: int, limit: int | None, max_bytes: int) -> TaskRunLogPageDTO:
+    if limit is not None:
+        assert limit > 0
+        window = window[: _page_length((len(line.encode()) + 1 for line in window), max_bytes)]
+    return TaskRunLogPageDTO(content=_join(window), offset=offset, count=count)
+
+
+def page_log_entries(
+    entries: list[str],
+    *,
+    start: int,
+    limit: int | None,
+    log_filter: TaskRunLogFilter,
+    max_bytes: int = PAGE_MAX_BYTES,
+) -> TaskRunLogPageDTO:
+    assert start >= 0
+    if log_filter == TaskRunLogFilter():
+        matching = entries
+    else:
+        matching = [line for line in entries if _line_matches(line, log_filter)]
+    offset = min(start, len(matching))
+    end = len(matching) if limit is None else offset + limit
+    return _page(matching[offset:end], offset=offset, count=len(matching), limit=limit, max_bytes=max_bytes)
+
+
+def page_log_parts(
+    parts: Sequence[LogPart], *, start: int, limit: int | None, max_bytes: int = PAGE_MAX_BYTES
+) -> TaskRunLogPageDTO:
+    assert start >= 0
+    chain = _Chain(parts)
+    offset = min(start, chain.count)
+    end = chain.count if limit is None else offset + limit
+    return _page(chain.lines(offset, end), offset=offset, count=chain.count, limit=limit, max_bytes=max_bytes)
+
+
+def page_log_objects(
+    content: str, *, offset: int, limit: int, log_filter: TaskRunLogFilter, max_bytes: int
+) -> TaskRunLogObjectPageDTO:
+    entries = [entry for line in log_entries(content) if (entry := _entry_object(line)) is not None]
+    matching = [entry for entry in entries if _entry_matches(entry, log_filter)]
+    window = matching[offset : offset + limit]
+    length = _page_length(
+        (len(json.dumps(entry)) + JSON_PAGE_ENVELOPE_BYTES for entry in window),
+        max_bytes - JSON_PAGE_ENVELOPE_BYTES,
+    )
+    return TaskRunLogObjectPageDTO(entries=window[:length], total_count=len(entries), matching_count=len(matching))
 
 
 def slice_log_tail(content: str, tail_bytes: int, before: int | None = None) -> LogSlice:

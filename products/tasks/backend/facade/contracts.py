@@ -838,6 +838,27 @@ class TaskRunLogSliceDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunLogFilter:
+    after: datetime | None = None
+    event_types: frozenset[str] = frozenset()
+    exclude_types: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class TaskRunLogPageDTO:
+    content: str
+    offset: int
+    count: int
+
+
+@dataclass(frozen=True)
+class TaskRunLogObjectPageDTO:
+    entries: list[dict]
+    total_count: int
+    matching_count: int
+
+
+@dataclass(frozen=True)
 class TaskRunStreamInfoDTO:
     """The minimal run facts the SSE stream view needs without holding a model.
 

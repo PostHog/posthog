@@ -12424,6 +12424,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("thread_drops_the_copy_from_a_page", "logs/?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
             ("unknown_view_rejected", "logs/?view=compact", status.HTTP_400_BAD_REQUEST, None),
             ("log_entries_drops_the_copy", "log_entries?view=thread", status.HTTP_200_OK, False),
+            ("log_entries_page_drops_the_copy", "log_entries?start=0&view=thread", status.HTTP_200_OK, False),
             ("log_entries_rejects_unknown_view", "log_entries?view=compact", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
@@ -12455,7 +12456,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("older_page_before_an_offset", "?tail_bytes=1&before=2", status.HTTP_200_OK, ("0", "3", "0"), ["older"]),
             ("before_needs_tail_bytes", "?before=2", status.HTTP_400_BAD_REQUEST, None, None),
             ("entries_after_a_start_index", "?tail_bytes=1&start=2", status.HTTP_200_OK, ("2", "3", "0"), ["latest"]),
-            ("start_needs_tail_bytes", "?start=2", status.HTTP_400_BAD_REQUEST, None, None),
         ]
     )
     @patch("posthog.storage.object_storage.read")
@@ -12499,6 +12499,45 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("start_reads_to_the_end", "?start=3", ("3", "4"), [3]),
+            ("limit_pages_across_runs", "?start=1&limit=2", ("1", "4"), [1, 2]),
+            (
+                "filters_index_the_matching_entries",
+                "?after=2026-01-01T10:00:00Z&event_types=agent_message,tool_call&exclude_types=tool_call&start=1",
+                ("1", "2"),
+                [3],
+            ),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_log_entries_endpoint_pages_through_entries(
+        self, _name: str, query: str, expected_headers: tuple[str, str], expected_indexes: list[int], mock_read
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team)
+        target = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(ancestor.id)})
+        kinds = ["user_message", "tool_call", "agent_message", "agent_message"]
+        lines = [
+            json.dumps(
+                {
+                    "timestamp": f"2026-01-01T10:0{minute}:00Z",
+                    "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": kind}}},
+                }
+            )
+            for minute, kind in enumerate(kinds)
+        ]
+        logs = {ancestor.log_url: f"{lines[0]}\n{lines[1]}\n", target.log_url: f"{lines[2]}\n{lines[3]}\n"}
+        mock_read.side_effect = lambda path, missing_ok=False: logs.get(path)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/log_entries/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual((response["X-Log-Offset"], response["X-Log-Count"]), expected_headers)
+        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count")
+        self.assertEqual(response.content.decode("utf-8").splitlines(), [lines[index] for index in expected_indexes])
+
+    @parameterized.expand(
+        [
             ("live_gated_run_is_marked", TaskRun.Status.IN_PROGRESS, True, True),
             ("finished_gated_run_is_not_marked", TaskRun.Status.COMPLETED, True, False),
             ("live_ungated_run_is_not_marked", TaskRun.Status.IN_PROGRESS, False, False),
@@ -12522,14 +12561,38 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("earlier_run_in_session", "same", -1, ["earlier", "target"]),
-            ("run_in_another_session", "other", -1, ["target"]),
-            ("later_run_in_session", "same", 1, ["target"]),
+            (
+                "earlier_run_in_session",
+                "same",
+                -1,
+                "",
+                [
+                    ("pi_run_started", "earlier", None),
+                    (None, None, "earlier"),
+                    ("pi_run_started", "target", None),
+                    (None, None, "target"),
+                ],
+            ),
+            ("run_in_another_session", "other", -1, "", [(None, None, "target")]),
+            ("later_run_in_session", "same", 1, "", [(None, None, "target")]),
+            (
+                "page_of_the_session",
+                "same",
+                -1,
+                "?start=1&limit=2",
+                [(None, None, "earlier"), ("pi_run_started", "target", None)],
+            ),
         ]
     )
     @patch("posthog.storage.object_storage.read")
     def test_logs_endpoint_reads_pi_task_session(
-        self, _name: str, sibling_session: str, sibling_offset_minutes: int, expected_runs: list[str], mock_read
+        self,
+        _name: str,
+        sibling_session: str,
+        sibling_offset_minutes: int,
+        query: str,
+        expected_lines: list[tuple[str | None, str | None, str | None]],
+        mock_read,
     ):
         task = self.create_task(runtime=Task.Runtime.PI)
         session = TaskSession.create_for_task(task)
@@ -12543,22 +12606,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         logs = {sibling.log_url: '{"line":"earlier"}\n', target.log_url: '{"line":"target"}\n'}
         mock_read.side_effect = lambda path, missing_ok=False: logs.get(path)
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/{query}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         lines = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
-        runs = {"earlier": str(sibling.id), "target": str(target.id)}
-        if len(expected_runs) == 1:
-            self.assertEqual(lines, [{"line": "target"}])
-            return
+        runs = {str(sibling.id): "earlier", str(target.id): "target"}
         self.assertEqual(
-            [(line.get("type"), line.get("runId"), line.get("line")) for line in lines],
-            [
-                ("pi_run_started", runs["earlier"], None),
-                (None, None, "earlier"),
-                ("pi_run_started", runs["target"], None),
-                (None, None, "target"),
-            ],
+            [(line.get("type"), runs.get(line.get("runId")), line.get("line")) for line in lines], expected_lines
         )
 
     @parameterized.expand([(None,), (True,), (False,)])
