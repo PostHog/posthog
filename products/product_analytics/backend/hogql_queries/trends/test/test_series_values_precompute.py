@@ -157,6 +157,20 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("2024-01-14 08:00:00.000000", "", [], 1.0),
         ]
 
+    def test_day_built_before_late_events_settle_is_rebuilt(self) -> None:
+        self._seed()
+        query = _query()
+        with time_machine.travel("2024-01-15T00:02:00Z", tick=False):
+            execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+        _create_event(team=self.team, event="signed_up", distinct_id="p1", timestamp="2024-01-14T23:59:30Z")
+        flush_persons_and_events()
+
+        with time_machine.travel("2024-01-15T01:30:00Z", tick=False):
+            live = TrendsQueryRunner(team=self.team, query=query).calculate().results
+            precomputed = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+
+        assert json.dumps(precomputed) == json.dumps(live)
+
     @time_machine.travel(_NOW, tick=False)
     def test_cold_cache_without_inserts_returns_none(self) -> None:
         self._seed()
