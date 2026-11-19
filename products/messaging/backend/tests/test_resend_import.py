@@ -785,7 +785,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                     assert step == "contacts"
         run.refresh_from_db()
 
-        assert self.people.imports == []
+        assert not run.progress["contacts"].get("people_imports") and self.people.events == []
         assert run.progress["contacts"]["status"] != "completed"
         assert "Resend contacts couldn't be imported" in run.progress["contacts"]["last_error"]
         notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
