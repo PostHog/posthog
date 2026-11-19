@@ -137,9 +137,10 @@ class TestSetIssueTag(BaseTest):
         answer = self._answer(Source.JEV, value=True)
         set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, answer, Source.JEV)
         repeat = dataclasses.replace(answer, question_version=question_version)
+        produced: list[dict[str, object]] = []
 
         with (
-            patch.object(ClickhouseProducer, "produce") as produce,
+            patch.object(ClickhouseProducer, "produce", side_effect=lambda **kwargs: produced.append(kwargs["data"])),
             self.captureOnCommitCallbacks(execute=True),
             CaptureQueriesContext(connection) as queries,
         ):
@@ -150,7 +151,7 @@ class TestSetIssueTag(BaseTest):
             for query in queries.captured_queries
             if "posthog_errortrackingissuetag" in query["sql"]
         ]
-        assert (stored, tag_statements, produce.call_count) == (True, expected_statements, expected_produces)
+        assert (stored, tag_statements, len(produced)) == (True, expected_statements, expected_produces)
         assert _issue_activity(issue).count() == 1
 
     def test_a_later_write_wins_in_clickhouse_when_its_clock_reads_earlier(self) -> None:
