@@ -20,7 +20,7 @@ tools:
             Create a release that groups the feature flags for one change. Before you create one for a flag, call
             `releases-suggest-for-flag`: the flag may already be in a release, or belong in an existing one, and the
             project may put new flags in a release of their own automatically (`auto_release`).
-        feature_flag: releases-area
+        feature_flag: release-objects
     release-delete:
         operation: releases_destroy
         enabled: true
@@ -28,7 +28,7 @@ tools:
         description: >
             Delete a release. Its feature flags, experiments and early access features are not changed. Confirm with the
             user first.
-        feature_flag: releases-area
+        feature_flag: release-objects
     release-get:
         operation: releases_retrieve
         enabled: true
@@ -37,7 +37,7 @@ tools:
         description: >
             Get one release by ID with its owner, linked feature flag IDs, broadcasts, surveys and insights. Read it
             before `release-update` when you change linked flags, because that call replaces the whole list.
-        feature_flag: releases-area
+        feature_flag: release-objects
     release-merge:
         operation: releases_merge_create
         enabled: true
@@ -50,7 +50,7 @@ tools:
         description: >
             Merge other releases into this one: it gains their linked flags, broadcasts, surveys and insights, and the
             merged releases are deleted. This cannot be undone, so confirm the releases with the user first.
-        feature_flag: releases-area
+        feature_flag: release-objects
     release-update:
         operation: releases_partial_update
         enabled: true
@@ -71,7 +71,7 @@ tools:
                 description: >
                     The full list of linked feature flag IDs, at most 100. Replaces the current list: include every flag
                     to keep. Get the current list from `release-get`.
-        feature_flag: releases-area
+        feature_flag: release-objects
     releases-broadcast-search:
         operation: releases_broadcast_search_retrieve
         enabled: false
@@ -95,7 +95,7 @@ tools:
             features, surveys and broadcasts that ship one change, so people can follow its rollout in one place. Pass
             `search` to match part of a name, `owner` to filter by owner user IDs, and `feature_flag_id` to find the
             releases that link one flag. Page with `next_cursor`. Use `release-get` for a release's linked objects.
-        feature_flag: releases-area
+        feature_flag: release-objects
     releases-list-all:
         operation: releases_list
         enabled: false
@@ -110,4 +110,4 @@ tools:
             puts each new flag in a release of its own about a minute after it is created. Call it after creating a
             flag, or before creating a release for one. When there are suggestions, ask the user whether to add the flag
             to one of them. Do not add it without asking.
-        feature_flag: releases-area
+        feature_flag: release-objects
