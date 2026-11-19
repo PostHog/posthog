@@ -623,7 +623,7 @@ class TestEmail(BaseTest):
                 campaign_key="smtp_routing",
                 subject="Subject",
                 template_name="async_migration_error",
-                reply_to="Support <a@b.com>, c@bücher.de",
+                reply_to="Support <a@b.com>, c@bücher.de, d@example.com.",
             )
             message.add_recipient("test@posthog.com")
             if outcome == "retries":
@@ -641,7 +641,8 @@ class TestEmail(BaseTest):
             self.assertEqual(payload["template_key"], "async_migration_error")
             self.assertEqual(payload["subject"], "Subject")
             self.assertIn("<html", payload["html"])
-            self.assertEqual(payload["reply_to"], ["a@b.com", "c@xn--bcher-kva.de"])
+            # Addresses the send API would refuse are left out instead of failing the email.
+            self.assertEqual(payload["reply_to"], ["a@b.com"])
         record = MessagingRecord.objects.get(campaign_key="smtp_routing")
         self.assertEqual(record.sent_at is not None, outcome == "sent")
 

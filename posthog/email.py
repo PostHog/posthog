@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
-from django.core.mail.message import sanitize_address
+from django.core.validators import validate_email
 from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
 from django.utils import timezone
@@ -432,6 +432,22 @@ def _routes_through_workflows(dest: dict[str, str], template_name: str) -> bool:
         return False
 
 
+def _workflows_reply_to(value: Optional[str]) -> list[str]:
+    """The Reply-To addresses the send API accepts: bare, valid and ASCII.
+
+    Anything else is left out, so the email still goes out with the project's reply-to instead of being refused.
+    """
+    addresses = []
+    for _, address in getaddresses([value or ""]):
+        try:
+            validate_email(address)
+        except exceptions.ValidationError:
+            continue
+        if address.isascii():
+            addresses.append(address)
+    return addresses
+
+
 def _send_code_via_workflows(
     dest: dict[str, str], campaign_key: str, template_name: str, content: dict[str, Any]
 ) -> dict[str, Any] | None:
@@ -595,14 +611,9 @@ def _send_via_smtp(
         workflows_content: dict[str, Any] = {"template_key": template_name, "subject": subject, "html": html_body}
         if txt_body:
             workflows_content["text"] = txt_body
-        if effective_reply_to:
-            # The send API takes bare ASCII addresses, so display names are dropped and a list is split, as Django's SMTP
-            # path would encode them.
-            workflows_content["reply_to"] = [
-                sanitize_address(address, settings.DEFAULT_CHARSET)
-                for _, address in getaddresses([effective_reply_to])
-                if address
-            ]
+        workflows_reply_to = _workflows_reply_to(effective_reply_to)
+        if workflows_reply_to:
+            workflows_content["reply_to"] = workflows_reply_to
 
         for dest in to:
             workflows_unrecorded = False
