@@ -786,6 +786,20 @@ class TestTwoFactorPolicyOfTheTargetOrganization(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
+    def test_personal_api_key_creation_ignores_a_listed_organization_its_projects_exclude(self) -> None:
+        # Each scope list limits the key on its own, so this key reaches only the current organization.
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "Key",
+                "scopes": ["dashboard:read"],
+                "scoped_teams": [self.team.id],
+                "scoped_organizations": [str(self.organization.id), str(self.strict_organization.id)],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
     def test_personal_api_key_scope_change_follows_the_target_organization(self) -> None:
         self._mint_key(self.team)
         key = PersonalAPIKey.objects.get(user=self.user)

@@ -7,7 +7,6 @@ from typing import Literal, cast
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.db.models import Q
 from django.http import HttpRequest
 from django.utils.crypto import constant_time_compare, salted_hmac
 
@@ -149,14 +148,15 @@ def enforce_credential_two_factor(
     """Refuse a credential that reaches an organization whose 2FA policy this session hasn't met.
 
     Session auth checks the current organization only, and the credential never meets a 2FA check
-    later. A credential with no scope reaches every organization of the user.
+    later. A credential with no scope reaches every organization of the user. Each non-empty scope
+    list limits the reach on its own, as in `get_organization_ids_in_key_scope`.
     """
     user = cast(User, request.user)
     organizations = user.organizations.filter(enforce_2fa=True)
-    if scoped_organization_ids or scoped_team_ids:
-        organizations = organizations.filter(
-            Q(id__in=scoped_organization_ids or []) | Q(team__id__in=scoped_team_ids or [])
-        )
+    if scoped_team_ids:
+        organizations = organizations.filter(team__id__in=scoped_team_ids)
+    if scoped_organization_ids:
+        organizations = organizations.filter(id__in=scoped_organization_ids)
     # The policy is the same for every organization that enforces 2FA, so one is enough.
     organization = organizations.first()
     if organization is not None:
