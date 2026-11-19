@@ -18,6 +18,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest, SignalScoutRun
 from products.signals.backend.report_generation.research import (
     MAX_REPORT_LAYER_TITLE_LENGTH,
@@ -204,14 +205,22 @@ class TestStackPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("pipeline_list_is_inherited", False, False, 3),
-            ("pipeline_list_is_inherited_by_the_writer", False, True, 3),
-            ("user_edited_list_is_not_inherited", True, False, 0),
+            ("pipeline_list_is_inherited", False, False, "reviewer"),
+            ("pipeline_list_is_inherited_by_the_writer", False, True, "reviewer"),
+            ("user_authorization_is_inherited", True, False, "user"),
+            ("missing_authorization_is_not_granted", False, False, None),
         ]
     )
-    def test_layers_inherit_only_a_pipeline_reviewer_list(
-        self, _name: str, edited_by_user: bool, writer_enabled: bool, expected: int
+    def test_layers_preserve_reviewer_start_authorization(
+        self, _name: str, edited_by_user: bool, writer_enabled: bool, mode: str | None
     ):
+        authorization = (
+            ImplementationAuthorization(mode="user", user_id=self.user.id)
+            if mode == "user"
+            else ImplementationAuthorization(mode="reviewer")
+            if mode
+            else None
+        )
         with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled):
             SignalReportArtefact.append_status(
                 team_id=self.team.id,
@@ -220,6 +229,7 @@ class TestStackPlan(BaseTest):
                 attribution=ArtefactAttribution.from_user(self.user.id)
                 if edited_by_user
                 else ArtefactAttribution.system(),
+                implementation_authorization=authorization,
                 reevaluate_autostart=False,
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState()),
             )
@@ -229,7 +239,11 @@ class TestStackPlan(BaseTest):
         inherited = SignalReportArtefact.objects.filter(
             report_id__in=child_ids, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         )
-        assert inherited.count() == expected
+        assert inherited.count() == 3
+        assert all(
+            row.implementation_authorization == (authorization.model_dump() if authorization else None)
+            for row in inherited
+        )
         assert not inherited.filter(created_by__isnull=False).exists()
 
     @parameterized.expand(

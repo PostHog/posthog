@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 from django.core.management import call_command
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -228,10 +228,14 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == 409
         assert self._reviewers_count(report) == 1
 
+    @parameterized.expand([(None,), ("reviewer",), ("user",)])
     @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
-    def test_failed_selection_from_user_attributed_api_preserves_recipients(self, _flag) -> None:
+    def test_failed_selection_from_user_attributed_api_preserves_recipients(self, mode: str | None, _flag) -> None:
         report = self._create_report()
-        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        previous = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        authorization = {"mode": mode, "user_id": self.user.id if mode == "user" else None} if mode else None
+        previous.implementation_authorization = authorization
+        previous.save(update_fields=["implementation_authorization"])
         state = self._assignment(report)["state"]
         response = self.client.post(
             self._list_url(str(report.id)),
@@ -247,6 +251,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == [str(self.user.uuid)]
         assert self._reviewers_count(report) == 1
+        previous.refresh_from_db()
+        assert previous.implementation_authorization == authorization
 
     # --- GET list ---
 
@@ -1118,7 +1124,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
     @parameterized.expand([("put", False), ("post", False), ("post", True)])
-    def test_reviewers_ignore_task_header_and_attribute_to_requesting_user(self, method: str, task_claim: bool) -> None:
+    def test_reviewers_preserve_attribution_and_authorize_the_requesting_user(
+        self, method: str, task_claim: bool
+    ) -> None:
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
         task = Task.objects.create(
@@ -1154,8 +1162,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             .first()
         )
         assert latest is not None
-        assert latest.created_by_id == self.user.id
-        assert latest.task_id is None
+        assert latest.created_by_id == (self.user.id if method == "put" else None)
+        assert latest.task_id == (task.id if method == "post" else None)
+        assert latest.implementation_authorization == {"mode": "user", "user_id": self.user.id}
         if task_claim:
             assert str(latest.claim_id) == payload["claim_id"]
 
@@ -1457,9 +1466,10 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         }
         assert set(telemetry.call_args.kwargs["github_logins"]) == {"human-reviewer", "automatic-reviewer"}
         artefact = SignalReportArtefact.objects.get(id=automatic_edit.json()["id"])
-        assert artefact.actor_kind == SignalActorKind.AGENT
-        assert artefact.created_by_id == self.user.id
-        assert artefact.task_id is None
+        assert artefact.actor_kind == (SignalActorKind.TASK if task else SignalActorKind.AGENT)
+        assert artefact.created_by_id == (None if task else self.user.id)
+        assert artefact.task_id == (task.id if task else None)
+        assert artefact.implementation_authorization == {"mode": "user", "user_id": self.user.id}
 
     # --- DELETE reviewers/me (step off a report) ---
 
@@ -2415,7 +2425,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
     @parameterized.expand(
         [
             (credential, writer_enabled, caller_eligible)
-            for credential in ("session", "personal_api_key", "oauth")
+            for credential in ("session", "deferred", "personal_api_key", "oauth")
             for writer_enabled in (False, True)
             for caller_eligible in (False, True)
         ]
@@ -2500,7 +2510,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                 side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
             ),
             patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
-            self.captureOnCommitCallbacks(execute=True),
+            self.captureOnCommitCallbacks(execute=credential != "deferred"),
         ):
             response = self.client.post(
                 self._list_url(str(report.id)),
@@ -2508,10 +2518,16 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
                     "artefact_type": "suggested_reviewers",
                     "content": [{"github_login": "example-reviewer"}],
                     "expected_reviewers": {"reviewers_id": None, "corrections_id": None},
+                    "implementation_authorization": {"mode": "reviewer"},
                 },
                 format="json",
                 HTTP_X_POSTHOG_TASK_ID=str(task.id),
             )
+
+            if credential == "deferred":
+                from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
+
+                async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=str(report.id))
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert list(

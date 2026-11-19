@@ -18,7 +18,6 @@ class ArtefactAttribution:
     Required on every artefact write helper so no write site can silently skip attribution:
     callers must consciously pick a constructor. An external agent keeps both the authenticated
     user principal and the MCP client name, while an internal task uses only its task id.
-    A system writer can retain a task link without treating that task as the authority.
     """
 
     kind: Literal["user", "task", "agent", "system"]
@@ -38,7 +37,7 @@ class ArtefactAttribution:
             case "agent":
                 valid = self.user_id is not None and self.task_id is None and bool(self.agent_name)
             case _:
-                valid = self.user_id is None and self.agent_name is None
+                valid = self.user_id is None and self.task_id is None and self.agent_name is None
         if not valid:
             raise ValueError(f"ArtefactAttribution kind {self.kind!r} does not match its id fields")
 
@@ -55,5 +54,5 @@ class ArtefactAttribution:
         return cls(kind="agent", user_id=user_id, agent_name=agent_name)
 
     @classmethod
-    def system(cls, *, task_id: str | None = None) -> ArtefactAttribution:
-        return cls(kind="system", task_id=task_id)
+    def system(cls) -> ArtefactAttribution:
+        return cls(kind="system")

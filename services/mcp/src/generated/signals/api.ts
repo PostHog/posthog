@@ -1532,7 +1532,7 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Task to attribute the artefact to (must belong to this project). Set automatically for sandbox agents; when absent the artefact is attributed to the requesting user. Suggested-reviewer changes are always attributed to the authenticated user.'
+            'Task to attribute the artefact to (must belong to this project). Set automatically for sandbox agents; when absent the artefact is attributed to the requesting user.'
         ),
 })
 

@@ -57,6 +57,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.issue_dependencies import IssueRef
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -301,6 +302,7 @@ def test_persisted_research_reviewers_require_confirmation(organization, team, c
         team_id=team.id,
         report_id=str(report.id),
         content=SuggestedReviewers.model_validate(selected),
+        implementation_authorization=ImplementationAuthorization(mode="reviewer"),
         attribution=ArtefactAttribution.system(),
         reevaluate_autostart=False,
     )
@@ -561,12 +563,26 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("actor_kind", ["system", "pipeline_task", "task", "user", "agent"])
+@pytest.mark.parametrize(
+    "actor_kind",
+    [
+        "system",
+        "pipeline_task",
+        "scout_task",
+        "authorized_system",
+        "malformed_system",
+        "deleted_user",
+        "task",
+        "user",
+        "agent",
+    ],
+)
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
+def test_autostart_requires_explicit_authorization_independent_of_writer(
     organization: Organization, team: Team, actor_kind: str
 ) -> None:
     reviewer = _create_org_member_with_github("reviewer@example.com", organization, "example-reviewer")
+    _create_org_member_with_github("stale@example.com", organization, "stale-reviewer")
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
     Integration.objects.create(
         team=team,
@@ -578,14 +594,27 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
     )
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
-    task = Task.objects.create(team=team, title="Example task") if actor_kind in {"task", "pipeline_task"} else None
-    if actor_kind != "pipeline_task":
+    task = (
+        Task.objects.create(team=team, title="Example task")
+        if actor_kind in {"task", "pipeline_task", "scout_task"}
+        else None
+    )
+    if actor_kind not in {"pipeline_task", "scout_task"}:
         SignalReportArtefact.objects.create(
             team=team,
             report=report,
             type="suggested_reviewers",
             content=json.dumps([{"github_login": "example-reviewer"}]),
-            actor_kind=actor_kind,
+            actor_kind=actor_kind if actor_kind in {"task", "user", "agent"} else "system",
+            implementation_authorization=(
+                {"mode": "reviewer"}
+                if actor_kind == "authorized_system"
+                else {"mode": "user", "user_id": 2147483647}
+                if actor_kind == "deleted_user"
+                else {"mode": "user"}
+                if actor_kind == "malformed_system"
+                else None
+            ),
             task=task,
             actor_agent="Example agent" if actor_kind == "agent" else None,
         )
@@ -615,6 +644,16 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
                     )
                 ],
             )
+        elif actor_kind == "scout_task":
+            from products.signals.backend.scout_harness.tools.report import set_scout_report_reviewers
+
+            assert task is not None
+            set_scout_report_reviewers(
+                team_id=team.id,
+                report_id=str(report.id),
+                suggested_reviewers=SuggestedReviewers.model_validate([{"github_login": "example-reviewer"}]),
+                attribution=ArtefactAttribution.from_task(str(task.id)),
+            )
         async_to_sync(maybe_autostart_implementation_task)(
             team_id=team.id,
             report_id=str(report.id),
@@ -627,12 +666,12 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
                 already_addressed=False,
             ),
             priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P1),
-            reviewers_content=[_reviewer("example-reviewer")],
+            reviewers_content=[_reviewer("stale-reviewer")],
         )
 
     assert list(
         Task.objects.filter(team=team).exclude(id__in=[task.id] if task else []).values_list("created_by_id", flat=True)
-    ) == ([reviewer.id] if actor_kind in {"system", "pipeline_task"} else [])
+    ) == ([reviewer.id] if actor_kind in {"authorized_system", "pipeline_task", "scout_task"} else [])
 
 
 @pytest.mark.parametrize(
@@ -754,6 +793,7 @@ def test_human_pin_does_not_authorize_automatic_execution(
                 root=[SuggestedReviewerEntry(user_uuid=str(automatic.uuid))] if has_automatic_reviewer else []
             ),
             attribution=ArtefactAttribution.system(),
+            implementation_authorization=ImplementationAuthorization(mode="reviewer"),
             reviewer_proposal=ReviewerProposal(
                 expected_state=ReviewerRules.read_for_report(team_id=team.id, report_id=str(report.id)).state
             ),

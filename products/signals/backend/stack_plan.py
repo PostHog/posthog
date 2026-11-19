@@ -35,6 +35,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.billing import system_billing_exempt_reason
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
@@ -70,24 +71,25 @@ def _layer_summary(*, parent: SignalReport, layer: ReportLayer, index: int, tota
     return f"{layer.scope}\n\n## Plan\n\nThis is layer {index + 1} of {total} of the plan '{parent.title}'."
 
 
-def _inherited_judgments(parent: SignalReport) -> list[StatusArtefactContent]:
-    judgments: list[StatusArtefactContent] = []
+def _inherited_judgments(
+    parent: SignalReport,
+) -> list[tuple[StatusArtefactContent, ImplementationAuthorization | None]]:
+    judgments: list[tuple[StatusArtefactContent, ImplementationAuthorization | None]] = []
     for artefact_type in _INHERITED_STATUS_TYPES:
         latest = (
             SignalReportArtefact.objects.filter(team_id=parent.team_id, report_id=parent.id, type=artefact_type)
             .order_by("-created_at", "-id")
-            .values_list("content", "created_by_id")
+            .values_list("content", "implementation_authorization")
             .first()
         )
         if latest is None:
             continue
-        content, editor_user_id = latest
-        # Auto-start runs a user-edited reviewer list as the editing user. A copy written under the
-        # plan's attribution would read as pipeline-chosen and could run as a named colleague.
-        if artefact_type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS and editor_user_id is not None:
-            continue
+        content, stored_authorization = latest
         judgments.append(
-            cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(content))
+            (
+                cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(content)),
+                ImplementationAuthorization.from_stored(stored_authorization),
+            )
         )
     return judgments
 
@@ -133,13 +135,14 @@ def create_layer_reports(
             tags=list(parent.tags),
         )
         child_id = str(child.id)
-        for judgment in judgments:
+        for judgment, authorization in judgments:
             SignalReportArtefact.append_status(
                 team_id=team_id,
                 report_id=child_id,
                 content=judgment,
                 attribution=attribution,
                 reevaluate_autostart=False,
+                implementation_authorization=authorization,
                 # The layer is new, so its reviewer state is empty.
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="stack_plan")
                 if isinstance(judgment, SuggestedReviewers)

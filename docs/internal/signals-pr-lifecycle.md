@@ -469,12 +469,15 @@ Incomplete history stops automatic changes until a person confirms the current l
 
 ### Write contract
 
-Reviewer changes through the artefact API retain the authenticated user, including when `X-PostHog-Task-Id` is supplied.
-Automatic implementation triggered by such a change runs as that user and respects their autonomy threshold.
-If that user is ineligible, it does not fall back to a named reviewer or another project member.
-Automatic execution pauses when a non-system reviewer row has no authenticated user, including older task-attributed rows and rows whose user was deleted.
-Internal research and custom-agent workers record system provenance for reviewer rows and retain the originating task link.
-Task-owned work claims still validate task identity independently of the user who can trigger execution.
+Reviewer attribution records who wrote the artefact and does not grant permission to start implementation.
+Each reviewer version carries separate, server-owned implementation authorization.
+Research, custom-agent, and scout workers authorize automatic selection of an eligible reviewer, subject to the existing autonomy and repository checks.
+Stack layers inherit the parent reviewer version's authorization.
+Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
+An ineligible caller never falls back to a named reviewer or another member.
+Startup reads the authorization and reviewer content from the same version, including on deferred retries.
+Unchanged automatic proposals preserve the current version's authorization.
+Older reviewer versions without authorization pause until a person authorizes a reviewer edit or explicitly requests implementation.
 
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.

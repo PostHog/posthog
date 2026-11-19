@@ -69,6 +69,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkWritePath, SignalSourceProduct
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -386,6 +387,7 @@ def create_scout_report(
                     report_id=report_id,
                     content=suggested_reviewers or SuggestedReviewers(root=[]),
                     attribution=attribution,
+                    implementation_authorization=ImplementationAuthorization(mode="reviewer"),
                     reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
@@ -1477,6 +1479,7 @@ def set_scout_report_reviewers(
             report_id=report_id,
             content=merged,
             attribution=attribution,
+            implementation_authorization=ImplementationAuthorization(mode="reviewer"),
             reviewer_proposal=proposal,
             reevaluate_autostart=False,
         )
