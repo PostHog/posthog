@@ -8,6 +8,7 @@ from string import Template
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db.models import Q
 
 import pyarrow as pa
 from structlog.contextvars import bind_contextvars
@@ -501,7 +502,11 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    if inputs.check_billing is True:
+    # A blocked organization is refused whatever `check_billing` says: the block is not a quota,
+    # and the run ends the same way so every destination workflow already handles it.
+    if await check_is_organization_blocked(inputs.team_id):
+        is_over_limit = True
+    elif inputs.check_billing is True:
         is_over_limit = await check_is_over_limit(inputs.team_id)
     else:
         is_over_limit = False
@@ -557,6 +562,19 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
             backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
         )
         return str(run.id)
+
+
+async def check_is_organization_blocked(team_id: int) -> bool:
+    """Check if the team's organization is deactivated or pending deletion.
+
+    The app and the API refuse such an organization, so its batch exports should not run either.
+    Only an explicit False deactivates, as `organization_block_page` reads it.
+    """
+    return (
+        await Team.objects.filter(id=team_id)
+        .filter(Q(organization__is_active=False) | Q(organization__is_pending_deletion=True))
+        .aexists()
+    )
 
 
 async def check_is_over_limit(team_id: int) -> bool:

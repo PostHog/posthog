@@ -346,12 +346,18 @@ class EmitAlertSignalsInput:
 
 
 def _due_alerts_qs(now: datetime):
-    return LogsAlertConfiguration.objects.filter(
-        due_alerts_q(
-            now,
-            broken_state=LogsAlertConfiguration.State.BROKEN,
-            snoozed_state=LogsAlertConfiguration.State.SNOOZED,
+    return (
+        LogsAlertConfiguration.objects.filter(
+            due_alerts_q(
+                now,
+                broken_state=LogsAlertConfiguration.State.BROKEN,
+                snoozed_state=LogsAlertConfiguration.State.SNOOZED,
+            )
         )
+        # The app and the API refuse a deactivated or pending-deletion organization, so its alerts
+        # must not run either. Only an explicit False deactivates, as `organization_block_page` reads it.
+        .exclude(team__organization__is_active=False)
+        .exclude(team__organization__is_pending_deletion=True)
     )
 
 

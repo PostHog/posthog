@@ -138,6 +138,10 @@ def due_insight_alerts_q(now: datetime) -> Q:
         & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
         & Q(insight__deleted=False)
+        # The app and the API refuse a deactivated or pending-deletion organization, so its alerts
+        # must not run either. Only an explicit False deactivates, as `organization_block_page` reads it.
+        & ~Q(team__organization__is_active=False)
+        & Q(team__organization__is_pending_deletion=False)
         & evaluated_by_insight_stack_q(now)
     )
 

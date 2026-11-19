@@ -29,6 +29,10 @@ def discover_demand(cutoff: str, limits_by_source: Mapping[SourceKind, int] | No
         # A broken or snoozed alert would otherwise mint a key every tick that its own evaluation
         # then drops.
         .exclude(suppressed())
+        # The app and the API refuse a deactivated or pending-deletion organization, so its alerts
+        # get no key. Only an explicit False deactivates, as `organization_block_page` reads it.
+        .exclude(team__organization__is_active=False)
+        .exclude(team__organization__is_pending_deletion=True)
         .order_by("next_check_at", "id")
         .values_list("source_kind", "team_id", "next_check_at")
     )

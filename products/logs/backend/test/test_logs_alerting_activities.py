@@ -18,6 +18,7 @@ from posthog.hogql.errors import QueryError
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorUnknownFunction, QueryErrorCategory
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models import Organization
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -2099,6 +2100,41 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
 
         discovered_alert_ids = [alert_id for manifest in result.manifests for alert_id in manifest.alert_ids]
         assert discovered_alert_ids == [str(healthy_alert.id)]
+
+    @parameterized.expand(
+        [
+            ("deactivated", {"is_active": False}),
+            ("pending_deletion", {"is_pending_deletion": True}),
+        ]
+    )
+    @time_machine.travel("2026-05-05T23:00:00Z", tick=False)
+    def test_skips_a_blocked_organization_until_the_block_lifts(self, _name, fields):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="blocked organization",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["blocked"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+        )
+        organization = Organization.objects.filter(id=self.organization.id)
+        organization.update(**fields)
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        assert result.manifests == []
+
+        # The gate holds no state, so lifting the block is all it takes to resume.
+        organization.update(is_active=True, is_pending_deletion=False)
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        assert [alert_id for manifest in result.manifests for alert_id in manifest.alert_ids] == [str(alert.id)]
 
     @time_machine.travel("2026-05-05T23:00:00Z", tick=False)
     def test_reschedules_due_alert_during_quiet_hours_before_evaluation(self):

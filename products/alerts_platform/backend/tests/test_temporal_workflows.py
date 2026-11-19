@@ -34,6 +34,7 @@ from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from posthog.models import Organization
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL
@@ -655,6 +656,24 @@ class TestDemandDiscovery(APIBaseTest):
         discovered = demand.discover_demand(self.tick.isoformat())
 
         assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(4), self._key(3), self._key(1)]}
+
+    @parameterized.expand(
+        [
+            ("deactivated", {"is_active": False}),
+            ("pending_deletion", {"is_pending_deletion": True}),
+        ]
+    )
+    def test_a_blocked_organization_gets_no_keys_until_the_block_lifts(self, _name: str, fields: dict) -> None:
+        self._configuration(minutes_ago=1, name="due")
+        organization = Organization.objects.filter(id=self.organization.id)
+        organization.update(**fields)
+
+        assert demand.discover_demand(self.tick.isoformat()).batch_keys_by_source == {}
+
+        # The gate holds no state, so lifting the block is all it takes to resume.
+        organization.update(is_active=True, is_pending_deletion=False)
+
+        assert demand.discover_demand(self.tick.isoformat()).batch_keys_by_source == {SourceKind.LOGS: [self._key(1)]}
 
     def test_configurations_due_in_one_minute_share_one_key(self) -> None:
         self._configuration(minutes_ago=1, name="first")

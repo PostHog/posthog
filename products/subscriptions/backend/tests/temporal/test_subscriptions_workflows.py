@@ -26,7 +26,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models import OrganizationMembership
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -3101,3 +3101,42 @@ async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user
     match = next((s for s in fetched if s.subscription_id == sub.id), None)
     assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
     assert match.resource_type == Subscription.ResourceType.AI_PROMPT
+
+
+@pytest.mark.parametrize(
+    "organization_fields",
+    [
+        pytest.param({"is_active": False}, id="deactivated"),
+        pytest.param({"is_pending_deletion": True}, id="pending-deletion"),
+    ],
+)
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
+async def test_fetch_due_subscriptions_skips_a_blocked_organization_until_the_block_lifts(
+    team, user, organization_fields
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="123456", name="My Test subscription")
+    # Created early enough for the 09:00 delivery to fall inside the scheduler's buffer.
+    with time_machine.travel("2022-02-02T08:30:00.000Z", tick=False):
+        subscription = await sync_to_async(create_subscription)(
+            team=team,
+            insight=insight,
+            created_by=user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+    organization = Organization.objects.filter(id=team.organization_id)
+
+    async def due_subscription_ids() -> list[int]:
+        due = await ActivityEnvironment().run(fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs())
+        return [item.subscription_id for item in due]
+
+    assert await due_subscription_ids() == [subscription.id]
+
+    await organization.aupdate(**organization_fields)
+
+    assert await due_subscription_ids() == []
+
+    # The gate holds no state, so lifting the block is all it takes to resume.
+    await organization.aupdate(is_active=True, is_pending_deletion=False)
+
+    assert await due_subscription_ids() == [subscription.id]

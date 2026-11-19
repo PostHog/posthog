@@ -24,6 +24,8 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.models import Organization
+
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
@@ -241,3 +243,37 @@ async def test_destination_workflow_finishes_cleanly_when_over_billing_limit(
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
     assert len(runs) == 1
     assert runs[0].status == BatchExportRun.Status.FAILED_BILLING
+
+
+@pytest.mark.parametrize(
+    "organization_fields",
+    [
+        pytest.param({"is_active": False}, id="deactivated"),
+        pytest.param({"is_pending_deletion": True}, id="pending-deletion"),
+    ],
+)
+async def test_blocked_organization_is_refused_until_the_block_lifts(team, batch_export, organization_fields):
+    """Test a blocked organization's run ends like an over-limit run, even with the billing check off."""
+    inputs = StartBatchExportRunInputs(
+        team_id=team.id,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=(TEST_TIME - dt.timedelta(hours=1)).isoformat(),
+        data_interval_end=TEST_TIME.isoformat(),
+        check_billing=False,
+    )
+    organization = Organization.objects.filter(id=team.organization_id)
+    await organization.aupdate(**organization_fields)
+
+    result = await _execute_test_workflow(CatchBillingLimitTestWorkflow, inputs)
+
+    assert result == "over-billing-limit"
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    assert [run.status for run in runs] == [BatchExportRun.Status.FAILED_BILLING]
+
+    # The gate holds no state, so lifting the block is all it takes to resume.
+    await organization.aupdate(is_active=True, is_pending_deletion=False)
+
+    run_id = await _execute_test_workflow(CatchBillingLimitTestWorkflow, inputs)
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    assert {str(run.id): run.status for run in runs}[run_id] == BatchExportRun.Status.STARTING

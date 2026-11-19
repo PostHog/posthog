@@ -11,7 +11,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.schema import AlertCalculationInterval
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.temporal.alerts.activities import _RetrievedAlerts, retrieve_due_alerts
 from posthog.temporal.alerts.admission import INFLIGHT_KEY, SLOT_LEASE_SECONDS, admit_evaluation_slots
@@ -240,3 +240,37 @@ async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_
     assert alerts == expected_alerts
     record_due_metrics.assert_called_once_with(1, None, polled_at)
     get_metric_meter.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("organization_fields", "expected_due"),
+    [
+        pytest.param({"is_active": True}, True, id="active"),
+        # `is_active` is nullable, and only an explicit False deactivates.
+        pytest.param({"is_active": None}, True, id="null-is-active"),
+        pytest.param({"is_active": False}, False, id="deactivated"),
+        pytest.param({"is_pending_deletion": True}, False, id="pending-deletion"),
+    ],
+)
+async def test_retrieve_due_alerts_skips_a_blocked_organization_until_the_block_lifts(
+    ateam: Team, organization_fields: dict, expected_due: bool
+) -> None:
+    alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 10, 11, 0, tzinfo=UTC))
+    organization = Organization.objects.filter(id=ateam.organization_id)
+    await organization.aupdate(**organization_fields)
+
+    async def due_alert_ids() -> list[str]:
+        get_client().delete(INFLIGHT_KEY)
+        due = await ActivityEnvironment().run(
+            retrieve_due_alerts, ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=10)
+        )
+        return [item.alert_id for item in due]
+
+    assert await due_alert_ids() == ([str(alert.id)] if expected_due else [])
+
+    # The gate holds no state, so lifting the block is all it takes to resume.
+    await organization.aupdate(is_active=True, is_pending_deletion=False)
+
+    assert await due_alert_ids() == [str(alert.id)]
