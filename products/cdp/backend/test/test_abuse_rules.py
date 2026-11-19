@@ -613,6 +613,11 @@ class TestAbuseRules(SimpleTestCase):
                 content(hog="let q := (select event from events limit 1)"),
                 True,
             ),
+            (
+                "closure_called_through_the_for_in_iterable_temporary",
+                content(hog="for (let x in [inputs.sender, <__H_expr_H__ url={inputs.url} />]) {\n  print(x)\n}"),
+                True,
+            ),
             ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
             ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
             ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),

@@ -276,9 +276,11 @@ class _HogCodeVisitor(TraversingVisitor):
             super().visit_lambda(node)
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
-        self.visit(node.expr)
-        with self._scope([*_FOR_IN_LOCALS, node.valueVar, *([node.keyVar] if node.keyVar else [])]):
-            self.visit(node.body)
+        # The compiler declares its temporaries before it compiles the iterable.
+        with self._scope(_FOR_IN_LOCALS):
+            self.visit(node.expr)
+            with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
+                self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
         with self._scope():
