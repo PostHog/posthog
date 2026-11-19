@@ -695,6 +695,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </SceneMenuBarSubMenu>
                                 <SceneMenuBarSeparator />
                                 <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                                <SceneMenuBarItem
+                                    onClick={() =>
+                                        void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
+                                    }
+                                    data-attr={`${RESOURCE_TYPE}-menubar-copy-key`}
+                                >
+                                    <IconCopy />
+                                    Copy key
+                                </SceneMenuBarItem>
                                 {(!featureFlag.deleted || configFormat !== 'unsupported') && <SceneMenuBarSeparator />}
                                 {!featureFlag.deleted && (
                                     <AccessControlAction
@@ -784,8 +793,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </AccessControlAction>
                                 )}
                             </SceneMenuBarMenu>
-                            <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                                {isV1Config && (
+                            {isV1Config && (
+                                <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
                                     <SceneMenuBarItem
                                         onClick={() => {
                                             router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
@@ -795,17 +804,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         <IconCopy />
                                         Duplicate
                                     </SceneMenuBarItem>
-                                )}
-                                <SceneMenuBarItem
-                                    onClick={() =>
-                                        void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
-                                    }
-                                    data-attr={`${RESOURCE_TYPE}-menubar-copy-key`}
-                                >
-                                    <IconCopy />
-                                    Copy key
-                                </SceneMenuBarItem>
-                            </SceneMenuBarMenu>
+                                </SceneMenuBarMenu>
+                            )}
                             {!featureFlag.deleted && (
                                 <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
                                     <SceneMenuBarItem
