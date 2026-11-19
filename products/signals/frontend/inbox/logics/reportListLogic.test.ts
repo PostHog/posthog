@@ -2,7 +2,10 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
+import { ApiError, NetworkError, ResponseBodyReadError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -54,31 +57,80 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
-    it('recovers when the first report page fails transiently', async () => {
-        let pageAttempts = 0
+    // The first page retries after about 1s and again after about 3s, so a connection drop that
+    // lasts a few seconds recovers without a click. A 504 already waited out the gateway timeout.
+    test.each([
+        {
+            name: 'two dropped connections',
+            failures: [new NetworkError('network'), new NetworkError('network')],
+            attempts: 3,
+            recovered: { retry_count: 2, error_type: 'NetworkError', status: null },
+        },
+        {
+            name: 'a truncated body',
+            failures: [new ResponseBodyReadError('body stream failed')],
+            attempts: 2,
+            recovered: { retry_count: 1, error_type: 'ResponseBodyReadError', status: null },
+        },
+        {
+            name: 'a 503',
+            failures: [new ApiError('unavailable', 503)],
+            attempts: 2,
+            recovered: { retry_count: 1, status: 503 },
+        },
+        {
+            name: 'a 504',
+            failures: [new ApiError('gateway timeout', 504)],
+            attempts: 1,
+            recovered: null,
+        },
+        {
+            name: 'a drop that outlasts both retries',
+            failures: [new NetworkError('network'), new NetworkError('network'), new NetworkError('network')],
+            attempts: 3,
+            recovered: null,
+        },
+    ])('first page after $name', async ({ failures, attempts, recovered }) => {
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/available_reviewers': {},
-                [REPORTS_URL]: ({ request }) => {
-                    const isPageRequest = new URL(request.url).searchParams.get('limit') !== '1'
-                    if (isPageRequest && ++pageAttempts === 1) {
-                        return [503, {}]
-                    }
-                    return [200, { count: 1, next: null, previous: null, results: [makeReport('recovered')] }]
-                },
+                [REPORTS_URL]: { count: 1, next: null, previous: null, results: [makeReport('recovered')] },
             },
         })
         initKeaTests()
+        const pending = [...failures]
+        let pageAttempts = 0
+        const realList = api.signalReports.list.bind(api.signalReports)
+        const listSpy = jest.spyOn(api.signalReports, 'list').mockImplementation((params) => {
+            if (params?.limit === 1) {
+                return realList(params)
+            }
+            pageAttempts++
+            const failure = pending.shift()
+            return failure ? Promise.reject(failure) : realList(params)
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        jest.useFakeTimers()
         const logic = reportListLogic(sectionListLogicProps('needs-decision'))
         logic.mount()
-        await expectLogic(logic, () => logic.actions.ensureLoaded()).toFinishAllListeners()
+        try {
+            logic.actions.ensureLoaded()
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(pageAttempts).toBe(2)
-        expect(logic.values).toMatchObject({
-            reports: [makeReport('recovered')],
-            reportsLoadFailed: false,
-        })
-        logic.unmount()
+            expect(pageAttempts).toBe(attempts)
+            expect(logic.values.reportsLoadFailed).toBe(recovered === null)
+            expect(logic.values.reports).toEqual(recovered === null ? [] : [makeReport('recovered')])
+            const recoveries = captureSpy.mock.calls.filter(([event]) => event === 'Inbox report list retry recovered')
+            expect(recoveries.map(([, properties]) => properties)).toEqual(
+                recovered === null ? [] : [expect.objectContaining({ section_key: 'needs-decision', ...recovered })]
+            )
+        } finally {
+            logic.unmount()
+            jest.useRealTimers()
+            listSpy.mockRestore()
+            captureSpy.mockRestore()
+        }
     })
 
     it('loads monitoring from the server without a browser rollout flag', async () => {
@@ -791,6 +843,24 @@ describe('reportListLogic', () => {
                 ['scouted', 'no-signals'],
             ])
             expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
+        })
+
+        // The rows already render without the source line, so a gateway failure is not a defect to file.
+        test.each([
+            { status: 500, reported: true },
+            { status: 504, reported: false },
+        ])('files a $status from the source line as an exception: $reported', async ({ status, reported }) => {
+            useMocks({ post: { '/api/projects/:team_id/signals/reports/source_metadata/': () => [status, {}] } })
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            try {
+                logic.actions.loadReportSourceMeta(['scouted'])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(captureExceptionSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
+            } finally {
+                captureExceptionSpy.mockRestore()
+            }
         })
     })
 
