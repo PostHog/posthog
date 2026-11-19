@@ -154,6 +154,7 @@ export type TileRefreshReporter = (
     refreshDurationMs: number,
     individualRefresh: boolean,
     requestTiming: undefined,
+    loadTiming: { queueWaitMs: number; requestMs: undefined; dashboardV2Ui: boolean },
     filterChange: undefined,
     isAutomatic: boolean | undefined,
     eventProperties: Record<string, unknown>
@@ -217,6 +218,8 @@ async function loadThroughBoardStream<T extends InsightTile>(
             Math.floor(performance.now() - startedAt),
             false,
             undefined,
+            // Stream tiles skip the per-tile load queue and have no request of their own.
+            { queueWaitMs: 0, requestMs: undefined, dashboardV2Ui: true },
             undefined,
             refresh.isAutomatic,
             { stream_fallback: false }
