@@ -41,6 +41,12 @@ export function InsightScene(): JSX.Element {
         }
     }, [insightId, insight?.query, insightMode, dashboardId])
 
+    // Editing from a dashboard reloads the stored insight over the tile's filtered copy, and the
+    // reload would overwrite any edit made before it lands
+    if (insightLoading && insightMode === ItemMode.Edit && dashboardId != null) {
+        return <InsightSkeleton />
+    }
+
     if (
         insightId === 'new' ||
         insightId?.startsWith('new-') ||
