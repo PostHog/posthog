@@ -25,6 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
+from posthog.tasks.alerts.utils import evaluated_by_insight_stack_q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -703,12 +704,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
             format="json",
         ).json()["hog_function_ids"]
+        (stock,) = self.client.get(destinations_url).json()
 
         with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
             reset = self.client.post(f"{destinations_url}reset/", {"hog_function_ids": hog_function_ids}, format="json")
             assert reset.status_code == status.HTTP_200_OK, reset.json()
             (row_only,) = self.client.get(destinations_url).json()
             assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+            assert row_only["id"] == stock["id"]
 
             customized = self.client.post(
                 f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
@@ -716,7 +719,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert customized.status_code == status.HTTP_200_OK, customized.json()
         (listed,) = self.client.get(destinations_url).json()
-        assert (listed["id"], listed["hog_function_ids"]) == (None, customized.json()["hog_function_ids"])
+        assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
         (hog_function_id,) = listed["hog_function_ids"]
         assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
             "https://discord.com/api/webhooks/1/secret"
@@ -1340,6 +1343,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if team_owner == "platform":
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
+        # A team's first alert has no insight history to shadow.
+        assert AlertConfiguration.objects.filter(
+            evaluated_by_insight_stack_q(timezone.now()), id=created.id
+        ).exists() is (team_owner is not None)
 
     @parameterized.expand(
         [
@@ -1648,7 +1655,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                     check_interval_minutes=60 * 24,
                     recurrence_unit="day",
                     owner=PlatformAlertOwner.PLATFORM,
-                    destinations_owner=PlatformAlertOwner.PLATFORM,
                 )
 
         watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)

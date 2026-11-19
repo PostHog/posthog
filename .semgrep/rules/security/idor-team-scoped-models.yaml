@@ -68,6 +68,8 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckCitation
+                              |AEOCheckSearch
                               |AEOCitationCheck
                               |AEOEngineSetting
                               |AEOKeyword
@@ -208,6 +210,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
                               |ErrorTrackingIssueTag
+                              |ErrorTrackingIssueTagRule
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -332,6 +335,7 @@ rules:
                               |RelationshipProposal
                               |UsageSnapshot
                               |MCPAnalyticsSubmission
+                              |MCPAnalyticsWrapped
                               |MCPAuditEvent
                               |MCPCustomHarness
                               |MCPGatewayServer
@@ -764,6 +768,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
                         |ErrorTrackingIssueTag
+                        |ErrorTrackingIssueTagRule
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -877,6 +882,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |UsageSnapshot
+                        |MCPAnalyticsWrapped
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
@@ -1689,6 +1695,7 @@ rules:
                               AccountAuditCredential
                               |CommunitySkillVote
                               |GitHubInstallRequest
+                              |IdentityProviderEmailVerification
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1746,6 +1753,7 @@ rules:
                         AccountAuditCredential
                         |CommunitySkillVote
                         |GitHubInstallRequest
+                        |IdentityProviderEmailVerification
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

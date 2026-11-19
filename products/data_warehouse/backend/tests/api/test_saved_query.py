@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -63,6 +64,10 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+
+def _hogql_database_builds(trigger: str) -> float:
+    return REGISTRY.get_sample_value("hogql_database_build_total", {"trigger": trigger}) or 0.0
 
 
 class TestSavedQuery(APIBaseTest):
@@ -1522,21 +1527,54 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(bounds["frequency_mode"], "tiered")
         self.assertTrue(bounds["options"])
 
-    def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(self):
+    def _six_hour_plan_floor(self, flag_enabled: bool) -> Any:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        return patch(
+            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
+        )
+
+    @parameterized.expand(
+        [
+            ("consumer_ceiling", timedelta(hours=6), False, "consumer"),
+            ("plan_floor", timedelta(days=30), True, "plan"),
+        ]
+    )
+    def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(
+        self, _name, consumer_target, plan_floor, blocked_by
+    ):
         # The whole point of serving bounds is that the picker and the write path cannot
         # disagree. Walk every option the API offered and hold the PATCH to that promise.
-        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
-        options = self._read_frequency_bounds(upstream["id"])["options"]
-        self.assertTrue(any(option["allowed"] for option in options))
-        self.assertTrue(any(not option["allowed"] for option in options))
+        upstream = self._create_view_with_a_consumer(consumer_target=consumer_target)
+        with self._six_hour_plan_floor(plan_floor):
+            options = self._read_frequency_bounds(upstream["id"])["options"]
+            self.assertTrue(any(option["allowed"] for option in options))
+            self.assertIn(blocked_by, {option["blocked_by"] for option in options if not option["allowed"]})
 
-        for option in options:
-            with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
-                response = self.client.patch(
-                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
-                    {"sync_frequency": option["cadence"]},
-                )
-            self.assertEqual(response.status_code, 200 if option["allowed"] else 400, (option, response.json()))
+            for option in options:
+                with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+                    response = self.client.patch(
+                        f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                        {"sync_frequency": option["cadence"]},
+                    )
+                self.assertEqual(response.status_code, 200 if option["allowed"] else 400, (option, response.json()))
+
+    @parameterized.expand([("floored", True, "6 hours"), ("not_floored", False, None)])
+    def test_bounds_report_the_plan_floor_and_keep_a_faster_saved_cadence(self, _name, plan_floor, expected_label):
+        from products.data_modeling.backend.facade.api import set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), timedelta(minutes=15))
+
+        with self._six_hour_plan_floor(plan_floor):
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        bounds = response.json()["sync_frequency_bounds"]
+        self.assertEqual(response.json()["sync_frequency"], "15min")
+        self.assertEqual(bounds["plan_floor"], {"label": expected_label, "blocker": None} if expected_label else None)
 
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
         # A disabled option with no reason reads as a broken control. Every block carries the
@@ -1780,6 +1818,26 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+
+    def test_query_edit_builds_one_database_for_the_caller_and_one_for_lineage(self) -> None:
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": {"kind": "HogQLQuery", "query": "select event as event from events"}},
+        ).json()
+        triggers = ("saved_query_save", "saved_query_dag_sync", "printer", "direct")
+        builds_before = {trigger: _hogql_database_builds(trigger) for trigger in triggers}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select distinct_id as distinct_id from events"},
+                "edited_history_id": created["latest_history_id"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        builds = {trigger: _hogql_database_builds(trigger) - builds_before[trigger] for trigger in triggers}
+        self.assertEqual(builds, {"saved_query_save": 1, "saved_query_dag_sync": 1, "printer": 0, "direct": 0})
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(
@@ -3734,6 +3792,53 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertGreater(call.kwargs["start_delay"], timedelta(0))
         node.refresh_from_db()
         self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
+
+    @parameterized.expand(
+        [
+            ("trino_only_this_view", "trino", None),
+            ("trino_downstream", "trino", "downstream"),
+            ("clickhouse_downstream", "clickhouse", "downstream"),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_of_a_view_that_names_the_window_start_starts(
+        self, _name, engine, direction, mock_sync_connect, mock_eligible
+    ):
+        saved_query, _dag, _node = self._make_saved_query_with_node("windowed_view")
+        saved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, timestamp FROM events "
+            "WHERE timestamp >= ifNull({incremental_window_start}, toDateTime('1970-01-01'))",
+        }
+        saved_query.save()
+        mock_eligible.return_value = True
+        mock_client = self._trino_client()
+        mock_sync_connect.return_value = mock_client
+        body: dict[str, Any] = {"engine": engine}
+        if direction:
+            body["direction"] = direction
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/", body
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_of_a_view_that_no_longer_resolves_is_a_bad_request_not_a_denial(self, mock_sync_connect):
+        saved_query, _dag, _node = self._make_saved_query_with_node("broken_view")
+        saved_query.query = {"kind": "HogQLQuery", "query": "SELECT a_column_that_was_renamed FROM events"}
+        saved_query.save()
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/")
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("a_column_that_was_renamed", response.json()["detail"])
+        mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")

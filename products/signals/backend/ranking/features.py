@@ -18,6 +18,8 @@ scoring time. Both turn a report's products into columns through the one `source
 `report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Training
 reads them from the report-state snapshot, and the sweep reads them from `ReportFacts` at scoring time.
 Both turn them into columns through the one `report_fact_matrix`.
+`report_embeddings_priority_ml_features_scored_facts` has the same columns, and in training it reads
+the facts the sweep recorded when it scored the report, where they exist.
 
 The pair sets (`PairUserHistoryFeatureSet`) build one row per (report, user) for the pair-grain
 experiments: the priority set's columns, then the user's history and reviewer columns.
@@ -582,6 +584,71 @@ class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourc
         return pd.concat([matrix, facts], axis=1)
 
 
+class ReportEmbeddingsPriorityScoredFactsFeatureSet(ReportEmbeddingsPriorityMLFeaturesFeatureSet):
+    """The ML features set, trained on the report facts the scoring sweep saw where they exist.
+
+    The columns, bucket edges and groups are the parent's. Only the training read differs. As of a
+    moment, a report with a row in the `REPORT_SCORED_FACTS_EXTRA` side input known at that moment
+    takes every state column from that row, a null fact included, because that null is what the sweep
+    read and what a served model reads. A report without such a row keeps the values of its own state
+    row. A row is never dropped for lacking a scored-facts row.
+
+    At serving (`as_of=None`), the sweep fills the state rows from `ReportFacts` at scoring time, which
+    is the same read the scored facts record, so the set reads `rows` alone and the side input is not
+    passed.
+    """
+
+    schema_version = 1
+
+    def __init__(self, *, name: str, extras_key: str, sources_key: str, scored_facts_key: str) -> None:
+        super().__init__(name=name, extras_key=extras_key, sources_key=sources_key)
+        self.extras_keys = (extras_key, sources_key, scored_facts_key)
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        if as_of is not None:
+            rows = self.with_scored_facts(rows, extras, as_of)
+        return super().build_matrix(rows, extras, as_of=as_of)
+
+    def scored_rows(self, report_ids: pd.Index, extras: Extras, as_of: datetime.datetime) -> pd.DataFrame:
+        """The earliest scored-facts row of each of `report_ids` known at `as_of`, indexed by report_id.
+        A report without one is absent."""
+        facts = extras[self.extras_keys[2]]
+        known = facts.loc[(facts[SCORED_AT_COLUMN] <= as_of) & facts["report_id"].isin(report_ids)]
+        earliest = known.sort_values(SCORED_AT_COLUMN, kind="stable").drop_duplicates("report_id")
+        return earliest.set_index("report_id")
+
+    def with_scored_facts(self, rows: pd.DataFrame, extras: Extras, as_of: datetime.datetime) -> pd.DataFrame:
+        """`rows` with every state column taken from the report's scored-facts row known at `as_of`,
+        where it has one."""
+        scored = self.scored_rows(rows.index, extras, as_of)
+        has_row = rows.index.isin(scored.index)
+        if not has_row.any():
+            return rows
+        merged = rows.copy()
+        for column in self.state_columns:
+            own = _column(rows, column).astype(object).to_numpy()
+            from_scored = _column(scored, column).astype(object).reindex(rows.index).to_numpy()
+            merged[column] = pd.Series(np.where(has_row, from_scored, own), index=rows.index, dtype=object)
+        return merged
+
+
+def zero_feature_groups(matrix: pd.DataFrame, feature_set: FeatureSet, groups: Sequence[str]) -> pd.DataFrame:
+    """`matrix` with every column of each of the set's `late_feature_groups` named in `groups` at zero.
+
+    Training zeroes a late group on every row when too few training rows carry it, so its weights keep
+    their initial random values. A model that serves must read the same zeros, or those weights add
+    noise to its scores.
+    """
+    columns = [name for group in groups for name in feature_set.late_feature_groups[group]]
+    if not columns:
+        return matrix
+    masked = matrix.copy()
+    masked[columns] = 0.0
+    return masked
+
+
 class PairUserHistoryFeatureSet(FeatureSet):
     """The input of one (report, user) pair: a report set's columns, then `PAIR_FEATURE_NAMES`.
 
@@ -653,6 +720,12 @@ REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET = ReportEmbeddingsPrioritySources
 REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET = ReportEmbeddingsPriorityMLFeaturesFeatureSet(
     name="report_embeddings_priority_ml_features", extras_key=REPORT_EMBEDDINGS_EXTRA, sources_key=REPORT_SOURCES_EXTRA
 )
+REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET = ReportEmbeddingsPriorityScoredFactsFeatureSet(
+    name="report_embeddings_priority_ml_features_scored_facts",
+    extras_key=REPORT_EMBEDDINGS_EXTRA,
+    sources_key=REPORT_SOURCES_EXTRA,
+    scored_facts_key=REPORT_SCORED_FACTS_EXTRA,
+)
 PAIR_BASE_FEATURE_SET = PairUserHistoryFeatureSet(
     name="pair_report_embeddings_priority",
     report_feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
@@ -672,6 +745,7 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
         REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
+        REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     }
 )
 

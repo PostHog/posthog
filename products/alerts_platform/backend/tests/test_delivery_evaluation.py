@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -6,8 +7,10 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
+
+from django.db import connection, transaction
 
 from parameterized import parameterized
 
@@ -62,15 +65,19 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
+from products.alerts_platform.backend.logic.alert_destinations import enabled_alert_destinations
 from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
 from products.alerts_platform.backend.logic.platform_lifecycle import record_outcomes
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 from products.alerts_platform.backend.tests.delivery_messages import pinned_post
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
+from products.cdp.backend.facade.models import HogFunction
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _EVENTS = "products.alerts_platform.backend.logic.platform_alert_events"
+# Stands in for a kind registered with no HogFunction destinations, such as metrics.
+_KIND_KEEPS_PLATFORM_DESTINATIONS = f"{_MODULE}.source_configs.keeps_platform_destinations"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
 _WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
@@ -492,7 +499,6 @@ class TestDeliverEvaluation(APIBaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
         )
         both = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
         create_alert_destinations(
@@ -513,7 +519,10 @@ class TestDeliverEvaluation(APIBaseTest):
         def project_members(*, team_id: int, configuration_id: UUID) -> list[str]:
             return ["b@example.com", "a@example.com", "b@example.com"]
 
-        with patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}):
+        with (
+            patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}),
+            patch(_KIND_KEEPS_PLATFORM_DESTINATIONS, return_value=True),
+        ):
             self._run(
                 _announcement(_transition(kind)),
                 {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
@@ -777,7 +786,6 @@ class TestDeliverEvaluation(APIBaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
         )
         create_alert_destinations(
             team_id=self.team.id,
@@ -995,10 +1003,15 @@ class TestDeliveryPath(APIBaseTest):
         assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
 
-    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(self) -> None:
-        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
-            destinations_owner=PlatformAlertOwner.PLATFORM
-        )
+    @parameterized.expand(
+        [
+            ("a_stock_row", (), ["C-native"]),
+            ("a_row_copying_a_live_hog_function", HOG_FUNCTION_SLACK.hog_function_ids, []),
+        ]
+    )
+    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(
+        self, _name: str, legacy_hog_function_ids: tuple[UUID, ...], native_channels: list[str]
+    ) -> None:
         create_alert_destinations(
             team_id=self.team.id,
             configuration_id=self.configuration.id,
@@ -1006,16 +1019,24 @@ class TestDeliveryPath(APIBaseTest):
                 NewAlertDestination(
                     data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
                     event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                    legacy_hog_function_ids=legacy_hog_function_ids,
                 ),
             ),
         )
 
+        def live_ids(*, team_id: int, hog_function_ids: Any) -> frozenset[UUID]:
+            return frozenset(hog_function_ids)
+
         # The lookup lists no HogFunction, as for one built from a custom template, and the event still goes out.
         # A failing chooser would also emit, so the native send shows the path choice is never read here.
-        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=[SUBSCRIBER])
+        with (
+            patch(_KIND_KEEPS_PLATFORM_DESTINATIONS, return_value=True),
+            patch.object(destinations_registry, "_live_lookup", live_ids),
+        ):
+            self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=[SUBSCRIBER])
 
         assert len(self.emitted) == 1
-        assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
+        assert [channel for channel, _ in RecordingTransport.sends] == native_channels
 
     @parameterized.expand(
         [
@@ -1175,6 +1196,71 @@ class TestDeliveryPath(APIBaseTest):
             )
 
         assert self.emitted == []
+
+
+class TestDestinationMoveDuringDelivery(NonAtomicBaseTest):
+    def test_a_group_that_becomes_a_row_while_delivery_reads_is_sent_once(self) -> None:
+        RecordingTransport.sends = []
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            team=self.team, name="API errors", source_kind=SourceKind.LOGS, check_interval_minutes=1
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            type="internal_destination",
+            template_id="template-slack",
+            name="Slack",
+            enabled=True,
+            filters={
+                "events": [{"id": FIRING_EVENT}],
+                "properties": [{"key": "alert_id", "value": "legacy-1"}],
+            },
+        )
+        # Written past `save()`, which keeps only the inputs a schema names, and this function has no schema.
+        HogFunction.objects.filter(id=hog_function.id).update(
+            inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C-1"}}
+        )
+
+        def convert() -> None:
+            try:
+                with transaction.atomic():
+                    create_alert_destinations(
+                        team_id=self.team.id,
+                        configuration_id=configuration.id,
+                        destinations=(
+                            NewAlertDestination(
+                                data=SLACK,
+                                event_kinds=(AlertEventKind.FIRING,),
+                                legacy_hog_function_ids=(hog_function.id,),
+                            ),
+                        ),
+                    )
+                    HogFunction.objects.filter(id=hog_function.id).update(deleted=True)
+            finally:
+                connection.close()
+
+        def rows_then_convert(**kwargs: Any) -> Any:
+            rows = enabled_alert_destinations(**kwargs)
+            with ThreadPoolExecutor(max_workers=1) as converter:
+                converter.submit(convert).result()
+            return rows
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    f"{_EVENTS}._read_evaluation",
+                    return_value=_read(_announcement(_transition(AlertEventKind.FIRING))),
+                )
+            )
+            stack.enter_context(patch(f"{_MODULE}.enabled_alert_destinations", side_effect=rows_then_convert))
+            stack.enter_context(patch(f"{_MODULE}.DatabaseThreadStore"))
+            stack.enter_context(patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}))
+            stack.enter_context(patch.object(delivery_paths, "_chooser", lambda **_kwargs: DeliveryPath.NATIVE))
+            stack.enter_context(
+                patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+            )
+            deliver_evaluation(_request(self.team.id, configuration_id=str(configuration.id)))
+
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
 
 
 class TestMissingAnnouncement(ClickhouseTestMixin, APIBaseTest):

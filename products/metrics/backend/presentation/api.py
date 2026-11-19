@@ -7,7 +7,7 @@ recognizable.
 import re
 import json
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Iterable
 from dataclasses import asdict
 from typing import cast
 from urllib.parse import urlencode
@@ -98,6 +98,13 @@ class MetricAttributeScope(models.TextChoices):
     AUTO = "auto", "auto"
 
 
+# Same name and choices as `matchedOn` on the logs and traces attribute endpoints,
+# so that all three share the `MatchedOnEnum` schema component.
+class MatchedOn(models.TextChoices):
+    KEY = "key", "key"
+    VALUE = "value", "value"
+
+
 class MetricQueryAggregation(models.TextChoices):
     NONE = "none", "none"
     SUM = "sum", "sum"
@@ -109,6 +116,22 @@ class MetricQueryAggregation(models.TextChoices):
     RATE = "rate", "rate"
     INCREASE = "increase", "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile", "histogram_quantile"
+    COUNT_RATE = "count_rate", "count_rate"
+    COUNT_INCREASE = "count_increase", "count_increase"
+
+
+class MetricAnomalyAggregation(models.TextChoices):
+    SUM = "sum", "sum"
+    AVG = "avg", "avg"
+    COUNT = "count", "count"
+    MIN = "min", "min"
+    MAX = "max", "max"
+    P95 = "p95", "p95"
+    RATE = "rate", "rate"
+    INCREASE = "increase", "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile", "histogram_quantile"
+    COUNT_RATE = "count_rate", "count_rate"
+    COUNT_INCREASE = "count_increase", "count_increase"
 
 
 class Op(models.TextChoices):
@@ -185,6 +208,12 @@ class _MetricClauseSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="Quantile in (0, 1) for 'histogram_quantile'.",
     )
+    apdexThresholdMs = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.001,
+        help_text="Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.",
+    )
     filters = _MetricFilterSerializer(
         many=True,
         required=False,
@@ -232,7 +261,16 @@ class _PromQLBackendUnavailable(APIException):
     default_detail = "The PromQL query backend failed. Try again later."
 
 
-_PROMQL_EXCLUDED_FIELDS = ("metricType", "aggregation", "rangeFunction", "quantile", "filters", "groupBy", "formula")
+_PROMQL_EXCLUDED_FIELDS = (
+    "metricType",
+    "aggregation",
+    "rangeFunction",
+    "quantile",
+    "apdexThresholdMs",
+    "filters",
+    "groupBy",
+    "formula",
+)
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -281,7 +319,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     aggregation = serializers.ChoiceField(
         choices=MetricQueryAggregation.choices,
         required=False,
-        help_text="Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.",
+        help_text="Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.",
     )
     rangeFunction = serializers.ChoiceField(
         choices=MetricRangeFunction.choices,
@@ -295,6 +333,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         min_value=0.0,
         max_value=1.0,
         help_text="Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.",
+    )
+    apdexThresholdMs = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.001,
+        help_text="Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.",
     )
     filters = _MetricFilterSerializer(
         many=True,
@@ -453,6 +497,7 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
         quantile=quantile,
         metric_type=MetricType(metric_type_raw) if metric_type_raw else None,
         range_function=MetricRangeFunction(range_function_raw) if range_function_raw else None,
+        apdex_threshold_ms=data.get("apdexThresholdMs"),
         filters=tuple(
             MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
             for f in data.get("filters") or []
@@ -653,6 +698,9 @@ def _viewer_clause(clause: dict, name: str) -> dict | None:
         aggregation = _VIEWER_HISTOGRAM_AGGREGATIONS.get(clause.get("quantile") or 0.0)
         if aggregation is None:
             return None
+    # The viewer has no Apdex threshold, so its link would score with the default one.
+    if clause.get("apdexThresholdMs") is not None:
+        return None
     filters = clause.get("filters") or []
     group_by = clause.get("groupBy") or []
     # The viewer reads attributes with scope 'auto' only.
@@ -756,7 +804,7 @@ class _MetricAnomalyBodySerializer(serializers.Serializer):
         help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        choices=MetricAnomalyAggregation.choices,
         required=False,
         allow_null=True,
         help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",
@@ -944,6 +992,11 @@ class _MetricCatalogListParamsSerializer(_MetricValuesParamsSerializer):
         default=False,
         help_text="Add `first_seen`: the earliest hour each name arrived in, within retention.",
     )
+    series_stats = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Add `series_count` and `tag_key_count` for each name, over the last 24 hours.",
+    )
     fold_histograms = serializers.BooleanField(
         required=False,
         default=False,
@@ -993,6 +1046,20 @@ class _MetricNameSerializer(serializers.Serializer):
         help_text=(
             "Start of the earliest hour this metric arrived in, within retention, ISO 8601. "
             "Only present when `first_seen` was requested."
+        ),
+    )
+    series_count = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Approximate number of distinct series (label sets) in the last 24 hours. "
+            "Only present when `series_stats` was requested."
+        ),
+    )
+    tag_key_count = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Number of distinct datapoint attribute keys in the last 24 hours. "
+            "Only present when `series_stats` was requested."
         ),
     )
     classic_histogram = _MetricClassicHistogramSerializer(
@@ -1056,6 +1123,15 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         default="",
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
+    )
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also list keys whose values contain the search term, on searches of 4 or more "
+            "characters. Value matches come after key matches and carry matchedOn='value' with "
+            "the matching matchedValue."
+        ),
     )
     dateFrom = serializers.DateTimeField(
         required=False,
@@ -1123,6 +1199,16 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
     value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
+    matchedOn = serializers.ChoiceField(
+        choices=MatchedOn.choices,
+        required=False,
+        help_text="Set to 'value' when the key matched through one of its values. Absent when its name matched.",
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="One value that matched the search; only set when matchedOn is 'value'.",
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
@@ -1484,6 +1570,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 match=params.validated_data.get("match", "substring"),
                 include_sparklines=params.validated_data.get("sparklines", True),
                 include_first_seen=params.validated_data.get("first_seen", False),
+                include_series_stats=params.validated_data.get("series_stats", False),
                 fold_histograms=params.validated_data.get("fold_histograms", False),
             )
         except ValueError as exc:
@@ -1564,12 +1651,14 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
+        self._enforce_derived_source_access(request, [params.validated_data["metricName"]])
 
         try:
             results = list_metric_attribute_keys(
                 team=self.team,
                 metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
+                search_values=params.validated_data["search_values"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
@@ -1597,6 +1686,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         params = _MetricAttributeValuesParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
+        self._enforce_derived_source_access(request, [params.validated_data["metricName"]])
 
         try:
             results = list_metric_attribute_values(
@@ -1702,7 +1792,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 clauses = tuple(_build_clause(c, name=c["name"]) for c in query_data["clauses"])
             else:
                 clauses = (_build_clause(query_data, name="a"),)
-            self._enforce_derived_source_access(request, clauses)
+            self._enforce_derived_source_access(request, [clause.metric_name for clause in clauses])
             if query_data.get("instant"):
                 series = run_metric_instant_query(
                     team=self.team,
@@ -1748,9 +1838,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request, [f"{resource}:read"]
         ) and self.user_access_control.check_access_level_for_resource(resource, "viewer")
 
-    def _enforce_derived_source_access(self, request: Request, clauses: Sequence[MetricQueryClause]) -> None:
+    def _enforce_derived_source_access(self, request: Request, metric_names: Iterable[str]) -> None:
         # A derived metric reads spans or logs, so metrics access alone must not expose their attributes.
-        resources = derived_metric_resources(clause.metric_name for clause in clauses)
+        resources = derived_metric_resources(metric_names)
         missing = scopes_caller_lacks(request, [f"{resource}:read" for resource in resources])
         if missing:
             raise InsufficientScope(

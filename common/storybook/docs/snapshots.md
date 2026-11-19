@@ -109,6 +109,7 @@ An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, s
 - **"rendered nothing"**: the snapshot target had no size. A component that positions itself, such as a modal or a popover, needs a decorator that gives it a sized box. Tag the story `test-skip` only when nothing can show it.
 - **A timeout in the loader wait**: a spinner, a skeleton or a toast is still on screen. An unmocked request or a request that never answers is the usual cause.
 - **A timeout in `waitForSelector`**: the selector never matched. Open the story locally with the same parameters and look for the element.
+- **"Page stopped responding during …"**: the browser's main thread stopped answering, so the runner replaced the page. The retry and the later stories in the file run on the new page. The message also gives the renderer CPU and says whether stopping the page's script freed it. A freed page means a script loop, which a story that fails on every attempt usually has in its render or play function.
 - **The story passes locally but fails in CI**: CI waits for network idle, its machine can use a different time zone, and it is slower. Look for polling, unmocked requests and time-of-day text.
 
 ## Baselines and visual review

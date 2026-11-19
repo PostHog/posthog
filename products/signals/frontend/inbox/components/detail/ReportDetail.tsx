@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -189,8 +189,6 @@ interface InboxDetailFrameProps {
     diffStat?: ReactNode
     /** Note that a pull request with the fix is open, placed under the summary's Solution section. */
     pullRequestNote?: ReactNode
-    /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
-    children?: ReactNode
 }
 
 /**
@@ -211,7 +209,6 @@ export function InboxDetailFrame({
     diffSection,
     diffStat,
     pullRequestNote,
-    children,
 }: InboxDetailFrameProps): JSX.Element {
     const reportContextGroup = `inbox_report:${report.id}`
     useAttachedContext([
@@ -254,13 +251,23 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        repositorySaving,
+        actionabilitySaving,
+        decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
+        selectedPullRequest,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
-        inboxReportDetailLogic(logicProps)
-    )
+    const {
+        setDetailTab,
+        expandEvidence,
+        collapseEvidence,
+        updatePriority,
+        updateRepository,
+        updateActionability,
+        selectPullRequest,
+    } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const { linkImplementReportId } = useValues(inboxSceneLogic)
@@ -291,7 +298,6 @@ export function InboxDetailFrame({
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const reportActions = useReportDetailActions(report)
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const showCreatePr = canCreateImplementationPr(report)
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
@@ -502,6 +508,22 @@ export function InboxDetailFrame({
                                 updatePriority(priority)
                             }}
                             prioritySaving={prioritySaving}
+                            onRepositoryChange={updateRepository}
+                            repositorySaving={repositorySaving}
+                            onActionabilityChange={updateActionability}
+                            actionabilitySaving={actionabilitySaving}
+                            decisionAttributions={decisionAttributions}
+                            selectedPullRequestUrl={selectedPullRequest.url}
+                            onSelectPullRequest={(url) => {
+                                captureInboxReportAction({
+                                    report,
+                                    actionType: 'select_pull_request',
+                                    surface: 'detail_pane',
+                                    extra: { pull_request_count: reportPullRequests(currentReport ?? report).length },
+                                })
+                                selectPullRequest(url)
+                            }}
+                            onToggleAgentDecisions={captureSectionToggle('agent_decisions')}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}
@@ -550,11 +572,12 @@ export function InboxDetailFrame({
                                 )}
                             </DetailSection>
                         )}
-                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-                        {children}
                         <SuggestedReviewersSection report={report} />
                         <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
-                            <ReportSpendSection reportId={report.id} />
+                            <ReportSpendSection
+                                reportId={report.id}
+                                onToggleCollapsed={captureSectionToggle('usage')}
+                            />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />
                         {!isMonitoring && <ReportChecksSection report={report} />}
@@ -637,7 +660,8 @@ export function InboxDetailFrame({
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
                     {implementButtonInHeader && implementButton}
-                    {hasPostHogAiAccess && <DiscussReportButton report={report} reportUrl={reportUrl} />}
+                    {/* Discuss is always available and stays inline as its own dropdown button. */}
+                    <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                     <div className="hidden @4xl:flex items-center gap-2">
                         {reportActions.map((action) => (
@@ -714,7 +738,6 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -796,18 +819,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     </>
                 ) : undefined
             }
-        >
-            {reportPullRequests(report).length > 1 && (
-                <LemonSelect
-                    value={selectedPullRequest.url}
-                    onChange={selectPullRequest}
-                    options={reportPullRequests(report).map((pr) => ({
-                        value: pr.url,
-                        label: `${parsePrUrlParts(pr.url)?.repoSlug}#${parsePrUrlParts(pr.url)?.number} (${pr.state})`,
-                    }))}
-                    data-attr="inbox-report-select-pull-request"
-                />
-            )}
-        </InboxDetailFrame>
+        />
     )
 }

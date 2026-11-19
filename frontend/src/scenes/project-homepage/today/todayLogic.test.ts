@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -6,6 +8,7 @@ import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/n
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -594,6 +597,19 @@ describe('todayLogic', () => {
         } finally {
             jest.mocked(posthog.getFeatureFlagResult).mockReset()
         }
+    })
+
+    it('keeps jump back pins separate for each person', () => {
+        const logic = todayLogic()
+        logic.mount()
+        const pin = { id: 'dash', path: 'Dashboards/Private', type: 'dashboard', ref: '1' }
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'first-person' })
+        logic.actions.toggleJumpBackPin(logic.values.jumpBackPinScope as string, pin)
+        expect(logic.values.pinnedObjects.map((entry) => entry.id)).toEqual(['dash'])
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'second-person' })
+        expect(logic.values.pinnedObjects).toEqual([])
     })
 
     test.each([

@@ -350,12 +350,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     def from_platform_view(
         cls, view: PlatformAlertConfigurationView, *, team_id: int, now: datetime
     ) -> LogsAlertConfiguration:
-        """An unsaved alert that presents a platform alert with no logs row the way a logs row does.
-        Its `save` and `delete` raise, because every write goes to the platform."""
+        """An unsaved alert that presents a platform alert with no logs row the way a logs row does, under
+        the id its clients know it by. Its `save` and `delete` raise, because every write goes to the platform."""
         condition = view.source_config[SOURCE_CONDITION_KEY]
         snoozed = view.snooze_until is not None and view.snooze_until > now
         alert = cls(
-            id=view.id,
+            id=view.destination_alert_id,
             team_id=team_id,
             name=view.name,
             enabled=view.enabled,

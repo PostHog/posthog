@@ -63,6 +63,7 @@ const dataWarehouseSourceSetup = (): ToolBase<
         if (params.direct_query_enabled !== undefined) {
             body['direct_query_enabled'] = params.direct_query_enabled
         }
+        body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.SourceSetupResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
@@ -487,6 +488,47 @@ const externalDataSchemasRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSourcesAddTableSchema = () => {
+    const ExternalDataSourcesAddTableCreateBody = orvalSchemas.ExternalDataSourcesAddTableCreateBody()
+    const ExternalDataSourcesAddTableCreateParams = orvalSchemas.ExternalDataSourcesAddTableCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesAddTableCreateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesAddTableCreateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesAddTable = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesAddTableSchema>,
+    Schemas.ExternalDataSchema
+> => ({
+    name: 'external-data-sources-add-table',
+    schema: ExternalDataSourcesAddTableSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesAddTableSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.file_format !== undefined) {
+            body['file_format'] = params.file_format
+        }
+        if (params.csv_allow_double_quotes !== undefined) {
+            body['csv_allow_double_quotes'] = params.csv_allow_double_quotes
+        }
+        const result = await context.api.request<Schemas.ExternalDataSchema>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/add_table/`,
+            body,
         })
         return result
     },
@@ -1692,6 +1734,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-repartition-create': externalDataSchemasRepartitionCreate,
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
+    'external-data-sources-add-table': externalDataSourcesAddTable,
     'external-data-sources-bulk-update-schemas': externalDataSourcesBulkUpdateSchemas,
     'external-data-sources-cdc-status-retrieve': externalDataSourcesCdcStatusRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,

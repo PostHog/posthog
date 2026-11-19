@@ -757,6 +757,47 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only that location to check the files, and does not sync data. The new table is turned off. Turn it on with a schema update to start syncing it.
+ * @summary Add a table to an object storage source by its path
+ */
+export const externalDataSourcesAddTableCreateBodyNameMax = 128
+
+export const externalDataSourcesAddTableCreateBodyNameRegExp = new RegExp('^[a-zA-Z_][a-zA-Z0-9_]\*$')
+export const externalDataSourcesAddTableCreateBodyPathMax = 2048
+
+export const externalDataSourcesAddTableCreateBodyFileFormatDefault = `infer`
+export const externalDataSourcesAddTableCreateBodyCsvAllowDoubleQuotesDefault = true
+
+export const ExternalDataSourcesAddTableCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(externalDataSourcesAddTableCreateBodyNameMax)
+        .regex(externalDataSourcesAddTableCreateBodyNameRegExp)
+        .describe(
+            'Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.'
+        ),
+    path: zod
+        .string()
+        .max(externalDataSourcesAddTableCreateBodyPathMax)
+        .describe(
+            "Where the table's files are. Use a path inside the folder of the source's files URL, such as `events\/`, `events\/2026\/\*.parquet` or `data\/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables."
+        ),
+    file_format: zod
+        .enum(['infer', 'csv', 'csv_no_header', 'jsonl', 'parquet', 'delta'])
+        .describe(
+            '\* `infer` - Infer from the file names\n\* `csv` - CSV with a header row\n\* `csv_no_header` - CSV without a header row\n\* `jsonl` - JSON Lines\n\* `parquet` - Parquet\n\* `delta` - Delta table'
+        )
+        .default(externalDataSourcesAddTableCreateBodyFileFormatDefault)
+        .describe(
+            'The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.\n\n\* `infer` - Infer from the file names\n\* `csv` - CSV with a header row\n\* `csv_no_header` - CSV without a header row\n\* `jsonl` - JSON Lines\n\* `parquet` - Parquet\n\* `delta` - Delta table'
+        ),
+    csv_allow_double_quotes: zod
+        .boolean()
+        .default(externalDataSourcesAddTableCreateBodyCsvAllowDoubleQuotesDefault)
+        .describe('For CSV files: whether a double quote encloses a field. When false, it is an ordinary character.'),
+})
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const externalDataSourcesBulkUpdateSchemasPartialUpdateBodySchemasItemFullRefreshIntervalDaysMax = 90
@@ -1510,6 +1551,7 @@ export const externalDataSourcesSetupCreateBodyPrefixMax = 100
 export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = false
+export const externalDataSourcesSetupCreateBodyCreatedViaDefault = `api`
 
 export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod.string().describe("The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot')."),
@@ -1536,6 +1578,13 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .default(externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault)
         .describe(
             'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+        .default(externalDataSourcesSetupCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
         ),
 })
 

@@ -9,6 +9,7 @@ measurement.
 """
 
 import re
+from collections.abc import Callable
 from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Optional
@@ -27,12 +28,14 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.contracts import MetricBulkOwnerChange, MetricListFilters
 from ..facade.enums import CreatedSource, MetricStatus
+from ..metrics import DatabaseBuildTrigger
 from ..models import METRIC_NAME_REGEX, Metric
 from ..tasks.tasks import refresh_metric_embedding_task, sync_metric_lineage_task
 from .analytics import (
@@ -215,7 +218,24 @@ def _refine(metric: Metric, fields: dict) -> None:
 def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
     if user_access_control.is_organization_admin:
         return {f"system.{name}" for name in system_table_denials(team, user, user_access_control)}
-    return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
+    return Database.create_for(
+        team=team, user=user, user_access_control=user_access_control, trigger=DatabaseBuildTrigger.METRIC_ACCESS
+    )._denied_tables
+
+
+DENIED_TABLES_CACHE_TTL_SECONDS = 60
+
+DeniedTablesLoader = Callable[[Team, User, UserAccessControl], set[str]]
+
+
+def cached_denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    level = "admin" if user_access_control.is_organization_admin else "member"
+    key = f"data_catalog:denied_tables:{team.id}:{user.id}:{level}"
+    denied = get_safe_cache(key)
+    if denied is None:
+        denied = sorted(_denied_tables(team, user, user_access_control))
+        safe_cache_set(key, denied, DENIED_TABLES_CACHE_TTL_SECONDS)
+    return set(denied)
 
 
 def _live_metric_reads_tables(team: Team, name: str) -> bool:
@@ -720,6 +740,7 @@ def metrics_visible_to_user(
     filters: MetricListFilters | None = None,
     *,
     denied_tables: set[str] | None = None,
+    load_denied_tables: DeniedTablesLoader = _denied_tables,
 ) -> QuerySet[Metric]:
     """Live metrics whose definitions do not disclose a warehouse table the caller cannot read.
 
@@ -732,9 +753,9 @@ def metrics_visible_to_user(
     if filters is not None and filters.definition_kind:
         metrics = metrics.filter(definition__kind=filters.definition_kind)
     if denied_tables is None:
-        if not metrics.exists():
-            return metrics.none()
-        denied_tables = _denied_tables(team, user, user_access_control)
+        if not metrics.exclude(referenced_table_names=[]).exists():
+            return metrics.filter(referenced_table_names=[])
+        denied_tables = load_denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
     visible_metric_ids = [

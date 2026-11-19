@@ -79,7 +79,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 
 from .subscription_reads import context_rows, subscription_record
 from .summary_quota import invalidate_summary_quota_cache, validate_summary_enabled_org_limit
-from .visibility import blocked_target_ids, require_viewer_access, viewable_queryset
+from .visibility import blocked_target_ids, require_viewer_access, viewable_queryset, viewable_subscriptions
 
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
@@ -167,11 +167,13 @@ class _SubscriptionWrite:
         partial: bool,
         is_create_request: bool,
         analytics_props: AnalyticsProps,
+        actor: User | None = None,
     ) -> None:
         self.team = team
         self.team_id = team.id
         self.organization = organization
         self.user = user
+        self.actor = actor or user
         self.viewer = viewer
         self.instance = instance
         self.partial = partial
@@ -584,8 +586,9 @@ class _SubscriptionWrite:
         )
         if denied_resources:
             denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            subject = "you don't" if self.user.pk == self.actor.pk else "the new owner doesn't"
             raise SubscriptionRequestInvalidError(
-                f"Can't save this subscription: you don't have access to {denied_names}."
+                f"Can't save this subscription: {subject} have access to {denied_names}."
             )
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
@@ -751,7 +754,7 @@ class _SubscriptionWrite:
         context_change: tuple[list[str], list[str]] | None = None
         with transaction.atomic():
             if contexts_in_payload:
-                instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+                instance = Subscription.objects.select_for_update().get(pk=instance.pk, team_id=self.team_id)
                 stored_identifiers = self._stored_context_identifiers(instance)
                 preserved_identifiers = stored_identifiers - self._replaceable_context_identifiers(instance)
                 updated_identifiers = preserved_identifiers | self._context_identifiers(contexts)
@@ -859,7 +862,9 @@ class _SubscriptionWrite:
 
         return instance
 
-    def update(self, instance: Subscription, validated_data: dict) -> Subscription:
+    def update(
+        self, instance: Subscription, validated_data: dict, *, deliver_after_commit: bool = False
+    ) -> Subscription:
         previous_target_value = instance.target_value
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
@@ -941,7 +946,7 @@ class _SubscriptionWrite:
         # "subscription updated" event fires from the post_save signal before this decision
         # exists, so a regression that silently suppressed deliveries would be invisible there.
         posthoganalytics.capture(
-            distinct_id=str(self.user.distinct_id),
+            distinct_id=str(self.actor.distinct_id),
             event="subscription_update_delivery_intent",
             properties={
                 **analytics_props,
@@ -968,33 +973,40 @@ class _SubscriptionWrite:
             # Inferred delivery (recipient/target change, re-enable): unique ID so two legitimate
             # consecutive edits both deliver instead of the second silently deduping.
             workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        try:
-            temporal = sync_connect()
-            asyncio.run(
-                temporal.start_workflow(
-                    "handle-subscription-value-change",
-                    ProcessSubscriptionWorkflowInputs(
-                        subscription_id=instance.id,
-                        team_id=instance.team_id,
-                        distinct_id=str(instance.created_by.distinct_id)
-                        if instance.created_by
-                        else str(instance.team_id),
-                        previous_target_value=previous_target_value,
-                        previous_value=previous_target_value,
-                        invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
-                        resource_type=instance.resource_type,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+
+        def start_delivery() -> None:
+            try:
+                temporal = sync_connect()
+                asyncio.run(
+                    temporal.start_workflow(
+                        "handle-subscription-value-change",
+                        ProcessSubscriptionWorkflowInputs(
+                            subscription_id=instance.id,
+                            team_id=instance.team_id,
+                            distinct_id=str(instance.created_by.distinct_id)
+                            if instance.created_by
+                            else str(instance.team_id),
+                            previous_target_value=previous_target_value,
+                            previous_value=previous_target_value,
+                            invite_message=invite_message,
+                            trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+                            resource_type=instance.resource_type,
+                        ),
+                        id=workflow_id,
+                        task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    )
                 )
-            )
-        except WorkflowAlreadyStartedError:
-            # A delivery for this subscription is already in flight; the update itself
-            # succeeded, so skip the duplicate send rather than failing the request.
-            pass
-        except Exception as exc:
-            _capture_post_write_failure(exc)
+            except WorkflowAlreadyStartedError:
+                # A delivery for this subscription is already in flight; the update itself
+                # succeeded, so skip the duplicate send rather than failing the request.
+                pass
+            except Exception as exc:
+                _capture_post_write_failure(exc)
+
+        if deliver_after_commit:
+            transaction.on_commit(start_delivery)
+        else:
+            start_delivery()
 
         return instance
 
@@ -1052,69 +1064,99 @@ def take_subscription_ownership(
     *,
     team: Team,
     organization: Organization,
-    user: User,
+    actor: User,
     viewer: UserAccessControl,
     subscription_id: int,
     analytics_props: AnalyticsProps,
+    owner: User,
 ) -> SubscriptionRecord:
-    """Make `user` the owner and enable the subscription, so deliveries run with their access.
+    """Make `owner` the owner and enable the subscription, so deliveries run with their access.
 
     Every refusal comes before the owner changes, so a refused takeover leaves the subscription as
     it was: the new owner must be able to view the dashboard or insight and read every table the
     subscription delivers, and the enable must pass its usual checks as the new owner.
     """
-    instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
-    try:
-        assert_creator_can_run(user, team, instance.dashboard, instance.insight)
-    except (CreatorLeftOrganizationError, UserAccessControlError):
-        raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
-    # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
-    # checked here, as the new owner.
-    if instance.enabled:
-        denied_resources = denied_resources_in_subscription(
-            user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+    owner_denial = "you don't" if owner.pk == actor.pk else "the new owner doesn't"
+    owner_requirement = "You need" if owner.pk == actor.pk else "The new owner needs"
+    owner_access = viewer if owner.pk == actor.pk else UserAccessControl(user=owner, team=team)
+    if owner.pk != actor.pk and not viewer.is_organization_admin:
+        raise SubscriptionPermissionDeniedError(
+            "Only an organization admin can assign a subscription to another person. "
+            "Take ownership yourself or ask an admin to transfer it."
         )
-        if denied_resources:
-            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-            raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
-    # The new owner is set in memory only: the re-enable check reads it off the instance, and the
-    # enable's save persists it with `enabled`.
-    previous_owner = instance.created_by
-    instance.created_by = user
-    subscription_write = _SubscriptionWrite(
-        team=team,
-        organization=organization,
-        user=user,
-        viewer=viewer,
-        instance=instance,
-        partial=True,
-        is_create_request=False,
-        analytics_props=analytics_props,
-    )
-    validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
-    updated = subscription_write.update(instance, validated_data)
-    # `created_by` is excluded from the save diff, so the takeover gets its own activity.
-    log_activity(
-        organization_id=team.organization_id,
-        team_id=team.id,
-        user=user,
-        was_impersonated=get_was_impersonated(),
-        item_id=updated.id,
-        scope="Subscription",
-        activity="took_ownership",
-        detail=Detail(
-            name=updated.display_name,
-            changes=[
-                Change(
-                    type="Subscription",
-                    action="changed",
-                    field="created_by",
-                    before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
-                    after={"id": user.id, "email": user.email},
+    with transaction.atomic():
+        instance = Subscription.objects.select_for_update().get(pk=subscription_id, team_id=team.id)
+        try:
+            assert_creator_can_run(owner, team, instance.dashboard, instance.insight)
+        except (CreatorLeftOrganizationError, UserAccessControlError):
+            raise SubscriptionRequestInvalidError(
+                f"Can't take ownership: {owner_denial} have access to this content."
+            ) from None
+        if not viewable_subscriptions(
+            Subscription.objects.filter(team_id=team.id, pk=instance.pk), owner_access, team.id
+        ).exists():
+            raise SubscriptionRequestInvalidError(
+                f"{owner_requirement} access to the subscription's insights, dashboards, and report contexts."
+            )
+        try:
+            resource_type = instance.resource_type
+        except ValueError as error:
+            raise SubscriptionRequestInvalidError(str(error)) from error
+        if resource_type == Subscription.ResourceType.AI_PROMPT and not owner_access.check_access_level_for_resource(
+            "query", "viewer"
+        ):
+            raise SubscriptionRequestInvalidError(f"{owner_requirement} query access for AI prompt subscriptions.")
+        # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
+        # checked here, as the new owner.
+        if instance.enabled:
+            denied_resources = denied_resources_in_subscription(
+                user=owner, team=team, user_access_control=owner_access, subscription_id=subscription_id, attrs={}
+            )
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+                raise SubscriptionRequestInvalidError(
+                    f"Can't take ownership: {owner_denial} have access to {denied_names}."
                 )
-            ],
-        ),
-    )
+        # The new owner is set in memory only: the re-enable check reads it off the instance, and the
+        # enable's save persists it with `enabled`.
+        previous_owner = instance.created_by
+        instance.created_by = owner
+        subscription_write = _SubscriptionWrite(
+            team=team,
+            organization=organization,
+            user=owner,
+            actor=actor,
+            viewer=owner_access,
+            instance=instance,
+            partial=True,
+            is_create_request=False,
+            analytics_props=analytics_props,
+        )
+        validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
+        validated_data["created_by"] = owner
+        updated = subscription_write.update(instance, validated_data, deliver_after_commit=True)
+        # `created_by` is excluded from the save diff, so the takeover gets its own activity.
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=actor,
+            was_impersonated=get_was_impersonated(),
+            item_id=updated.id,
+            scope="Subscription",
+            activity="took_ownership" if owner.pk == actor.pk else "transferred_ownership",
+            detail=Detail(
+                name=updated.display_name,
+                changes=[
+                    Change(
+                        type="Subscription",
+                        action="changed",
+                        field="created_by",
+                        before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
+                        after={"id": owner.id, "email": owner.email},
+                    )
+                ],
+            ),
+        )
     return subscription_record(updated)
 
 

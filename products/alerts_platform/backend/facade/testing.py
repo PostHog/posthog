@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import fields
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.thread_store import LEGACY_EVENTS_PROVIDER
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     DeliveryPath,
@@ -185,6 +186,19 @@ def start_firing(
             channel_target="C0",
             episode_started_at=at,
         )
+
+
+def record_legacy_emission(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
+    """Record that a delivery emitted the configuration's legacy events at `at`, as live delivery does."""
+    thread = PlatformAlertThread.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        provider=LEGACY_EVENTS_PROVIDER,
+        channel_target="0",
+        episode_started_at=datetime(1970, 1, 1, tzinfo=UTC),
+    )
+    # `updated_at` is `auto_now`, so a past time needs an update that skips it.
+    PlatformAlertThread.objects.for_team(team_id).filter(id=thread.id).update(updated_at=at)
 
 
 def set_check_status(configuration_id: UUID, check_status: str) -> None:

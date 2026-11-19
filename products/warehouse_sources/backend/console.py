@@ -469,7 +469,7 @@ class WarehouseSourcesTool(ConsoleTool):
     key = TOOL_KEY
     title = "Warehouse sources"
     owner = WAREHOUSE_SOURCES
-    group = "Data"
+    group = "Data warehouse"
     description = "The schemas of one warehouse source, and the partitioning, schedule and jobs of one schema."
 
     def page(self, request: HttpRequest) -> Page:
@@ -880,7 +880,7 @@ class ReenableAutoDisabledSchemasTool(ConsoleTool):
     key = REENABLE_TOOL_KEY
     title = "Re-enable auto-disabled schemas"
     owner = WAREHOUSE_SOURCES
-    group = "Data"
+    group = "Data warehouse"
     description = (
         "Schemas PostHog stopped syncing after an error that retrying would not fix. Re-enables them after a preview."
     )

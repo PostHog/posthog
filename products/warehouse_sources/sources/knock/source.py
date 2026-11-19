@@ -3,6 +3,7 @@ from typing import Optional, cast
 from products.warehouse_sources.sources.knock._config import KnockSourceConfig
 from products.warehouse_sources.sources.knock.knock import (
     NO_AUDIENCE_KEYS_ERROR,
+    NO_FEED_CHANNEL_IDS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
     knock_source,
@@ -69,6 +70,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
             "403 Client Error: Forbidden for url": "Your Knock API key does not have access to this resource. Please check the key belongs to the right environment.",
             NO_OBJECT_COLLECTIONS_ERROR: None,
             NO_AUDIENCE_KEYS_ERROR: None,
+            NO_FEED_CHANNEL_IDS_ERROR: None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -88,6 +90,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
         should_sync_default = {name: endpoint.should_sync_default for name, endpoint in ENDPOINTS_CONFIG.items()}
         should_sync_default["objects"] = bool(parse_key_list(config.object_collections))
         should_sync_default["audience_members"] = bool(parse_key_list(config.audience_keys))
+        should_sync_default["user_feed_items"] = bool(parse_key_list(config.in_app_feed_channel_ids))
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
@@ -119,6 +122,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
             should_use_incremental_field=inputs.should_use_incremental_field,
             object_collections=config.object_collections,
             audience_keys=config.audience_keys,
+            in_app_feed_channel_ids=config.in_app_feed_channel_ids,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
@@ -165,6 +169,16 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
                         placeholder="beta-users, enterprise-admins",
                         secret=False,
                         caption="Comma-separated audience keys to sync into the `audience_members` table. Knock can't list audiences, so the `audience_members` table only syncs the audiences you enter here.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="in_app_feed_channel_ids",
+                        sync_setting=True,
+                        label="In-app feed channel IDs",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="a1b2c3d4-...",
+                        secret=False,
+                        caption="Comma-separated in-app feed channel IDs to sync into the `user_feed_items` table. Find them in the Knock dashboard under **Settings → Channels and sources**. Knock can't list channels with a secret key, so the `user_feed_items` table only syncs the channels you enter here.",
                     ),
                 ],
             ),
