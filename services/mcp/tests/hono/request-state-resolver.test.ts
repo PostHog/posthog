@@ -990,17 +990,18 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it.each([
-        ['the URL asks for it', '?split_writes=true', {}, {}, true],
-        ['the rollout flag is on', '', {}, { 'mcp-exec-split-writes': true }, true],
+        ['the URL asks for it', '?split_writes=true', {}, true],
+        ['the header asks for it', '', { 'x-posthog-split-writes': '1' }, true],
         [
-            'the header declines what the URL and flag ask for',
+            'the header declines what the URL asks for',
             '?split_writes=true',
             { 'x-posthog-split-writes': 'false' },
-            { 'mcp-exec-split-writes': true },
             false,
         ],
-    ])('splits writes from exec when %s', async (_label, query, headers, flags, expected) => {
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce(flags)
+        ['nothing asks for it', '', {}, false],
+        ['tools mode, which names every tool already', '?split_writes=true&mode=tools', {}, false],
+        ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
+    ])('splits writes from exec when %s: %s', async (_label, query, headers, expected) => {
         const props = parseRequestProperties(
             new Request(`https://example.com/mcp${query}`, {
                 headers: { Authorization: 'Bearer phx_test', ...headers },

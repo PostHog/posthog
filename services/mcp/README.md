@@ -405,7 +405,7 @@ Claude and ChatGPT run tools marked `readOnlyHint: true` without asking by defau
 - `exec` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
 - `exec-write` is accepted on every connection except those through the MCP store, so a client that listed tools before the split changed keeps working.
 - A `readonly=true` connection lists only `exec`, marked `readOnlyHint: true`, because none of its tools change data.
-- Without the parameter, the `mcp-exec-split-writes` feature flag decides, for connections that send no `consumer`. Every wrapper that sends one, such as the AI plugin and Tasks sandboxes, gates writes on the `exec` name.
+- Only the parameter or header turns the split on. A client keeps the tool list it fetched, so a server-side default that later changed would leave a cached read-only `exec` running writes.
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
