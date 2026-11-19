@@ -175,6 +175,35 @@ def _any_changed(before: dict[tuple, Any], after: dict[tuple, Any]) -> bool:
     return before.keys() != after.keys() or any(_changed(before[key], after[key]) for key in before)
 
 
+def _query_forward(
+    team: Team,
+    precomputed_metric: MetricPrecomputedMetric,
+    start: dt.datetime,
+    covered_to: dt.datetime,
+    end: dt.datetime,
+    deadline: float,
+) -> QueriedHours:
+    """The reread hours `[start, covered_to)` and the new hours `[covered_to, end)`, in one query when it fits.
+
+    When the query must split, the new hours go first so that each pass moves `covered_to` forward. If the
+    reread hours came first, a pass that ran out of time inside them would save no new hour, and every
+    later pass would repeat the same work. The reread joins the result only when it finishes in time.
+    """
+    if start < covered_to:
+        try:
+            return QueriedHours(entries=_query_hours(team, precomputed_metric, start, end), start=start, end=end)
+        except MetricQueryTooManyRowsError:
+            pass
+    fresh = query_hours(team, precomputed_metric, covered_to, end, deadline=deadline)
+    if start >= covered_to or fresh.end < end or time.monotonic() >= deadline:
+        return fresh
+    reread = query_hours(team, precomputed_metric, start, covered_to, deadline=deadline)
+    if reread.end < covered_to:
+        return fresh
+    merge_entries(reread.entries, fresh.entries)
+    return QueriedHours(entries=reread.entries, start=start, end=end)
+
+
 def fill_step(
     team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.datetime, *, deadline: float = math.inf
 ) -> bool:
@@ -190,14 +219,13 @@ def fill_step(
         start = max(covered_to - REREAD, covered_from)
         # The runner coarsens an hourly interval past 500 buckets, which would store multi-hour sums as hours.
         end = min(target, covered_to + MAX_FORWARD_STEP)
-        queried = query_hours(team, precomputed_metric, start, end, deadline=deadline)
-        entries, reached = queried.entries, queried.end
-        reread_end = min(covered_to, reached)
-        stored = _values(read_entries(precomputed_metric, start, reread_end), start, reread_end)
-        if _any_changed(stored, _values(entries, start, reread_end)):
+        queried = _query_forward(team, precomputed_metric, start, covered_to, end, deadline)
+        reread_end = min(covered_to, queried.end)
+        stored = _values(read_entries(precomputed_metric, queried.start, reread_end), queried.start, reread_end)
+        if _any_changed(stored, _values(queried.entries, queried.start, reread_end)):
             precomputed_metric.settle_seconds = min(int(precomputed_metric.settle_seconds * 1.5), MAX_SETTLE_SECONDS)
-        write_entries(precomputed_metric, start, reached, entries)
-        precomputed_metric.covered_to = max(covered_to, reached)
+        write_entries(precomputed_metric, queried.start, queried.end, queried.entries)
+        precomputed_metric.covered_to = max(covered_to, queried.end)
         precomputed_metric.save(update_fields=["covered_to", "settle_seconds", "updated_at"])
         return True
     if covered_from > retention_start:

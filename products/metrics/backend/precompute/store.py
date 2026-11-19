@@ -21,6 +21,9 @@ HourValue = float | list[float]
 
 # One chunk is one JSONB value that every pass decodes whole, so a day keeps at most this many label sets.
 MAX_ENTRIES_PER_CHUNK = 10_000
+# Fingerprints only resolve a series' unit, so a sample of them is enough. Without a cap, an entry with no
+# kept labels collects every physical series of the day.
+MAX_FINGERPRINTS_PER_ENTRY = 100
 
 
 class TooManySeriesError(Exception):
@@ -84,7 +87,7 @@ def _encode(day: dt.date, entries: dict[EntryKey, Entry]) -> list[dict]:
             continue
         item: dict = {
             "labels": list(entry.labels),
-            "fingerprints": sorted(entry.fingerprints),
+            "fingerprints": sorted(entry.fingerprints)[:MAX_FINGERPRINTS_PER_ENTRY],
             "points": [[(time - _day_start(day)) // HOUR, entry.points[time]] for time in sorted(entry.points)],
         }
         if entry.metric_type or entry.bounds:

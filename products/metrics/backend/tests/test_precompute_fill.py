@@ -156,19 +156,32 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert precomputed.state == MetricPrecomputedMetric.State.ACTIVE
         assert self._stored(precomputed)[("search",)] == dict.fromkeys(_hours(start, 6), 12.0)
 
-    def test_a_split_fill_past_the_deadline_saves_the_hours_it_finished(self):
+    @parameterized.expand(
+        [
+            ("nothing_stored_yet", 0, 1, [0]),
+            ("stored_hours_inside_the_reread_window", 2, 4, [2, 3]),
+        ]
+    )
+    def test_a_split_fill_past_the_deadline_saves_the_hours_it_finished(
+        self, _name: str, covered_hours: int, reached_hours: int, stored_hours: list[int]
+    ):
         start = SETTLED - dt.timedelta(hours=6)
         self._seed_delta_counter("checkout", 1.0, start, 6)
         self._seed_delta_counter("search", 2.0, start, 6)
         precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
-        precomputed.covered_from = precomputed.covered_to = start
+        precomputed.covered_from = start
+        precomputed.covered_to = start + dt.timedelta(hours=covered_hours)
         precomputed.save()
 
         with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 5):
             fill_step(self.team, precomputed, NOW, deadline=time.monotonic())
 
-        assert precomputed.covered_to == start + dt.timedelta(hours=1)
-        assert self._stored(precomputed) == {("checkout",): {start: 6.0}, ("search",): {start: 12.0}}
+        assert precomputed.covered_to == start + dt.timedelta(hours=reached_hours)
+        hours = [start + dt.timedelta(hours=hour) for hour in stored_hours]
+        assert self._stored(precomputed) == {
+            ("checkout",): dict.fromkeys(hours, 6.0),
+            ("search",): dict.fromkeys(hours, 12.0),
+        }
 
     def test_a_long_forward_backlog_is_filled_a_day_at_a_time_in_hours(self):
         start = SETTLED - dt.timedelta(days=25)
@@ -181,6 +194,16 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
 
         assert precomputed.covered_to == start + dt.timedelta(days=1)
         assert self._stored(precomputed) == {("checkout",): dict.fromkeys(_hours(start, 24), 6.0)}
+
+    def test_stores_a_bounded_sample_of_fingerprints_per_entry(self):
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        entry = Entry(labels=(), fingerprints={30, 10, 20}, points={SETTLED: 1.0})
+
+        with patch("products.metrics.backend.precompute.store.MAX_FINGERPRINTS_PER_ENTRY", 2):
+            write_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1), {entry.key: entry})
+
+        stored = read_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1))
+        assert [stored_entry.fingerprints for stored_entry in stored.values()] == [{10, 20}]
 
     def test_stores_non_finite_histogram_bounds(self):
         precomputed = self._create(PrecomputedMetricKind.HISTOGRAM, "latency")
