@@ -42,7 +42,7 @@ A workflow under the rate keeps sending.
 The project rate's second denominator adds up what each workflow is judged on: the larger of its window's sends and its earlier window's sends when it has hard bounces in the window, and its window's sends when it has none.
 A clean workflow has no late bounces in it, so its earlier sends say nothing about its siblings' bounces, and one bouncing workflow's earlier batch never stands in for its siblings' sends.
 Complaints stay per workflow: a complaint says one recipient objected to one workflow's email, so a sibling's complaints are no evidence against it, and complaint feedback replayed by SES during an incident would otherwise pause every workflow in the project.
-The reason then names the project's rate, and how many of the workflow's own emails bounced or drew a complaint, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
+The reason then names the project's rate, the workflow's sends, and how many of the bounces came from the workflow, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
 
 ## Who pauses, who resumes
 
@@ -65,6 +65,7 @@ Staff admin actions write regardless of the flag, which is the intended dogfood 
 The detector still logs their own breaches, with `mode="exempt"`, and writes nothing.
 Their sends and feedback stay out of the project totals, so an exempt workflow cannot pause its siblings.
 A project breach that only an exempt workflow's feedback would cause is neither applied nor logged.
+An exempt workflow is judged on its own sends only, never on its project's.
 An id that is not a UUID stops Django from starting.
 Use it for a workflow whose email must not stop, such as sign-in verification codes.
 

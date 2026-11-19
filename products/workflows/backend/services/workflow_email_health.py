@@ -181,15 +181,13 @@ class PauseDecision:
             "Spam complaints" if self.threshold.signal == "complaint" else "Emails to addresses that do not exist"
         )
         if self.project is not None:
-            outcome = (
-                "drew a spam complaint"
-                if self.threshold.signal == "complaint"
-                else "went to an address that does not exist"
+            events_text = (
+                "spam complaints" if self.threshold.signal == "complaint" else "emails to addresses that do not exist"
             )
             return (
                 f"{signal_text} reached {_format_rate(self.project.rate)} of the {self.project.sent:,} emails "
                 f"this project's workflows sent in {self.threshold.window_description}. This workflow sent "
-                f"{self.sent:,} of those emails, and {self.events:,} of them {outcome}."
+                f"{self.sent:,} of those emails, and {self.events:,} of the {events_text} came from it."
             )
         return (
             f"{signal_text} reached {_format_rate(self.rate)} of the {self.sent:,} emails this workflow "
@@ -382,7 +380,7 @@ def _first_breach(
     flow: HogFlow,
     flow_name: str,
     judged: JudgedCounts,
-    project: JudgedCounts,
+    project: JudgedCounts | None,
     thresholds: list[DetectorThreshold],
     below_pause_rate: bool = False,
 ) -> PauseDecision | None:
@@ -396,6 +394,8 @@ def _first_breach(
         )
         if decision is not None and (not below_pause_rate or _below_pause_rate(decision)):
             return decision
+    if project is None:
+        return None
     for threshold in (threshold for threshold in thresholds if threshold.signal == "bounce"):
         decision = _project_breach(
             flow=flow,
@@ -511,6 +511,7 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
             # Workflows paused by an earlier sweep are out of scope, so the feedback that paused one
             # cannot pause its siblings again.
             project = _project_counts(judged)
+            exempt = settings.WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS
             for flow_id, (flow, flow_counts) in judged.items():
                 # One pause per workflow per sweep. The first breach is the one reported, and the
                 # windows are walked shortest first so the reason names the tightest signal.
@@ -521,7 +522,7 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     flow=flow,
                     flow_name=flow_name,
                     judged=flow_counts,
-                    project=project,
+                    project=None if flow_id in exempt else project,
                     thresholds=group,
                 )
                 if decision is not None:
@@ -537,7 +538,7 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     flow=flow,
                     flow_name=flow_name,
                     judged=flow_counts,
-                    project=project,
+                    project=None if flow_id in exempt else project,
                     thresholds=warn_group,
                     below_pause_rate=True,
                 )
@@ -765,7 +766,7 @@ def _decision_log_fields(decision: PauseDecision) -> dict[str, str | int | float
     }
     if decision.project is not None:
         fields["project_emails_sent"] = decision.project.sent
-        fields["project_earlier_emails_sent"] = decision.project.earlier_sent
+        fields["project_compared_emails_sent"] = decision.project.earlier_sent
         fields["project_rate"] = decision.project.rate
     return fields
 

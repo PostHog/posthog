@@ -20,6 +20,7 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
+    find_workflow_email_pauses,
     pause_workflow_email_sending,
     resume_workflow_email_sending,
     sweep_workflow_email_health,
@@ -280,8 +281,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_reason == (
             "Emails to addresses that do not exist reached 14.44% of the 450 emails this project's workflows "
-            "sent in the last hour. This workflow sent 150 of those emails, and 30 of them went to an address "
-            "that does not exist."
+            "sent in the last hour. This workflow sent 150 of those emails, and 30 of the emails to addresses "
+            "that do not exist came from it."
         )
         under_the_rate.refresh_from_db()
         assert under_the_rate.email_sending_paused_at is None
@@ -298,17 +299,50 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             flow.refresh_from_db()
             assert (flow.email_sending_paused_at, flow.email_sending_warned_at) == (None, None)
 
-    def test_an_exempt_workflow_does_not_pause_its_siblings(self):
+    @parameterized.expand(
+        [
+            ("exempt_breach_beside_a_quiet_sibling", (300, 60), (8, 1), ["exempt"], []),
+            ("sibling_breach_beside_a_quiet_exempt_workflow", (1, 1), (300, 60), ["sibling"], ["sibling"]),
+        ]
+    )
+    def test_an_exempt_workflow_is_judged_only_on_its_own_sends(
+        self,
+        _name: str,
+        exempt_seed: tuple[int, int],
+        sibling_seed: tuple[int, int],
+        decided: list[str],
+        paused: list[str],
+    ):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
-        self._seed(sent=300, hard_bounces=60)
-        self._seed(source_id=str(sibling.id), sent=8, hard_bounces=1)
+        self._seed(sent=exempt_seed[0], hard_bounces=exempt_seed[1])
+        self._seed(source_id=str(sibling.id), sent=sibling_seed[0], hard_bounces=sibling_seed[1])
+        names = {str(self.flow.id): "exempt", str(sibling.id): "sibling"}
 
         with self._unenforced(True):
+            decisions = find_workflow_email_pauses(now=self.now)
             self._sweep()
 
+        assert [names[decision.hog_flow_id] for decision in decisions] == decided
         for flow in (self.flow, sibling):
             flow.refresh_from_db()
-            assert (flow.email_sending_paused_at, flow.email_sending_warned_at) == (None, None)
+        assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
+        assert (self.flow.email_sending_paused_at, self.flow.email_sending_warned_at) == (None, None)
+
+    def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
+        sibling = HogFlow.objects.create(name="Second blast", team=self.team)
+        self._seed(sent=50, at=self.now - timedelta(hours=2))
+        self._seed(sent=10, hard_bounces=15)
+        self._seed(source_id=str(sibling.id), sent=190, hard_bounces=10)
+
+        applied, _ = self._sweep()
+
+        assert [decision.hog_flow_id for decision in applied] == [str(self.flow.id)]
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_reason == (
+            "Emails to addresses that do not exist reached 12.5% of the 200 emails this project's workflows "
+            "sent in the last hour. This workflow sent 10 of those emails, and 15 of the emails to addresses "
+            "that do not exist came from it."
+        )
 
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(self):
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)
@@ -361,8 +395,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                     (
                         0,
                         "Emails to addresses that do not exist reached 8.4% of the 250 emails this project's "
-                        "workflows sent in the last hour. This workflow sent 100 of those emails, and 15 of them "
-                        "went to an address that does not exist.",
+                        "workflows sent in the last hour. This workflow sent 100 of those emails, and 15 of the "
+                        "emails to addresses that do not exist came from it.",
                         "10%",
                     )
                 ],
