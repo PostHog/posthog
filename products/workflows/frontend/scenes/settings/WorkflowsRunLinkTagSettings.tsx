@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { runLinkTaggingEnabled } from './runLinkTagging'
@@ -9,6 +11,10 @@ import { runLinkTaggingEnabled } from './runLinkTagging'
 export function WorkflowsRunLinkTagSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const enabled = runLinkTaggingEnabled(currentTeam)
 
@@ -24,6 +30,7 @@ export function WorkflowsRunLinkTagSettings(): JSX.Element {
             }}
             checked={enabled}
             disabled={currentTeamLoading}
+            disabledReason={restrictedReason}
             label="Connect tracked email clicks to sessions"
             bordered
             data-attr="workflows-email-run-link-tag-toggle"

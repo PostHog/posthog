@@ -5,6 +5,8 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
@@ -82,7 +84,14 @@ describe('ImpactFunnelCard', () => {
 
     it('turns link tagging on in place, keeping the switch open while the step shows the new setting', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
-        useMocks({ patch: { '/api/projects/:id/': teamWithLinkTagging(true) } })
+        useMocks({
+            patch: {
+                '/api/projects/:id/': async ({ request }) => {
+                    const { workflows_config } = (await request.json()) as Pick<TeamType, 'workflows_config'>
+                    return [200, { ...teamWithLinkTagging(false), workflows_config }]
+                },
+            },
+        })
         answer = [200, IMPACT]
         renderCard()
 
@@ -91,6 +100,19 @@ describe('ImpactFunnelCard', () => {
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
         expect(screen.getByText('Connect email clicks to sessions')).toBeInTheDocument()
+    })
+
+    it('keeps the switch off for a member without project admin access', async () => {
+        initKeaTests(true, {
+            ...teamWithLinkTagging(false),
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByText('Needs link tagging'))
+
+        expect(await screen.findByLabelText('Connect tracked email clicks to sessions')).toBeDisabled()
     })
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {
