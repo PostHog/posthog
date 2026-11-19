@@ -50,10 +50,11 @@ const SOURCE_QUERIES: Record<Exclude<FeedSource, 'highlights'>, SourceQuery> = {
 export async function fetchFeedRecordings(
     source: FeedSource,
     after: string | undefined,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    filterTestAccounts = false
 ): Promise<RecordingsListApi> {
     if (source === 'highlights') {
-        return fetchHighlightRecordings(after, signal)
+        return fetchHighlightRecordings(after, filterTestAccounts, signal)
     }
     const config = SOURCE_QUERIES[source]
     return apiJson<RecordingsListApi>(projectPath('session_recordings/'), {
@@ -63,7 +64,7 @@ export async function fetchFeedRecordings(
             date_to: LIST_TO,
             order: config.order,
             order_direction: 'DESC',
-            filter_test_accounts: true,
+            filter_test_accounts: filterTestAccounts ? true : undefined,
             having_predicates: JSON.stringify(config.having),
             events: config.event
                 ? JSON.stringify([{ id: config.event, type: 'events', name: config.event }])
@@ -87,7 +88,11 @@ function parseHighlightsCursor(after: string | undefined): { offset: number; asO
  * Highlights is Replay Vision's ranked feed. It returns observations, so the recordings of a page come from one list
  * call by session id, put back in the feed's order. A project without Replay Vision gets an empty page.
  */
-async function fetchHighlightRecordings(after: string | undefined, signal?: AbortSignal): Promise<RecordingsListApi> {
+async function fetchHighlightRecordings(
+    after: string | undefined,
+    filterTestAccounts: boolean,
+    signal?: AbortSignal
+): Promise<RecordingsListApi> {
     const cursor = parseHighlightsCursor(after)
     const feed = await fetchWatchFeed(signal, { limit: FEED_PAGE_SIZE, offset: cursor.offset, asOf: cursor.asOf })
     const ids = [...new Set((feed.results ?? []).map((item) => item.observation.session_id))]
@@ -100,6 +105,7 @@ async function fetchHighlightRecordings(after: string | undefined, signal?: Abor
             limit: ids.length,
             date_from: HIGHLIGHTS_RECORDINGS_FROM,
             session_ids: JSON.stringify(ids),
+            filter_test_accounts: filterTestAccounts ? true : undefined,
         },
         signal,
     })

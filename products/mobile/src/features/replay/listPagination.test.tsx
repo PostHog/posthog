@@ -5,6 +5,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { setAuthProvider } from '@/api/client'
 import type { ProjectScope } from '@/api/reports'
 import type { DataMode } from '@/demo/demoMode'
+import { useInternalUsersPreference } from '@/features/settings/internalUsersPreference'
 
 import { useFeedSettings } from './feed/feedSettingsStore'
 import { useFeed, useSessionSignals } from './feed/useFeed'
@@ -44,59 +45,67 @@ beforeEach(() => {
     })
 })
 afterEach(() => {
+    useInternalUsersPreference.getState().setExclude(false)
     setAuthProvider(null)
     jest.restoreAllMocks()
 })
 
-test('shows recordings while the deferred feed is pending and preserves their order when it arrives', async () => {
-    let resolveRecordings: (value: Response) => void = () => undefined
-    let resolveFeed: (value: Response) => void = () => undefined
-    const requests: URL[] = []
-    globalThis.fetch = jest.fn((url: string) => {
-        requests.push(new URL(url))
-        return new Promise<Response>((resolve) => {
-            if (url.includes('session_recordings/')) {
-                resolveRecordings = resolve
-            } else {
-                resolveFeed = resolve
-            }
-        })
-    }) as typeof fetch
-    const { client, wrapper } = setup()
-    const { result, unmount } = renderHook(useSessionList, { wrapper })
-    try {
-        expect(requests).toHaveLength(1)
-        expect(requests[0]?.searchParams.get('limit')).toBe('10')
-        await act(async () => resolveRecordings(response({ results: [{ id: 'newest' }, { id: 'older' }] })))
-        await waitFor(() => expect(result.current.rows.data?.map((row) => row.sessionId)).toEqual(['newest', 'older']))
-        expect(requests).toHaveLength(2)
-        expect(requests[1]?.searchParams.get('limit')).toBe('5')
-        expect(result.current.rows.isLoading).toBe(false)
-        await act(async () =>
-            resolveFeed(
-                response({
-                    results: [
-                        {
-                            observation: {
-                                id: 'obs-1',
-                                session_id: 'older',
-                                scanner_result: { model_output: { title: 'Interesting session' } },
-                            },
-                            reason: {},
-                        },
-                        { observation: { id: 'obs-2', session_id: 'recommended' }, reason: {} },
-                    ],
-                })
+test.each([false, true])(
+    'enriches recordings from the deferred feed without reordering them (exclude internal: %s)',
+    async (exclude) => {
+        useInternalUsersPreference.getState().setExclude(exclude)
+        let resolveRecordings: (value: Response) => void = () => undefined
+        let resolveFeed: (value: Response) => void = () => undefined
+        const requests: URL[] = []
+        globalThis.fetch = jest.fn((url: string) => {
+            requests.push(new URL(url))
+            return new Promise<Response>((resolve) => {
+                if (url.includes('session_recordings/')) {
+                    resolveRecordings = resolve
+                } else {
+                    resolveFeed = resolve
+                }
+            })
+        }) as typeof fetch
+        const { client, wrapper } = setup()
+        const { result, unmount } = renderHook(useSessionList, { wrapper })
+        try {
+            expect(requests).toHaveLength(1)
+            expect(requests[0]?.searchParams.get('limit')).toBe('10')
+            expect(requests[0]?.searchParams.get('filter_test_accounts')).toBe(exclude ? 'true' : null)
+            await act(async () => resolveRecordings(response({ results: [{ id: 'newest' }, { id: 'older' }] })))
+            await waitFor(() =>
+                expect(result.current.rows.data?.map((row) => row.sessionId)).toEqual(['newest', 'older'])
             )
-        )
-        await waitFor(() => expect(result.current.recommendations.map((row) => row.sessionId)).toEqual(['recommended']))
-        expect(result.current.rows.data?.map((row) => row.sessionId)).toEqual(['newest', 'older'])
-        expect(result.current.rows.data?.[1]?.title).toBe('Interesting session')
-    } finally {
-        unmount()
-        client.clear()
+            expect(requests).toHaveLength(2)
+            expect(requests[1]?.searchParams.get('limit')).toBe('5')
+            expect(result.current.rows.isLoading).toBe(false)
+            await act(async () =>
+                resolveFeed(
+                    response({
+                        results: [
+                            {
+                                observation: {
+                                    id: 'obs-1',
+                                    session_id: 'older',
+                                    scanner_result: { model_output: { title: 'Interesting session' } },
+                                },
+                                reason: {},
+                            },
+                            { observation: { id: 'obs-2', session_id: 'recommended' }, reason: {} },
+                        ],
+                    })
+                )
+            )
+            await waitFor(() => expect(result.current.rows.data?.[1]?.title).toBe('Interesting session'))
+            expect(result.current.recommendations.map((row) => row.sessionId)).toEqual(exclude ? [] : ['recommended'])
+            expect(result.current.rows.data?.map((row) => row.sessionId)).toEqual(['newest', 'older'])
+        } finally {
+            unmount()
+            client.clear()
+        }
     }
-})
+)
 
 test('pages by cursor, keeps rows on failure, deduplicates, stops at the end and refreshes only the first page', async () => {
     const requests: URL[] = []
@@ -166,6 +175,29 @@ test('loads the next feed page when the only available recording is hidden', asy
     } finally {
         unmount()
         useFeedSettings.getState().set({ hidden: [] })
+        client.clear()
+    }
+})
+
+test('reloads the feed with the current internal-user filter', async () => {
+    const requests: URL[] = []
+    globalThis.fetch = jest.fn(async (url: string) => {
+        const request = new URL(url)
+        if (request.pathname.endsWith('/session_recordings/')) {
+            requests.push(request)
+        }
+        return response({ results: [] })
+    }) as typeof fetch
+    const { client, wrapper } = setup()
+    const { unmount } = renderHook(() => useFeed('newest'), { wrapper })
+    try {
+        await waitFor(() => expect(requests).toHaveLength(1))
+        expect(requests[0]?.searchParams.get('filter_test_accounts')).toBeNull()
+        act(() => useInternalUsersPreference.getState().setExclude(true))
+        await waitFor(() => expect(requests).toHaveLength(2))
+        expect(requests[1]?.searchParams.get('filter_test_accounts')).toBe('true')
+    } finally {
+        unmount()
         client.clear()
     }
 })

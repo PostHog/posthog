@@ -51,13 +51,18 @@ export async function fetchRecording(sessionId: string, signal?: AbortSignal): P
  * descending. The REST listing takes `session_recording:read`; the web's `RecordingsQuery` through `query/` would not
  * check that scope.
  */
-export async function fetchRecentRecordings(signal?: AbortSignal, after?: string): Promise<RecordingsListApi> {
+export async function fetchRecentRecordings(
+    signal?: AbortSignal,
+    after?: string,
+    filterTestAccounts = false
+): Promise<RecordingsListApi> {
     return apiJson<RecordingsListApi>(projectPath('session_recordings/'), {
         query: {
             limit: RECENT_RECORDINGS_LIMIT,
             date_from: RECENT_RECORDINGS_FROM,
             date_to: RECENT_RECORDINGS_TO,
             after,
+            filter_test_accounts: filterTestAccounts ? true : undefined,
         },
         signal,
     })
@@ -156,7 +161,8 @@ export async function fetchSessionEvents(
 
 export const recordingKeys = {
     all: (scope: ProjectScope | null) => ['recordings', ...scopeKey(scope)] as const,
-    recent: (scope: ProjectScope | null) => [...recordingKeys.all(scope), 'recent', 'pages'] as const,
+    recent: (scope: ProjectScope | null, filterTestAccounts = false) =>
+        [...recordingKeys.all(scope), 'recent', 'pages', ...(filterTestAccounts ? ['exclude-internal'] : [])] as const,
     detail: (scope: ProjectScope | null, sessionId: string) =>
         [...recordingKeys.all(scope), 'detail', sessionId] as const,
     events: (scope: ProjectScope | null, sessionId: string) =>

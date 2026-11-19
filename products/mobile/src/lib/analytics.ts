@@ -21,6 +21,7 @@ export type AnalyticsEvent =
     | 'mobile_default_page_changed'
     | 'mobile_default_page_migrated'
     | 'mobile_appearance_changed'
+    | 'mobile_internal_users_filter_changed'
     | 'mobile_push_enable_pressed'
     | 'mobile_push_permission_resolved'
     | 'mobile_push_registration_finished'

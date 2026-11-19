@@ -364,10 +364,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Collections',
     },
-    [Scene.AnalyticsProductHome]: {
-        projectBased: true,
-        name: 'Product analytics',
-    },
     [Scene.Tools]: {
         projectBased: true,
         name: 'Tools',
@@ -655,6 +651,7 @@ export const redirects: Record<
     [urls.analytics()]: urls.analyticsList(),
     // Collections were called spaces; this keeps old links working.
     '/analytics/spaces': urls.analyticsSpaces(),
+    '/analytics/product-analytics': urls.insights(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -881,7 +878,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
     [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
     [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
-    [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],

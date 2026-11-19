@@ -15,6 +15,7 @@ import { type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
 import { sessionGeneration } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
 import { demoReplayItems, demoReplaySignals, demoReplayTimeline } from '@/demo/replays'
+import { useInternalUsersFilter } from '@/features/settings/internalUsersPreference'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { toError } from '@/lib/errors'
 
@@ -62,17 +63,23 @@ function keepsOngoing(source: FeedSource): boolean {
 const EMPTY_PAGE_LIMIT = 5
 
 export function useFeed(source: FeedSource): Feed {
-    const { mode, scope, ready } = useReplayContext()
+    const { mode, scope, ready: liveReady } = useReplayContext()
     const demo = mode === 'demo'
     const demoAnchor = useDemoMode((state) => (demo ? state.anchor : 0))
+    const filterTestAccounts = useInternalUsersFilter()
+    const ready = liveReady && filterTestAccounts !== undefined
     const queryClient = useQueryClient()
     const hidden = useFeedSettings((state) => state.hidden)
     const generation = sessionGeneration()
     const base = useMemo(() => ['replayFeed', generation, ...scopeKey(scope)] as const, [generation, scope])
-    const recordingsKey = useMemo(() => [...base, 'recordings', source] as const, [base, source])
+    const recordingsKey = useMemo(
+        () => [...base, 'recordings', source, filterTestAccounts] as const,
+        [base, source, filterTestAccounts]
+    )
     const recordings = useInfiniteQuery({
         queryKey: recordingsKey,
-        queryFn: ({ signal, pageParam }) => scoped(() => fetchFeedRecordings(source, pageParam, signal)),
+        queryFn: ({ signal, pageParam }) =>
+            scoped(() => fetchFeedRecordings(source, pageParam, signal, filterTestAccounts)),
         initialPageParam: undefined as string | undefined,
         getNextPageParam: (page, _pages, _cursor, cursors) =>
             page.has_next && page.next_cursor && !cursors.includes(page.next_cursor) ? page.next_cursor : undefined,
