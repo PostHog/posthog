@@ -35,10 +35,10 @@ from posthog.models.scoping import team_scope
 
 from products.actions.backend.facade.testing import create_action
 from products.data_tools.backend.models.expression import DataWarehouseExpression
-from products.web_analytics.backend.hogql_queries.shape_read_history import shape_read_hours
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.warming.read_history import shape_read_hours
 
 
 @snapshot_clickhouse_queries

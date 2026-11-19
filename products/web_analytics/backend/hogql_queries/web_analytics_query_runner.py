@@ -74,7 +74,6 @@ from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_DURATION,
     WEB_ANALYTICS_QUERY_ERRORS,
 )
-from products.web_analytics.backend.hogql_queries.shape_read_history import record_shape_read
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
@@ -83,6 +82,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
 )
+from products.web_analytics.backend.warming.read_history import record_shape_read
 
 logger = structlog.get_logger(__name__)
 

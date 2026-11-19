@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from posthog import redis
 
-from products.web_analytics.backend.hogql_queries.shape_read_history import record_shape_read, shape_read_hours
+from products.web_analytics.backend.warming.read_history import record_shape_read, shape_read_hours
 
 TEAM_ID = 918273
 NOW = datetime(2026, 11, 18, 10, 30, tzinfo=UTC)
