@@ -24,7 +24,6 @@ function hasTestSenderLiveWarning(flow: unknown): boolean {
     )
 }
 
-/** The tool's agent_note asks the agent to relay a test_sender_live warning, so it rides only on a result that has one. */
 function keepNoteOnlyWithWarning(result: Record<string, unknown>, flow: unknown): Record<string, unknown> {
     if (!('_agentNote' in result) || hasTestSenderLiveWarning(flow)) {
         return result

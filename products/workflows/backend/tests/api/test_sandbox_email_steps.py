@@ -264,9 +264,7 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert [warning["code"] for warning in detail["warnings"]] == expected
         assert listed["warnings"] == detail["warnings"]
         for warning in detail["warnings"]:
-            # A team that already sends other steps from a verified sender has to be told to switch these ones.
             assert "switch those steps to a verified sender" in warning["message"]
-            # The sender switch refuses a Hog step, so only then does the caller hear it needs a Liquid replacement.
             assert ("new Liquid email step" in warning["message"]) == names_hog_steps
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
