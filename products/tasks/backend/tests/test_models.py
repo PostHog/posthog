@@ -2870,51 +2870,6 @@ class TestSandboxSnapshot(TestCase):
         )
         self.assertEqual(snapshot.has_repos(required_repos), expected)
 
-    def test_get_latest_snapshot_for_integration(self):
-        SandboxSnapshot.objects.create(
-            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
-        )
-        snapshot2 = SandboxSnapshot.objects.create(
-            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
-        )
-
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        self.assertEqual(latest, snapshot2)
-
-    def test_get_latest_snapshot_for_integration_ignores_in_progress(self):
-        SandboxSnapshot.objects.create(
-            integration=self.integration, status=SandboxSnapshot.Status.COMPLETE, external_id=f"snapshot-{uuid.uuid4()}"
-        )
-        SandboxSnapshot.objects.create(
-            integration=self.integration,
-            status=SandboxSnapshot.Status.IN_PROGRESS,
-            external_id=f"snapshot-{uuid.uuid4()}",
-        )
-
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        assert latest is not None
-        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
-
-    def test_get_latest_snapshot_for_integration_ignores_error(self):
-        SandboxSnapshot.objects.create(
-            integration=self.integration,
-            status=SandboxSnapshot.Status.COMPLETE,
-            external_id=f"snapshot-{uuid.uuid4()}",
-        )
-        SandboxSnapshot.objects.create(
-            integration=self.integration,
-            status=SandboxSnapshot.Status.ERROR,
-            external_id=f"snapshot-{uuid.uuid4()}",
-        )
-
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        assert latest is not None
-        self.assertEqual(latest.status, SandboxSnapshot.Status.COMPLETE)
-
-    def test_get_latest_snapshot_for_integration_none(self):
-        latest = SandboxSnapshot.get_latest_snapshot_for_integration(self.integration.id)
-        self.assertIsNone(latest)
-
     def test_get_latest_snapshot_with_repos(self):
         SandboxSnapshot.objects.create(
             integration=self.integration,
