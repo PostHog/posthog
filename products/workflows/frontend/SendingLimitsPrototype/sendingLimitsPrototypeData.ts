@@ -242,12 +242,12 @@ export const STATES: Record<StateKey, SendingState> = {
         broadcast: {
             name: 'Win back old trials',
             audience: 9000,
-            sentSoFar: 1500,
+            sentSoFar: 450,
             plan: [
-                { date: 'Dec 8', emails: 1500 },
-                { date: 'Stopped', emails: 0 },
+                { date: 'Dec 8', emails: 4000 },
+                { date: 'Dec 9', emails: 5000 },
             ],
-            sample: { size: 1500, heldUntil: '11:10', bounceRate: 0.071, verdict: 'stopped' },
+            sample: { size: 450, heldUntil: '11:10', bounceRate: 0.071, verdict: 'stopped' },
         },
     },
     blocked: {
