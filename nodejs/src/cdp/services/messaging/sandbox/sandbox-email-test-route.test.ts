@@ -221,6 +221,11 @@ describe('sandbox email test sends', () => {
             reason: 'not_member',
         })
         expect(world.ses.delivered).toEqual([])
+        await waitForExpect(() =>
+            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                ['workflows sandbox email blocked', 'test'],
+            ])
+        )
     })
 
     it('skips the test when the worker has sending off', async () => {

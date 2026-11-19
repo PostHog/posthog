@@ -265,6 +265,12 @@ describe('SandboxEmailSendStep', () => {
             return Promise.resolve()
         }
 
+    const ANALYTICS_EVENTS: Record<string, string> = {
+        email_sandbox_sent: 'workflows sandbox email sent',
+        email_sandbox_blocked: 'workflows sandbox email blocked',
+        email_sandbox_failed: 'workflows sandbox email failed',
+    }
+
     it.each<[string, () => Promise<void>, object, string, number, number]>([
         [
             'SES rejects the message',
@@ -334,6 +340,11 @@ describe('SandboxEmailSendStep', () => {
             expect(metricNames(segments)).toEqual([[metric, 'email']])
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+            await waitForExpect(() =>
+                expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                    [ANALYTICS_EVENTS[metric], 'workflow'],
+                ])
+            )
         }
     )
 
