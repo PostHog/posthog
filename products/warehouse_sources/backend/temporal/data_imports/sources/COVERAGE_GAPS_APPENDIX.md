@@ -8542,9 +8542,9 @@ Today (2): `Downloads`, `Versions`
 Diffed against: <https://raw.githubusercontent.com/npm/registry/master/docs/REGISTRY-API.md>
 
 - [x] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
-- [ ] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
-- [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low)
-- [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low)
+- [x] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
+- [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low) Skipped: period totals of the existing Downloads table, and bulk queries do not support scoped packages.
+- [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low) Skipped: the endpoint now returns an empty object, and registry-wide counters are not about the configured packages.
 
 Note: Also diffed against https://raw.githubusercontent.com/npm/registry/master/docs/download-counts.md. The public registry API is genuinely small (packument, version doc, search, meta) plus the downloads service (point, range, per-version). PostHog's Versions table comes from the packument and Downloads from /downloads/range, so 2 of roughly 4 useful data shapes are covered. Tables are static per source; the user supplies the package list, so breadth here is packages, not endpoints.
 
@@ -10304,9 +10304,9 @@ Diffed against: <https://www.reverb-api.com/docs>
 - [x] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
 - [x] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
 - [x] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
-- [ ] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
-- [ ] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium)
-- [ ] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
+- [x] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
+- [x] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium). The per-conversation message detail was not added: Reverb publishes no response shape for it, and the list already carries each conversation's last message.
+- [x] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
 
 Note: The official documentation index was fetched with curl, followed by guides for payouts, refunds, payments, promotions, offers, messages, and feedback. Their request examples confirm the listed GET paths; the public reference page does not publish a downloadable specification. Line items, payments, promotion statistics, and message details require requests for each parent record. Order status filters duplicate the existing Orders table, while listing writes and offer settings are excluded.
 

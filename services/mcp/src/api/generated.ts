@@ -83125,7 +83125,7 @@ export namespace Schemas {
     }
 
     /**
-     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
      * @nullable
      */
     export type PaginatedSignalReportListListPersonalRankingStatus = {
@@ -83151,6 +83151,8 @@ export namespace Schemas {
          * @nullable
          */
       fallback_reason: string | null;
+      /** True when no ranking is stored and a build of yours is queued or running. The web and desktop inbox start that build on the first page of sort=recommended or sort=personal, unless the request passes ordering or scope=teammate. Else false. */
+      building: boolean;
     } | null | null;
 
     export interface ReviewerControlResponse {
@@ -84116,7 +84118,7 @@ export namespace Schemas {
          */
       ranking_id?: string | null;
       /**
-         * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+         * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
          * @nullable
          */
       personal_ranking_status?: PaginatedSignalReportListListPersonalRankingStatus;
@@ -115145,6 +115147,18 @@ export namespace Schemas {
     }
 
     /**
+     * The project member who started a discussion.
+     */
+    export interface ScoutDiscussionStarter {
+      /** The member's stable PostHog user UUID, the same `user_uuid` `scout-members-list` returns. */
+      user_uuid: string;
+      /** The member's first name (may be empty). */
+      first_name: string;
+      /** The member's last name (may be empty). */
+      last_name: string;
+    }
+
+    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -115399,6 +115413,8 @@ export namespace Schemas {
          * @nullable
          */
       question: string | null;
+      /** The member who opened the discussion: who opened Ask AI on an `inbox` discussion, or whose message started a `slack` discussion. Not the author of `task_summary`: any project member can rewrite an `inbox` summary, and others in a Slack thread can shape a `slack` one. Null when the discussion has no creator, or when the creator no longer has access to this project. */
+      started_by: ScoutDiscussionStarter | null;
     }
 
     /**
@@ -129378,11 +129394,82 @@ export namespace Schemas {
       tools: WizardCatalogTool[];
     }
 
+    export interface WorkflowEmailDetail {
+      /** The workflow run that sent the email. */
+      invocation_id: string;
+      /** The email step that sent it. A run can send one email per step. */
+      action_id: string;
+      /** The workflow or broadcast that sent the email. */
+      workflow_id: string;
+      /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+      distinct_id: string;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+      subject: string;
+      /** When the email went to the provider. */
+      sent_at: string;
+      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** Whether the recipient opened the email in the week after the send. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email in the week after the send. */
+      clicked: boolean;
+      /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
+      timeline: TransactionalEmailLogEvent[];
+    }
+
+    export interface WorkflowEmailSend {
+      /** The workflow run that sent the email. */
+      invocation_id: string;
+      /** The email step that sent it. A run can send one email per step. */
+      action_id: string;
+      /** The workflow or broadcast that sent the email. */
+      workflow_id: string;
+      /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+      distinct_id: string;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+      subject: string;
+      /** When the email went to the provider. */
+      sent_at: string;
+      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** Whether the recipient opened the email in the week after the send. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email in the week after the send. */
+      clicked: boolean;
+    }
+
+    export interface WorkflowEmailList {
+      /** Sends, newest first. */
+      results: WorkflowEmailSend[];
+      /** Whether another page follows. */
+      has_more: boolean;
+      /** Whether the project records engagement events now. Sends made while it was off show no subject, delivery, opens or clicks. */
+      engagement_events_enabled: boolean;
+    }
+
     /**
      * Whether PostHog paused this one workflow's email sending, and why.
      */
     export interface WorkflowEmailPauseStatus {
-      /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. Other workflows in the project keep sending. */
+      /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. */
       readonly email_sending_paused: boolean;
       /**
          * When the pause started; null when not paused.
@@ -131652,6 +131739,16 @@ export namespace Schemas {
       name: string;
       /** Number of distinct values for this attribute in recent data. */
       value_count: number;
+      /** Set to 'value' when the key matched through one of its values. Absent when its name matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn?: MatchedOnEnum;
+      /**
+         * One value that matched the search; only set when matchedOn is 'value'.
+         * @nullable
+         */
+      matchedValue?: string | null;
     }
 
     export interface _MetricAttributeKeysResponse {
@@ -146180,6 +146277,10 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    /**
+     * Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue.
+     */
+    search_values?: boolean;
     };
 
     export type MetricsDashboardTemplatesListParams = {
@@ -148012,6 +148113,11 @@ export namespace Schemas {
      */
     suggested_reviewers?: string;
     /**
+     * Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.
+     * @maxItems 10
+     */
+    tags?: string[];
+    /**
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string;
@@ -148291,6 +148397,11 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.
+     * @maxItems 10
+     */
+    tags?: string[];
     /**
      * Only reports associated with this task (via the report's task associations).
      */
@@ -151803,6 +151914,50 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
+    };
+
+    export type WorkflowEmailLogListParams = {
+    /**
+     * Only sends at or after this time. Defaults to 7 days ago.
+     */
+    date_from?: string;
+    /**
+     * Only sends before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * The workflow or broadcast whose sends to list.
+     */
+    workflow_id: string;
+    };
+
+    export type WorkflowEmailLogRetrieveParams = {
+    /**
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
+     */
+    action_id: string;
+    };
+
+    export type WorkflowEmailLogActivityRetrieveParams = {
+    /**
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
+     */
+    action_id: string;
     };
 
     export type WorkflowImportsForWorkflowRetrieveParams = {

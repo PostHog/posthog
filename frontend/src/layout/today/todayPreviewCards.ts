@@ -52,6 +52,8 @@ export interface TodayObjectPreview {
     lastViewedAt: string | null
     /** Which part of the UI hosts the trigger, sent with the preview-shown event. */
     surface: string
+    /** Set by a list that lets people pin its rows, so the card can pin or unpin the object. */
+    pin?: { pinned: boolean; toggle: () => void }
 }
 
 export interface TodayProductPreview extends SidebarProductMeta {

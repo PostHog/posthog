@@ -111,7 +111,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
 5. **Register** the source — nothing to edit. The loader finds `products/warehouse_sources/sources/{SOURCE_NAME}/source.py` by its directory, and the `@SourceRegistry.register` decorator on the class handles runtime registration. Keep the empty `__init__.py` files in the vendor directory and in `tests/`.
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/sources/<your_source>/_config.py` (one generated module per source; vendors that stay in the product get `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py`, whose package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit with `DEBUG=1 python manage.py generate_source_field_classification`. A test fails when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/sources/<your_source>/_config.py` (one generated module per source; vendors that stay in the product get `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py`, whose package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit, the credential kinds and the default auth types with `hogli build:projections --only warehouse-source-fields`. `hogli build:projections --check` fails in CI when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -433,7 +433,7 @@ Override `credential_auth_type` in your `source.py` only when this rule gives th
 
 The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `posthog.integrations`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 
-Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `generate_source_field_classification` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then rerun the command with `--allow-changed-defaults`.
+Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `hogli build:projections` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then run `DEBUG=1 python manage.py generate_source_field_classification --allow-changed-defaults`.
 
 #### Reading and writing `job_inputs`
 
@@ -768,6 +768,18 @@ The helpers are in `common/row_shaping.py`.
 - **Incremental pagination must terminate at the watermark.** Some APIs reject mixing their time-window filter with cursor pagination, so only the first page is windowed and later pages walk back through history unbounded. If the server can't keep the filter on every page, the paginator must stop client-side once an entire page predates `db_incremental_field_last_value` (see `typeform/typeform.py:TypeformResponsesPaginator`) — otherwise **every incremental sync re-fetches and re-merges each parent's full history**, which is both an API-cost bug and a per-sync memory amplifier.
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
 - Confirm partition keys against response schemas, not endpoint names.
+
+### Shared date and incremental-start helpers
+
+Do not write a private `_format_datetime`, `_to_epoch_ms` or start-date resolver. Import the shared helpers from `products.warehouse_sources.sources.sdk`:
+
+- `format_datetime(value, style)` writes a datetime, date, ISO string or epoch number in UTC. Styles: `iso_z`, `iso_z_millis`, `iso_z_micros`, `iso_offset`, `iso_naive`, `date`, `compact_date`. It truncates, so a lower bound never skips a row.
+- `to_epoch(value, unit)` and `from_epoch(value, unit)` convert to and from epoch `"s"` or `"ms"`. `to_epoch` rounds down.
+- `coerce_date(value)` returns the UTC date, or None. `parse_datetime_or_epoch(value)` returns a UTC datetime, or None. It reads epoch numbers too. `parse_datetime_value(value)` returns None for a number.
+- `resolve_incremental_start(should_use, last_value, default=..., lookback=..., floor=..., now=...)` gives the start of an incremental read. It parses the cursor and subtracts the lookback. With no cursor, it uses `now - default`. It then applies the floor and caps the result at now.
+
+Do not test a cursor for truthiness (`should_use_incremental_field and db_incremental_field_last_value`). A `0` or `""` cursor is a real value, so check `is not None`. `resolve_incremental_start` does this for you, and it raises `ValueError` for a cursor it cannot read.
+If the API needs a format that no style gives, write a local helper. Do not add a rounding variant: rounding up can skip a row at the lower bound.
 
 ## API behavior verification checklist
 

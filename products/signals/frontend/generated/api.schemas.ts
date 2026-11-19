@@ -1938,7 +1938,7 @@ export interface PauseResponseApi {
 }
 
 /**
- * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+ * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
  * @nullable
  */
 export type PaginatedSignalReportListListApiPersonalRankingStatus = {
@@ -1964,6 +1964,8 @@ export type PaginatedSignalReportListListApiPersonalRankingStatus = {
      * @nullable
      */
     fallback_reason: string | null
+    /** True when no ranking is stored and a build of yours is queued or running. The web and desktop inbox start that build on the first page of sort=recommended or sort=personal, unless the request passes ordering or scope=teammate. Else false. */
+    building: boolean
 } | null | null
 
 export interface ReviewerStateApi {
@@ -3231,7 +3233,7 @@ export interface PaginatedSignalReportListListApi {
      */
     ranking_id?: string | null
     /**
-     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
      * @nullable
      */
     personal_ranking_status?: PaginatedSignalReportListListApiPersonalRankingStatus
@@ -11053,6 +11055,18 @@ export const DiscussionSourceEnumApi = {
 } as const
 
 /**
+ * The project member who started a discussion.
+ */
+export interface ScoutDiscussionStarterApi {
+    /** The member's stable PostHog user UUID, the same `user_uuid` `scout-members-list` returns. */
+    user_uuid: string
+    /** The member's first name (may be empty). */
+    first_name: string
+    /** The member's last name (may be empty). */
+    last_name: string
+}
+
+/**
  * One discussion a person opened on a report your scout emitted or edited.
  */
 export interface ScoutReportDiscussionApi {
@@ -11091,6 +11105,8 @@ export interface ScoutReportDiscussionApi {
      * @nullable
      */
     question: string | null
+    /** The member who opened the discussion: who opened Ask AI on an `inbox` discussion, or whose message started a `slack` discussion. Not the author of `task_summary`: any project member can rewrite an `inbox` summary, and others in a Slack thread can shape a `slack` one. Null when the discussion has no creator, or when the creator no longer has access to this project. */
+    started_by: ScoutDiscussionStarterApi | null
 }
 
 /**
@@ -13524,6 +13540,11 @@ export type SignalsReportsListParams = {
      */
     suggested_reviewers?: string
     /**
+     * Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.
+     * @maxItems 10
+     */
+    tags?: string[]
+    /**
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string
@@ -13804,6 +13825,11 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string
+    /**
+     * Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.
+     * @maxItems 10
+     */
+    tags?: string[]
     /**
      * Only reports associated with this task (via the report's task associations).
      */

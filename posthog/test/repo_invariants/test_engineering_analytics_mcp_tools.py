@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-_DEFINITIONS = Path(__file__).parents[4] / "services/mcp/schema/generated-tool-definitions.json"
+_DEFINITIONS = Path(__file__).parents[3] / "services/mcp/schema/generated-tool-definitions.json"
 
 
 class TestEngineeringAnalyticsMCPTools:

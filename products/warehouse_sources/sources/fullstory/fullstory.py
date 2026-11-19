@@ -32,6 +32,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    format_datetime,
     frozen,
     make_tracked_session,
     parse_datetime_value,
@@ -116,10 +117,6 @@ def _client_config(api_key: str) -> ClientConfig:
         # any raised error message. Only non-secret headers would go in client `headers`.
         "auth": {"type": "api_key", "api_key": _auth_header(api_key), "name": "Authorization"},
     }
-
-
-def _format_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -213,7 +210,7 @@ def _sessions_resource(api_key: str, team_id: int, job_id: str) -> Iterable[Any]
 
 
 def _create_event_export(session: requests.Session, start: datetime, end: datetime) -> str:
-    time_range = {"start": _format_timestamp(start), "end": _format_timestamp(end)}
+    time_range = {"start": format_datetime(start, "iso_z_millis"), "end": format_datetime(end, "iso_z_millis")}
     response = session.post(
         f"{FULLSTORY_BASE_URL}/segments/v1/exports",
         json={
@@ -311,8 +308,8 @@ def _export_checkpoint(
     window_start: datetime, window_end: datetime, operation_id: str, rows_done: int
 ) -> FullStoryResumeConfig:
     return FullStoryResumeConfig(
-        export_window_start=_format_timestamp(window_start),
-        export_window_end=_format_timestamp(window_end),
+        export_window_start=format_datetime(window_start, "iso_z_millis"),
+        export_window_end=format_datetime(window_end, "iso_z_millis"),
         export_operation_id=operation_id,
         export_rows_done=rows_done,
     )

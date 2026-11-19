@@ -6601,6 +6601,7 @@ dependencies = [
  "indexmap 2.14.2",
  "metrics",
  "metrics-exporter-prometheus",
+ "proptest",
  "rand 0.8.8",
  "serde",
  "serde_json",
