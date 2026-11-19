@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -9,8 +10,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { senderFrom } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import { EmailSenderForm } from 'scenes/hog-functions/email-templater/EmailSenderForm'
 import { EmailSenderPicker } from 'scenes/hog-functions/email-templater/EmailSenderPicker'
-import { urls } from 'scenes/urls'
 
+import { EmailSetupModal } from '../../../Channels/EmailSetup/EmailSetupModal'
 import { transactionalEmailWizardLogic } from '../transactionalEmailWizardLogic'
 
 export function SenderStep(): JSX.Element {
@@ -18,6 +19,14 @@ export function SenderStep(): JSX.Element {
     const { updateEmail } = useActions(transactionalEmailWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
+    const [senderSetupOpen, setSenderSetupOpen] = useState(false)
+    const senderSetup = senderSetupOpen ? (
+        <EmailSetupModal
+            entry="transactional"
+            onComplete={() => setSenderSetupOpen(false)}
+            onClose={() => setSenderSetupOpen(false)}
+        />
+    ) : null
 
     // A failed load clears the loading flag, and falls through to the retry below.
     if (integrations === null && integrationsLoading) {
@@ -29,14 +38,18 @@ export function SenderStep(): JSX.Element {
             <ProductIntroduction
                 titleOverride="Set up a sending domain first"
                 thingName="email sender"
-                description="Transactional emails send from a verified domain. Verify one in a new tab, then check again here to finish this email."
+                description="Transactional emails send from a verified domain. Set one up here. Once it's verified, you can finish this email."
                 isEmpty
                 actionElementOverride={
                     <div className="flex gap-2 flex-wrap">
-                        <LemonButton type="primary" to={urls.transactional('channels')} targetBlank>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => setSenderSetupOpen(true)}
+                            data-attr="transactional-email-wizard-setup-sender"
+                        >
                             Set up a sending domain
                         </LemonButton>
-                        {/* Domain setup opens in a new tab, so this picks up the sender without losing the email. */}
+                        {/* Verification can finish after the setup closes, so this picks up the sender then. */}
                         <LemonButton
                             type="secondary"
                             onClick={loadIntegrations}
@@ -45,6 +58,7 @@ export function SenderStep(): JSX.Element {
                         >
                             Check again
                         </LemonButton>
+                        {senderSetup}
                     </div>
                 }
             />
@@ -61,8 +75,10 @@ export function SenderStep(): JSX.Element {
                     senders={senders}
                     dataAttrPrefix="transactional-email"
                     onChangeFrom={(next) => updateEmail({ from: next })}
+                    onAddSender={() => setSenderSetupOpen(true)}
                 />
             </LemonField.Pure>
+            {senderSetup}
             <EmailSenderForm
                 from={from}
                 replyTo={draft.email.replyTo}

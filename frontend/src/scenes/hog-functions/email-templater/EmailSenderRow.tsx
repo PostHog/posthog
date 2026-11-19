@@ -2,16 +2,17 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useContext, useRef, useState } from 'react'
 
-import { IconExternal, IconPencil, IconPlus } from '@posthog/icons'
+import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { urls } from 'scenes/urls'
+
+import { EmailSetupModal } from 'products/workflows/frontend/Channels/EmailSetup/EmailSetupModal'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
-import { fromRowError, selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
+import { fromRowError, selectedSenderIds, selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
 import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
@@ -27,6 +28,7 @@ export function EmailSenderRow(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const [isEditing, setIsEditing] = useState(false)
+    const [senderSetupOpen, setSenderSetupOpen] = useState(false)
     const openedWith = useRef<unknown>(null)
 
     // A workflow or broadcast email can rotate senders and fill sender fields from person data.
@@ -61,6 +63,21 @@ export function EmailSenderRow(): JSX.Element {
         replyTo ? `Replies go to ${replyTo}` : null,
     ].filter(Boolean)
 
+    const finishSenderSetup = (integrationId?: number): void => {
+        setSenderSetupOpen(false)
+        // Fill an empty From with the new sender. A step already on a sender, or on the sandbox, keeps its choice.
+        if (integrationId && !sandbox?.selected && selectedSenderIds(from).length === 0) {
+            setEmailTemplateValue('from', { ...from, integrationId })
+        }
+    }
+    const senderSetup = senderSetupOpen ? (
+        <EmailSetupModal
+            entry={isWorkflowEmail ? 'email_step' : 'transactional'}
+            onComplete={finishSenderSetup}
+            onClose={finishSenderSetup}
+        />
+    ) : null
+
     const onVisibilityChange = (visible: boolean): void => {
         if (visible) {
             openedWith.current = { from, replyTo }
@@ -82,14 +99,15 @@ export function EmailSenderRow(): JSX.Element {
                 <div className="flex-1 min-w-0 text-secondary">No email senders yet</div>
                 <LemonButton
                     size="small"
-                    type="secondary"
-                    to={urls.workflows('channels')}
-                    targetBlank
-                    icon={<IconExternal />}
+                    type="primary"
+                    onClick={() => setSenderSetupOpen(true)}
+                    icon={<IconPlus />}
+                    // pinned: data-attr values feed autocapture dashboards
                     data-attr={`${dataAttrPrefix}-sender-connect`}
                 >
-                    Connect email sender
+                    Set up email sender
                 </LemonButton>
+                {senderSetup}
             </EmailHeaderRow>
         )
     }
@@ -109,6 +127,7 @@ export function EmailSenderRow(): JSX.Element {
                     sandbox={sandbox}
                     onChooseSandbox={() => switchSenderKind(() => sandbox?.onSelect())}
                     onChangeFrom={changeFrom}
+                    onAddSender={() => setSenderSetupOpen(true)}
                 />
                 {notes.length > 0 ? (
                     <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
@@ -154,6 +173,7 @@ export function EmailSenderRow(): JSX.Element {
                     </LemonButton>
                 </LemonDropdown>
             )}
+            {senderSetup}
         </EmailHeaderRow>
     )
 }

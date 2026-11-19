@@ -3,12 +3,14 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { Provider } from 'kea'
+import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EmailSenderRow } from 'scenes/hog-functions/email-templater/EmailSenderRow'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -187,6 +189,41 @@ describe('email domain setup entry points', () => {
             expect(onClose).not.toHaveBeenCalled()
         }
     )
+
+    it('sets up a sender in place from an email step with none, and fills the step with it', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/property_definitions/': { results: [] },
+            },
+        })
+        const templaterProps = {
+            value: { design: null, html: '', text: '', subject: '', from: {}, to: '' },
+            onChange: jest.fn(),
+            type: 'native_email' as const,
+        }
+        await renderInApp(
+            <BindLogic logic={emailTemplaterLogic} props={templaterProps}>
+                <EmailSenderRow />
+            </BindLogic>
+        )
+
+        fireEvent.click(element('workflow-email-sender-connect'))
+        await flush()
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        fireEvent.click(element('email-domain-continue'))
+        await flush()
+        expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
+
+        fireEvent.click(screen.getByLabelText('close'))
+        await flush()
+        expect(emailTemplaterLogic(templaterProps).values.emailTemplate.from).toMatchObject({
+            integrationId: SENDER_ID,
+        })
+    })
 
     it('opens the existing sender when the new address already has one', async () => {
         const existing = backend.addSender({ email: `hello@${DOMAIN}` })
