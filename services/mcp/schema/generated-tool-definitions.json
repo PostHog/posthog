@@ -16152,7 +16152,7 @@
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "task-context-wiki-channel-resolve": {

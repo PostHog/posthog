@@ -177,7 +177,6 @@ describe('ToolExecutor', () => {
             it.each([
                 ['exec on a default connection', 'exec', false],
                 ['exec-write on a split connection', 'exec-write', true],
-                ['exec-write on a default connection', 'exec-write', false],
             ])('runs a write through %s', async (_label, name, splitWrites) => {
                 const { state, request } = splitState(splitWrites)
 
@@ -186,6 +185,39 @@ describe('ToolExecutor', () => {
                 expect(request).toHaveBeenCalledWith(
                     expect.objectContaining({ method: 'PATCH', body: { deleted: true } })
                 )
+            })
+
+            // It saves the regenerated summary onto the survey.
+            it('refuses survey summarization through exec on a split connection', async () => {
+                const request = vi.fn()
+                const tools = catalog
+                    .getFilteredTools({ scopes: ['*'] })
+                    .filter((tool) => tool.name === 'surveys-summarize-responses-create')
+                const state = makeToolExecutorState(tools, {
+                    useSingleExec: true,
+                    splitWrites: true,
+                    context: { ...makeToolExecutorState([]).context, api: mockApi({ request }) } as any,
+                })
+
+                const result = (await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'call surveys-summarize-responses-create {"id":"1"}' } },
+                    state
+                )) as any
+
+                expect(result.content[0].text).toContain('exec-write')
+                expect(request).not.toHaveBeenCalled()
+            })
+
+            it('hides exec-write from a connection that did not split', async () => {
+                const { state, request } = splitState(false)
+
+                const result = (await executor.handleToolCall(
+                    { name: 'exec-write', arguments: deleteCommand },
+                    state
+                )) as any
+
+                expect(result.content[0].text).toBe('Tool exec-write not found')
+                expect(request).not.toHaveBeenCalled()
             })
         })
 

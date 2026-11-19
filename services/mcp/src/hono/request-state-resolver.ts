@@ -343,7 +343,10 @@ export class RequestStateResolver {
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
         // Never from a flag or mode, which can change under a cached read-only `exec`; wrappers gate writes on the `exec` name.
-        const splitWrites = !readOnly && props.splitWrites === true && clientProfile.consumer === undefined
+        const splitWrites =
+            !readOnly &&
+            clientProfile.consumer === undefined &&
+            (await this.resolveSplitWrites(reqCtx, props.splitWrites))
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
@@ -443,6 +446,16 @@ export class RequestStateResolver {
         }
     }
 
+    /** Sticky for the session, so a later request that drops the option can't turn a listed read-only `exec` into a writer. */
+    private async resolveSplitWrites(reqCtx: RequestContext, requested: boolean | undefined): Promise<boolean> {
+        const sessionCache = reqCtx.sessionScopedCache
+        if (requested === true) {
+            await sessionCache?.set('splitWrites', true)
+            return true
+        }
+        return (await sessionCache?.get('splitWrites')) === true
+    }
+
     /**
      * Capture the session selection once per request so another connection's
      * switches cannot redirect an in-flight call. A resent pin preserves switches;
@@ -491,6 +504,7 @@ export class RequestStateResolver {
             'activeProjectId',
             'defaultContext',
             'defaultProjectId',
+            'splitWrites',
         ])
 
         // An omitted pin is not a changed pin: keep the session's saved context.

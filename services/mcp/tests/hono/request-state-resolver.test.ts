@@ -1020,6 +1020,19 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.splitWrites).toBe(expected)
     })
 
+    it.each([
+        ['a later request in the same session that drops the option', 'mcp-session-1', undefined, true],
+        ['a later request in the same session that declines it', 'mcp-session-1', false, true],
+        ['another session', 'mcp-session-2', undefined, false],
+    ])('keeps writes split for %s', async (_label, mcpSessionId, splitWrites, expected) => {
+        const resolver = makeResolver()
+        await resolver.resolve(makeProps({ splitWrites: true }))
+
+        const result = await resolver.resolve(makeProps({ mcpSessionId, splitWrites }))
+
+        expect(result.splitWrites).toBe(expected)
+    })
+
     it('carries connected-tool restrictions to execution', async () => {
         const filters = {
             tools: ['linear__create_issue'],

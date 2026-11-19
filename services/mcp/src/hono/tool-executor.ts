@@ -237,7 +237,7 @@ export class ToolExecutor {
             if (toolName === EXEC_TOOL_NAME) {
                 return this.instructionsBuilder.buildExecToolEntries(state)[0]
             }
-            if (toolName === EXEC_WRITE_TOOL_NAME) {
+            if (toolName === EXEC_WRITE_TOOL_NAME && state.splitWrites) {
                 return this.instructionsBuilder.buildExecWriteToolEntry()
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
@@ -347,9 +347,9 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        // `exec-write` is served on every connection, so a client that listed tools before the split changed keeps working.
         if (isExecDispatcher(toolName)) {
-            if (state.viaMcpStore) {
+            // Wrappers never split, and their approval gates don't know `exec-write`.
+            if (state.viaMcpStore || (toolName === EXEC_WRITE_TOOL_NAME && !state.splitWrites)) {
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
             return this.callExecTool(callParams, state, analyticsMeta, {
