@@ -350,6 +350,7 @@ class TestScoreWindow(SimpleTestCase):
             ("without_the_counts_by_last_value", None, PEOPLE, None),
             ("exposed_people_worse", ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10), PEOPLE, 0.8),
             ("exposed_people_better", ErrorsByLastValue(exposed_with_errors=10, unexposed_with_errors=50), PEOPLE, 0.0),
+            ("no_exposed_errors", ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=50), PEOPLE, 0.0),
             (
                 "people_whose_value_changed_in_both_groups",
                 ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
