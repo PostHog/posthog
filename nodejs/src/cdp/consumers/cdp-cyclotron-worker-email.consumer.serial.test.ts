@@ -347,6 +347,37 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         return latest && { status: latest.status, reason: latest.reason, sendingDomain: latest.sending_domain }
     }
 
+    it('counts a deleted sender separately in Prometheus and retains the workflow failure metric', async () => {
+        await posthogDb.query('DELETE FROM posthog_integration WHERE id = $1 AND team_id = $2', [
+            integration.id,
+            team.id,
+        ])
+        const emailCount = (metricName: string) =>
+            metric('cdp_hog_function_metric', { metric_kind: 'email', metric_name: metricName })
+        const unverifiedBefore = await emailCount('email_sender_unverified')
+        const failuresBefore = await emailCount('email_failed')
+        const send = transactionalSend(null)
+        await enqueue(send)
+        await startWorker(null)
+
+        await waitForExpect(() => {
+            const rows = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC)
+                .map(({ value }) => value)
+            expect(rows).toContainEqual(
+                expect.objectContaining({
+                    team_id: team.id,
+                    metric_kind: 'email',
+                    metric_name: 'email_failed',
+                    count: 1,
+                })
+            )
+        })
+        expect(await emailCount('email_sender_unverified')).toBe(unverifiedBefore + 1)
+        expect(await emailCount('email_failed')).toBe(failuresBefore)
+        expect(delivered()).toEqual([])
+    })
+
     it('a worker whose job the janitor re-queued to another worker does not send it, and its write is refused', async () => {
         const ownershipChecked = { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) }
         const staleReschedules = (): Promise<number> =>
