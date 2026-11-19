@@ -1,63 +1,79 @@
-import type { UserBasicType } from '~/types'
+import type { ReportDecisionSetByApi, ReportDecisionsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportArtefact } from '../types'
 
 export type ReportDecision = 'repository' | 'priority'
 
 export interface ReportDecisionAttribution {
-    /** The person who set the current value, or null when an agent or the pipeline set it. */
-    person: UserBasicType | null
+    /** The person who set the current value, or null when a PostHog task or the pipeline set it. */
+    person: ReportDecisionSetByApi['user']
+    /** The external agent the person set it through, or null when they set it themselves. */
+    agent: string | null
     setAt: string
-    /** The agent's stated reason. Null for a value a person set, since the row already names them. */
+    /** The agent's stated reason. Null for a value a person set in PostHog, since the row already names them. */
     reason: string | null
+    /** The last different value before a person's change. Null until the report's history loads. */
     previousValue: string | null
 }
 
 export type ReportDecisionAttributions = Record<ReportDecision, ReportDecisionAttribution | null>
 
-/** Each decision is a history of artefacts of one type, and the newest one holds the current value. */
-const DECISION_ARTEFACTS: Record<ReportDecision, { type: string; valueKey: string; reasonKey: string }> = {
-    repository: { type: 'repo_selection', valueKey: 'repository', reasonKey: 'reason' },
-    priority: { type: 'priority_judgment', valueKey: 'priority', reasonKey: 'explanation' },
+/** The artefact history behind each decision. The serializer reads the newest row, this reads the ones before it. */
+const DECISION_HISTORY: Record<ReportDecision, { type: string; valueKey: string }> = {
+    repository: { type: 'repo_selection', valueKey: 'repository' },
+    priority: { type: 'priority_judgment', valueKey: 'priority' },
 }
 
 function nonEmptyString(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value : null
 }
 
-function decisionAttribution(
+function previousDecisionValue(
     artefacts: SignalReportArtefact[],
+    decision: ReportDecision,
+    current: string | null
+): string | null {
+    const { type, valueKey } = DECISION_HISTORY[decision]
+    return (
+        artefacts
+            .filter((artefact) => artefact.type === type)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .map((artefact) => nonEmptyString(artefact.content?.[valueKey]))
+            .find((value) => value !== null && value !== current) ?? null
+    )
+}
+
+function decisionAttribution(
+    decisions: ReportDecisionsApi,
+    artefacts: SignalReportArtefact[] | null,
     decision: ReportDecision
 ): ReportDecisionAttribution | null {
-    const { type, valueKey, reasonKey } = DECISION_ARTEFACTS[decision]
-    const history = artefacts
-        .filter((artefact) => artefact.type === type)
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    const latest = history[0]
-    if (!latest) {
+    const current = decisions[decision]
+    if (!current) {
         return null
     }
-    // An agent acting for a person also carries that person in `created_by`, so only `actor_kind`
-    // tells a person's own change apart from the agent's.
-    const person = latest.actor_kind === 'user' ? (latest.created_by ?? null) : null
-    const value = nonEmptyString(latest.content?.[valueKey])
-    const previousValue = person
-        ? (history
-              .slice(1)
-              .map((artefact) => nonEmptyString(artefact.content?.[valueKey]))
-              .find((earlier) => earlier !== null && earlier !== value) ?? null)
-        : null
+    const { kind, user, agent } = current.set_by
+    // The same rule the agent stages use to keep a decision: any write with a person behind it,
+    // including one made through that person's own agent.
+    const person = user ?? null
     return {
         person,
-        setAt: latest.created_at,
-        reason: person ? null : nonEmptyString(latest.content?.[reasonKey]),
-        previousValue,
+        agent: person && kind === 'agent' ? nonEmptyString(agent) : null,
+        setAt: current.set_at,
+        reason: kind === 'user' ? null : nonEmptyString(current.reason),
+        previousValue: person && artefacts ? previousDecisionValue(artefacts, decision, current.value) : null,
     }
 }
 
-export function reportDecisionAttributions(artefacts: SignalReportArtefact[]): ReportDecisionAttributions {
+export function reportDecisionAttributions(
+    decisions: ReportDecisionsApi | null | undefined,
+    artefacts: SignalReportArtefact[] | null
+): ReportDecisionAttributions | null {
+    if (!decisions) {
+        return null
+    }
     return {
-        repository: decisionAttribution(artefacts, 'repository'),
-        priority: decisionAttribution(artefacts, 'priority'),
+        repository: decisionAttribution(decisions, artefacts, 'repository'),
+        priority: decisionAttribution(decisions, artefacts, 'priority'),
     }
 }

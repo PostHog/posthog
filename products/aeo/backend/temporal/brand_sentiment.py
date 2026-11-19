@@ -44,6 +44,7 @@ from products.aeo.backend.sentiment import (
     brand_sentences,
     sentence_sentiment,
 )
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 
 logger = structlog.get_logger(__name__)
 
@@ -152,6 +153,7 @@ def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[_ScoredAn
             if answer.check_id in current
         ]
         checks.bulk_update(rows, ["brand_sentiment", "brand_sentiment_score", "brand_sentiment_sentences"])
+        bump_data_version_on_commit(team_id)
     return len(rows)
 
 

@@ -176,6 +176,15 @@ OLD_DENY_PATTERN_DEFS = {
             "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
+    "mcp_core": {
+        "paths": [
+            "^services/mcp/src/tools/exec(-learn)?\\.ts$",
+            "^services/mcp/src/hono/instructions\\.ts$",
+            "^services/mcp/src/lib/instructions-formatter\\.ts$",
+            "^services/mcp/src/hono/guidance/",
+            "^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\\.md$",
+        ]
+    },
 }
 OLD_ALLOW_ONLY_EXTENSIONS = {
     ".txt",

@@ -13,7 +13,10 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import jwt
 import requests
@@ -25,6 +28,11 @@ from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import (
+    OrganizationProvisioning,
+    get_billing_lock_partner,
+    record_partner_paid,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -75,6 +83,19 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
 
     data.update(kwargs)
     return data
+
+
+def _create_partner_app() -> OAuthApplication:
+    return OAuthApplication.objects.create(
+        client_id="example-partner",
+        name="Example Partner",
+        client_secret="",
+        client_type=OAuthApplication.CLIENT_PUBLIC,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://partner.example.com/callback",
+        algorithm="RS256",
+        is_provisioning_partner=True,
+    )
 
 
 class TestFundingStatusParsing(SimpleTestCase):
@@ -1042,6 +1063,116 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
 
+    def _provision_by_partner(self, *, partner_pays: bool = True, marked: bool = False) -> OAuthApplication:
+        partner = _create_partner_app()
+        partner.update_provisioning(pays_for_customers=partner_pays)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=partner,
+            partner_paid_since=timezone.now() if marked else None,
+        )
+        return partner
+
+    @parameterized.expand(
+        [
+            ("partner_paid_customer_keeps_the_lock", None, False, True, True, True),
+            ("billing_restores_the_lock_of_a_customer_synced_before_it_said", "cus_synced", False, True, True, True),
+            ("ended_payer_link_releases_the_lock", "cus_synced", True, False, True, False),
+            ("self_paid_customer_stays_unlocked", None, False, False, True, False),
+            ("partner_that_does_not_pay_never_locks", None, False, True, False, False),
+            ("older_billing_without_the_flag_leaves_a_mark", "cus_synced", True, None, True, True),
+            ("older_billing_without_the_flag_leaves_no_mark", "cus_synced", False, None, True, False),
+        ]
+    )
+    def test_update_org_details_takes_the_partner_lock_from_billing(
+        self,
+        _name: str,
+        customer_id_before: str | None,
+        marked_before: bool,
+        paid_by_partner: bool | None,
+        partner_pays: bool,
+        expect_lock: bool,
+    ) -> None:
+        partner = self._provision_by_partner(partner_pays=partner_pays, marked=marked_before)
+        self.organization.customer_id = customer_id_before
+        self.organization.save()
+        customer: dict[str, Any] = {"customer_id": "cus_synced"}
+        if paid_by_partner is not None:
+            customer["paid_by_partner"] = paid_by_partner
+
+        BillingManager(license=None).update_org_details(self.organization, cast(BillingStatus, {"customer": customer}))
+
+        self.organization.refresh_from_db()
+        assert self.organization.customer_id == "cus_synced"
+        assert get_billing_lock_partner(self.organization) == (partner if expect_lock else None)
+
+    def test_update_org_details_ignores_the_partner_flag_of_an_out_of_order_status(self) -> None:
+        partner = self._provision_by_partner()
+        manager = BillingManager(license=None)
+        newer = self._billing_status("2026-08-02T12:00:00Z", 0)
+        newer["customer"].update({"customer_id": "cus_synced", "paid_by_partner": True})
+        manager.update_org_details(self.organization, newer)
+        older = self._billing_status("2026-08-02T11:00:00Z", 0)
+        older["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(self.organization, older)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
+    def test_update_org_details_orders_statuses_by_a_partner_flag_change_alone(self) -> None:
+        partner = self._provision_by_partner()
+        self.organization.customer_id = "cus_synced"
+        self.organization.save()
+        manager = BillingManager(license=None)
+        for computed_at, paid_by_partner in [("2026-08-02T10:00:00Z", False), ("2026-08-02T12:00:00Z", True)]:
+            status = self._billing_status(computed_at, 0)
+            status["customer"].update({"customer_id": "cus_synced", "paid_by_partner": paid_by_partner})
+            manager.update_org_details(self.organization, status)
+        # Newer than the first status, older than the flag change, and delayed past it.
+        delayed = self._billing_status("2026-08-02T11:00:00Z", 0)
+        delayed["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(self.organization, delayed)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
+    def test_update_org_details_keeps_the_partner_mark_in_order_when_the_sync_fails_after_it(self) -> None:
+        partner = self._provision_by_partner()
+        self.organization.customer_id = "cus_synced"
+        self.organization.save()
+        manager = BillingManager(license=None)
+        newer = self._billing_status("2026-08-02T12:00:00Z", 0)
+        newer["customer"].update({"customer_id": "cus_synced", "paid_by_partner": True})
+        with (
+            patch.object(Organization, "save", side_effect=RuntimeError("sync failed")),
+            self.assertRaises(RuntimeError),
+        ):
+            newer["customer"]["has_active_subscription"] = True
+            manager.update_org_details(self.organization, newer)
+        older = self._billing_status("2026-08-02T11:00:00Z", 0)
+        older["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(Organization.objects.get(id=self.organization.id), older)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
+    def test_record_partner_paid_keeps_its_time_guard_in_the_update_itself(self) -> None:
+        self._provision_by_partner()
+
+        with CaptureQueriesContext(connection) as queries:
+            record_partner_paid(self.organization.id, True, datetime.datetime(2026, 8, 2, 12, tzinfo=datetime.UTC))
+
+        # Postgres re-checks only the UPDATE's own WHERE after a row-lock wait. A self-select would keep
+        # the time guard on its first snapshot and let an older status overwrite a newer one.
+        (update,) = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("UPDATE")]
+        assert 'FROM "posthog_organizationprovisioning"' not in update
+        assert '"partner_paid_status_at" <' in update
+        assert OrganizationProvisioning.objects.get(organization=self.organization).partner_paid_since is not None
+
     def _billing_status(
         self,
         computed_at: str | None,
@@ -1389,20 +1520,7 @@ class TestBuildBillingToken(BaseTest):
     def test_build_billing_token_payer_partner_claim(
         self, _name: str, has_partner: bool, mock_partner: MagicMock
     ) -> None:
-        application = (
-            OAuthApplication.objects.create(
-                client_id="example-partner",
-                name="Example Partner",
-                client_secret="",
-                client_type=OAuthApplication.CLIENT_PUBLIC,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://partner.example.com/callback",
-                algorithm="RS256",
-                is_provisioning_partner=True,
-            )
-            if has_partner
-            else None
-        )
+        application = _create_partner_app() if has_partner else None
         mock_partner.return_value = application
 
         token = build_billing_token(self.license, self.organization)
@@ -1465,8 +1583,14 @@ class TestBuildBillingToken(BaseTest):
         assert "original_role" not in decoded
         mock_capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("default_action", {}, "update_billing"),
+            ("named_action", {"escalation_action": "claim_coupon"}, "claim_coupon"),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_build_billing_token_with_privilege_escalation(self, mock_capture):
+    def test_build_billing_token_with_privilege_escalation(self, _name, token_kwargs, expected_action, mock_capture):
         """When authorizer_actor differs from user, original_role is set and capture is called"""
         member_user = User.objects.create_and_join(
             organization=self.organization,
@@ -1482,7 +1606,7 @@ class TestBuildBillingToken(BaseTest):
         )
 
         token = build_billing_token(
-            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer
+            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer, **token_kwargs
         )
 
         decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
@@ -1500,7 +1624,7 @@ class TestBuildBillingToken(BaseTest):
         assert call_kwargs["properties"]["target_user_id"] == member_user.id
         assert call_kwargs["properties"]["target_distinct_id"] == str(member_user.distinct_id)
         assert call_kwargs["properties"]["target_email"] == member_user.email
-        assert call_kwargs["properties"]["action"] == "update_billing"
+        assert call_kwargs["properties"]["action"] == expected_action
 
     def test_build_billing_token_raises_when_authorizer_actor_not_in_organization(self):
         """Should raise NotAuthenticated when authorizer_actor is not a member of the organization"""
