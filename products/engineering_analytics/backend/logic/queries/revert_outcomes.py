@@ -52,7 +52,7 @@ _OUTCOMES_CTES = f"""
         FROM __PR_SOURCE__ AS rp
         INNER JOIN (
             SELECT number, merged_at FROM __PR_SOURCE__
-            WHERE merged_at IS NOT NULL AND merged_at >= {{date_from}} AND NOT is_revert
+            WHERE merged_at IS NOT NULL AND merged_at >= {{date_from}} __DATE_TO__ AND NOT is_revert
         ) AS target ON target.number = rp.reverted_pr_number
         WHERE rp.merged_at IS NOT NULL AND rp.reverted_pr_number IS NOT NULL AND rp.merged_at >= target.merged_at
         GROUP BY rp.reverted_pr_number
