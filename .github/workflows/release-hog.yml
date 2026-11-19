@@ -1229,6 +1229,14 @@ jobs:
                       latest=$(bun release/is-latest.ts --version "$VERSION" --current "$RUNNER_TEMP/current-manifest.json")
                   fi
 
+                  # npm publishes before the manifest moves, so a release that stopped in between leaves
+                  # npm ahead of the manifest. Comparing with both keeps npm's latest from moving back.
+                  npm_latest=$(curl -fsS --max-time 30 https://registry.npmjs.org/-/package/hog/dist-tags | jq -r '.latest')
+                  jq -n --arg version "$npm_latest" '{version: $version}' > "$RUNNER_TEMP/npm-latest.json"
+                  if [ "$latest" = true ]; then
+                      latest=$(bun release/is-latest.ts --version "$VERSION" --current "$RUNNER_TEMP/npm-latest.json")
+                  fi
+
                   case "$latest" in
                       true | false) echo "latest=$latest" >> "$GITHUB_OUTPUT" ;;
                       *) echo "::error::release/is-latest.ts printed '$latest' instead of true or false"; exit 1 ;;
@@ -1272,7 +1280,7 @@ jobs:
                       local folder=$1 name
                       chmod +x "$folder"/bin/* 2>/dev/null || true
                       name=$(jq -r '.name' "$folder/package.json")
-                      if npm view "$name@$VERSION" version --prefer-online >/dev/null 2>&1; then
+                      if timeout 60 npm view "$name@$VERSION" version --prefer-online >/dev/null 2>&1; then
                           echo "$name@$VERSION is already on npm"
                           return
                       fi
@@ -1283,8 +1291,8 @@ jobs:
                   wait_until_served() {
                       local name url
                       name=$(jq -r '.name' "$1/package.json")
-                      until url=$(npm view "$name@$VERSION" dist.tarball --prefer-online 2>/dev/null) \
-                          && [ -n "$url" ] && curl -fsI -o /dev/null "$url"; do
+                      until url=$(timeout 60 npm view "$name@$VERSION" dist.tarball --prefer-online 2>/dev/null) \
+                          && [ -n "$url" ] && curl -fsI --max-time 30 -o /dev/null "$url"; do
                           if [ "$SECONDS" -ge "$deadline" ]; then
                               echo "::error::npm doesn't serve $name@$VERSION yet. Rerun this job to finish the release."
                               return 1
@@ -1301,6 +1309,8 @@ jobs:
 
             # Installs the version the way a person does, with an empty cache and no user npmrc, so a
             # package npm doesn't serve fails the job before the release, the manifest or Homebrew name it.
+            # It compares the binary npm serves with the one this run built and never runs it: this job can
+            # publish, and a run executes every dependency the binary bundles.
             - name: Check npm installs this version
               run: |
                   set -euo pipefail
@@ -1309,14 +1319,24 @@ jobs:
                   cd "$project"
                   touch "$RUNNER_TEMP/empty-npmrc"
                   npm init -y >/dev/null
-                  npm install "hog@$VERSION" --userconfig "$RUNNER_TEMP/empty-npmrc" \
+                  npm install "hog@$VERSION" --ignore-scripts --userconfig "$RUNNER_TEMP/empty-npmrc" \
                       --cache "$RUNNER_TEMP/npm-install-check-cache" --no-audit --no-fund
-                  installed=$(./node_modules/.bin/hog --version)
+
+                  installed=$(jq -r '.version' node_modules/hog/package.json)
                   if [ "$installed" != "$VERSION" ]; then
-                      echo "::error::npm install hog@$VERSION runs hog '$installed'."
+                      echo "::error::npm install hog@$VERSION installed hog $installed."
                       exit 1
                   fi
-                  echo "npm install hog@$VERSION runs hog $installed"
+                  binary=node_modules/@posthog/hog-linux-x64/bin/hog
+                  if [ ! -f "$binary" ]; then
+                      echo "::error::npm install hog@$VERSION left out @posthog/hog-linux-x64, which holds the binary."
+                      exit 1
+                  fi
+                  if ! cmp -s "$binary" "$GITHUB_WORKSPACE/hog/dist/release/out/npm/hog-linux-x64/bin/hog"; then
+                      echo "::error::npm serves a different hog binary for $VERSION than this run built."
+                      exit 1
+                  fi
+                  echo "npm install hog@$VERSION installs the binary this run built"
 
             - name: Notify Slack - npm installs the release
               if: needs.release.outputs.slack-ts != ''
