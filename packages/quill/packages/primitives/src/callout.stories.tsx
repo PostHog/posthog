@@ -185,7 +185,7 @@ export const ActionAndClose: Story = {
     ),
 }
 
-/** When the text would get narrower than 16rem, the actions and the close button wrap to a row under it. */
+/** When the text would get narrower than 16rem, the actions wrap to a row under it. The close button stays in the top-right corner. */
 export const Narrow: Story = {
     render: () => (
         <div className="flex w-80 flex-col gap-3">

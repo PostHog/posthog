@@ -836,9 +836,9 @@ A static, inline message that stays in the layout — the quill replacement for 
 Callout tones: default, info, success, warning, destructive. The default tone uses a muted surface. Callout has one size and takes no `size` prop.
 `CalloutIcon` renders the tone's default lucide icon when it has no children; pass an icon as children to replace it, or leave `CalloutIcon` out for no icon.
 `CalloutTitle` is optional. `CalloutDescription` is a `div`, so it can hold links, inline code or a list; it does not clamp and uses the foreground colour.
-With a `CalloutTitle` over a `CalloutDescription`, the icon and close button pin to the title. Otherwise they centre on the text.
+The icon and the close button line up with the first line of text, or with the actions when they share that row.
 `CalloutClose` is the dismiss X. The caller owns the dismissed state and any persistence, such as a localStorage key.
-When the text would get narrower than 16rem, `CalloutActions` and the close button wrap to a row under the text, so the visual order matches the tab order. The callout needs no width: in a `w-fit` or other shrink-to-fit parent it sizes to its content.
+`CalloutClose` stays in the top-right corner. When the text would get narrower than 16rem, `CalloutActions` wrap to a row under the text. The tab order stays the text, the actions, then the close button. The callout needs no width: in a `w-fit` or other shrink-to-fit parent it sizes to its content.
 For a router link action, pass the app's link through `render`: `<Button variant="outline" render={<Link to={url} />}>`.
 Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
 Accessibility:
