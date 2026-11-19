@@ -57,7 +57,12 @@ from products.metrics.backend.facade.enums import (
     MetricRangeFunction,
     MetricType,
 )
-from products.metrics.backend.hogql_queries.tail_refresh import TailRefresh, TailRefreshMixin, merge_series
+from products.metrics.backend.hogql_queries.tail_refresh import (
+    TailRefresh,
+    TailRefreshMixin,
+    compare_series,
+    merge_series,
+)
 from products.metrics.backend.metric_query_runner import _resolve_interval
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -312,6 +317,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             interval=interval,
             calculate=calculate,
             merge=merge,
+            compare=lambda spliced, full: compare_series(spliced.results, full.results),
         )
 
     @cached_property

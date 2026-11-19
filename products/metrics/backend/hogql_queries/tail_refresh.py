@@ -161,10 +161,10 @@ def merge_series(
     if len(cached_by_key) != len(cached) or len(tail_by_key) != len(tail):
         return None
     # A clause at the cap keeps the largest series over the whole window, which the splice cannot rank.
-    for side in (cached, tail):
-        clauses = [series.clause for series in side]
-        if any(clauses.count(clause) >= MAX_RAW_SERIES for clause in set(clauses)):
-            return None
+    # Two sides under the cap can still hold more series together than a full run returns.
+    clauses = [key.clause for key in cached_by_key.keys() | tail_by_key.keys()]
+    if any(clauses.count(clause) >= MAX_RAW_SERIES for clause in set(clauses)):
+        return None
     # A formula series missing on one side would need the formula of zero-filled inputs there.
     if formula and cached_by_key.keys() != tail_by_key.keys():
         return None
@@ -247,27 +247,56 @@ def merge_grid(
     )
 
 
-def first_difference(merged: Any, full: Any, path: str = "") -> str | None:
-    """Where two dumped responses differ, with floats compared to a relative tolerance."""
-    if isinstance(merged, float) and isinstance(full, float):
-        return None if math.isclose(merged, full, rel_tol=1e-9, abs_tol=1e-12) else f"{path}: {merged} != {full}"
-    if isinstance(merged, dict) and isinstance(full, dict):
-        if merged.keys() != full.keys():
-            return f"{path}: keys differ"
-        for key in merged:
-            difference = first_difference(merged[key], full[key], f"{path}.{key}")
-            if difference:
-                return difference
-        return None
-    if isinstance(merged, list) and isinstance(full, list):
-        if len(merged) != len(full):
-            return f"{path}: {len(merged)} items != {len(full)}"
-        for index, (left, right) in enumerate(zip(merged, full)):
-            difference = first_difference(left, right, f"{path}[{index}]")
-            if difference:
-                return difference
-        return None
-    return None if merged == full else f"{path}: {merged!r} != {full!r}"
+@frozen
+class ShadowDiff:
+    """How far a spliced result is from the full run it was checked against."""
+
+    mismatch_points: int
+    max_rel_diff: float
+
+
+def _relative_difference(spliced: float | None, full: float | None) -> float:
+    if spliced is None or full is None:
+        return 0.0 if spliced is full else 1.0
+    if math.isclose(spliced, full, rel_tol=1e-9, abs_tol=1e-12):
+        return 0.0
+    return abs(spliced - full) / max(abs(spliced), abs(full))
+
+
+_MISSING = object()
+
+
+def _diff_values(spliced: dict[Any, float | None], full: dict[Any, float | None]) -> ShadowDiff:
+    """A point only one side has counts as a mismatch with relative difference 1."""
+    differences = [
+        1.0
+        if spliced.get(key, _MISSING) is _MISSING or full.get(key, _MISSING) is _MISSING
+        else _relative_difference(spliced[key], full[key])
+        for key in spliced.keys() | full.keys()
+    ]
+    return ShadowDiff(
+        mismatch_points=sum(1 for difference in differences if difference > 0),
+        max_rel_diff=max(differences, default=0.0),
+    )
+
+
+def compare_series(spliced: Sequence[MetricsQuerySeries], full: Sequence[MetricsQuerySeries]) -> ShadowDiff:
+    def by_point(results: Sequence[MetricsQuerySeries]) -> dict[Any, float | None]:
+        return {(SeriesKey.of(series), point.time): point.value for series in results for point in series.points}
+
+    return _diff_values(by_point(spliced), by_point(full))
+
+
+def compare_grid(spliced: MetricsHistogramQueryResponse, full: MetricsHistogramQueryResponse) -> ShadowDiff:
+    def by_cell(response: MetricsHistogramQueryResponse) -> dict[Any, float | None]:
+        bounds = tuple(response.bounds)
+        return {
+            (bounds, row, time): float(count)
+            for row, counts in enumerate(response.counts)
+            for time, count in zip(response.times, counts)
+        }
+
+    return _diff_values(by_cell(spliced), by_cell(full))
 
 
 class TailRefresh(Generic[R]):
@@ -282,7 +311,7 @@ class TailRefresh(Generic[R]):
         self._state: TailState | None = None
         self._mode: str | None = None
         self._full_reason: FullRunReason | None = None
-        self._verify: str | None = None
+        self._shadow: ShadowDiff | None = None
 
     def run(
         self,
@@ -293,8 +322,10 @@ class TailRefresh(Generic[R]):
         interval: str,
         calculate: Callable[[dt.datetime], R],
         merge: Callable[[R, R, dt.datetime, dt.datetime], R | None],
+        compare: Callable[[R, R], ShadowDiff],
     ) -> R:
-        """`calculate` runs the query from a start; `merge` splices (cached, tail, start, cut)."""
+        """`calculate` runs the query from a start; `merge` splices (cached, tail, start, cut); `compare` diffs
+        (spliced, full) for the sampled shadow check."""
         tzinfo = self._team.timezone_info
         now = dt.datetime.now(dt.UTC)
         plan = plan_tail(
@@ -306,7 +337,7 @@ class TailRefresh(Generic[R]):
             if merged is None:
                 plan = FullRunReason.MERGE_REFUSED
             else:
-                self._mode = "tail"
+                self._mode = "spliced"
                 if random.random() >= settings.METRICS_TAIL_REFRESH_VERIFY_RATE:
                     self._state = TailState(
                         date_from=date_from, date_to=date_to, interval=interval, full_at=self._previous.full_at
@@ -314,7 +345,14 @@ class TailRefresh(Generic[R]):
                     return merged
                 # A full run is the correct answer whatever the check finds, so the refresh serves it.
                 full = calculate(date_from)
-                self._check(merged, full)
+                self._shadow = compare(merged, full)
+                if self._shadow.mismatch_points:
+                    logger.warning(
+                        "metrics_tail_refresh_mismatch",
+                        team_id=self._team.pk,
+                        mismatch_points=self._shadow.mismatch_points,
+                        max_rel_diff=self._shadow.max_rel_diff,
+                    )
                 self._state = TailState(date_from=date_from, date_to=date_to, interval=interval, full_at=now)
                 return full
         self._mode = "full"
@@ -339,20 +377,16 @@ class TailRefresh(Generic[R]):
         start = _align_to_interval(date_from, interval, tzinfo=self._team.timezone_info)
         return merge(cached, tail, start, cut)
 
-    def _check(self, merged: R, full: R) -> None:
-        difference = first_difference(merged.model_dump(), full.model_dump())
-        self._verify = "match" if difference is None else "mismatch"
-        if difference is not None:
-            logger.warning("metrics_tail_refresh_mismatch", team_id=self._team.pk, difference=difference[:500])
-
     def entry_record(self) -> dict[str, Any] | None:
         return {_STATE_KEY: self._state.to_record()} if self._state else None
 
     def event_properties(self) -> dict[str, Any]:
         properties = {
-            "metrics_refresh": self._mode,
-            "metrics_full_reason": self._full_reason.value if self._full_reason else None,
-            "metrics_tail_verify": self._verify,
+            "tail_refresh": self._mode,
+            "tail_full_reason": self._full_reason.value if self._full_reason else None,
+            "tail_shadow_checked": self._shadow is not None if self._mode else None,
+            "tail_shadow_mismatch_points": self._shadow.mismatch_points if self._shadow else None,
+            "tail_shadow_max_rel_diff": self._shadow.max_rel_diff if self._shadow else None,
         }
         return {key: value for key, value in properties.items() if value is not None}
 

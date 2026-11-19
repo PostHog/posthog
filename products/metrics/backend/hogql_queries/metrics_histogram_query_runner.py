@@ -33,7 +33,7 @@ from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
 from products.metrics.backend.hogql_queries.metrics_query_runner import DASHBOARD_V2_FEATURE_FLAG
-from products.metrics.backend.hogql_queries.tail_refresh import TailRefreshMixin, merge_grid
+from products.metrics.backend.hogql_queries.tail_refresh import TailRefreshMixin, compare_grid, merge_grid
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
     _QUERY_SETTINGS,
@@ -162,6 +162,7 @@ class MetricsHistogramQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[Metrics
             interval=pinned,
             calculate=lambda start: self._grid(start, date_to, pinned, filters),
             merge=lambda cached, tail, start, cut: merge_grid(cached, tail, start=start, cut=cut),
+            compare=compare_grid,
         )
 
     def _grid(

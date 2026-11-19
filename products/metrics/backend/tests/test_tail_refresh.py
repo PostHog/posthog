@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.schema import (
     DateRange,
     MetricsHistogramQuery,
+    MetricsHistogramQueryResponse,
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryGroupBy,
@@ -29,8 +30,11 @@ from products.metrics.backend.hogql_queries.metrics_histogram_query_runner impor
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.hogql_queries.tail_refresh import (
     FullRunReason,
+    ShadowDiff,
     TailPlan,
     TailState,
+    compare_grid,
+    compare_series,
     merge_series,
     plan_tail,
 )
@@ -176,12 +180,73 @@ class TestMergeSeries(SimpleTestCase):
                 [_series({"pod": "0"}, {"2026-09-19T11:02:00+00:00": 1.0})],
                 False,
             ),
+            (
+                "merged_clause_reaches_the_series_cap",
+                [_series({"pod": f"old{i}"}, {"2026-09-19T11:01:00+00:00": 1.0}) for i in range(60)],
+                [_series({"pod": f"new{i}"}, {"2026-09-19T11:02:00+00:00": 1.0}) for i in range(60)],
+                False,
+            ),
         ]
     )
     def test_refuses_merges_a_full_run_could_answer_differently(
         self, _name: str, cached: list[MetricsQuerySeries], tail: list[MetricsQuerySeries], formula: bool
     ) -> None:
         assert self._merge(cached, tail, formula=formula) is None
+
+
+def _grid(counts: list[list[int]]) -> MetricsHistogramQueryResponse:
+    return MetricsHistogramQueryResponse(
+        results=None,
+        times=["2026-09-19T11:00:00+00:00", "2026-09-19T11:01:00+00:00"],
+        bounds=[0.5],
+        counts=counts,
+    )
+
+
+class TestShadowDiff(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "identical",
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 2.0, "2026-09-19T11:02:00+00:00": 0.0})],
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 2.0, "2026-09-19T11:02:00+00:00": 0.0})],
+                ShadowDiff(mismatch_points=0, max_rel_diff=0.0),
+            ),
+            (
+                "one_value_differs",
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 8.0, "2026-09-19T11:02:00+00:00": 3.0})],
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 10.0, "2026-09-19T11:02:00+00:00": 3.0})],
+                ShadowDiff(mismatch_points=1, max_rel_diff=0.2),
+            ),
+            (
+                "full_run_picks_another_series",
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 1.0, "2026-09-19T11:02:00+00:00": 1.0})],
+                [_series({"pod": "b"}, {"2026-09-19T11:01:00+00:00": 1.0, "2026-09-19T11:02:00+00:00": 1.0})],
+                ShadowDiff(mismatch_points=4, max_rel_diff=1.0),
+            ),
+            (
+                "gap_against_a_value",
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": None})],
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 5.0})],
+                ShadowDiff(mismatch_points=1, max_rel_diff=1.0),
+            ),
+        ]
+    )
+    def test_compare_series(
+        self, _name: str, merged: list[MetricsQuerySeries], full: list[MetricsQuerySeries], expected: ShadowDiff
+    ) -> None:
+        assert compare_series(merged, full) == expected
+
+    @parameterized.expand(
+        [
+            ("identical", [[1, 2], [3, 4]], [[1, 2], [3, 4]], ShadowDiff(mismatch_points=0, max_rel_diff=0.0)),
+            ("late_sample", [[1, 2], [3, 3]], [[1, 2], [3, 4]], ShadowDiff(mismatch_points=1, max_rel_diff=0.25)),
+        ]
+    )
+    def test_compare_grid(
+        self, _name: str, merged: list[list[int]], full: list[list[int]], expected: ShadowDiff
+    ) -> None:
+        assert compare_grid(_grid(merged), _grid(full)) == expected
 
 
 @contextmanager
@@ -195,7 +260,7 @@ def _dashboard_v2(enabled: bool) -> Iterator[MagicMock]:
 
 
 def _refresh_modes(report: MagicMock) -> list[str | None]:
-    return [call.args[1].get("metrics_refresh") for call in report.call_args_list if call.args[0] == "query executed"]
+    return [call.args[1].get("tail_refresh") for call in report.call_args_list if call.args[0] == "query executed"]
 
 
 @override_settings(METRICS_TAIL_REFRESH_VERIFY_RATE=0.0)
@@ -301,7 +366,7 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
             merged = self._refresh(query)
             full = self._full(query)
 
-        assert _refresh_modes(report) == ["full", "tail"]
+        assert _refresh_modes(report) == ["full", "spliced"]
         assert merged == full
 
     @parameterized.expand([("1h", "-1h"), ("24h", "-24h")])
@@ -320,7 +385,7 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
             merged = self._refresh(query)
             full = self._full(query)
 
-        assert _refresh_modes(report) == ["full", "tail"]
+        assert _refresh_modes(report) == ["full", "spliced"]
         assert merged == full
 
     @parameterized.expand(
@@ -355,7 +420,7 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
         assert _refresh_modes(report) == ["full", "full"]
 
     @override_settings(METRICS_TAIL_REFRESH_VERIFY_RATE=1.0)
-    def test_verified_tail_refresh_reports_a_match(self) -> None:
+    def test_shadow_checked_tail_refresh_reports_no_mismatch(self) -> None:
         self._seed_gauges(self.T0 - dt.timedelta(hours=2), self.T0)
         query = self._gauge_query("-1h")
 
@@ -365,12 +430,21 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
             self._seed_gauges(self.T0, self.T0 + dt.timedelta(minutes=2))
             self._refresh(query)
 
-        verified = [
-            call.args[1].get("metrics_tail_verify")
+        shadow_keys = ("tail_refresh", "tail_shadow_checked", "tail_shadow_mismatch_points", "tail_shadow_max_rel_diff")
+        shadow = [
+            {key: call.args[1][key] for key in shadow_keys if key in call.args[1]}
             for call in report.call_args_list
             if call.args[0] == "query executed"
         ]
-        assert verified == [None, "match"]
+        assert shadow == [
+            {"tail_refresh": "full", "tail_shadow_checked": False},
+            {
+                "tail_refresh": "spliced",
+                "tail_shadow_checked": True,
+                "tail_shadow_mismatch_points": 0,
+                "tail_shadow_max_rel_diff": 0.0,
+            },
+        ]
 
     def test_tail_refresh_of_histogram_heatmap_equals_a_full_run(self) -> None:
         def seed(start: dt.datetime, end: dt.datetime) -> None:
@@ -405,5 +479,5 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
             merged = refresh()
             full = MetricsHistogramQueryRunner(query=query.model_copy(deep=True), team=self.team).calculate()
 
-        assert _refresh_modes(report) == ["full", "tail"]
+        assert _refresh_modes(report) == ["full", "spliced"]
         assert merged == {"times": full.times, "bounds": full.bounds, "counts": full.counts}
