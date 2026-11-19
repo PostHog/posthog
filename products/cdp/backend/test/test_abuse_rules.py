@@ -387,6 +387,14 @@ class TestAbuseRules(SimpleTestCase):
                         "{% liquid\n  comment\n  note\n  endcomment\n  assign xs = (1..20000)\n%}",
                     ),
                     (
+                        "a_raw_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  raw\n  - endraw\n  echo (1..20000) | size\n%}",
+                    ),
+                    (
+                        "a_comment_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  comment\n  -endcomment\n  echo (1..20000) | size\n%}",
+                    ),
+                    (
                         "a_comment_block_closed_by_a_suffixed_end",
                         "{% liquid\n  comment\n  note\n  endcomment#done\n  assign xs = (1..20000)\n%}",
                     ),
@@ -408,6 +416,10 @@ class TestAbuseRules(SimpleTestCase):
                         "{% liquid\n  # note\rassign xs = (1..20000)\n%}",
                     ),
                     ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
+                    (
+                        "in_a_comment_block_opened_by_a_trimmed_statement",
+                        "{% liquid\n  - comment\n  echo (1..20000) | size\n  endcomment\n  echo 1\n%}",
+                    ),
                     (
                         "in_a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  assign xs = (1..20000)\n  endcomment\n  echo 1\n%}",

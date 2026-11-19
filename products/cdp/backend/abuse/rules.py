@@ -113,6 +113,8 @@ _LIQUID_BLANK = rf"[{_LIQUID_BLANKS}]"
 # character past ASCII that is not a blank or a curly double quote.
 _LIQUID_WORD_CHAR = rf"(?:[-0-9?A-Z_a-z]|[^\x00-\x7f{_LIQUID_BLANKS}\u201c\u201d])"
 _LIQUID_TAG_NAME = re.compile(rf"{_LIQUID_BLANK}*+(#|{_LIQUID_WORD_CHAR}*+)")
+# LiquidJS reads each statement of a `{% liquid %}` block as a tag, which drops a leading `-` as whitespace control.
+_LIQUID_STATEMENT_TRIM = re.compile(rf"\A{_LIQUID_BLANK}*+-")
 # LiquidJS reads `{%- endraw` and `endraw-` as other identifiers, so neither of them ends a raw block.
 _LIQUID_RAW_END = re.compile(rf"\{{%{_LIQUID_BLANK}*endraw(?!{_LIQUID_WORD_CHAR})")
 _LIQUID_DELIMITER = re.compile(r"%\}|\{%")
@@ -463,7 +465,7 @@ def _liquid_block_statements(tag: str) -> Iterator[str]:
     block_end: str | None = None
     # LiquidJS splits statements at `\n` only, while `splitlines` also splits at `\r` and Unicode separators.
     for line in tag.split("\n"):
-        name = _liquid_tag_name(line)
+        name = _liquid_tag_name(_LIQUID_STATEMENT_TRIM.sub("", line, count=1))
         if block_end is not None:
             block_end = None if name == block_end else block_end
         elif name in _LIQUID_TEXT_BLOCKS:
