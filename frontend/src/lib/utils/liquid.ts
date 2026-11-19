@@ -249,7 +249,11 @@ export class LiquidRenderer {
      *
      * Additive to the worker's copy of this class, which only ever renders the real thing.
      */
-    public static renderKeepingUnresolved(template: string, context: Record<string, any>): string {
+    public static renderKeepingUnresolved(
+        template: string,
+        context: Record<string, any>,
+        markUnresolved: (source: string) => string = (source) => source
+    ): string {
         const decoded = this.decode(template)
         let marked = ''
         let cursor = 0
@@ -262,7 +266,7 @@ export class LiquidRenderer {
             if (!expression || expression.includes('|') || this.resolvesDecoded(expression, context)) {
                 continue
             }
-            marked += `${decoded.slice(cursor, begin)}{% raw %}${decoded.slice(begin, end)}{% endraw %}`
+            marked += `${decoded.slice(cursor, begin)}{% raw %}${markUnresolved(decoded.slice(begin, end))}{% endraw %}`
             cursor = end
         }
         // `marked` is already decoded, so render it without a second pass.

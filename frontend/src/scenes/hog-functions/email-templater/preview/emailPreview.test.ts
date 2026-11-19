@@ -1,4 +1,4 @@
-import { renderEmailPreview } from './emailPreview'
+import { renderEmailPreview, renderEmailPreviewMarked, withUnresolvedChips } from './emailPreview'
 
 describe('renderEmailPreview', () => {
     const person = {
@@ -56,5 +56,18 @@ describe('renderEmailPreview', () => {
 
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
+    })
+
+    it('shows a missing value as a chip in the text and as its label inside an attribute', () => {
+        const html = withUnresolvedChips(
+            renderEmailPreviewMarked(
+                '<p>Hi {{ person.properties.first_name }}, <a href="/{{ person.properties.plan_name }}">plan</a></p>',
+                { id: 'person-3', properties: {} }
+            )
+        )
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+
+        expect(doc.querySelector('p > span')?.textContent).toBe('first name')
+        expect(doc.querySelector('a')?.getAttribute('href')).toBe('/plan name')
     })
 })

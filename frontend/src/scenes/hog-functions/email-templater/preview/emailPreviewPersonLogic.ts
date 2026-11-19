@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -103,6 +103,10 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
     actions({
         setAudience: (audience: AnyPersonScopeFilter[]) => ({ audience }),
         selectPerson: (personId: string | null) => ({ personId }),
+        pickPerson: (person: PreviewPerson) => ({ person }),
+        shufflePerson: true,
+        setSearch: (search: string) => ({ search }),
+        setCustomProperties: (properties: Record<string, string> | null) => ({ properties }),
     }),
 
     reducers({
@@ -111,8 +115,17 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
             null as string | null,
             {
                 selectPerson: (_, { personId }) => personId,
+                pickPerson: (_, { person }) => person.id,
                 // The audience decides who is on offer, so a reload invalidates the old pick.
                 loadPersons: () => null,
+            },
+        ],
+        customProperties: [
+            null as Record<string, string> | null,
+            {
+                setCustomProperties: (_, { properties }) => properties,
+                selectPerson: () => null,
+                pickPerson: () => null,
             },
         ],
         // An empty list and a failed lookup both leave the picker empty, but they mean
@@ -156,14 +169,53 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
                     breakpoint()
                     return (response.results ?? []).map(parsePerson)
                 },
+                // A person found by search joins the pool, so the pick survives the search closing.
+                pickPerson: ({ person }) =>
+                    values.persons.some(({ id }) => id === person.id) ? values.persons : [person, ...values.persons],
+            },
+        ],
+        searchResults: [
+            [] as PreviewPerson[],
+            {
+                setSearch: async ({ search }, breakpoint) => {
+                    await breakpoint(300)
+                    if (!search.trim()) {
+                        return []
+                    }
+                    const response = await api.query<ActorsQuery>({
+                        kind: NodeKind.ActorsQuery,
+                        tags: { productKey: ProductKey.WORKFLOWS },
+                        search,
+                        select: ['id', 'person_display_name -- Person', 'properties'],
+                        limit: PREVIEW_PERSON_LIMIT,
+                    })
+                    breakpoint()
+                    return (response.results ?? []).map(parsePerson)
+                },
             },
         ],
     })),
 
+    listeners(({ actions, values }) => ({
+        shufflePerson: () => {
+            const others = values.persons.filter(
+                (person) => !!person.properties.email && person.id !== values.previewPerson?.id
+            )
+            if (others.length > 0) {
+                actions.selectPerson(others[Math.floor(Math.random() * others.length)].id)
+            }
+        },
+    })),
+
     selectors({
         previewPerson: [
-            (s) => [s.persons, s.selectedPersonId],
-            (persons: PreviewPerson[], selectedPersonId: string | null): PreviewPerson | null =>
+            (s) => [s.persons, s.selectedPersonId, s.customProperties],
+            (
+                persons: PreviewPerson[],
+                selectedPersonId: string | null,
+                customProperties: Record<string, string> | null
+            ): PreviewPerson | null =>
+                (customProperties && { id: 'custom', displayName: 'Custom person', properties: customProperties }) ??
                 persons.find((person) => person.id === selectedPersonId) ??
                 // Default to someone the email can reach. An audience filter that does not mention
                 // email can put a person with no email address first, and that person renders every
