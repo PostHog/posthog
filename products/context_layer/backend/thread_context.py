@@ -36,12 +36,19 @@ def _first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def _thread_messages(block: str) -> tuple[str, list[ThreadMessage], bool]:
+@frozen
+class _Block:
+    mentioner: str
+    messages: tuple[ThreadMessage, ...]
+    requester_opened: bool
+
+
+def _parse_block(block: str) -> _Block:
     # The block opens with a header that ends at the first blank line. Each message after it is
     # an unindented `author:` line followed by its body, indented two spaces.
     header, separator, entries = block.partition("\n\n")
     if not separator:
-        return "", [], False
+        return _Block(mentioner="", messages=(), requester_opened=False)
     messages: list[tuple[str, list[str]]] = []
     for line in entries.split("\n"):
         if line and not line[0].isspace():
@@ -49,8 +56,11 @@ def _thread_messages(block: str) -> tuple[str, list[ThreadMessage], bool]:
         elif messages:
             messages[-1][1].append(line.removeprefix("  "))
     parsed = [ThreadMessage(author=author, body="\n".join(lines).strip()) for author, lines in messages]
-    kept = [message for message in parsed if message.body != _INITIATOR_PLACEHOLDER]
-    return _mentioner(header), kept, bool(parsed) and parsed[0].body == _INITIATOR_PLACEHOLDER
+    return _Block(
+        mentioner=_mentioner(header),
+        messages=tuple(message for message in parsed if message.body != _INITIATOR_PLACEHOLDER),
+        requester_opened=bool(parsed) and parsed[0].body == _INITIATOR_PLACEHOLDER,
+    )
 
 
 def _drop_truncated_block(text: str) -> str:
@@ -81,15 +91,16 @@ def split_thread_context(text: str) -> SplitPrompt:
         end = rest.find(closing, start)
         if end < 0:
             break
-        mentioner, messages, requester_opened = _thread_messages(rest[start + len(tag) + 2 : end])
+        block = _parse_block(rest[start + len(tag) + 2 : end])
+        messages = list(block.messages)
         # Only the original block starts at the thread's root. When the requester opened the thread,
         # the root is their request, not a subject to add.
-        if tag == THREAD_CONTEXT_TAGS[0] and messages and not requester_opened and not subject:
+        if tag == THREAD_CONTEXT_TAGS[0] and messages and not block.requester_opened and not subject:
             subject = _first_line(messages[0].body)
         after = rest[end + len(closing) :]
         lead = len(after) - len(after.lstrip("\n"))
         title_end = lead + len(_EMPTY_REQUEST)
-        own = [i for i, message in enumerate(messages) if mentioner and message.author == mentioner]
+        own = [i for i, message in enumerate(messages) if block.mentioner and message.author == block.mentioner]
         if after[lead:title_end] == _EMPTY_REQUEST and after[title_end : title_end + 1] in ("", "\n") and own:
             # A textless mention's request is the mentioner's own message in this block. Replies can follow
             # it, so it is their last message, and no one else's words stand in for it.
