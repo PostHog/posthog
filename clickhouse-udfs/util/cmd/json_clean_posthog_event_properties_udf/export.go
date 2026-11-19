@@ -12,8 +12,7 @@ import (
 // so a table filled from this mode holds what a batch export of the events table sends. That read is the cleaner's
 // output, cast into the JSON column type, then printed by the document builder in
 // posthog/hogql/printer/events_json_document.py. The rules in this file are the behavior of that cast and of that
-// builder. A change to either one needs the matching change here. The parity test in
-// posthog/hogql/printer/test/test_events_json_document.py runs both paths over the same documents and compares them.
+// builder. A change to either one needs the matching change here.
 
 const (
 	// The parser behind ClickHouse's isValidJSON refuses a value below this many levels. A scalar counts as a level.
