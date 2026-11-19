@@ -6,8 +6,7 @@ import type { DashboardEdit } from '../layout/dashboardEdits'
 
 /**
  * Everything a person can do to a v2 dashboard, and the access level it needs. Each edit kind must appear here, so a
- * new edit does not type-check until someone decides who may make it. The logic refuses any edit, and the UI disables
- * any control, through `dashboardV2DisabledReason`, so there is one place to read and change the rules.
+ * new edit does not type-check until someone decides who may make it.
  */
 export type DashboardV2Action = DashboardEdit['edit'] | 'undo' | 'redo'
 
@@ -24,10 +23,7 @@ export const DASHBOARD_V2_REQUIRED_LEVEL: Record<DashboardV2Action, AccessContro
     redo: AccessControlLevel.Editor,
 }
 
-/**
- * Why the person may not take an action, or null when they may. `userAccessLevel` is the dashboard's own level, as v1
- * dashboards carry in `user_access_level`; without one it falls back to the project-wide dashboard level.
- */
+/** Without a dashboard-level `userAccessLevel`, this falls back to the project-wide dashboard level. */
 export function dashboardV2DisabledReason(
     action: DashboardV2Action,
     userAccessLevel: AccessControlLevel | undefined

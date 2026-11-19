@@ -129,7 +129,6 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         dashboard: [(s) => [s.history], (history: History): Dashboard => history.present],
         canUndo: [(s) => [s.history], (history: History): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: History): boolean => history.future.length > 0],
-        /** Every permission check goes through this, so the rules live in `access/dashboardV2Access.ts` only. */
         disabledReasonFor: [
             (s) => [s.dashboard],
             (dashboard: Dashboard): ((action: DashboardV2Action) => string | null) =>
