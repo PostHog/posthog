@@ -327,12 +327,17 @@ jobs:
 
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
-            - name: Ensure master did not advance during release prep
+            # master moves every few minutes, so only a hog changeset that landed during prep matters: it
+            # would miss this release. The release job's approver check covers every other merge.
+            - name: Ensure no hog changeset landed during release prep
               if: steps.check-changes.outputs.committed == 'true'
               run: |
-                  git fetch origin master
-                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-                      echo "::error::master advanced while preparing the hog release. Re-run the workflow so the release includes the latest changesets."
+                  set -euo pipefail
+                  git fetch --no-tags origin master
+                  landed=$(git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- 'hog/.sampo/changesets/*.md')
+                  if [ -n "$landed" ]; then
+                      echo "::error::A hog changeset landed on master while preparing the release. Re-run the workflow so the release includes it:"
+                      printf '%s\n' "$landed"
                       exit 1
                   fi
 
@@ -593,14 +598,22 @@ jobs:
                   set -euo pipefail
 
                   # Every master commit comes from a merged pull request. None listed means GitHub hasn't
-                  # linked it yet, and skipping would leave a release unpublished without a word.
-                  merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
-                      --jq '.[] | select(.merged_at != null and .base.ref == "master") | "\(.number) \(.head.ref)"')
+                  # linked it yet, which takes a little while after the merge queue lands a commit, and
+                  # skipping would leave a release unpublished without a word. A stacked pull request keeps
+                  # its parent layer as its base, so only the release pull request has to target master.
+                  merged_prs=""
+                  for attempt in $(seq 1 12); do
+                      merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                          --jq '.[] | select(.merged_at != null) | "\(.number) \(.head.ref) \(.base.ref)"')
+                      [ -n "$merged_prs" ] && break
+                      echo "GitHub lists no merged pull request for $RELEASE_COMMIT yet (attempt $attempt of 12)"
+                      sleep 10
+                  done
                   if [ -z "$merged_prs" ]; then
-                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT yet. Re-run the failed jobs in a minute."
+                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT after 2 minutes. Re-run the failed jobs."
                       exit 1
                   fi
-                  release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch { print $1 }' <<<"$merged_prs")
+                  release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch && $3 == "master" { print $1 }' <<<"$merged_prs")
                   release_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
                   if [ "$release_count" -eq 0 ]; then
                       echo "is-release=false" >> "$GITHUB_OUTPUT"
