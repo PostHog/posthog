@@ -238,6 +238,22 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
         walker="apps",
         partition_key="createdAt",
     ),
+    # Uptime monitor configuration. Check results are not a separate list: AppSignal reports them
+    # as `uptime_monitor_*` metrics tagged with the monitor `id`, which `metric_timeseries` syncs,
+    # so this table is the lookup that resolves those IDs.
+    "uptime_monitors": AppsignalEndpointConfig(
+        name="uptime_monitors",
+        api="custom",
+        walker="uptime_monitors",
+    ),
+    # Cron and heartbeat check-in triggers with the state of their latest run. The run history
+    # (`CheckInTrigger.checkIns`) is not synced: its arguments are not published, so there is no
+    # documented way to page it or bound it by time.
+    "check_in_triggers": AppsignalEndpointConfig(
+        name="check_in_triggers",
+        api="custom",
+        walker="check_in_triggers",
+    ),
     # Log lines live only on the Public API V2: the GraphQL API exposes no log line field.
     "log_lines": AppsignalEndpointConfig(
         name="log_lines",
@@ -291,6 +307,26 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
         api="custom",
         walker="performance_traces",
         primary_keys=["site_id", "trace_id"],
+        cursor_field="time",
+        partition_key="time",
+        immutable_rows=True,
+        incremental_fields=[
+            {
+                "label": "time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "time",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Error traces have no time filter of their own, so each time window lists the incident
+    # digests with errors in it (`/tracing/errors`) and walks those digests' traces. A trace with
+    # errors from two incidents is listed under both, so the digest is part of the key.
+    "error_traces": AppsignalEndpointConfig(
+        name="error_traces",
+        api="custom",
+        walker="error_traces",
+        primary_keys=["site_id", "trace_id", "digest"],
         cursor_field="time",
         partition_key="time",
         immutable_rows=True,
@@ -384,6 +420,40 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
         api="custom",
         walker="slow_event_actions",
         primary_keys=["timestamp", "digest", "namespace", "action_name"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # The latest node and pod snapshot in each bucket. The snapshot's own time is kept as
+    # `snapshot_timestamp`, and `timestamp` is the bucket, as for the other aggregate tables.
+    "kubernetes_nodes": AppsignalEndpointConfig(
+        name="kubernetes_nodes",
+        api="custom",
+        walker="kubernetes_nodes",
+        primary_keys=["timestamp", "node_name"],
+        cursor_field="timestamp",
+        partition_key="timestamp",
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "kubernetes_pods": AppsignalEndpointConfig(
+        name="kubernetes_pods",
+        api="custom",
+        walker="kubernetes_pods",
+        primary_keys=["timestamp", "pod_namespace", "pod_name"],
         cursor_field="timestamp",
         partition_key="timestamp",
         incremental_fields=[
