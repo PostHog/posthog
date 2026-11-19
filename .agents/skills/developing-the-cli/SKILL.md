@@ -57,7 +57,8 @@ Port the behavior, not the code. The two CLIs are laid out differently.
 
 - hog: read `hog/AGENTS.md` before the first edit. It holds the command, output, error and typed-boundary rules.
 - Uploads: hog must send the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. Read `hog/test/parity/README.md` before changing anything that reaches an upload. When a Rust change alters what posthog-cli uploads, regenerate the goldens from the new binary as that README describes, and review the diff.
-- Releases: every user-visible change needs a sampo changeset on each side it touches, in `cli/.sampo/changesets/` (`--package cargo/posthog-cli`) and in `hog/.sampo/changesets/` (`--package npm/hog`). A merged changeset starts a release that a person approves. `cli/.sampo/README.md` and the Releases section of `hog/README.md` have the commands.
+- Releases: every user-visible change needs a sampo changeset on each side it touches, in `cli/.sampo/changesets/` (`--package cargo/posthog-cli`) and in `hog/.sampo/changesets/` (`--package npm/hog`). Write it in the pull request, with a sentence that tells users what changed, and rename the file sampo writes after the change. `cli/.sampo/README.md` and the Releases section of `hog/README.md` have the commands.
+- hog release timing: the changeset's file name decides it, because sampo accepts nothing but packages and bumps in the front matter. `weekly-<name>.md` waits for the weekly run on Tuesdays, so use it when the change can wait. Any other name starts a release, which a person approves, when the pull request merges. The `hog changeset` workflow adds `pr-<number>.md` to a pull request with MCP or catalog changes and no changeset. Those wait for the weekly run too, so keep them as they are.
 
 ## Test both sides
 

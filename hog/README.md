@@ -458,9 +458,17 @@ To add a changeset yourself, run from `hog/`:
 sampo add --package npm/hog --bump patch --message "Describe the change for the changelog"
 ```
 
-Use `minor` or `major` instead of `patch` when it fits. Commit the file sampo writes under `hog/.sampo/changesets/`.
+Use `minor` or `major` instead of `patch` when it fits. sampo gives the file a random name under `hog/.sampo/changesets/`: rename it after the change, then commit it.
 
-A changeset a person writes starts a release when its pull request merges. A changeset the `hog changeset` workflow adds, named `pr-<number>.md`, waits for the weekly run on Tuesdays at 14:00 UTC, so MCP and catalog changes cost one approval a week. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+The file name says when the changeset releases:
+
+| File name          | Releases                                                             |
+| ------------------ | -------------------------------------------------------------------- |
+| `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC                          |
+| `pr-<number>.md`   | In the weekly run. The `hog changeset` workflow adds these by itself |
+| Any other name     | When its pull request merges                                         |
+
+Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. Keep the `pr-<number>.md` changesets CI adds for MCP and catalog changes as they are. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
 When a release starts, the workflow:
 
