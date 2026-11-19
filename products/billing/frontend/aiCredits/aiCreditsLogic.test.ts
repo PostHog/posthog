@@ -7,7 +7,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { aiCreditsLogic } from './aiCreditsLogic'
+import { aiCreditsLogic, polledPurchaseEntry } from './aiCreditsLogic'
 
 const QUOTE = { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' }
 const RELOAD_ON = {
@@ -19,6 +19,19 @@ const RELOAD_ON = {
         disabled_reason: null,
         disabled_at: null,
     },
+}
+
+function historyEntry(paymentId: string, status: 'pending' | 'added'): Record<string, unknown> {
+    return {
+        created_at: '2026-11-19T15:00:00Z',
+        kind: 'purchase',
+        amount_usd: '50.00',
+        tax_usd: '4.13',
+        total_usd: '54.13',
+        status,
+        payment_id: paymentId,
+        receipt_url: null,
+    }
 }
 
 // The current period starts on Oct 18, so each read names its own period.
@@ -84,6 +97,12 @@ describe('aiCreditsLogic', () => {
         initKeaTests()
         logic = aiCreditsLogic()
         logic.mount()
+    })
+
+    // Unmounting disposes the timer that reads the history again after a purchase.
+    afterEach(() => {
+        jest.useRealTimers()
+        logic.unmount()
     })
 
     // Billing charges a key once. A retry after billing didn't answer has to reuse it, or billing can charge
@@ -260,5 +279,86 @@ describe('aiCreditsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.spend?.period_start).toEqual('2026-10-18')
+    })
+
+    describe('after a purchase', () => {
+        let historyReads: number
+        let historyAnswers: Record<string, unknown>[][]
+
+        beforeEach(async () => {
+            historyReads = 0
+            useMocks({
+                get: {
+                    '/api/billing/ai_credits/history/': () => {
+                        const results = historyAnswers[Math.min(historyReads, historyAnswers.length - 1)]
+                        historyReads += 1
+                        return [200, { results, has_more: false }]
+                    },
+                },
+            })
+            firstPurchaseAnswer = [200, { status: 'paid', total_usd: QUOTE.total_usd, payment_id: 'pi_new' }]
+            logic.actions.openAddFundsModal()
+            await expectLogic(logic).toFinishAllListeners()
+            historyReads = 0
+        })
+
+        it('reads the history again until the purchase is added, then reads the balance', async () => {
+            historyAnswers = [[historyEntry('pi_new', 'pending')], [historyEntry('pi_new', 'added')]]
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(historyReads).toEqual(1)
+            expect(logic.values.polledPurchase?.paymentId).toEqual('pi_new')
+
+            await expectLogic(logic, async () => {
+                await jest.advanceTimersByTimeAsync(2000)
+            }).toDispatchActions(['loadHistory', 'loadHistorySuccess', 'stopPollingHistory', 'loadCurrentSpend'])
+
+            expect(historyReads).toEqual(2)
+            expect(logic.values.polledPurchase).toBeNull()
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(historyReads).toEqual(2)
+        })
+
+        it('stops reading the history after the timeout and leaves the purchase pending', async () => {
+            historyAnswers = [[historyEntry('pi_new', 'pending')]]
+            jest.useFakeTimers()
+
+            logic.actions.submitAddFundsForm()
+            await jest.advanceTimersByTimeAsync(61_000)
+            await expectLogic(logic).toFinishAllListeners()
+            const readsAtTimeout = historyReads
+
+            expect(readsAtTimeout).toBeGreaterThan(1)
+            expect(logic.values.polledPurchase).toBeNull()
+            expect(logic.values.history?.results[0]?.status).toEqual('pending')
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(historyReads).toEqual(readsAtTimeout)
+        })
+    })
+
+    describe('polledPurchaseEntry', () => {
+        const history = (...results: Record<string, unknown>[]): any => ({ results, has_more: false })
+
+        it('finds a paid purchase by its payment', () => {
+            const polled = { paymentId: 'pi_new', newestPaymentBefore: 'pi_old', startedAt: 0 }
+            expect(
+                polledPurchaseEntry(
+                    history(historyEntry('pi_other', 'pending'), historyEntry('pi_new', 'added')),
+                    polled
+                )?.payment_id
+            ).toEqual('pi_new')
+        })
+
+        it('takes a new newest entry for a purchase billing still processes', () => {
+            const polled = { paymentId: null, newestPaymentBefore: 'pi_old', startedAt: 0 }
+            expect(polledPurchaseEntry(history(historyEntry('pi_old', 'added')), polled)).toBeUndefined()
+            expect(
+                polledPurchaseEntry(history(historyEntry('pi_new', 'pending'), historyEntry('pi_old', 'added')), polled)
+                    ?.payment_id
+            ).toEqual('pi_new')
+        })
     })
 })
