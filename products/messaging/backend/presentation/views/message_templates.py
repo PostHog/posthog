@@ -132,6 +132,8 @@ from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CO
 from products.workflows.backend.facade.workflows import get_workflow_ref
 
 if TYPE_CHECKING:
+    from rest_framework.views import APIView
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
@@ -1110,7 +1112,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
 
     def _require_workflow_property_access(self) -> None:
         permission = CDPPropertyAccessPermission()
-        if not permission.has_permission(self.request, self):
+        if not permission.has_permission(self.request, cast("APIView", self)):
             raise exceptions.PermissionDenied(permission.message)
 
     def _writes_template_files(self, fields: dict[str, Any], template_id: UUID | None = None) -> bool:
