@@ -452,8 +452,11 @@ class StamphogGitHubClient:
     one per review run.
     """
 
-    def __init__(self, installation_id: str) -> None:
+    def __init__(self, installation_id: str, *, lane: Priority | None = None) -> None:
         self.installation_id = installation_id
+        # Overrides the priority of every request. A caller whose reads are optional passes BATCH, so the egress
+        # limiter sheds them before the installation reserve that review writes need.
+        self._lane = lane
 
     # --- Installation token lifecycle ---
 
@@ -556,7 +559,7 @@ class StamphogGitHubClient:
                 source=_SOURCE,
                 headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                 installation_id=self.installation_id,
-                priority=priority,
+                priority=priority if self._lane is None else self._lane,
                 endpoint=endpoint,
                 params=params,
                 json=json_body,

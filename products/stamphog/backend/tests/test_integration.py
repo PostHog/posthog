@@ -756,6 +756,8 @@ class _GateCheckScenario:
     config_changes: dict[str, Any] | None = None
     asked_repository: str = REPO
     check_runs_unreadable: bool = False
+    check_runs_late: bool = False
+    shed_batch: bool = False
     engine_breaks: bool = False
 
 
@@ -875,6 +877,14 @@ class _GateCheckScenario:
             id="github-error",
         ),
         pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], check_runs_late=True, expect=None),
+            id="read-past-the-deadline",
+        ),
+        pytest.param(
+            _GateCheckScenario(files=[_api_file("terraform/main.tf")], shed_batch=True, expect=None),
+            id="reads-shed-by-the-egress-limiter",
+        ),
+        pytest.param(
             _GateCheckScenario(files=[_api_file("terraform/main.tf")], engine_breaks=True, expect=None),
             id="engine-error",
         ),
@@ -924,21 +934,34 @@ def test_the_approval_gate_check_answers_with_the_engine_pre_check(
         recorder.team_lookup_refused = True
     else:
         recorder.teams_by_login[_GATE_CHECK_AUTHOR] = list(scenario.author_teams)
+    recorder.shed_batch = scenario.shed_batch
+    release_check_runs = threading.Event()
 
-    with (
-        patch.object(StamphogGitHubClient, "get_check_runs", side_effect=_UNREADABLE)
-        if scenario.check_runs_unreadable
-        else nullcontext(),
-        patch.object(approval_gates, "run_engine_pregate", side_effect=EnginePregateError("exited with code 1"))
-        if scenario.engine_breaks
-        else nullcontext(),
-    ):
-        answer = check_approval_gates(
-            team_id=team.id,
-            repository=scenario.asked_repository,
-            pr_number=_GATE_CHECK_PR,
-            head_sha=_GATE_CHECK_HEAD,
-        )
+    def check_runs_after_release(*_args: Any, **_kwargs: Any) -> list[dict]:
+        release_check_runs.wait(timeout=10)
+        return []
+
+    try:
+        with (
+            patch.object(StamphogGitHubClient, "get_check_runs", side_effect=_UNREADABLE)
+            if scenario.check_runs_unreadable
+            else nullcontext(),
+            patch.object(StamphogGitHubClient, "get_check_runs", side_effect=check_runs_after_release)
+            if scenario.check_runs_late
+            else nullcontext(),
+            patch.object(approval_gates, "_READ_DEADLINE_SECONDS", 0) if scenario.check_runs_late else nullcontext(),
+            patch.object(approval_gates, "run_engine_pregate", side_effect=EnginePregateError("exited with code 1"))
+            if scenario.engine_breaks
+            else nullcontext(),
+        ):
+            answer = check_approval_gates(
+                team_id=team.id,
+                repository=scenario.asked_repository,
+                pr_number=_GATE_CHECK_PR,
+                head_sha=_GATE_CHECK_HEAD,
+            )
+    finally:
+        release_check_runs.set()
 
     assert answer == scenario.expect
     assert recorder.github_writes == []

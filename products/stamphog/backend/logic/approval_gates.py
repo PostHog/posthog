@@ -15,17 +15,22 @@ changes), because the author or a reviewer clears those. The answer maps its fin
   failure.
 - None: the check cannot tell. Every input the pre-check cannot trust, a pre-check that is not
   final for any reason other than "no gate failed", a bot author that the engine refuses without
-  running the gates, and every error give None.
+  running the gates, a read that the egress limiter sheds or that outlasts the deadline, and every
+  error give None.
 """
 
 from __future__ import annotations
 
+import time
 import contextvars
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 import structlog
+
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.transport.transport import EgressBudgetExhausted
 
 from products.stamphog.backend.facade.contracts import ApprovalGateCheck
 from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
@@ -58,6 +63,10 @@ _NO_FAILING_GATE = "no_failing_gate"
 # The policy key that exempts a deny category's owning teams. The `extend_exempt_author_teams` overlay key contains it.
 _EXEMPT_TEAMS_KEY = "exempt_author_teams"
 _READ_WORKERS = 8
+# The dispatch waits for this check, so slow GitHub reads must give a Standard review instead of holding the worker.
+_READ_DEADLINE_SECONDS = 30
+# Shared by every check in the process, so the running reads that a check abandons cannot add threads past this bound.
+_READ_POOL = ThreadPoolExecutor(max_workers=_READ_WORKERS, thread_name_prefix="stamphog-gate-check")
 
 
 class _Unknown(Exception):
@@ -66,6 +75,34 @@ class _Unknown(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class _Reads:
+    """The GitHub reads of one check, on the shared pool and under one deadline."""
+
+    def __init__(self) -> None:
+        self._deadline = time.monotonic() + _READ_DEADLINE_SECONDS
+        self._futures: list[Future[Any]] = []
+
+    def submit(self, fetch: Callable[..., Any], *args: Any) -> Future[Any]:
+        # A pool thread starts with an empty context. Each read runs in its own copy of the caller's,
+        # so its log lines keep the caller's bound fields, and one copy never runs in two threads.
+        future = _READ_POOL.submit(contextvars.copy_context().run, fetch, *args)
+        self._futures.append(future)
+        return future
+
+    def result(self, future: Future[Any]) -> Any:
+        try:
+            return future.result(timeout=max(0.0, self._deadline - time.monotonic()))
+        except TimeoutError:
+            raise _Unknown("read_deadline") from None
+        except EgressBudgetExhausted:
+            raise _Unknown("egress_shed") from None
+
+    def cancel_waiting(self) -> None:
+        # Cancel stops only the reads that have not started. A running read ends on its own request timeouts.
+        for future in self._futures:
+            future.cancel()
 
 
 def _policy_may_exempt_teams(policy_files: dict[str, str]) -> bool:
@@ -94,27 +131,21 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
     if repo_config is None:
         raise _Unknown("no_reviewable_repo_config")
     repo = repo_config.repository
-    client = StamphogGitHubClient(repo_config.installation_id)
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.BATCH)
     # Mint the installation token once up front. On a cold cache every pool thread would mint its own.
     client.installation_token()
-    executor = ThreadPoolExecutor(max_workers=_READ_WORKERS, thread_name_prefix="stamphog-gate-check")
+    reads = _Reads()
     try:
-
-        def submit(fetch: Callable[..., Any], *args: Any) -> Future[Any]:
-            # A pool thread starts with an empty context. Each read runs in its own copy of the caller's,
-            # so its log lines keep the caller's bound fields, and one copy never runs in two threads.
-            return executor.submit(contextvars.copy_context().run, fetch, *args)
-
-        pr_future = submit(client.get_pr, repo, pr_number)
-        files_future = submit(client.get_pr_files, repo, pr_number)
-        check_runs_future = submit(get_check_runs_with_pins, client, repo, head_sha)
+        pr_future = reads.submit(client.get_pr, repo, pr_number)
+        files_future = reads.submit(client.get_pr_files, repo, pr_number)
+        check_runs_future = reads.submit(get_check_runs_with_pins, client, repo, head_sha)
         policy_futures = {
-            path: submit(client.get_default_branch_file, repo, path)
+            path: reads.submit(client.get_default_branch_file, repo, path)
             for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
         }
 
-        pr = pr_future.result()
-        files = files_future.result()
+        pr = reads.result(pr_future)
+        files = reads.result(files_future)
         if skip_reason := pregate_skip_reason(pr, files, head_sha):
             raise _Unknown(skip_reason)
         author = (pr.get("user") or {}).get("login") or ""
@@ -124,16 +155,22 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         admission = admitted_bot_author(repo_config, pr)
         base_sha = (pr.get("base") or {}).get("sha") or ""
         # An object-form attestation proves one merge base, so a deny lift needs the PR's own.
-        merge_base_future = submit(client.get_merge_base_sha, repo, base_sha, head_sha)
-        author_teams_future = submit(client.find_user_team_slugs, repo.split("/")[0], author)
-        folder_policy_future = submit(fetch_folder_policy_files, client, repo, head_sha, files)
+        merge_base_future = reads.submit(client.get_merge_base_sha, repo, base_sha, head_sha)
+        author_teams_future = reads.submit(client.find_user_team_slugs, repo.split("/")[0], author)
+        folder_policy_future = reads.submit(fetch_folder_policy_files, client, repo, head_sha, files)
 
-        policy_files = {path: text for path, future in policy_futures.items() if (text := future.result()) is not None}
+        policy_files = {
+            path: text for path, future in policy_futures.items() if (text := reads.result(future)) is not None
+        }
         # Like the review path, so an attestation entry pinned through an issuer manifest can lift a deny here too.
-        for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
-            if (manifest := client.get_default_branch_blob_text(repo, path)) is not None:
-                policy_files[path] = manifest
-        author_team_slugs = author_teams_future.result()
+        manifest_futures = {
+            path: reads.submit(client.get_default_branch_blob_text, repo, path)
+            for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT))
+        }
+        policy_files.update(
+            {path: text for path, future in manifest_futures.items() if (text := reads.result(future)) is not None}
+        )
+        author_team_slugs = reads.result(author_teams_future)
         if author_team_slugs is None:
             # A deny category can exempt the teams that own it, and a failed lookup reads as "on no team", which
             # denies an exempt author. Without an exemption in the policy, the teams decide no gate.
@@ -141,7 +178,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
                 raise _Unknown("author_teams_unknown")
             author_team_slugs = []
         # Without the folder files the size gate budgets differently from the sandbox.
-        folder_policy_files = folder_policy_future.result()
+        folder_policy_files = reads.result(folder_policy_future)
         if folder_policy_files is None:
             raise _Unknown("folder_policy_files_unknown")
         invocation = build_reviewer_invocation(
@@ -150,10 +187,10 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
             pr={**pr, "draft": False, "mergeable_state": "clean"},
             files=files,
             reviews=[],
-            check_runs=check_runs_future.result(),
+            check_runs=reads.result(check_runs_future),
             author_team_slugs=author_team_slugs,
             base_sha=base_sha,
-            merge_base_sha=merge_base_future.result(),
+            merge_base_sha=reads.result(merge_base_future),
             head_sha=head_sha,
             repo=repo,
             # No gate reads these. They feed the reviewer prompt, the in-flight bot wait and the
@@ -170,8 +207,8 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
             admitted_bot=admission["login"] if admission else "",
         )
     finally:
-        # A failed read raises out of its result() above. The other reads are abandoned rather than awaited.
-        executor.shutdown(wait=False, cancel_futures=True)
+        # A failed or late read raises out of its result() above. The other reads are abandoned rather than awaited.
+        reads.cancel_waiting()
 
     context, tree_files = engine_gate_inputs(
         context_json=invocation.context_json,
