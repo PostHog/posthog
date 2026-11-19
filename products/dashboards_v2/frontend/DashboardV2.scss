@@ -237,6 +237,30 @@
     }
 }
 
+// A bar on the side a dragged tab will land, drawn outside the trigger so quill's own styles leave it alone.
+.DashboardV2__tab--insert-before,
+.DashboardV2__tab--insert-after {
+    position: relative;
+
+    &::after {
+        position: absolute;
+        top: 15%;
+        bottom: 15%;
+        width: 2px;
+        content: '';
+        background: var(--color-accent);
+        border-radius: 1px;
+    }
+}
+
+.DashboardV2__tab--insert-before::after {
+    left: -1px;
+}
+
+.DashboardV2__tab--insert-after::after {
+    right: -1px;
+}
+
 .DashboardV2__tab--drop-target {
     border-radius: var(--radius);
     outline: 2px solid var(--color-accent);

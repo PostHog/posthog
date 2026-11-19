@@ -24,6 +24,7 @@ export type DashboardEdit =
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
+    | { edit: 'moveTab'; id: string; index: number }
     | { edit: 'setAppearance'; patch: DashboardAppearance }
 
 function minWidthOf(tile: Tile): number {
@@ -273,6 +274,15 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
                 return dashboard
             }
             return { ...dashboard, tabs: dashboard.tabs.filter((tab) => tab.id !== edit.id) }
+        case 'moveTab': {
+            const tab = dashboard.tabs.find((candidate) => candidate.id === edit.id)
+            if (!tab) {
+                return dashboard
+            }
+            const rest = dashboard.tabs.filter((candidate) => candidate.id !== edit.id)
+            const index = Math.max(0, Math.min(edit.index, rest.length))
+            return { ...dashboard, tabs: [...rest.slice(0, index), tab, ...rest.slice(index)] }
+        }
         case 'setAppearance':
             return { ...dashboard, appearance: { ...dashboard.appearance, ...edit.patch } }
     }
