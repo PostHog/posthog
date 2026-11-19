@@ -198,6 +198,8 @@ Before adding streaming adapters, set and test these budgets together, leaving r
 
 Listener addresses must use IP literals. Administration must bind to loopback.
 It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Use `egress-proxy -config /run/egress/proxy.json -healthcheck ready` for a Kubernetes exec readiness probe, or `-healthcheck live` for liveness. The relay supports the same flags with its own configuration.
+The check calls the configured loopback listener directly, refuses redirects and exits nonzero on failure within two seconds. It needs no shell, upstream credentials or access to the TLS key files.
 Readiness checks local material and audit health, not registry or upstream availability.
 Keep a relay's plaintext HTTP listener on a provider-isolated bridge if it must be reachable outside loopback.
 
@@ -302,6 +304,17 @@ The `/internal/` route also needs private ingress when the service is deployed.
 ### Registry client and cache
 
 `registry.New` takes a fixed HTTPS origin, region, active registry signing key and lookup timeout.
+
+For a registry in the same Kubernetes cluster, `registry_allow_cluster_http: true` permits
+HTTP to a fully qualified `<service>.<namespace>.svc.cluster.local` origin. It is off by
+default. This sends lookup tokens and responses without transport encryption; the hostname
+check is not a network boundary. Use it only with trusted cluster networking and an enforced
+L7 policy that limits the destination pods, port, method and registry path. Keep HTTPS for
+other origins. The registry must serve this internal endpoint over HTTP without an
+HTTP-to-HTTPS redirect. Django's `SECURE_SSL_REDIRECT` can cause such a redirect; keep
+HTTPS unless the internal route is configured to accept HTTP. The client refuses
+redirects in both modes and reports them as unavailable.
+
 It signs each lookup with a scoped 30-second service JWT and checks the response's team, run, execution and region.
 It refuses redirects, limits response bodies to 16 KiB and honors cancellation through body reads.
 It drains small error bodies within those same limits so HTTP/1.1 connections can be reused.

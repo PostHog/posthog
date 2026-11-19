@@ -21,7 +21,6 @@ from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -34,6 +33,7 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
@@ -517,7 +517,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     # Build filters clause if filters are configured
     filters_str = ""
     extra_query_parameters: dict[str, typing.Any] = {}
-    reads_native_events = model == "events" and await sync_to_async(use_new_events_schema)(inputs.team_id)
+    reads_native_events = model == "events" and batch_exports_read_new_events_table()
     if batch_export.filters:
         filters_str, extra_query_parameters = await sync_to_async(compose_filters_clause)(
             batch_export.filters, team_id=inputs.team_id, use_new_events_schema=reads_native_events

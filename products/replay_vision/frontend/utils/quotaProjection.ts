@@ -53,10 +53,18 @@ export function hasCreditLimit(quota: VisionQuotaApi | null): quota is VisionQuo
  * so those surfaces speak in credits only. Unknown quota keeps the dollars rather than flickering them away.
  */
 export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
+    if (quota?.free_monthly_credits === null) {
+        return false
+    }
     if (!hasCreditLimit(quota)) {
         return true
     }
-    return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
+    return billableCredits(quota.credit_limit, freeCredits(quota)) > 0
+}
+
+/** The free credits, where a free tier with no upper bound covers every credit. */
+function freeCredits(quota: VisionQuotaApi): number {
+    return quota.free_monthly_credits ?? Infinity
 }
 
 /** What a free-only scanner can spend in a period. An org limit below the free credits lowers it, as on the server. */
@@ -64,7 +72,8 @@ export function freeCreditsAllowance(quota: VisionQuotaApi | null): number | nul
     if (!quota) {
         return null
     }
-    return Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
+    const allowance = Math.min(freeCredits(quota), quota.credit_limit ?? Infinity)
+    return Number.isFinite(allowance) ? allowance : null
 }
 
 /** What a free-only scanner can still spend this period. */
@@ -91,7 +100,7 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
     if (!hasCreditLimit(quota) || quota.credit_limit <= 0) {
         return false
     }
-    return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
+    return billableCredits(quota.credit_limit, freeCredits(quota)) === 0
 }
 
 export interface ProjectionInputs {
@@ -170,7 +179,7 @@ export function projectQuota(quota: VisionQuotaApi | null, inputs: ProjectionInp
         capReachDate,
         resetsOn,
         usedPct: (used / cap) * 100,
-        usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
+        usedFreePct: (Math.min(used, freeCredits(quota)) / cap) * 100,
         projectedPct: (projectedAdditional / cap) * 100,
     }
 }
@@ -188,14 +197,17 @@ export function daysUntilCapReached(projection: QuotaProjection): number | null 
  * Disabled-reason / tooltip for scan triggers based on the monthly credit limit.
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
  */
-export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
+export function quotaUx(
+    quota: VisionQuotaApi | null,
+    onFreePlan: boolean
+): { disabledReason?: string; tooltip?: string } {
     const state = quotaBannerState(quota)
     if (!state.kind) {
         return {}
     }
     if (state.kind === 'exhausted') {
         return {
-            disabledReason: isFreeAllocationOnly(quota)
+            disabledReason: onFreePlan
                 ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
                 : `Replay vision spend limit reached. Resets ${state.resetsOn}.`,
         }
