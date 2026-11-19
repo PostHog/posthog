@@ -1161,6 +1161,7 @@ describe('cloud controller', () => {
             writer_class: 'db.r8g.2xlarge',
             reader_acu_min: 1,
             reader_acu_max: 32,
+            reader_monitoring_interval_seconds: PRODUCTION_READER_MONITORING_INTERVAL_SECONDS,
             host_class: 'm7i.8xlarge',
             engine_version: '16.4',
             pooler_replicas: 2,
@@ -1220,10 +1221,12 @@ describe('cloud controller', () => {
             ...p,
             pooler: { ...p.pooler, settings: { ...p.pooler.settings, default_pool_size: 40 } },
         }))
+        const monitoredEverySecond = await fingerprintOf((p) => ({ ...p, readerMonitoringIntervalSeconds: 1 }))
 
         expect(first).toMatch(/^[0-9a-f]{64}$/)
         expect(repriced).toBe(first)
         expect(other).not.toBe(first)
+        expect(monitoredEverySecond).not.toBe(first)
     })
 
     it.each<[string, (fake: FakeCloud) => void, (volumeId: string) => unknown]>([
