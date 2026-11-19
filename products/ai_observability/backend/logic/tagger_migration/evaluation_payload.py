@@ -9,8 +9,8 @@ from products.ai_observability.backend.models.taggers import HogTaggerConfig, LL
 
 MAX_OPTION_KEY_LENGTH = 128
 
-# The tagger runtime gave Hog code a `tags` list and dropped returned names that were not in it. The wrapper keeps
-# that contract and turns tag names into option keys. A tagger error only failed that run, while an evaluation error
+# The tagger runtime gave Hog code a `tags` list and dropped returned names that were not in it, or kept every name
+# when the list was empty. The wrapper keeps the same `tags` list and turns the names it knows into option keys. A tagger error only failed that run, while an evaluation error
 # switches the evaluation off, so the wrapper catches it and records the run as N/A with the error as its reasoning.
 HOG_WRAPPER = """let tags := {tags}
 fun tagger_result() {{
@@ -32,7 +32,17 @@ if (typeof(returned) != 'array') {{
 }}
 let categories := []
 for (let tag in returned) {{
-    let key := tag_keys[toString(tag)]
+    // The tagger runtime named values with Python's str(), which spells booleans and null as True, False and None.
+    let name := toString(tag)
+    if (tag == null) {{
+        name := 'None'
+    }} else if (typeof(tag) == 'boolean') {{
+        name := 'False'
+        if (tag) {{
+            name := 'True'
+        }}
+    }}
+    let key := tag_keys[name]
     if (key != null and not has(categories, key)) {{
         categories := arrayPushBack(categories, key)
     }}
@@ -58,10 +68,12 @@ def option_keys(tag_names: list[str]) -> list[str]:
     return keys
 
 
-def _options(tags: list[TagDefinition]) -> list[dict[str, str]]:
-    return [
-        {"key": key, "label": tag.name} for key, tag in zip(option_keys([tag.name for tag in tags]), tags, strict=True)
-    ]
+def _options(names: list[str]) -> list[dict[str, str]]:
+    return [{"key": key, "label": name} for key, name in zip(option_keys(names), names, strict=True)]
+
+
+def _names(tags: list[TagDefinition]) -> list[str]:
+    return [tag.name for tag in tags]
 
 
 def judge_prompt(config: LLMTaggerConfig) -> str:
@@ -91,34 +103,43 @@ def llm_judge_payload(config: LLMTaggerConfig) -> dict[str, Any]:
         "evaluation_config": {"prompt": judge_prompt(config), "include_media": False},
         "output_type": OutputType.CATEGORICAL.value,
         "output_config": {
-            "options": _options(config.tags),
+            "options": _options(_names(config.tags)),
             "selection_mode": "single" if single else "multiple",
             "allows_na": single and config.min_tags == 0,
         },
     }
 
 
-def hog_source(config: HogTaggerConfig) -> str:
-    names = [tag.name for tag in config.tags]
+def _category_names(config: HogTaggerConfig, sent_tags: tuple[str, ...]) -> list[str]:
+    """The tag list, or for a tagger without one the tags it sent, since categories need a fixed list."""
+    return _names(config.tags) or list(sent_tags)
+
+
+def hog_source(config: HogTaggerConfig, sent_tags: tuple[str, ...] = ()) -> str:
+    names = _category_names(config, sent_tags)
     tag_keys = ", ".join(
         f"{escape_hogql_string(name)}: {escape_hogql_string(key)}"
         for name, key in zip(names, option_keys(names), strict=True)
     )
     return HOG_WRAPPER.format(
         # The tagger runtime passed the tag names sorted, and code may index into the list.
-        tags="[" + ", ".join(escape_hogql_string(name) for name in sorted(names)) + "]",
+        tags="[" + ", ".join(escape_hogql_string(name) for name in sorted(_names(config.tags))) + "]",
         source=config.source,
         tag_keys="{" + tag_keys + "}",
     )
 
 
-def hog_payload(config: HogTaggerConfig) -> dict[str, Any]:
+def hog_payload(config: HogTaggerConfig, sent_tags: tuple[str, ...] = ()) -> dict[str, Any]:
     return {
         "evaluation_type": EvaluationType.HOG.value,
-        "evaluation_config": {"source": hog_source(config)},
+        "evaluation_config": {"source": hog_source(config, sent_tags)},
         "output_type": OutputType.CATEGORICAL.value,
         # N/A marks a run whose code failed, so it reads apart from a run that found no tags.
-        "output_config": {"options": _options(config.tags), "selection_mode": "multiple", "allows_na": True},
+        "output_config": {
+            "options": _options(_category_names(config, sent_tags)),
+            "selection_mode": "multiple",
+            "allows_na": True,
+        },
     }
 
 

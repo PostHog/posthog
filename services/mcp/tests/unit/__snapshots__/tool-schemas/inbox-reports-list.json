@@ -66,6 +66,10 @@
             "maximum": 1000,
             "type": "number"
         },
+        "needs_you": {
+            "description": "'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.",
+            "type": "boolean"
+        },
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
@@ -79,7 +83,7 @@
             "type": "string"
         },
         "ranking_id": {
-            "description": "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.",
+            "description": "For sort=recommended and sort=personal when the ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.",
             "type": "string"
         },
         "ranking_min_lift": {
@@ -107,7 +111,7 @@
             "type": "string"
         },
         "sort": {
-            "description": "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.",
+            "description": "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended and personal put the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in priority order. With scope=teammate they read the teammate's stored ranking, else yours. They only read the stored ranking and never start a build. With no stored personal ranking, or a teammate outside the organization, they give the priority order. The response's ranker field names the order used, and its ranking_pill field says whether to show score pills.",
             "type": "string"
         },
         "source_id": {
@@ -125,6 +129,14 @@
         "suggested_reviewers": {
             "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
             "type": "string"
+        },
+        "tags": {
+            "description": "Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "task_id": {
             "description": "Only reports associated with this task (via the report's task associations).",

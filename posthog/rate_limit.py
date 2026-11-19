@@ -1472,33 +1472,21 @@ class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
     def get_cache_key(self, request, view):
-        # Key on the pending login's user id (from the session), not on request data. The base class
-        # would fall back to a request-body "email" field, which the code-verification request never
-        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
-        # it. The session is the source of truth for who is being verified.
+        # An unproven IdP subject must not spend another subject's or a password login's budget.
+        # Session state also prevents request-body email changes from minting fresh buckets per guess.
         from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+        identity = code_based_verifier.get_pending_budget_identity(request)
+        if identity:
+            ident = hashlib.sha256(identity.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
 
 
-class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+class CodeBasedVerificationResendThrottle(CodeBasedVerificationThrottle):
     scope = "code_based_verification_resend"
     rate = "1/minute"
-
-    def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import code_based_verifier
-
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
-            return self.cache_format % {"scope": self.scope, "ident": ident}
-
-        return super().get_cache_key(request, view)
 
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):

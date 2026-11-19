@@ -19,7 +19,6 @@ class CredentialRefreshExitReason(StrEnum):
 
 
 SANDBOX_GONE_ERROR_MESSAGE = "Sandbox stopped; resume to continue"
-TASK_ROWS_GONE_ERROR_MESSAGE = "Task records were deleted while the run was in progress"
 
 
 def sandbox_gone_error_message(sandbox_exit_reason: str | None) -> str:
@@ -39,8 +38,7 @@ async def run_credential_refresh_loop(
     are frozen into ``.git/config`` and the agentsh env file at boot/resume and
     expire while the sandbox stays warm. This loop re-applies them in place on a
     token-aware cadence so ``git``/``gh`` auth never lapses mid-run. Runs
-    concurrently with the agent and is cancelled on completion. Shared by the
-    ``process_task`` and ``execute_sandbox`` workflows.
+    concurrently with the agent and is cancelled on completion.
     """
     next_refresh_seconds = CREDENTIAL_REFRESH_INITIAL_DELAY.total_seconds()
     exclude_kinds: list[str] = []

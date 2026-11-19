@@ -19,11 +19,16 @@ from products.access_control.backend.facade.api import access_rules, object_ids_
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import EvaluationTarget
+from products.ai_observability.backend.models.evaluations import (
+    EvaluationStatus,
+    EvaluationStatusReason,
+    EvaluationTarget,
+)
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import HogTaggerConfig, LLMTaggerConfig, Tagger, TaggerType
 
 from .evaluation_payload import conditions_payload, hog_payload, llm_judge_payload
-from .tag_counts_queries import RECENT_DAYS, load_recent_tag_counts
+from .tag_counts_queries import MAX_SENT_TAG_NAMES, RECENT_DAYS, load_recent_tag_counts, load_sent_tag_names
 
 
 class MigrationAction(StrEnum):
@@ -62,6 +67,8 @@ def count_taggers(team: Team) -> TaggerCounts:
 class _Planned:
     step: TaggerMigrationStep
     serializer: EvaluationSerializer | None = None
+    # Set when the evaluation starts switched off for a key problem, so the settings page offers to turn it back on.
+    key_problem: EvaluationStatusReason | None = None
 
 
 def _pending_taggers(team: Team) -> list[Tagger]:
@@ -74,7 +81,8 @@ def _pending_taggers(team: Team) -> list[Tagger]:
 
 def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
     """The tagger's model, or for a tagger without one the provider and default model of the team's active key. The
-    evaluation pins that provider and model but not the key, so it uses whichever key of that provider is active."""
+    evaluation pins that provider and model but not the key, so it uses whichever key of that provider is active.
+    Without an active key it gets the OpenAI default the tagger runtime falls back to, since a judge needs a model."""
     config = tagger.model_configuration
     if config is not None:
         return {
@@ -84,10 +92,29 @@ def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
         }
     evaluation_config = EvaluationConfig.objects.filter(team=team).select_related("active_provider_key").first()
     key = evaluation_config.active_provider_key if evaluation_config else None
-    model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider) if key else None
-    if key is None or model is None:
+    provider = key.provider if key else "openai"
+    model = DEFAULT_MODEL_BY_PROVIDER.get(provider)
+    if model is None:
         return None
-    return {"provider": key.provider, "model": model, "provider_key_id": None}
+    return {"provider": provider, "model": model, "provider_key_id": None}
+
+
+def _key_problem(team: Team, model_configuration: dict[str, Any] | None) -> EvaluationStatusReason:
+    """Why an evaluation can't run on the key it would use: its pinned key, or else the team's active key when that
+    key is for the evaluation's provider, as the runtime resolves it."""
+    key_id = (model_configuration or {}).get("provider_key_id")
+    if key_id:
+        key = LLMProviderKey.objects.filter(team=team, id=key_id).first()
+    else:
+        config = EvaluationConfig.objects.filter(team=team).select_related("active_provider_key").first()
+        key = config.active_provider_key if config else None
+        if key is not None and model_configuration is not None and key.provider != model_configuration["provider"]:
+            key = None
+    if key is None:
+        return EvaluationStatusReason.PROVIDER_KEY_REQUIRED
+    if key.state != LLMProviderKey.State.OK:
+        return EvaluationStatusReason.PROVIDER_KEY_INVALID
+    return EvaluationStatusReason.NO_DEFAULT_MODEL
 
 
 def _error_text(detail: Any) -> str:
@@ -130,7 +157,28 @@ def _access_rules(team: Team) -> _AccessRules:
     )
 
 
-def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, move_capped: bool) -> _Planned:
+def _sent_tags(team: Team, taggers: list[Tagger], counts: dict[str, int]) -> dict[str, tuple[str, ...]]:
+    """The tags sent by each Hog tagger that has no tag list, the only taggers whose categories come from them."""
+    return load_sent_tag_names(
+        team,
+        [
+            str(tagger.id)
+            for tagger in taggers
+            if tagger.tagger_type == TaggerType.HOG
+            and not (tagger.tagger_config or {}).get("tags")
+            and counts.get(str(tagger.id))
+        ],
+    )
+
+
+def _plan(
+    tagger: Tagger,
+    team: Team,
+    recent_tags: int,
+    rules: _AccessRules,
+    move_capped: bool,
+    sent_tags: tuple[str, ...] = (),
+) -> _Planned:
     def step(action: MigrationAction, reason: str, keys: tuple[str, ...] = ()) -> TaggerMigrationStep:
         return TaggerMigrationStep(
             tagger_id=str(tagger.id),
@@ -159,12 +207,26 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, mov
 
     model_configuration: dict[str, Any] | None = None
     capped = False
+    from_sent_tags = False
     try:
         if tagger.tagger_type == TaggerType.HOG:
             hog_config = HogTaggerConfig.model_validate(tagger.tagger_config)
-            if not hog_config.tags:
-                return _Planned(step=step(MigrationAction.SKIP, "It has no tag list to turn into categories."))
-            payload = hog_payload(hog_config)
+            from_sent_tags = not hog_config.tags
+            if from_sent_tags and not sent_tags:
+                return _Planned(
+                    step=step(
+                        MigrationAction.SKIP,
+                        f"It has no tag list, and sent no tags in the last {RECENT_DAYS} days to use as categories.",
+                    )
+                )
+            if from_sent_tags and len(sent_tags) >= MAX_SENT_TAG_NAMES:
+                return _Planned(
+                    step=step(
+                        MigrationAction.SKIP,
+                        "It has no tag list, and sent more different tags than an evaluation has categories.",
+                    )
+                )
+            payload = hog_payload(hog_config, sent_tags)
         else:
             llm_config = LLMTaggerConfig.model_validate(tagger.tagger_config)
             capped = llm_config.max_tags is not None and 1 < llm_config.max_tags < len(llm_config.tags)
@@ -181,26 +243,37 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, mov
             if model_configuration is None:
                 return _Planned(
                     step=step(
-                        MigrationAction.SKIP, "It has no model, and the team has no active provider key to pick one."
+                        MigrationAction.SKIP, "The team's provider key has no default model, so pick a model first."
                     )
                 )
     except PydanticValidationError as error:
         return _Planned(step=step(MigrationAction.SKIP, f"Its saved config is no longer valid: {error}"))
 
-    serializer = EvaluationSerializer(
-        data={
-            "name": tagger.name,
-            "description": tagger.description,
-            "enabled": True,
-            "target": EvaluationTarget.GENERATION.value,
-            "conditions": conditions_payload(tagger.conditions or []),
-            "model_configuration": model_configuration,
-            **payload,
-        },
-        # The evaluation belongs to whoever made the tagger, never to the staff member who migrates it.
-        context={"request": SimpleNamespace(user=tagger.created_by), "get_team": lambda: team},
-    )
+    def evaluation_serializer(enabled: bool) -> EvaluationSerializer:
+        return EvaluationSerializer(
+            data={
+                "name": tagger.name,
+                "description": tagger.description,
+                "enabled": enabled,
+                "target": EvaluationTarget.GENERATION.value,
+                "conditions": conditions_payload(tagger.conditions or []),
+                "model_configuration": model_configuration,
+                **payload,
+            },
+            # The evaluation belongs to whoever made the tagger, never to the staff member who migrates it.
+            context={"request": SimpleNamespace(user=tagger.created_by), "get_team": lambda: team},
+        )
+
     keys = tuple(option["key"] for option in payload["output_config"]["options"])
+    serializer = evaluation_serializer(enabled=True)
+    switched_off = ""
+    key_problem = None
+    if not serializer.is_valid() and set(serializer.errors) == {"enabled"}:
+        # Only the enabled check failed, so the team has no working key. The tagger can't run without one either,
+        # so the evaluation keeps its config switched off until the team fixes the key.
+        switched_off = f" It starts switched off: {_error_text(serializer.errors)}"
+        key_problem = _key_problem(team, model_configuration)
+        serializer = evaluation_serializer(enabled=False)
     if not serializer.is_valid():
         return _Planned(step=step(MigrationAction.SKIP, _error_text(serializer.errors), keys))
     output = payload["output_config"]
@@ -208,7 +281,16 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, mov
     choice = "single choice" if output["selection_mode"] == "single" else "multiple choice"
     na = ", N/A when no tag fits" if output["allows_na"] else ""
     cap = f", the prompt asks for at most {llm_config.max_tags} tags" if capped else ""
-    return _Planned(step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}.", keys), serializer=serializer)
+    sent = (
+        f", the categories are the tags it sent in the last {RECENT_DAYS} days, and a tag it never sent is dropped"
+        if from_sent_tags
+        else ""
+    )
+    return _Planned(
+        step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}{sent}.{switched_off}", keys),
+        serializer=serializer,
+        key_problem=key_problem,
+    )
 
 
 def plan_tagger_migration(team: Team, *, move_capped: bool = False) -> list[TaggerMigrationStep]:
@@ -216,16 +298,23 @@ def plan_tagger_migration(team: Team, *, move_capped: bool = False) -> list[Tagg
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
     rules = _access_rules(team)
-    return [_plan(tagger, team, counts.get(str(tagger.id), 0), rules, move_capped).step for tagger in taggers]
+    sent = _sent_tags(team, taggers, counts)
+    return [
+        _plan(tagger, team, counts.get(str(tagger.id), 0), rules, move_capped, sent.get(str(tagger.id), ())).step
+        for tagger in taggers
+    ]
 
 
 def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigrationStep]:
     """Replaces each switched-on tagger with an enabled categorical evaluation and switches the tagger off, or only
     switches it off when it sent no tags recently. Each tagger moves in its own transaction, so one refusal does not
     undo the others, and a second run skips taggers that already moved. An LLM tagger that caps its tags below its
-    tag count moves only with `move_capped`, because the evaluation can ask for the cap but not enforce it."""
+    tag count moves only with `move_capped`, because the evaluation can ask for the cap but not enforce it. A Hog
+    tagger without a tag list moves with the tags it sent recently as its categories. When the team has no working
+    provider key, the evaluation is created switched off."""
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
+    sent = _sent_tags(team, taggers, counts)
     results: list[TaggerMigrationStep] = []
     for pending in taggers:
         recent_tags = counts.get(str(pending.id), 0)
@@ -240,12 +329,19 @@ def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigr
                 if tagger is None:
                     continue
                 # Access rules are read under the lock too, so a restriction added during the run still holds.
-                planned = _plan(tagger, team, recent_tags, _access_rules(team), move_capped)
+                planned = _plan(
+                    tagger, team, recent_tags, _access_rules(team), move_capped, sent.get(str(tagger.id), ())
+                )
                 step = planned.step
                 if step.action == MigrationAction.SKIP:
                     results.append(step)
                     continue
-                evaluation_id = str(planned.serializer.save().id) if planned.serializer is not None else None
+                evaluation_id = None
+                if planned.serializer is not None:
+                    evaluation = planned.serializer.save()
+                    if planned.key_problem is not None:
+                        evaluation.set_status(EvaluationStatus.ERROR, planned.key_problem)
+                    evaluation_id = str(evaluation.id)
                 # A queryset update skips Tagger.save(), which would re-validate and recompile a config that is
                 # about to stop running. So the reload the save signal sends goes out here. Workers also reload
                 # every few minutes, so a failed message must not undo or stop the migration.

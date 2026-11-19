@@ -3907,7 +3907,7 @@ class _TaskPublicSlackTasksTable(PostgresTable):
 
 
 # A Slack task sits in its creator's personal space, so it qualifies on its threads instead, as in
-# `_readable_by_team_q`: only when every thread it answers in is a public Slack channel.
+# `public_slack_thread_q`: only when every thread it answers in is a public Slack channel.
 task_public_slack_tasks: _TaskPublicSlackTasksTable = _TaskPublicSlackTasksTable(
     name="_task_public_slack_tasks",
     postgres_table_name="slack_app_slackthreadtaskmapping",

@@ -25,6 +25,7 @@ from products.messaging.backend.models.provider_import_run import (
     ProviderImportStatus,
 )
 from products.messaging.backend.provider_imports.base import (
+    ImportAccessLost,
     ImportContext,
     ImportItem,
     ImportPage,
@@ -34,6 +35,7 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
+from products.workflows.backend.facade.api import can_edit_workflows
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
     )
     try:
         for page in provider.run_step(step, context, claim.checkpoint):
+            _check_creator_access(team_id, run.created_by_id)
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
                 return
@@ -149,6 +152,14 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         except (StaleImportAttempt, ImportRunClosed):
             pass
         raise
+
+
+def _check_creator_access(team_id: int, created_by_id: int | None) -> None:
+    # The run writes in the background, so the person who started it may have lost access since.
+    if not can_edit_workflows(team_id=team_id, user_id=created_by_id):
+        raise ImportAccessLost(
+            "The person who started this import can't edit workflows in this project anymore, so it stopped."
+        )
 
 
 def finish_run(team_id: int, run_id: UUID) -> None:

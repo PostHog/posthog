@@ -14,12 +14,16 @@ const HAS_ISSUES_TTL_SECONDS = 24 * 60 * 60
 const NO_ISSUES_TTL_SECONDS = 10 * 60
 
 const issuesExistSchema = z.object({ exists: z.boolean() })
+const hasLogsSchema = z.object({ hasLogs: z.boolean() })
+const hasSpansSchema = z.object({ hasSpans: z.boolean() })
 
 // Every read returns `undefined` when the answer is unknown, so a failure never fails the tool call.
 export class GuidanceProductState {
     private deadlineAt: number | undefined
     private ingestedData: Promise<boolean | undefined> | undefined
     private errorTrackingIssues: Promise<boolean | undefined> | undefined
+    private logs: Promise<boolean | undefined> | undefined
+    private spans: Promise<boolean | undefined> | undefined
     private sessionRecordingEnabled: Promise<boolean | undefined> | undefined
 
     constructor(
@@ -40,8 +44,32 @@ export class GuidanceProductState {
         return this.sessionRecordingEnabled
     }
 
+    hasLogs(): Promise<boolean | undefined> {
+        this.logs ??= this.withinBudget('logs', () =>
+            this.readProjectHas('logs', 'logs/has_logs/', (response) => hasLogsSchema.parse(response).hasLogs)
+        )
+        return this.logs
+    }
+
+    hasSpans(): Promise<boolean | undefined> {
+        this.spans ??= this.withinBudget('spans', () =>
+            this.readProjectHas(
+                'spans',
+                'tracing/spans/has_spans/',
+                (response) => hasSpansSchema.parse(response).hasSpans
+            )
+        )
+        return this.spans
+    }
+
     hasErrorTrackingIssues(): Promise<boolean | undefined> {
-        this.errorTrackingIssues ??= this.withinBudget('error_tracking_issues', () => this.readErrorTrackingIssues())
+        this.errorTrackingIssues ??= this.withinBudget('error_tracking_issues', () =>
+            this.readProjectHas(
+                'error-tracking-issues',
+                'error_tracking/issues/exists/',
+                (response) => issuesExistSchema.parse(response).exists
+            )
+        )
         return this.errorTrackingIssues
     }
 
@@ -50,22 +78,26 @@ export class GuidanceProductState {
         return project?.ingested_event
     }
 
-    private async readErrorTrackingIssues(): Promise<boolean> {
+    private async readProjectHas(
+        name: string,
+        resource: string,
+        parse: (response: unknown) => boolean
+    ): Promise<boolean> {
         const projectId = await this.state.context.stateManager.getProjectId()
         // A hit skips the API's permission check, so only a caller with the same user and scopes reuses it.
         const caller = createHash('sha256')
             .update(`${this.state.distinctId}|${[...this.state.apiKeyScopes].sort().join(',')}`)
             .digest('base64url')
             .slice(0, 22)
-        const key = `mcp:guidance:state:error-tracking-issues:${projectId}:${caller}`
+        const key = `mcp:guidance:state:${name}:${projectId}:${caller}`
         const cached = await this.redis.get(key)
         if (cached !== null) {
             return cached === '1'
         }
-        const { exists } = issuesExistSchema.parse(
+        const exists = parse(
             await this.state.context.api.request<unknown>({
                 method: 'GET',
-                path: `/api/projects/${encodeURIComponent(projectId)}/error_tracking/issues/exists/`,
+                path: `/api/projects/${encodeURIComponent(projectId)}/${resource}`,
                 timeoutMs: BACKGROUND_TIMEOUT_MS,
                 signal: AbortSignal.timeout(BACKGROUND_TIMEOUT_MS),
             })

@@ -1177,6 +1177,11 @@ class AdhocEventDeletionBacklog:
     for_team: int
 
 
+# The approval preview waits on this count, and the preview shows a notice when the count fails, so a short
+# limit keeps staff from waiting on a FINAL scan of the whole queue.
+_BACKLOG_MAX_EXECUTION_TIME = 5
+
+
 def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklog:
     from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
     from posthog.clickhouse.client import sync_execute
@@ -1199,6 +1204,7 @@ def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklo
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _BACKLOG_MAX_EXECUTION_TIME},
         )
     total, for_team = result[0] if result else (0, 0)
     return AdhocEventDeletionBacklog(total=int(total), for_team=int(for_team))

@@ -21,14 +21,15 @@ describe('hogQLAutocompleteProvider', () => {
     const completeAt = async (
         text: string,
         position: { lineNumber: number; column: number },
-        word: { word: string; startColumn: number; endColumn: number }
+        word: { word: string; startColumn: number; endColumn: number },
+        captureQueryTelemetry?: boolean
     ): Promise<languages.CompletionList | null | undefined> => {
         const lineStarts = [0]
         for (const line of text.split('\n')) {
             lineStarts.push(lineStarts[lineStarts.length - 1] + line.length + 1)
         }
         const model = {
-            codeEditorLogic: { isMounted: () => true, props: {} },
+            codeEditorLogic: { isMounted: () => true, props: { captureQueryTelemetry } },
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 lineStarts[lineNumber - 1] + column - 1,
             getValue: () => text,
@@ -69,6 +70,20 @@ describe('hogQLAutocompleteProvider', () => {
                 detail: 'cutToFirstSignificantSubdomainWithWWW',
                 insertText: 'cutToFirstSignificantSubdomainWithWWW()',
             })
+        )
+    })
+
+    it('keeps autocomplete requests private when editor telemetry is disabled', async () => {
+        jest.mocked(performQuery).mockResolvedValueOnce({ suggestions: [], incomplete_list: false })
+        await completeAt(
+            'select name from example_engagements',
+            { lineNumber: 1, column: 12 },
+            { word: 'name', startColumn: 8, endColumn: 12 },
+            false
+        )
+        expect(performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ query: 'select name from example_engagements' }),
+            { captureQueryTelemetry: false }
         )
     })
 
@@ -116,7 +131,8 @@ describe('hogQLAutocompleteProvider', () => {
                 query: '\nselect e',
                 startPosition: 8,
                 endPosition: 9,
-            })
+            }),
+            { captureQueryTelemetry: undefined }
         )
     })
 
@@ -139,7 +155,8 @@ describe('hogQLAutocompleteProvider', () => {
                 query: '\nselect e ',
                 startPosition: 10,
                 endPosition: 10,
-            })
+            }),
+            { captureQueryTelemetry: undefined }
         )
     })
 })

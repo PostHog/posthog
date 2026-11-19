@@ -83,6 +83,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the customer was last updated.",
         },
     },
+    "customer_connected_accounts": {
+        "description": "A link between an Alguna customer and its account in a connected external system, such as a Stripe customer or a HubSpot company.",
+        "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/customers/list-connected-accounts-for-a-customer",
+        "columns": {
+            "customer_id": "Alguna customer ID the connected account belongs to.",
+            "external_id": "Identifier of the account in the external system.",
+            "id": "Unique identifier for the connected account link.",
+            "integration_id": "Identifier of the integration the account is connected through.",
+        },
+    },
+    "customer_entitlements": {
+        "description": "An active entitlement of a customer, from the current published version of one of its active subscriptions or from the default profile.",
+        "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/customers/list-active-entitlements-for-a-customer",
+        "columns": {
+            "allocation": "Credit allocation config.",
+            "customer_id": "Alguna customer ID the entitlement belongs to.",
+            "key": "Entitlement key.",
+            "mode": "Entitlement mode (static or grant_based).",
+            "subscription_id": "Owning subscription ID; null for default-profile entitlements.",
+            "timing": "Timing config.",
+            "type": "Entitlement type (boolean, number, string or credit_allocation).",
+            "value": "Entitlement value.",
+            "version_id": "Owning subscription version ID; null for default-profile entitlements.",
+        },
+    },
     "invoices": {
         "description": "An invoice issued to a customer for a billing period, with its status lifecycle and total.",
         "docs_url": "https://alguna.com/docs/api-reference/v2/2026-04-01/invoices/list-invoices",

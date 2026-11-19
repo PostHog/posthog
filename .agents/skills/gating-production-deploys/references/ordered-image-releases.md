@@ -8,7 +8,7 @@ The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actio
 
 ## Common ordered alias
 
-After a successful default-branch build, reuse the helper under the repository-owner, `CD_DEPLOY_ENABLED` and `ORDERED_IMAGE_ALIAS_PAUSED` gates from `ordered_image_alias` in `.github/workflows/container-images-cd.yml`. Keep one active production publisher during switchover or rollback.
+After a successful default-branch build, reuse the helper under the repository-owner, `CD_DEPLOY_ENABLED` and `ORDERED_IMAGE_ALIAS_PAUSED` gates from `ordered_image_alias` in `.github/workflows/container-images-cd.yml`. A deliberate pause skips the alias job through its own `if:`. Keep one active production publisher during switchover or rollback.
 
 Run `bash .github/scripts/ordered-image-release.sh tag` in the executing checkout with `GITHUB_SHA` equal to the built revision. It writes `tag` to `GITHUB_OUTPUT`, preserving first-parent ordering and `r<12-digit ordinal>-<sha6>`. Use a full-history blobless checkout (`fetch-depth: 0`, `filter: blob:none`) with non-cone sparse checkout of `.github`. A shallow checkout yields a warning and no tag; surface that result as the common caller does.
 
@@ -21,11 +21,15 @@ Install the pinned, checksum-verified client with `bash .github/scripts/ordered-
 | `ECR_REGISTRY`, `ECR_REPO`       | Approved destination and ECR readback repository                        |
 | `SOURCE_REGISTRY`, `SOURCE_REPO` | Supply both for an approved source, or omit both to use the destination |
 | `ORDERED_ALIAS`                  | Computed ordered tag                                                    |
-| `GITHUB_OUTPUT`                  | Optional helper `outcome`; the common step does not consume it          |
+| `GITHUB_OUTPUT`                  | Required `outcome` for the final alias check                            |
 
 The helper skips publication with a warning if the build digest, destination registry or destination repository is empty, or if only one source coordinate is supplied. The caller authenticates for the approved account and region. Pinned regctl `image copy` preserves single manifests, indexes and in-index attestations without listing external referrers. Exact ECR readback queries the destination account, repository and alias tag. The common caller retains its 40-second copy/readback defaults and five-minute job budget. Selective publication supplies separately measured `COPY_TIMEOUT_SECONDS` and `READBACK_TIMEOUT_SECONDS`; both require positive integer seconds up to 999.
 
-The helper's `read` operation prints the resolved digest and emits the same outcome as publication through one ECR readback function. Only `present-at-expected-digest` establishes publication. `absent`, `integrity-mismatch` and `unknown` do not. A copy error can reconcile to exact presence; a successful copy can have unknown readback. The common publish step has no `id` and does not consume the helper's `outcome` output. A green fail-soft job or an annotation does not prove publication. Same-digest reruns reconcile, while immutable conflicts retain their mismatch outcome. Never copy publisher/readback shell per service.
+The helper's `read` operation prints the resolved digest and emits the same outcome as publication through one ECR readback function. Only `present-at-expected-digest` establishes publication. `absent`, `integrity-mismatch` and `unknown` do not. A copy error can reconcile to exact presence; a successful copy can have unknown readback. A green fail-soft job or an annotation does not prove publication. Same-digest reruns reconcile, while immutable conflicts retain their mismatch outcome. Never copy publisher/readback shell per service.
+
+Set `id: publish-alias` on the publish step. End every alias job with `bash .github/scripts/ordered-image-release.sh require TAG OUTCOME`, passing the computed tag and the publish step's `outcome`. A missing tag fails as `tag-unavailable`. With a tag, an empty outcome fails as `outcome-not-reported`.
+
+When adding a publisher, add its workflow and job to the lane table in `.github/scripts/ordered-image-alias-alerts.js` and its workflow to the trigger list in `.github/workflows/ordered-image-alias-alerts.yml`. Include the new workflow file in the name contract test and the Script tests path list. The name contract test fails if either registration is missing or its names differ from the workflow.
 
 Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` identity. History and policy evaluation use the actual workflow checkout and built SHA. Fetch missing policy blobs from that checkout's configured origin, never from an endpoint derived from the canonical annotation. Missing executing history is an explicit failure, not unrelated input. Images built in their own repositories retain their existing publisher family.
 
@@ -75,7 +79,7 @@ Before adding the first channel, review the selective role, source reads, origin
 
 ## Bound work before activation
 
-The workflow allows twenty channels and four concurrent registry workers. The time bound covers only eight channels that all publish in one build at the full channel registry work bound, in two waves of four. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. A local representative run gives each of twenty channels an interval of at least 48 first-parent commits, publishes all of them with at most four in progress and refuses a twenty-one-channel policy before any registry command; it measures fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
+The workflow allows forty channels and eight concurrent registry workers. The time bound covers only sixteen channels that all publish in one build at the full channel registry work bound, in two waves of eight. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. The action's tests publish to forty channels with at most eight in progress and refuse a forty-one-channel policy before any registry command; they measure fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |

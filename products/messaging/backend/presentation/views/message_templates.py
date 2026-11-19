@@ -529,6 +529,16 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
     )
 
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
+            raise serializers.ValidationError(
+                {
+                    "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send this one. Leave out "
+                    "`scheduled_at` to send it now."
+                }
+            )
+        return super().to_internal_value(data)
+
 
 class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     identifiers = TransactionalEmailIdentifiersSerializer(
@@ -593,14 +603,18 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         max_length=1024,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender, or from its only verified sender when it has no default.",
+        "the project's default sender, or from its only verified sender when it has no default. A project with no "
+        "verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its "
+        "organization, and then only to members of the organization. That sender ignores this field and says so in "
+        "the response's `warnings`.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
-        help_text="Addresses replies to the email your code rendered go to.",
+        help_text="Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and "
+        "says so in the response's `warnings`.",
     )
     cc = AddressListField(
         required=False,
@@ -682,7 +696,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return value
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        sent = _sent_fields(self.initial_data)
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
@@ -718,6 +732,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return data
 
 
+def _sent_fields(initial_data: Any) -> set[str]:
+    if not isinstance(initial_data, Mapping):
+        return set()
+    return {field for field in initial_data if not (field == "scheduled_at" and initial_data[field] is None)}
+
+
 def _within_body_limit(value: str, body: str) -> str:
     if len(value.encode()) > CODE_BODY_MAX_BYTES:
         raise serializers.ValidationError(
@@ -748,7 +768,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
 class SendWarningSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=SendWarningCode.choices,
-        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        help_text="What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender "
         "because the project has no verified sending domain, so it only reaches members of the organization.",
     )
     message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
@@ -905,12 +925,12 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
-        "the project has reached its limit of template keys and the `template_key` is new. A code send from a "
-        "project with no verified sending domain goes out from the sandbox sender, which refuses `cc`, `bcc`, "
-        "`reply_to`, `attachments` and a custom `from`"
+        "the project has reached its limit of template keys and the `template_key` is new. When a code send from a "
+        "project with no verified sending domain would go out from the PostHog test sender, that sender refuses "
+        "`cc`, `bcc` and `attachments`"
     ),
     403: OpenApiResponse(
-        description="The project has no verified sending domain, and the sandbox sender isn't available for its "
+        description="The project has no verified sending domain, and the PostHog test sender isn't available for its "
         "organization"
     ),
     404: OpenApiResponse(description="Template not found"),
@@ -918,7 +938,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request, or the email would go out from the sandbox sender to someone outside the "
+        "used for a different request, or the email would go out from the PostHog test sender to someone outside the "
         "organization"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
@@ -1074,6 +1094,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            outcome["sender_kind"] = "sandbox" if queued.sent_from_sandbox else "own_domain"
             if queued.warnings:
                 outcome["warning_codes"] = [warning.code for warning in queued.warnings]
             if attachments:

@@ -2,6 +2,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 import type { ScannerDisabledReasonEnumApi, VisionQuotaApi } from '../generated/api.schemas'
 import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
+import { freeCreditsAllowance } from '../utils/quotaProjection'
 import type { ScanDrought } from './scanDrought'
 import type { ReplayScanner } from './types'
 
@@ -128,8 +129,8 @@ export function spendAgainstLimit(
         limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
     const limit = scanner.credit_limit
     // A free-only scanner draws on the organization's free credits when they leave less room than its own limit.
-    if (scanner.free_only && quota && (limit == null || scanner.limit_from_free_credits)) {
-        const freeLimit = Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
+    const freeLimit = freeCreditsAllowance(quota)
+    if (scanner.free_only && quota && freeLimit !== null && (limit == null || scanner.limit_from_free_credits)) {
         const used = quota.credits_used
         return { limit: freeLimit, used, usedPct: usedPct(used, freeLimit), freeCredits: true }
     }

@@ -42,6 +42,8 @@ from products.metrics.backend.derived import (
     derived_metrics_enabled,
     get_derived_metric,
     is_derived_metric_name as _is_derived_metric_name,
+    list_derived_attribute_keys,
+    list_derived_attribute_values,
     list_derived_metric_names,
     team_has_derived_sources,
 )
@@ -638,6 +640,7 @@ def list_metric_names(
     match: str = "substring",
     include_sparklines: bool = True,
     include_first_seen: bool = False,
+    include_series_stats: bool = False,
     fold_histograms: bool = False,
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
@@ -646,7 +649,8 @@ def list_metric_names(
     Passing `services` narrows the list to names those services reported.
     `match` decides how `search` matches a name: a case-insensitive `substring`
     or `prefix`, or an RE2 `regex`. `include_first_seen` adds each name's
-    earliest hour within retention, and `fold_histograms` folds a Prometheus
+    earliest hour within retention, `include_series_stats` adds each name's
+    approximate `series_count` and `tag_key_count`, and `fold_histograms` folds a Prometheus
     classic histogram's `_bucket`/`_sum`/`_count` rows into the `_bucket` row.
     Raises `ValueError` for an out-of-range limit, too many services, an
     unknown match mode or an invalid regex.
@@ -675,20 +679,23 @@ def list_metric_names(
         match=match,
         include_sparklines=include_sparklines,
         include_first_seen=include_first_seen,
+        include_series_stats=include_series_stats,
     )
     if fold_histograms:
         ingested = fold_classic_histograms(ingested)
     if not derived_metrics_enabled(team):
         return ingested
     derived = [
-        _derived_name_row(metric, include_first_seen=include_first_seen)
+        _derived_name_row(metric, include_first_seen=include_first_seen, include_series_stats=include_series_stats)
         for metric in list_derived_metric_names(team)
         if name_matches(metric.name, search, match)
     ]
     return [*ingested, *derived][:limit]
 
 
-def _derived_name_row(metric: DerivedMetric, *, include_first_seen: bool = False) -> dict[str, Any]:
+def _derived_name_row(
+    metric: DerivedMetric, *, include_first_seen: bool = False, include_series_stats: bool = False
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "name": metric.name,
         "metric_type": metric.metric_type.value,
@@ -698,6 +705,9 @@ def _derived_name_row(metric: DerivedMetric, *, include_first_seen: bool = False
     }
     if include_first_seen:
         row["first_seen"] = None
+    if include_series_stats:
+        row["series_count"] = 0
+        row["tag_key_count"] = 0
     return row
 
 
@@ -758,6 +768,7 @@ def list_metric_attribute_keys(
     team: Team,
     metric_name: str = "",
     search: str = "",
+    search_values: bool = False,
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
@@ -768,14 +779,27 @@ def list_metric_attribute_keys(
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
+    With `search_values`, keys whose values contain the search term are listed
+    after the keys whose name does, and carry `matchedOn: "value"` plus the
+    matching `matchedValue`.
     The window defaults to the last 24 hours. Returns `{"name": str,
     "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
+
+    For a derived metric, the keys are the span or log dimensions it can be
+    filtered and grouped by, and only those with values in the window.
     """
+    if _is_derived_metric_name(metric_name):
+        if not derived_metrics_enabled(team):
+            return []
+        return list_derived_attribute_keys(
+            team, metric_name=metric_name, search=search, date_from=date_from, date_to=date_to, limit=limit
+        )
     runner = MetricAttributeKeysQueryRunner(
         team=team,
         metric_name=metric_name,
         search=search,
+        search_values=search_values,
         date_from=date_from,
         date_to=date_to,
         limit=limit,
@@ -802,6 +826,12 @@ def list_metric_attribute_values(
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
+    if _is_derived_metric_name(metric_name):
+        if not derived_metrics_enabled(team):
+            return []
+        return list_derived_attribute_values(
+            team, metric_name=metric_name, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        )
     runner = MetricAttributeValuesQueryRunner(
         team=team,
         key=key,

@@ -107,6 +107,10 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
 
     quota = quota_state(backfill.team.organization_id)
+    if quota.awaiting_billing_sync:
+        # Its zero credits are a placeholder; pausing on them would hold the backfill until someone resumes it.
+        record_backfill_tick_outcome("skipped_awaiting_billing_sync")
+        return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
     if quota.would_exceed(backfill.credits_per_observation):
         # Filtered so a concurrent cancel wins over the pause.
         ReplayScannerBackfill.objects.for_team(inputs.team_id).filter(
