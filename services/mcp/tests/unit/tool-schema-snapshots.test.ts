@@ -94,6 +94,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-resend-import': true,
         'self-driving-usage-display': true,
         'today-rail-nav': true,
+        'error-tracking-issue-tags': true,
         tracing: true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,

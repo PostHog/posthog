@@ -8,9 +8,15 @@ change adds or edits, so the script reads the change's diff at zero context. It 
 full view (`--all`) from stdout alone, because the default view can cut the list short and
 stderr can hold lines that are not part of the report.
 
+An advisory row comes from a rule with `report = "advisory"` in the policy. It never blocks, in
+the hook or after the cutover, and the ledger does not record it, so hoglint prints every one of
+them in the full view, master's included. The script shows only the ones on changed lines.
+
 CI mode reads `hoglint compare --all` or `hoglint check --all`. It prints a warning annotation
-for each row on a line the pull request changes. The step summary shows compare's own new
-findings, ledger lines and code growth, the annotated rows, the other rows and the count of
+for each row on a line the pull request changes, and a notice annotation for each advisory row on
+such a line. The step summary splits what the pull request adds into the rows that block after
+the cutover and the rows that only report. It shows compare's own new findings, ledger lines and
+code growth in the group of their rule, the annotated rows, the other rows and the count of
 advisory rows. With `--base`, it also prints a notice on each changed file that goes away when
 hoglint replaces tach, import-linter and the crossings scanner. It always exits 0.
 
@@ -18,10 +24,12 @@ Hook mode (`--hook`) reads `hoglint check --index --all` and the staged diff, an
 developer reads instead of hoglint's output. It exits 1 to block the commit, and 0 otherwise.
 A row on a staged line blocks. New ledger debt or a new exception blocks when the commit also
 stages other files. hoglint judges ledger growth, except when a policy file is staged, because
-hoglint then skips that check; the script then reads the staged ledger diff itself.
+hoglint then skips that check; the script then reads the staged ledger diff itself. An advisory
+row on a staged line gets one line that says what to do, and never blocks. `--hoglint` names the
+command the hook ran, so that a `hoglint explain` hint is a command the developer can run.
 
     hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --until "<date>" [--base HEAD^1]
-    hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --hook
+    hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --hook [--hoglint <command>]
 """
 
 from __future__ import annotations
@@ -108,6 +116,19 @@ EXCEPTION_LINE = (
     "Commit it alone, so that a person reviews it."
 )
 CONTINUES_LINE = "hoglint did not finish this check, so the commit continues. CI runs the full check."
+
+# The rules that report a coupling across products and do not block (`report = "advisory"` in
+# tools/hoglint/presets/posthog.toml). Their rows name the target after a verb: `<source> names
+# <target>, ...`, `<source> uses <target> in the shape ...`, `<source> loads the model <target> by
+# its label`. Every target of these rules is in a product.
+CROSSING_RULES = ("public-surface", "model-crossings", "get-model")
+TARGET_PRODUCT = re.compile(r" (?:names|uses|loads the model) (?P<product>products\.[A-Za-z_]\w*)\.")
+ADVISORY_LINE = "hoglint (advisory, does not block) {rule} at {place}: {message}. {advice}"
+CROSSING_ADVICE = (
+    "If the facade of {product} exports this object, import it from the facade. "
+    "If not, continue: CI records the coupling for the owners of {product}."
+)
+OTHER_ADVICE = "CI records it. `hoglint explain {rule}` says what it reports."
 
 
 @dataclass(frozen=True)
@@ -302,6 +323,21 @@ def is_later_title(line: str) -> bool:
     return line.startswith(LATER_TITLES) or bool(ACCEPTED_TITLE.match(line))
 
 
+def advice(row: Row) -> str:
+    """What to do about an advisory row, which never blocks."""
+    if row.rule not in CROSSING_RULES:
+        return OTHER_ADVICE.format(rule=row.rule)
+    target = TARGET_PRODUCT.search(row.message)
+    product = target["product"] if target else "the target product"
+    return CROSSING_ADVICE.format(product=product)
+
+
+def runnable(text: str, hoglint: str) -> str:
+    """hoglint's hints name the command `hoglint`, which is not on PATH when the hook found
+    hoglint in the flox venv, so the hints name the command the hook ran instead."""
+    return text.replace("see: hoglint ", f"see: {hoglint} ").replace("`hoglint ", f"`{hoglint} ")
+
+
 class FullView:
     """hoglint's full view (`--all`), read as blocks: the rows a change can own, the advisory
     count, the guard line and the problems that have no file."""
@@ -332,7 +368,17 @@ class FullView:
         return self.blocks[0].title if self.blocks else ""
 
     def findings(self) -> list[Row]:
-        block = self.block(FINDINGS_TITLE)
+        return self.rows_under(FINDINGS_TITLE)
+
+    def advisory_rows(self) -> list[Row]:
+        """Every row of the advisory rules, master's included, in the same format as a finding."""
+        return self.rows_under(ADVISORY_TITLE)
+
+    def advisory_rules(self) -> set[str]:
+        return {row.rule for row in self.advisory_rows()}
+
+    def rows_under(self, title_start: str) -> list[Row]:
+        block = self.block(title_start)
         if block is None:
             return []
         entries: list[list[str]] = []
@@ -441,13 +487,15 @@ class FullView:
 
 class HookFilter:
     """Hook mode: a row on a changed line blocks the commit, and so do new ledger debt or a changed
-    exception that come with other files. Everything else passes."""
+    exception that come with other files. Everything else passes. An advisory row on a changed line
+    gets one line above the verdict, so that the verdict stays the last thing the developer reads."""
 
-    def __init__(self, output: str, stderr: str, status: int, change: StagedChange) -> None:
+    def __init__(self, output: str, stderr: str, status: int, change: StagedChange, hoglint: str = "hoglint") -> None:
         self.view = FullView(output)
         self.stderr = stderr.rstrip()
         self.status = status
         self.change = change
+        self.hoglint = hoglint
 
     def verdict(self) -> tuple[int, str]:
         out = [self.stderr] if self.stderr else []
@@ -455,16 +503,27 @@ class HookFilter:
         if self.status == 3:
             out.append(self.view.output.rstrip())
         elif self.status == 0:
+            out += self.advisory_lines()
             out += [block.title for block in self.view.blocks if block.title.startswith(("hoglint: ", "note: "))]
         elif not self.view.is_report():
             out += [line for line in (self.view.first_line(), CONTINUES_LINE) if line]
         else:
+            out += self.advisory_lines()
             rows = self.view.rows()
             blocking = [row for row in rows if row.cause != EXTRACTOR_CAUSE and self.change.lines.covers(row)]
             out += self.rows_text(blocking, [row for row in rows if row not in blocking])
         policy = self.policy_lines()
         out += policy
-        return (1 if blocking or policy else 0), "\n".join(line for line in out if line)
+        text = "\n".join(line for line in out if line)
+        return (1 if blocking or policy else 0), runnable(text, self.hoglint)
+
+    def advisory_lines(self) -> list[str]:
+        out = []
+        for row in self.view.advisory_rows():
+            if not self.change.lines.covers(row):
+                continue
+            out.append(ADVISORY_LINE.format(rule=row.rule, place=row.place(), message=row.message, advice=advice(row)))
+        return out
 
     def ledger_grows(self) -> bool:
         """hoglint judges ledger growth, and it knows a move from new debt. With a policy file
@@ -498,8 +557,18 @@ class HookFilter:
         return out
 
 
+def annotation(level: str, row: Row, title: str, message: str) -> str:
+    properties = [f"file={escape_property(row.path or '')}"]
+    if row.line:
+        properties.append(f"line={row.line}")
+    properties.append(f"title={escape_property(title)}")
+    return f"::{level} {','.join(properties)}::{escape_data(message)}"
+
+
 class ShadowReport:
-    """CI mode: the rows on changed lines become annotations, and the summary lists every row."""
+    """CI mode: the rows on changed lines become annotations, and the summary lists every row. A
+    row on a changed line is a warning, and an advisory row on a changed line is a notice, because
+    it never blocks."""
 
     def __init__(self, output: str, stderr: str, status: int, until: str, changed: ChangedLines) -> None:
         self.view = FullView(output)
@@ -514,14 +583,28 @@ class ShadowReport:
     def other_rows(self) -> list[Row]:
         return [row for row in self.view.rows() if not self.changed.covers(row)]
 
+    def own_advisory_rows(self) -> list[Row]:
+        return [row for row in self.view.advisory_rows() if self.changed.covers(row)]
+
     def annotations(self) -> list[str]:
-        out = []
-        for row in self.own_rows():
-            properties = [f"file={escape_property(row.path or '')}"]
-            if row.line:
-                properties.append(f"line={row.line}")
-            properties.append(f"title={escape_property(f'hoglint {row.rule} (shadow)')}")
-            out.append(f"::warning {','.join(properties)}::{escape_data(row.message)}")
+        out = [annotation("warning", row, f"hoglint {row.rule} (shadow)", row.message) for row in self.own_rows()]
+        for row in self.own_advisory_rows():
+            message = f"{row.message}. Does not block. {advice(row)}"
+            out.append(annotation("notice", row, f"hoglint {row.rule} (advisory)", message))
+        return out
+
+    def compare_sections(self, advisory: bool) -> list[str]:
+        """compare's own sections, cut to the rows of the advisory rules or to the other rows. A
+        compare row starts with its rule. compare lists an advisory rule's new rows with the rest,
+        but they do not make compare fail."""
+        advisory_rules = self.view.advisory_rules()
+        out: list[str] = []
+        for block in self.view.blocks:
+            if not block.title.startswith(COMPARE_SECTIONS):
+                continue
+            rows = [line for line in block.lines if (line.split()[0] in advisory_rules) == advisory]
+            if rows:
+                out += [COUNT.sub(f"({len(rows)})", block.title), *first_rows(rows)]
         return out
 
     def did_not_run(self) -> str:
@@ -532,21 +615,36 @@ class ShadowReport:
         return f"hoglint did not run (exit {self.status}): {first}"
 
     def summary(self) -> str:
-        intro = (
-            f"hoglint runs in shadow until {self.until}. "
-            "It does not block yet; from then on it blocks the findings below."
-        )
+        intro = f"hoglint runs in shadow until {self.until}. It does not block yet."
         if not self.view.is_report():
             return "\n".join([intro, "", *fenced([self.did_not_run()]), ""])
-        parts = [intro, "", "**From this PR**", ""]
-        compare = [b for b in self.view.blocks if b.title.startswith(COMPARE_SECTIONS) and b.lines]
+        parts = [
+            intro,
+            "",
+            "**From this PR: blocks**",
+            "",
+            f"From {self.until} on, hoglint blocks the rows in this section.",
+            "",
+        ]
+        compare = self.compare_sections(advisory=False)
         own = self.own_rows()
         if compare:
-            parts += [*fenced([line for b in compare for line in (b.title, *first_rows(list(b.lines)))]), ""]
+            parts += [*fenced(compare), ""]
         if own:
             rendered = [*self.view.render(own[:SUMMARY_ROWS]), *more_rows(len(own))]
             parts += ["Rows on the lines this PR changes:", "", *fenced(rendered), ""]
         if not compare and not own:
+            parts += ["- None.", ""]
+        parts += ["**From this PR: reports only**", "", "These rows never block.", ""]
+        compare_advisory = self.compare_sections(advisory=True)
+        own_advisory = self.own_advisory_rows()
+        if compare_advisory:
+            parts += [*fenced(compare_advisory), ""]
+        if own_advisory:
+            advised = [line for row in own_advisory[:SUMMARY_ROWS] for line in (*row.lines, f"  {advice(row)}")]
+            rendered = [*advised, *more_rows(len(own_advisory))]
+            parts += ["Rows on the lines this PR changes:", "", *fenced(rendered), ""]
+        if not compare_advisory and not own_advisory:
             parts += ["- None.", ""]
         parts += ["**Not on lines this PR changes (master's debt, or reached through other files)**", ""]
         others = [f"{row.rule} at {row.place()}: {row.message}" for row in self.other_rows()]
@@ -624,7 +722,7 @@ def run_hook(args: argparse.Namespace) -> int:
     change = StagedChange(lines, names)
     if EXCEPTIONS_FILE in names:
         change = StagedChange(lines, names, git_file(f"HEAD:{EXCEPTIONS_FILE}"), git_file(f":{EXCEPTIONS_FILE}"))
-    code, text = HookFilter(read(args.output), read(args.stderr), args.status, change).verdict()
+    code, text = HookFilter(read(args.output), read(args.stderr), args.status, change, args.hoglint).verdict()
     if text:
         print(text)
     return code
@@ -681,6 +779,7 @@ def main() -> int:
     parser.add_argument("--stderr", type=Path, help="file with hoglint's stderr")
     parser.add_argument("--status", type=int, default=1, help="hoglint's exit code")
     parser.add_argument("--hook", action="store_true", help="filter by the staged diff and exit 1 to block")
+    parser.add_argument("--hoglint", default="hoglint", help="hook: the command that ran hoglint, for the hints")
     parser.add_argument("--until", default="", help="CI: the day hoglint starts to block, as people read it")
     parser.add_argument("--base", help="CI: the pull request's base commit, to find the lines it changes")
     args = parser.parse_args()
