@@ -395,15 +395,17 @@ def monitoring_outcomes(reports: Sequence[SignalReport], *, team_id: int) -> dic
         for attempt in SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id__in=ended.keys())
         if attempt.monitoring_started_at == ended[attempt.report_id].monitoring_started_at
     }
-    follow_up_ids: dict[str, str] = dict(
-        SignalEmissionRecord.objects.filter(
+    follow_up_ids: dict[str, str] = {
+        source_id: report_id
+        for source_id, report_id in SignalEmissionRecord.objects.filter(
             team_id=team_id,
             source_product=SignalSourceProduct.SIGNALS_CHECK,
             source_type=SignalSourceType.MONITORING_UNRESOLVED,
             source_id__in=[str(attempt.id) for attempt in attempts.values()],
             report_id__isnull=False,
         ).values_list("source_id", "report_id")
-    )
+        if report_id
+    }
     follow_ups = {
         str(report.id): MonitoringFollowUp(report_id=report.id, title=report.title, status=report.status)
         for report in SignalReport.objects.filter(team_id=team_id, id__in=follow_up_ids.values())
