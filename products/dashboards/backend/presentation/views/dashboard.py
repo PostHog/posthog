@@ -30,6 +30,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    TextChoices,
     UUIDField,
     Value,
 )
@@ -93,7 +94,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
-from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.hogql_queries.refresh_policy import ComputeSurface, refresh_param_present
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -155,7 +156,13 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import CannotAddToDashboard, add_insight_to_dashboard, tile_ids_prefetch
+from products.dashboards.backend.facade.api import (
+    CannotAddToDashboard,
+    add_insight_to_dashboard,
+    dashboard_v2_enabled,
+    shared_tile_work,
+    tile_ids_prefetch,
+)
 from products.dashboards.backend.facade.query_sharing import (
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
@@ -198,9 +205,6 @@ from products.dashboards.backend.run_insights_output import (
     tile_fits_response_budget,
     unrun_tile_results,
 )
-from products.dashboards.backend.v2.cached_tiles import CachedTileStatus, read_cached_tiles, requested_tile_ids
-from products.dashboards.backend.v2.first_load import shared_tile_work
-from products.dashboards.backend.v2.flag import dashboard_v2_enabled
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -1326,6 +1330,13 @@ class RunInsightsResponseSerializer(serializers.Serializer):
         many=True,
         help_text="Results for each insight tile on the dashboard.",
     )
+
+
+class CachedTileStatus(TextChoices):
+    HIT = "hit", "Hit"
+    MISS = "miss", "Miss"
+    FORBIDDEN = "forbidden", "Forbidden"
+    NOT_FOUND = "not_found", "Not found"
 
 
 class CachedTileInsightResultSerializer(InsightSerializer):
@@ -3113,7 +3124,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         with (
             task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
-            shared_tile_work(team, getattr(self.context.get("request"), "user", None)),
+            shared_tile_work(
+                team, str(getattr(getattr(self.context.get("request"), "user", None), "distinct_id", None) or team.uuid)
+            ),
         ):
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -4408,21 +4421,49 @@ class DashboardsViewSet(
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
         if not dashboard_v2_enabled(self.team, str(cast(User, request.user).distinct_id)):
             raise exceptions.NotFound()
-        tile_ids = requested_tile_ids(request)
+        # Covers the body as well as the query string: `resolve_execution_mode` honors either.
+        if refresh_param_present(request):
+            raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
+        tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
+        if not tile_ids:
+            raise exceptions.ValidationError({"tile_ids": "tile_ids is required."})
+        if len(tile_ids) > MAX_CACHED_TILES_BATCH_SIZE:
+            raise exceptions.ValidationError(
+                {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
+            )
+
         dashboard = self.get_object()
+        tiles_by_id = {
+            tile.id: (tile, insight)
+            for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
+            if (insight := tile.insight) is not None and insight.query is not None
+        }
+        restricted_levels = self._restricted_insight_levels(list(tiles_by_id.values()))
+
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = dashboard_access_method(request)
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
         # Built once: a serializer per tile deep-copies every declared insight field each time.
         insight_serializer = CachedTileInsightResultSerializer(context=context)
-        results = read_cached_tiles(
-            dashboard=dashboard,
-            tile_ids=tile_ids,
-            restricted_insight_levels=self._restricted_insight_levels,
-            insight_serializer=insight_serializer,
-            context=context,
-        )
+
+        results: list[dict[str, Any]] = []
+        for tile_id in tile_ids:
+            tile_and_insight = tiles_by_id.get(tile_id)
+            if tile_and_insight is None:
+                results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
+                continue
+            tile, insight = tile_and_insight
+            if tile_id in restricted_levels:
+                results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
+                continue
+            context["dashboard_tile"] = tile
+            insight_data = insight_serializer.to_representation(insight)
+            if not insight_data.get("is_cached"):
+                results.append({"id": tile_id, "status": CachedTileStatus.MISS})
+                continue
+            results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+
         return Response({"results": results})
 
     @extend_schema(
