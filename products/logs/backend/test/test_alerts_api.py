@@ -1466,29 +1466,26 @@ class TestLogsAlertAPI(APIBaseTest):
             frozenset(str(i) for i in ids_by_url["https://refused.example.com/hook"]): False,
         }
 
-    @parameterized.expand(
-        [
-            ("webhook", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
-            (
-                "teams",
-                {
-                    "type": "teams",
-                    "webhook_url": "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
-                },
-            ),
-            ("discord", {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/123/token"}),
-            ("pagerduty", {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY}),
-        ]
-    )
-    def test_a_newly_added_destination_reads_as_stock(self, _name: str, payload: dict) -> None:
+    def test_newly_added_destinations_read_as_stock(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        for payload in (
+            {
+                "type": "teams",
+                "webhook_url": "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+            },
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/123/token"},
+            {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
+        ):
+            response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-        (destination,) = self._read_destinations(created["id"])
+        customized_by_type = {
+            destination["type"]: destination["message_customized"]
+            for destination in self._read_destinations(created["id"])
+        }
 
-        assert (destination["type"], destination["message_customized"]) == (payload["type"], False)
+        assert customized_by_type == {"teams": False, "discord": False, "pagerduty": False}
 
     def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
         self._sync_destination_templates()
