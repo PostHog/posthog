@@ -27,10 +27,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
-    ReviewerProposal,
-    ReviewerState,
     StatusArtefactContent,
-    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
@@ -140,17 +137,13 @@ def create_layer_reports(
         )
         child_id = str(child.id)
         for judgment, authorization in judgments:
-            SignalReportArtefact.append_status(
+            # Automatic selection can discard reviewers that a person explicitly pinned.
+            SignalReportArtefact._create(
                 team_id=team_id,
                 report_id=child_id,
                 content=judgment,
                 attribution=attribution,
-                reevaluate_autostart=False,
                 implementation_authorization=authorization,
-                # The layer is new, so its reviewer state is empty.
-                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="stack_plan")
-                if isinstance(judgment, SuggestedReviewers)
-                else None,
             )
         if assignment.state.corrections_id is not None or assignment.corrections.needs_review:
             # Keep routing pins from becoming execution authority when the reviewer version moves to a layer.

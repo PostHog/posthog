@@ -34,6 +34,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_plan import report_plan
+from products.signals.backend.reviewer_exclusions import create_exclusion
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.stack_plan import (
     create_layer_reports,
@@ -262,10 +263,19 @@ class TestStackPlan(BaseTest):
                 assert outcome.status == "blocked"
                 assert outcome.reason == "Reports filed by a person do not auto-start"
 
-    @parameterized.expand([("writer_off", False, False), ("writer_on", True, False), ("needs_review", True, True)])
-    def test_layers_preserve_reviewer_restrictions(self, _name: str, writer_enabled: bool, needs_review: bool) -> None:
+    @parameterized.expand(
+        [
+            ("writer_off", False, False, False),
+            ("writer_on", True, False, False),
+            ("needs_review", True, True, False),
+            ("confirmed_pin_overrides_standing_exclusion", True, False, True),
+        ]
+    )
+    def test_layers_preserve_reviewer_restrictions(
+        self, _name: str, writer_enabled: bool, needs_review: bool, standing_excluded: bool
+    ) -> None:
         reviewer = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
-        corrections = ReviewerCorrections(pinned=(reviewer,), needs_review=needs_review)
+        corrections = ReviewerCorrections(pinned=(reviewer,), needs_review=needs_review, confirmed=standing_excluded)
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=True),
@@ -275,7 +285,9 @@ class TestStackPlan(BaseTest):
                 report_id=str(self.parent.id),
                 content=SuggestedReviewers(root=[reviewer]),
                 attribution=ArtefactAttribution.system(),
-                implementation_authorization=ImplementationAuthorization(mode="reviewer"),
+                implementation_authorization=ImplementationAuthorization(mode="user", user_id=self.user.id)
+                if standing_excluded
+                else ImplementationAuthorization(mode="reviewer"),
                 reevaluate_autostart=False,
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="research"),
             )
@@ -285,6 +297,14 @@ class TestStackPlan(BaseTest):
                 content=corrections,
                 attribution=ArtefactAttribution.from_user(self.user.id),
             )
+            if standing_excluded:
+                create_exclusion(
+                    team_id=self.team.id,
+                    actor_id=self.user.id,
+                    subject_user_uuid=self.user.uuid,
+                    instruction="Exclude me from automatic assignments in this repository.",
+                    repository="example/repo",
+                )
 
             child_ids = self._create_layers()
 
@@ -292,9 +312,12 @@ class TestStackPlan(BaseTest):
                 assignment = ReviewerRules.read_for_report(team_id=self.team.id, report_id=child_id)
                 assert assignment.corrections == corrections
                 assert assignment.reviewers == (reviewer,)
-                outcome = async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=child_id)
-                assert outcome.status == "blocked"
-                assert outcome.reason == "No automatic reviewer remains after human corrections"
+                if not standing_excluded:
+                    outcome = async_to_sync(maybe_autostart_from_report_artefacts)(
+                        team_id=self.team.id, report_id=child_id
+                    )
+                    assert outcome.status == "blocked"
+                    assert outcome.reason == "No automatic reviewer remains after human corrections"
 
     @parameterized.expand(
         [
