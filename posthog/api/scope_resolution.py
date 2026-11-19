@@ -20,6 +20,7 @@ logger = structlog.get_logger(__name__)
 
 CURRENT_ALIAS = "@current"
 _SCOPE_RESOLUTION_ATTR = "_posthog_scope_resolution"
+_FLAT_ROUTE_ATTR = "_posthog_flat_route"
 
 
 class ScopeSource(StrEnum):
@@ -57,6 +58,14 @@ def _token_decides(request: Request, token_team: Callable[[], Team | None]) -> b
         return token_team() is not None
     except AuthenticationFailed:
         return False
+
+
+def note_flat_route(request: Request) -> None:
+    setattr(request._request, _FLAT_ROUTE_ATTR, True)
+
+
+def is_flat_route(request: HttpRequest) -> bool:
+    return getattr(request, _FLAT_ROUTE_ATTR, False)
 
 
 def scope_resolution(request: HttpRequest) -> ScopeResolution | None:

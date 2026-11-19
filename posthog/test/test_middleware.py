@@ -37,7 +37,12 @@ from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter, AuthStateForbidden, AuthStateMissing
 from structlog.testing import capture_logs
 
-from posthog.api.current_alias_usage import CURRENT_ALIAS_USED_EVENT, CurrentAliasScope, current_alias_scope
+from posthog.api.current_alias_usage import (
+    CURRENT_ALIAS_USED_EVENT,
+    FLAT_ROUTE_USED_EVENT,
+    CurrentAliasScope,
+    current_alias_scope,
+)
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -3719,8 +3724,8 @@ class TestCurrentAliasUsage(APIBaseTest):
         super().setUp()
         cache.clear()
 
-    def _alias_events(self, capture: MagicMock) -> list[Mapping[str, Any]]:
-        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == CURRENT_ALIAS_USED_EVENT]
+    def _alias_events(self, capture: MagicMock, event: str = CURRENT_ALIAS_USED_EVENT) -> list[Mapping[str, Any]]:
+        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == event]
 
     def test_reports_each_credential_caller_once_per_route(self) -> None:
         token = generate_random_token_personal()
@@ -3860,6 +3865,28 @@ class TestCurrentAliasUsage(APIBaseTest):
         assert response.status_code == expected_status
         [event] = self._alias_events(capture)
         assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == expected
+
+    @parameterized.expand(
+        [
+            ("flat_route_follows_the_user", "/api/feature_flag/", False, [("api/feature_flag/", "user")]),
+            ("flat_route_with_a_token", "/api/cohort/", True, [("api/cohort/", "token")]),
+            ("nested_route", "/api/projects/{team_id}/feature_flags/", False, []),
+        ]
+    )
+    def test_reports_flat_route_callers(
+        self, _name: str, path: str, with_token: bool, expected: list[tuple[str, str]]
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
+        self.client.logout()
+        query = {"token": self.team.api_token} if with_token else {}
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(path.format(team_id=self.team.id), query, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        events = self._alias_events(capture, FLAT_ROUTE_USED_EVENT)
+        assert [(event["properties"]["route"], event["properties"]["project_from"]) for event in events] == expected
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()
