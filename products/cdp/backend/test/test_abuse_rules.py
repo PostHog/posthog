@@ -217,6 +217,11 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "internal_function_in_an_inline_query_sample",
+                content(hog="let q := (select 1 from events sample {postHogCreateTask({})})"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "local_helper_named_like_an_internal_function",
                 content(hog="fun sendEmail(text) {\n  return text\n}\nfetch(inputs.url, {'body': sendEmail('hi')})"),
                 (),
@@ -601,6 +606,11 @@ class TestAbuseRules(SimpleTestCase):
                 content(
                     hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  return <e url={inputs.url} />\n}"
                 ),
+                True,
+            ),
+            (
+                "inline_query",
+                content(hog="let q := (select event from events limit 1)"),
                 True,
             ),
             ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),

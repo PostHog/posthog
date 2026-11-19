@@ -302,6 +302,20 @@ class _HogCodeVisitor(TraversingVisitor):
         super().visit_expr_call(node)
         self.calls_out = True
 
+    # The compiler runs every placeholder of an inline query, including `SAMPLE {...}`, which the base visitor skips. A
+    # destination has no use for Hog SQL, so any query counts as calling out.
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        super().visit_join_expr(node)
+        self.visit(node.sample)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.calls_out = True
+        super().visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.calls_out = True
+        super().visit_select_set_query(node)
+
     def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
         super().visit_hogqlx_tag(node)
         self.calls_out |= self._is_local(node.kind)
