@@ -952,6 +952,23 @@ class TestSignalReportListAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
+    def test_list_renders_without_strips_when_the_link_read_fails(self) -> None:
+        plan = self._create_report(title="the plan")
+        layer = self._create_report(title="a layer")
+        self._link(layer, plan, ReportLinkKind.PART_OF)
+
+        with (
+            patch("products.signals.backend.views.organization_inbox_card_links_enabled", return_value=True),
+            patch("products.signals.backend.views.link_summaries", side_effect=RuntimeError("database unavailable")),
+        ):
+            response = self.client.get(self._list_url(scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"]: row["link_summary"] for row in response.json()["results"]} == {
+            str(plan.id): None,
+            str(layer.id): None,
+        }
+
     @parameterized.expand([("flag_on", True), ("flag_off", False)])
     def test_list_rows_carry_the_link_their_strip_shows(self, _name: str, enabled: bool) -> None:
         plan = self._create_report(title="the plan")

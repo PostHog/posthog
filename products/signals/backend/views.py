@@ -3932,12 +3932,16 @@ class SignalReportViewSet(
                 )
         link_summaries_map: dict[str, ReportLinkSummary] = {}
         if self._inbox_card_links_enabled:
+            # The strips are decorative, so a failed read renders the rows without them.
             with tracer.start_as_current_span("signals.reports.list.fetch_link_summaries"):
-                link_summaries_map = link_summaries(
-                    team_id=self.team_id,
-                    report_ids=report_ids,
-                    monitoring_enabled=self._report_monitoring_enabled,
-                )
+                try:
+                    link_summaries_map = link_summaries(
+                        team_id=self.team_id,
+                        report_ids=report_ids,
+                        monitoring_enabled=self._report_monitoring_enabled,
+                    )
+                except Exception:
+                    logger.exception("signals.reports.list.link_summaries_failed", report_count=len(report_ids))
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
