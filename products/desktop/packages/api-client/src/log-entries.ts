@@ -23,18 +23,14 @@ export function parseLogEntriesPage(
   if (offset !== start) {
     throw new Error(`Log entries page starts at ${offset}, not ${start}`);
   }
-  const lines = body.split("\n").filter((line) => line.trim());
-  const entries = lines.flatMap((line) => {
-    try {
-      return [JSON.parse(line) as StoredLogEntry];
-    } catch {
-      return [];
-    }
-  });
+  const entries = body
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as StoredLogEntry);
   const matchingCount = parseCountHeader(headers, "X-Log-Count");
   return {
     entries,
-    hasMore: matchingCount !== null && offset + lines.length < matchingCount,
+    hasMore: matchingCount !== null && offset + entries.length < matchingCount,
     matchingCount,
   };
 }

@@ -3586,29 +3586,6 @@ describe("PostHogAPIClient", () => {
       });
     });
 
-    it("skips a line that is not valid JSON and keeps the rest of the page", async () => {
-      const [first, second] = makeEntries(2, "a");
-      const fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        text: async () =>
-          [JSON.stringify(first), '{"type":', JSON.stringify(second)].join(
-            "\n",
-          ),
-        headers: new Headers({ "X-Log-Offset": "0", "X-Log-Count": "3" }),
-      });
-      const client = makeClient(fetch);
-
-      const result = await client.getTaskRunSessionLogsPage("task-1", "run-1", {
-        limit: 10,
-      });
-
-      expect(result).toEqual({
-        entries: [first, second],
-        hasMore: false,
-        matchingCount: 3,
-      });
-    });
-
     it("does not retry a definite client error", async () => {
       const fetch = vi.fn().mockRejectedValue(new ApiRequestError(404, "{}"));
       const client = makeClient(fetch);
@@ -3713,6 +3690,10 @@ describe("PostHogAPIClient", () => {
       {
         name: "a page that does not start where it was asked to",
         response: page(makeEntries(100, "a"), 0, 100),
+      },
+      {
+        name: "a page with a line that is not JSON",
+        response: { ...page([], 50, 100), text: async () => '{"type":' },
       },
     ])(
       "marks entries collected before $name as incomplete",
