@@ -104,7 +104,7 @@ SYSTEM_PROMPT = text_message("system", "You are a helpful assistant.")
                     text_message("assistant", "a4"),
                 )
             ),
-            "a4",
+            None,
         ),
         (
             "last user message among the tail",
@@ -120,10 +120,17 @@ SYSTEM_PROMPT = text_message("system", "You are a helpful assistant.")
             "second",
         ),
         (
-            "no user message picks the last non-system message",
+            "a tail of assistant and tool messages gives no input",
             None,
-            reading(input=conversation(text_message("system", "rules"), text_message("assistant", "hello"))),
-            "hello",
+            reading(
+                input=conversation(
+                    text_message("system", "rules"),
+                    parts_message("assistant", SEARCH_CALL),
+                    text_message("tool", "refunds take five days"),
+                    text_message("assistant", "Let me check."),
+                )
+            ),
+            None,
         ),
         ("a system message alone is never the input", None, reading(input=conversation(SYSTEM_PROMPT)), None),
         (

@@ -167,6 +167,24 @@ def test_rejects_impossible_ranges(_name: str, date_from: str | None, date_to: s
 
 @parameterized.expand(
     [
+        ("first pass to second pass", "2026-11-01T01:50:00-04:00", "2026-11-01T01:10:00-05:00", True),
+        ("second pass to first pass", "2026-11-01T01:10:00-05:00", "2026-11-01T01:50:00-04:00", False),
+    ]
+)
+def test_bounds_in_the_repeated_dst_hour_are_ordered_by_instant(
+    _name: str, date_from: str, date_to: str, is_valid: bool
+) -> None:
+    now = datetime(2026, 11, 2, tzinfo=UTC)
+    if is_valid:
+        window = resolve_window(Team(timezone="America/New_York"), date_from, date_to, now=now)
+        assert window.end.astimezone(UTC) - window.start.astimezone(UTC) == timedelta(minutes=20)
+    else:
+        with pytest.raises(InvalidTraceWindowError):
+            resolve_window(Team(timezone="America/New_York"), date_from, date_to, now=now)
+
+
+@parameterized.expand(
+    [
         ("unset follows a project default of on", None, True, True),
         ("unset follows a project default of off", None, False, False),
         ("off overrides a project default of on", False, True, False),

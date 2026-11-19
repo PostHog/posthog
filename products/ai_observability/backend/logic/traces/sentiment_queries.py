@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import get_args
 
 from posthog.hogql import ast
@@ -15,7 +15,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
 from posthog.models import Team, User
 
 from ...facade.contracts import TraceSentimentLabel
-from .events_fallback import FallbackWindow
+from .events_fallback import AI_EVENTS_RETENTION_DAYS, FallbackWindow
 from .trace_queries import (
     ai_events,
     ai_events_placeholders,
@@ -100,15 +100,30 @@ def _sentiments_query(trace_count: int) -> ast.SelectQuery:
         order_by=_newest_first(),
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["trace_id"]), _GENERATION_ID]),
     )
-    # HogQL takes one LIMIT BY per query, so each generation's latest result is picked before the per-trace cap.
-    return ast.SelectQuery(
+    # HogQL takes one LIMIT BY per query, so each generation's latest result is picked, and a result that counted no
+    # messages dropped, before the per-trace cap.
+    capped_per_trace = ast.SelectQuery(
         select=[ast.Field(chain=[alias]) for alias in _COLUMNS],
         select_from=ast.JoinExpr(table=latest_per_generation),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["message_count"]), right=ast.Constant(value="0")
+        ),
         order_by=_newest_first(),
         limit_by=ast.LimitByExpr(
             n=ast.Constant(value=MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE), exprs=[ast.Field(chain=["trace_id"])]
         ),
-        limit=ast.Constant(value=trace_count * MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE),
+    )
+    return ast.SelectQuery(
+        select=[
+            ast.Field(chain=["trace_id"]),
+            ast.Call(
+                name="groupArray",
+                args=[ast.Tuple(exprs=[ast.Field(chain=[alias]) for alias in _COLUMNS if alias != "trace_id"])],
+            ),
+        ],
+        select_from=ast.JoinExpr(table=capped_per_trace),
+        group_by=[ast.Field(chain=["trace_id"])],
+        limit=ast.Constant(value=trace_count),
     )
 
 
@@ -128,8 +143,9 @@ def _read_rows(
         ai_events_placeholders(column_in("trace_id", trace_ids)),
     )
     # A trace with no sentiment result looks the same as one whose results aged out, so only a page old enough to
-    # have lost rows reads the shared events table. That read ends now, not at the window's end, because a manual run
-    # stamps its results with the time it ran, which can be any time after the trace.
+    # have lost rows reads the shared events table. That read reaches past the window's end, because a manual run
+    # stamps its results with the time it ran, but only until the window's generations have left ai_events, because
+    # a generation can only be evaluated while it is there.
     if window.may_hold_aged_out_events(now):
         found = {str(row[0]) for row in results}
         missing = [trace_id for trace_id in trace_ids if trace_id not in found]
@@ -141,7 +157,12 @@ def _read_rows(
                 user,
                 _settings(),
                 events_placeholders(
-                    column_in("trace_id", missing), (_EVALUATION_EVENT,), FallbackWindow(start=window.start, end=now)
+                    column_in("trace_id", missing),
+                    (_EVALUATION_EVENT,),
+                    FallbackWindow(
+                        start=window.start,
+                        end=min(now, window.end + timedelta(days=AI_EVENTS_RETENTION_DAYS + 1)),
+                    ),
                 ),
             )
     return [
@@ -154,7 +175,8 @@ def _read_rows(
             messages=messages,
             message_count=message_count,
         )
-        for trace_id, generation_id, label, score, scores, messages, message_count in results
+        for trace_id, generations in results
+        for generation_id, label, score, scores, messages, message_count in generations
     ]
 
 
@@ -168,16 +190,12 @@ def load_sentiments(
 ) -> dict[str, TraceSentimentRow]:
     """The sentiment of each trace that has one, keyed by trace id, from the latest result per generation. When the
     window starts before `posthog.ai_events` may have dropped rows, traces with no result there are read from the shared
-    events table from the window's start until `now`."""
+    events table from the window's start until its generations leave `posthog.ai_events`, or `now` if that is sooner."""
     requested = list(dict.fromkeys(trace_ids))
     if not requested:
         return {}
     by_trace: dict[str, list[tuple[str, SentimentResult]]] = {}
     for row in _read_rows(team, user, requested, window, now):
-        # Matches the sentiment loader in posthog/hogql_queries/ai/sentiment_evaluations.py, which drops a generation
-        # whose latest result counted no messages.
-        if row.message_count == "0":
-            continue
         by_trace.setdefault(row.trace_id, []).append(
             (
                 row.generation_id,

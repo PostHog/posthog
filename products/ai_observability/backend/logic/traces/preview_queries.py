@@ -168,8 +168,12 @@ def _events_query(trace_ids: Sequence[str], *, latest: bool) -> ast.SelectQuery:
         limit_by=ast.LimitByExpr(
             n=ast.Constant(value=1), exprs=[_field("trace_id"), _field("event"), _field("has_state")]
         ),
-        limit=ast.Constant(value=len(trace_ids) * len(_PICKED_EVENT_NAMES) * 2),
+        limit=ast.Constant(value=_events_limit(trace_ids)),
     )
+
+
+def _events_limit(trace_ids: Sequence[str]) -> int:
+    return len(trace_ids) * len(_PICKED_EVENT_NAMES) * 2
 
 
 def _picks_query(trace_ids: Sequence[str]) -> ast.SelectQuery:
@@ -180,6 +184,7 @@ def _picks_query(trace_ids: Sequence[str]) -> ast.SelectQuery:
                 [_events_query(trace_ids, latest=False), _events_query(trace_ids, latest=True)], "UNION ALL"
             )
         ),
+        limit=ast.Constant(value=2 * _events_limit(trace_ids)),
     )
 
 

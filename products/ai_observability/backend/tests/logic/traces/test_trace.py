@@ -182,13 +182,26 @@ def test_node_ids_by_alias_map_sdk_ids_of_tree_nodes_to_their_uuids() -> None:
     assert aliases == {"span-a": "e0", "gen-a": "e1"}
 
 
-def test_first_error_text_is_the_earliest_errored_events_text() -> None:
-    errored = trace(
-        {"uuid": "a", "timestamp": T0 + SECOND, "is_error": True, "error_text": "late"},
-        {"uuid": "b", "timestamp": T0, "is_error": True, "error_text": "early"},
-    )
-
-    assert errored.first_error_text == "early"
+@parameterized.expand(
+    [
+        (
+            "the earliest of two",
+            {"uuid": "a", "timestamp": T0 + SECOND, "is_error": True, "error_text": "late"},
+            {"uuid": "b", "timestamp": T0, "is_error": True, "error_text": "early"},
+            "early",
+        ),
+        (
+            "a later one when the earliest has no text",
+            {"uuid": "a", "timestamp": T0, "is_error": True, "error_text": None},
+            {"uuid": "b", "timestamp": T0 + SECOND, "is_error": True, "error_text": "Rate limit reached"},
+            "Rate limit reached",
+        ),
+    ]
+)
+def test_first_error_text_is_the_earliest_errored_events_text(
+    _name: str, first: dict[str, Any], second: dict[str, Any], expected: str
+) -> None:
+    assert trace(first, second).first_error_text == expected
 
 
 @parameterized.expand(
@@ -213,10 +226,6 @@ def test_tools_called_are_distinct_in_first_call_order() -> None:
 @parameterized.expand([("one support event", [False, True], True), ("none", [False, False], False)])
 def test_is_support_trace(_name: str, flags: list[bool], expected: bool) -> None:
     assert trace(*({"is_support": flag} for flag in flags)).is_support_trace is expected
-
-
-def test_distinct_id_is_the_identified_trace_events() -> None:
-    assert trace({"distinct_id": "late", "timestamp": T0 + SECOND}, {"distinct_id": "early"}).distinct_id == "early"
 
 
 def test_a_trace_builds_no_tree_until_asked() -> None:
