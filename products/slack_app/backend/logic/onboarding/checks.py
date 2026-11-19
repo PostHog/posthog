@@ -27,8 +27,9 @@ def is_org_admin(user_id: int, team_id: int) -> bool:
     if org_id is None:
         return False
     level = (
-        OrganizationMembership.objects.filter(organization_id=org_id, user_id=user_id)
-        .values_list("level", flat=True)
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization_id=org_id, user_id=user_id)
+        .values_list("resolved_level", flat=True)
         .first()
     )
     return level is not None and level >= OrganizationMembership.Level.ADMIN

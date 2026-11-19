@@ -62,6 +62,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     extract_organization,
     get_authenticator_scoped_organization_ids,
+    request_subject,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -70,9 +71,12 @@ from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.querysets import filter_projects
 from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
@@ -99,14 +103,11 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
-        min_level = (
-            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
-        )
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= min_level
+        return authorization.check(
+            resource=Resource.organization(organization.id),
+            action=Action.DELETE if request.method == "DELETE" else Action.EDIT,
+            subject=request_subject(request),
         )
 
 
@@ -428,7 +429,7 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        return OrganizationMembership.Level(membership.effective_level) if membership is not None else None
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_membership_joined_at(self, organization: Organization) -> str | None:
@@ -444,8 +445,15 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
+        # Typed as `User`, but anonymous and service principals also reach here. They hold no
+        # membership, so they see no team.
+        user: object = self.user_permissions.user
+        if not isinstance(user, User) or user.pk is None:
+            return []
+        if (access := self.user_access_control) is not None:
+            authorization.reuse_current_rules(access, self.user_permissions)
         visible_teams = (
-            visible_teams_for_user(instance, self.user_access_control, self.user_permissions)
+            filter_projects(instance.teams.all(), organization_id=instance.id, subject=Subject(user_id=user.pk))
             .select_related("project")
             .prefetch_related(
                 Prefetch(
@@ -895,7 +903,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         organization = self.get_object()
         user = cast(User, request.user)
-        user_role = user.organization_memberships.get(organization=organization).level
+        user_role = user.organization_memberships.get(organization=organization).effective_level
 
         for field, event_name in setting_events:
             if field in request.data:
@@ -971,8 +979,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
-        membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
-        if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+        resource, subject = Resource.organization(organization.id), request_subject(request)
+        if not authorization.check(resource=resource, action=Action.VIEW, subject=subject) or authorization.check(
+            resource=resource, action=Action.EDIT, subject=subject
+        ):
             raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
 
         send_posthog_ai_access_request.delay(
@@ -1028,13 +1038,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.get_object()
-        user = cast(User, request.user)
-        # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
-        # necessarily the one being requested - so build one for the organization actually in the URL
-        visible_teams = visible_teams_for_user(
-            organization,
-            UserAccessControl(user=user, organization_id=str(organization.id)),
-            UserPermissions(user=user),
+        visible_teams = filter_projects(
+            organization.teams.all(), organization_id=organization.id, subject=Subject(user_id=request.user.pk)
         ).only("id", "project_id", "ingested_event")
         results = get_organization_data_freshness(str(organization.id), list(visible_teams))
         return Response(

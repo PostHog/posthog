@@ -43,7 +43,6 @@ pub struct CachedPerson {
     /// known (matching `created_at`'s unit). Max-merged on update — the
     /// value only ever advances — and deliberately not a change by itself.
     pub last_seen_at: Option<i64>,
-    // TODO: Add properties_last_updated_at and properties_last_operation
 }
 
 impl CachedPerson {

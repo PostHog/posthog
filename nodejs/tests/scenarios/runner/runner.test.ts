@@ -32,6 +32,7 @@ import { CdpCyclotronWorkerHogFlow } from '~/cdp/consumers/cdp-cyclotron-worker-
 import { triggersOnEvents } from '~/cdp/consumers/event-name-gate'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -630,6 +631,7 @@ async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
             [WARPSTREAM_CYCLOTRON_PRODUCER]: discardingProducer,
             [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: discardingProducer,
             [WAREHOUSE_PRODUCER]: discardingProducer,
+            [MSK_CDP_INTAKE_PRODUCER]: discardingProducer,
         }),
         internalCaptureService: new InternalCaptureService(hub),
         personRepository: noPersons,
@@ -1505,6 +1507,7 @@ describe('runner through seed, drive and judge', () => {
         expect(result.bars[0]).toEqual({
             name: 'writer_cpu_under',
             unit: '%',
+            limit: 70,
             passed: false,
             unjudged: 'no writer CPU reading off a run host in the 1x step',
             harnessLimit: expect.objectContaining({ by: 'run_host', scale: 1 }),

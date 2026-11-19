@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from .agent_egress import AgentEgressProbeWorkflow
 from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
@@ -83,7 +85,7 @@ WORKFLOWS = [
     ActivateDevStackImageWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     prepare_agent_egress,
     renew_agent_egress,
     probe_agent_egress,

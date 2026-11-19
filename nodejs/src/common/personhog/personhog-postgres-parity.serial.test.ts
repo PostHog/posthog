@@ -69,8 +69,6 @@ function postgresRowToProtoPerson(row: RawPerson): ProtoPerson {
         uuid: row.uuid,
         teamId: BigInt(row.team_id),
         properties: jsonBytes(row.properties),
-        propertiesLastUpdatedAt: jsonBytes(row.properties_last_updated_at),
-        propertiesLastOperation: jsonBytes(row.properties_last_operation),
         createdAt: BigInt(DateTime.fromISO(row.created_at).toMillis()),
         version: BigInt(row.version || 0),
         isIdentified: row.is_identified,
@@ -530,8 +528,6 @@ describe('PersonHog ↔ Postgres parity', () => {
                     posthog_person.created_at,
                     posthog_person.team_id,
                     posthog_person.properties,
-                    posthog_person.properties_last_updated_at,
-                    posthog_person.properties_last_operation,
                     posthog_person.is_user_id,
                     posthog_person.version,
                     posthog_person.is_identified,
@@ -555,19 +551,9 @@ describe('PersonHog ↔ Postgres parity', () => {
             overrides: { isIdentified?: boolean } = {}
         ) {
             const uuid = new UUIDT().toString()
-            await postgresRepo.createPerson(
-                createdAt,
-                props,
-                {},
-                {},
-                teamId,
-                null,
-                overrides.isIdentified ?? true,
-                uuid,
-                {
-                    distinctId,
-                }
-            )
+            await postgresRepo.createPerson(createdAt, props, teamId, null, overrides.isIdentified ?? true, uuid, {
+                distinctId,
+            })
             return uuid
         }
 
