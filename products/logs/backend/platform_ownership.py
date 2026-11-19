@@ -13,8 +13,6 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-import posthoganalytics
-
 from posthog.models.team.team import Team
 
 from products.alerts_platform.backend.facade.api import (
@@ -33,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCreateRefused,
     PlatformOwnershipHandover,
 )
+from products.alerts_platform.backend.facade.delivery import team_flag_enabled
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_creation import AlertLimitReached, check_alert_slot, first_check_at
 from products.logs.backend.alert_group_columns import grouping_problem
@@ -98,18 +97,7 @@ def creates_native_alert(team_id: int) -> bool:
     team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
     if team.parent_team_id is not None:
         return False
-    flag_on = posthoganalytics.feature_enabled(
-        NATIVE_CREATE_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            # Both regions read flags from one PostHog project, and project ids repeat across regions.
-            "project": {"id": str(team.id), "uuid": str(team.uuid)},
-        },
-        send_feature_flag_events=False,
-    )
-    return bool(flag_on)
+    return bool(team_flag_enabled(NATIVE_CREATE_FLAG, team))
 
 
 def _refuse_grouping_on_logs(grouping: Grouping | None) -> None:
