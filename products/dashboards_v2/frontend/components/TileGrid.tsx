@@ -20,7 +20,7 @@ const GHOST_ID = '__drop-preview'
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
-const DRAG_CANCEL = '.DashboardV2__section-body, button, a, input, textarea, [role="menuitem"]'
+const DRAG_CANCEL = '.DashboardV2__section-body, .DashboardV2__footer, button, a, input, textarea, [role="menuitem"]'
 
 interface TileGridProps {
     gridId: string
