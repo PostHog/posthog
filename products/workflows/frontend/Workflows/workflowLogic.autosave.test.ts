@@ -1685,8 +1685,9 @@ describe('workflowLogic auto-save', () => {
                 const confirming = new Promise<void>((resolve) => {
                     markConfirming = resolve
                 })
-                useMocks(
-                    serverMocks({
+                let served = staged
+                useMocks({
+                    ...serverMocks({
                         [PUBLISH_URL]: recordPublish(async (body) => {
                             if (!body.confirm) {
                                 return [200, preview]
@@ -1695,14 +1696,22 @@ describe('workflowLogic auto-save', () => {
                             await held
                             return [400, { detail: 'Fix the email step first.' }]
                         }),
-                    })
-                )
+                    }),
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': () => {
+                            reloads += 1
+                            return [200, served]
+                        },
+                    },
+                })
                 jest.mocked(LemonDialog.open).mockRestore()
 
                 await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
                 await userEvent.click(await screen.findByText('Publish'))
                 await confirming
-                logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
+                // An unsaved edit keeps the refused confirm from reloading, so only the replay can load the copy.
+                logic.actions.setWorkflowValues({ description: 'Edited while publishing' })
+                served = { ...staged, draft: { ...staged.draft!, name: 'Renamed elsewhere' } }
                 resourceEditedLogic.actions.resourceEdited({
                     notification_type: 'resource_edited',
                     team_id: 1,
@@ -1715,11 +1724,12 @@ describe('workflowLogic auto-save', () => {
                 release()
                 await expectLogic(logic).toFinishAllListeners()
 
-                // The edit from elsewhere waited for the confirm, and loads once it settles.
-                expect({ reloads: reloads - reloadsBefore, banner: logic.values.externallyEdited }).toEqual({
-                    reloads: 1,
-                    banner: false,
-                })
+                // The edit from elsewhere waited for the confirm, and shows once it settles.
+                expect({
+                    reloads: reloads - reloadsBefore,
+                    name: logic.values.workflow.name,
+                    banner: logic.values.externallyEdited,
+                }).toEqual({ reloads: 1, name: 'Renamed elsewhere', banner: false })
             })
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {

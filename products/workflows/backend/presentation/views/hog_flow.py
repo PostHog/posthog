@@ -6305,12 +6305,11 @@ class HogFlowViewSet(
     def _sandbox_sender_warned(self) -> Optional[bool]:
         # A form body sends "false" as a string, which an identity check against False would skip.
         value = self.request.data.get("sandbox_sender_warned")
-        if value is None:
-            return None
-        try:
-            return serializers.BooleanField().to_internal_value(value)
-        except exceptions.ValidationError:
-            raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value.lower() in ("true", "false"):
+            return value.lower() == "true"
+        raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):

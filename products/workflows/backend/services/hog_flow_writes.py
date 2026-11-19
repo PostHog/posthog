@@ -107,10 +107,11 @@ def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datet
     return f"{hog_flow_id}:{draft_stamp}"
 
 
-def _enables_on_sandbox_sender(before_update: HogFlow, validated_data: dict) -> bool:
+def _enables_on_sandbox_sender(before_update: HogFlow, validated_data: dict, *, route_to_draft: bool) -> bool:
     if before_update.status == HogFlow.State.ACTIVE or validated_data.get("status") != HogFlow.State.ACTIVE:
         return False
-    actions = validated_data.get("actions", before_update.actions)
+    # A staged write puts the submitted steps in the draft, so the stored steps are the ones that go live.
+    actions = before_update.actions if route_to_draft else validated_data.get("actions", before_update.actions)
     return any(
         isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
         for action in (actions if isinstance(actions, list) else [])
@@ -504,7 +505,9 @@ def update_workflow(
             raise WorkflowStale()
         # The caller checked the steps before it asked, and showed no test sender warning. Steps that
         # moved onto the test sender since then must not go live behind that check.
-        if sandbox_sender_warned is False and _enables_on_sandbox_sender(before_update, validated_data):
+        if sandbox_sender_warned is False and _enables_on_sandbox_sender(
+            before_update, validated_data, route_to_draft=route_to_draft
+        ):
             raise WorkflowStale()
         if before_write is not None:
             before_write()

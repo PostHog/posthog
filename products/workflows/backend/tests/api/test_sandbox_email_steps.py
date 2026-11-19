@@ -18,6 +18,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
+from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -694,10 +695,12 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("unwarned_on_an_own_sender", "own", False, 200),
             ("unwarned_as_a_form_string", "sandbox", "false", 409),
             ("not_a_boolean", "sandbox", "maybe", 400),
+            ("a_number", "sandbox", 1, 400),
+            ("a_yes", "sandbox", "yes", 400),
         ]
     )
     def test_enabling_refuses_test_sender_steps_it_did_not_warn_about(
-        self, _name: str, sender: str, warned: bool | str | None, expected: int
+        self, _name: str, sender: str, warned: bool | int | str | None, expected: int
     ) -> None:
         step = _sandbox_step() if sender == "sandbox" else _own_email_step(self._verified_sender().id)
         definition = _flow(step)
@@ -712,3 +715,38 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         assert HogFlow.objects.get(id=flow.id).status == ("active" if expected == 200 else "draft")
+
+    def test_enabling_a_staged_save_refuses_the_stored_test_sender_steps(self) -> None:
+        own_step = _own_email_step(self._verified_sender().id)
+        definition = _flow(_sandbox_step())
+        flow = HogFlow.objects.create(
+            team=self.team, name="Flow", status="active", actions=definition["actions"], edges=definition["edges"]
+        )
+        staged = _flow(own_step)
+
+        def update_after_concurrent_disable(**kwargs: Any) -> Any:
+            HogFlow.objects.filter(pk=flow.id).update(status="draft")
+            return update_workflow(**kwargs)
+
+        with (
+            _flag(True),
+            _runtime(True),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+                side_effect=update_after_concurrent_disable,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+                {
+                    "status": "active",
+                    "stage_draft": True,
+                    "actions": staged["actions"],
+                    "edges": staged["edges"],
+                    "sandbox_sender_warned": False,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 409, response.json()
+        assert HogFlow.objects.get(id=flow.id).status == "draft"
