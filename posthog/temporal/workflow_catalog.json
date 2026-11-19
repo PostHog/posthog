@@ -60,6 +60,11 @@
     "task_queues": "LLMA_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "alerts-platform-appearance-evaluate",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "alerts-platform-deliver",
     "product": "alerts_platform",
     "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
@@ -88,6 +93,11 @@
     "temporal_workflow_type": "alerts-platform-record-inventory",
     "product": "alerts_platform",
     "task_queues": "ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-register-occurrences",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_REGISTRAR_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "alerts-platform-release-expired-holds",
