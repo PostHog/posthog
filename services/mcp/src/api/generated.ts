@@ -15103,6 +15103,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly llm_detector_available: boolean | null;
+      /** Whether this enabled alert is skipped because the project has more enabled alerts than its plan allows. The newest enabled alerts, up to the plan's limit, keep running. The rest resume when the plan allows more alerts or other alerts are disabled. */
+      readonly over_plan_limit: boolean;
       /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
       readonly pagerduty_available: boolean;
       /** How many active notification destinations the alert sends to, such as Slack channels and webhooks, each counted once. Subscribed users are not included. */
@@ -89538,6 +89540,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly llm_detector_available?: boolean | null;
+      /** Whether this enabled alert is skipped because the project has more enabled alerts than its plan allows. The newest enabled alerts, up to the plan's limit, keep running. The rest resume when the plan allows more alerts or other alerts are disabled. */
+      readonly over_plan_limit?: boolean;
       /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
       readonly pagerduty_available?: boolean;
       /** How many active notification destinations the alert sends to, such as Slack channels and webhooks, each counted once. Subscribed users are not included. */
