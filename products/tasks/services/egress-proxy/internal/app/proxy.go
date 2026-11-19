@@ -66,7 +66,8 @@ func (p *Proxy) Reload() error {
 	transport.Proxy = nil
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: registryCAs}
 	client, err := registry.New(registry.Config{
-		BaseURL: p.config.RegistryURL, Region: p.config.RegistryRegion, SigningKey: strings.TrimSpace(string(signingKey)),
+		AllowClusterHTTP: p.config.RegistryAllowClusterHTTP,
+		BaseURL:          p.config.RegistryURL, Region: p.config.RegistryRegion, SigningKey: strings.TrimSpace(string(signingKey)),
 		Timeout: time.Duration(p.config.LookupTimeoutSeconds) * time.Second, HTTPClient: &http.Client{Transport: transport},
 	})
 	if err != nil {

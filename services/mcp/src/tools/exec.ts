@@ -297,6 +297,7 @@ export interface ExecToolOptions {
      */
     builtInSkillHint?: BuiltInSkillHint
     oauthClientId?: string | undefined
+    supportsStepUp?: boolean | undefined
     /**
      * The tools a scout run with a picked tool list holds. A catalog or connected tool outside this
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
@@ -719,6 +720,32 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // Self-managed tables (reading a bucket in place) can no longer be created.
     'warehouse-tables-create': () =>
         'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
+    ...Object.fromEntries(
+        [
+            ['review-hog-reviews-get', 'code-review-reviews-get'],
+            ['review-hog-reviews-list', 'code-review-reviews-list'],
+            ['review-hog-reviews-pr-status', 'code-review-reviews-pr-status'],
+            ['review-hog-reviews-trigger', 'code-review-reviews-trigger'],
+            ['stamphog-digest-runs-list', 'code-review-approvals-digests-list'],
+            // The digest retrieve tool is disabled: the list returns every field of each run.
+            ['stamphog-digest-runs-retrieve', 'code-review-approvals-digests-list'],
+            ['stamphog-pull-requests-get', 'code-review-approvals-pull-requests-get'],
+            ['stamphog-pull-requests-list', 'code-review-approvals-pull-requests-list'],
+            ['stamphog-repo-configs-delete', 'code-review-approvals-repositories-delete'],
+            ['stamphog-repo-configs-get', 'code-review-approvals-repositories-get'],
+            ['stamphog-repo-configs-list', 'code-review-approvals-repositories-list'],
+            ['stamphog-repo-configs-update', 'code-review-approvals-repositories-update'],
+            ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],
+            ['stamphog-review-runs-get', 'code-review-approvals-runs-get'],
+            ['stamphog-review-runs-list', 'code-review-approvals-runs-list'],
+            ['stamphog-routing-runs-get', 'code-review-approvals-reviewer-routing-get'],
+            ['stamphog-routing-runs-list', 'code-review-approvals-reviewer-routing-list'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed when the code review tools were renamed. Call "${replacement}" instead. Run "info ${replacement}" for its arguments.`,
+        ])
+    ),
     'loops-runs-retrieve': () =>
         'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }
@@ -1774,9 +1801,17 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
-function missingScopeRecovery(context: Context | undefined, oauthClientId: string | undefined): string {
-    if (isChatGptAppConnection(oauthClientId)) {
+export interface ScopeRecoveryConnection {
+    oauthClientId?: string | undefined
+    supportsStepUp?: boolean | undefined
+}
+
+function missingScopeRecovery(context: Context | undefined, connection: ScopeRecoveryConnection): string {
+    if (isChatGptAppConnection(connection.oauthClientId)) {
         return 'The PostHog app in ChatGPT and Codex does not request every PostHog scope, so reconnecting it adds these scopes only if the app asks for them. If the user already reconnected and approved all access, this tool is not available through the app yet. Continue with the other tools.'
+    }
+    if (connection.supportsStepUp) {
+        return 'Call the tool anyway: this client then asks the user to approve the missing scopes and retries the call. Reauthorizing the connection does not add them.'
     }
     switch (classifyAuthMethod(context?.api.config.apiToken)) {
         case 'oauth':
@@ -1791,10 +1826,10 @@ function missingScopeRecovery(context: Context | undefined, oauthClientId: strin
 export function missingToolScopeError(
     tool: ScopeGatedTool,
     context: Context | undefined,
-    oauthClientId: string | undefined
+    connection: ScopeRecoveryConnection
 ): ExecCommandError {
     return new ExecCommandError(
-        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
+        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, connection)} Logging in to PostHog in a browser does not update MCP permissions.`,
         'missing_scope'
     )
 }
@@ -1806,7 +1841,7 @@ function findTool(
     name: string,
     context: Context | undefined,
     isNotGranted: (name: string) => boolean,
-    oauthClientId: string | undefined
+    connection: ScopeRecoveryConnection
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1820,7 +1855,7 @@ function findTool(
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
-            throw missingToolScopeError(scopeGatedTool, context, oauthClientId)
+            throw missingToolScopeError(scopeGatedTool, context, connection)
         }
         if (isNotGranted(name)) {
             throw new ExecCommandError(
@@ -2030,7 +2065,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context, options.oauthClientId)}`,
+                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context, options)}`,
                         })
                     }
                     if (matches.length === 0) {
@@ -2089,7 +2124,7 @@ export function createExecTool(
                         infoArgs,
                         context,
                         isNotGranted,
-                        options.oauthClientId
+                        options
                     )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
@@ -2142,7 +2177,7 @@ export function createExecTool(
                         schemaToolName,
                         context,
                         isNotGranted,
-                        options.oauthClientId
+                        options
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -2211,7 +2246,7 @@ export function createExecTool(
                         toolName,
                         context,
                         isNotGranted,
-                        options.oauthClientId
+                        options
                     )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(

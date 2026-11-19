@@ -382,6 +382,12 @@ jobs:
                         # cascade, and `tach check` validates it — a graph-only PR
                         # must still dispatch both.
                         - tach.toml
+                        # repo-checks runs `hoglint compare`, which judges the policy, the ledger
+                        # and the exceptions, so a policy-only PR must still dispatch it.
+                        - hoglint.toml
+                        - hoglint.ledger
+                        - hoglint.exceptions.toml
+                        - 'tools/hoglint/**'
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -1482,6 +1488,14 @@ jobs:
                       trunk-junit \
                       "$PRODUCT_FILTERS"
 
+            - name: Download the run's Trunk ownership map
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners
+
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -1622,7 +1636,8 @@ jobs:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
-        timeout-minutes: 10
+        # Room for the shadow hoglint step's own 5-minute cap on top of the other checks.
+        timeout-minutes: 15
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
@@ -1667,8 +1682,9 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # Above the boundary for the same reason. product:lint compares the crossings ledger
-            # with the merge commit's first parent, so the clone needs one more level of history.
+            # Above the boundary for the same reason. product:lint compares the crossings ledger,
+            # and `hoglint compare` the boundaries, with the merge commit's first parent, so the
+            # clone needs one more level of history.
             - name: Fetch the pull request base
               if: github.event_name == 'pull_request'
               run: |
@@ -1684,6 +1700,26 @@ jobs:
             - name: Check deleted migrations
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
+            # hoglint runs in shadow, so the step always exits 0: it can never fail the job or flag
+            # a deterministic failure. A finding on a line the pull request adds or edits becomes
+            # an annotation. The step summary shows compare's own new findings and lists the other
+            # rows. The full view (`--all`) lists every row, which the default view can cut short.
+            # It runs before the scaffold, which edits tracked files that compare would read as part
+            # of the change.
+            - name: Check boundaries (hoglint, shadow)
+              env:
+                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+              run: |
+                  output="$RUNNER_TEMP/hoglint.txt"
+                  errors="$RUNNER_TEMP/hoglint-stderr.txt"
+                  status=0
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                  else
+                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                  fi
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
@@ -3471,8 +3507,10 @@ jobs:
               retry: 1
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
+            # Only the events_json rows can run product tests. Core, POE and compat rows run posthog/
+            # and ee/ alone, and no test there reaches the canvas builder.
             - name: Set up Node.js for canvas builder
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.json-targets && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
@@ -3480,7 +3518,7 @@ jobs:
             # A single `npm ci` on an empty npm cache intermittently fails with EEXIST or ENOENT on a
             # `_cacache/tmp` file, with no other process using the cache.
             - name: Install canvas builder dependencies
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.json-targets }}
               shell: bash
               retry: 2
               run: |
@@ -4098,6 +4136,14 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
+            - name: Download the run's Trunk ownership map
+              continue-on-error: true
+              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners
+
             # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
               if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
@@ -4146,6 +4192,32 @@ jobs:
               if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
+
+    # Test shards download this map instead of each spending seconds generating it, and generate
+    # their own when the download misses. No job needs it, so it cannot delay or fail the run.
+    trunk-ownership-map:
+        name: Build the Trunk ownership map
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Install uv
+              uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: 'false'
+            - name: Build the map
+              shell: bash
+              run: .github/scripts/trunk-codeowners.sh "$RUNNER_TEMP/trunk-codeowners"
+            - name: Upload the map
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: trunk-ownership-map
+                  path: ${{ runner.temp }}/trunk-codeowners/CODEOWNERS
+                  if-no-files-found: ignore
+                  retention-days: 1
+                  overwrite: true # artifacts are immutable per run; a re-run would 409 otherwise
 
     # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:

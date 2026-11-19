@@ -28,7 +28,7 @@ import json
 import time
 import tempfile
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 
 import structlog
@@ -241,7 +241,20 @@ def owners_package_files() -> dict[str, str]:
     return {path.name: path.read_text() for path in sorted(OWNERS_PACKAGE_DIR.glob("*.py"))}
 
 
+def check_outside_engine_tree(paths: Iterable[str]) -> None:
+    """Refuse a repository file whose path lands beside the engine or owners modules.
+
+    The engine runs with its own directory first on `sys.path`, so any file there, such as a
+    `yaml.py`, would be imported as code. Every path the server reads from a repository must stay out.
+    """
+    reserved = (f"{_ENGINE_SUBDIR.as_posix()}/", f"{_OWNERS_SUBDIR.parent.as_posix()}/")
+    inside = sorted(path for path in paths if path.startswith(reserved))
+    if inside:
+        raise RuntimeError(f"repository files may not be written into the engine tree: {inside}")
+
+
 def _write_tree(root: Path, policy_files: Mapping[str, str]) -> None:
+    check_outside_engine_tree(policy_files)
     # The engine finds the repo root by its `.stamphog/` directory, and a repository with no policy
     # files of its own writes nothing there.
     (root / ".stamphog").mkdir(parents=True, exist_ok=True)

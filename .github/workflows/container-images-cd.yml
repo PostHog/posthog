@@ -581,6 +581,7 @@ jobs:
                         - 'products/batch_exports/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -600,6 +601,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -652,6 +654,7 @@ jobs:
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -660,6 +663,7 @@ jobs:
                         - 'products/experiments/backend/temporal/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -669,6 +673,7 @@ jobs:
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -681,6 +686,7 @@ jobs:
                         - 'posthog/temporal/usage_report/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -697,6 +703,7 @@ jobs:
                         - 'products/knowledge_writer/merge_check/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -712,6 +719,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -721,6 +729,7 @@ jobs:
                         - 'products/signals/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -730,6 +739,7 @@ jobs:
                         - '.github/workflows/container-images-cd.yml'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -751,6 +761,7 @@ jobs:
                         - 'posthog/temporal/schedule.py'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -765,6 +776,7 @@ jobs:
                         - 'posthog/temporal/common/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -776,6 +788,7 @@ jobs:
                         - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -784,6 +797,7 @@ jobs:
                       # import analysis in check_python_changes_analytics_platform_temporal_worker.
                       analyticsPlatform:
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -798,6 +812,7 @@ jobs:
                         - 'products/llm_analytics/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -808,6 +823,7 @@ jobs:
                         - '!products/managed_warehouse/backend/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -835,6 +851,7 @@ jobs:
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -859,6 +876,7 @@ jobs:
                         - '!products/*/backend/temporal/health_checks/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -869,6 +887,7 @@ jobs:
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -898,6 +917,7 @@ jobs:
                         - 'products/mcp_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -911,6 +931,7 @@ jobs:
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker

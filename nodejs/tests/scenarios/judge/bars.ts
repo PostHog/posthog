@@ -33,6 +33,7 @@ export type HarnessLimit = { scale: number; by: 'generator' | 'run_host' }
 export type BarResult = {
     name: string
     unit: string
+    limit: number
     passed: boolean
     unjudged?: string
     harnessLimit?: HarnessLimit
@@ -44,6 +45,7 @@ type Window = { from: number; to: number; last: boolean }
 type Reading = { key?: string; value: number; passed: boolean; part: string } | { unread: string }
 
 type BarDefinition = Definition & {
+    limit(params: unknown): number
     unit: string
     read(evidence: BarEvidence, window: Window, params: unknown): Reading
 }
@@ -69,6 +71,7 @@ const percent = (share: number): string => `${Number((share * 100).toFixed(1))}%
 const writerCpuUnder: BarDefinition = {
     name: 'writer_cpu_under',
     params: WriterCpuParams,
+    limit: (params) => WriterCpuParams.parse(params).percent,
     unit: '%',
     read: ({ writerCpu }, { from, to }, params) => {
         if ('unread' in writerCpu) {
@@ -148,6 +151,7 @@ function p99Of(buckets: Buckets): { value: number; beyond: boolean } {
 const pickupP99Under: BarDefinition = {
     name: 'pickup_p99_under',
     params: PickupParams,
+    limit: (params) => PickupParams.parse(params).seconds,
     unit: 's',
     read: ({ samples }, { from, to, last }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
@@ -278,14 +282,20 @@ export function judgeStep(bars: Named[], evidence: BarEvidence, i: number): BarR
     return bars.map(({ name, params }) => {
         const definition = definitionOf(name)
         const verdict = verdictOf(definition, params, evidence, i, false)
-        return { name, unit: definition.unit, passed: Object.keys(verdict).length === 0, ...verdict }
+        return {
+            name,
+            unit: definition.unit,
+            limit: definition.limit(params),
+            passed: Object.keys(verdict).length === 0,
+            ...verdict,
+        }
     })
 }
 
 export function judgeBars(bars: Named[], evidence: BarEvidence): BarResult[] {
     return bars.map(({ name, params }) => {
         const definition = definitionOf(name)
-        const result = { name, unit: definition.unit }
+        const result = { name, unit: definition.unit, limit: definition.limit(params) }
         for (let i = 0; i < evidence.steps.length; i++) {
             const live = evidence.settled?.get(i)?.find((settled) => settled.name === name)
             const verdict = verdictOf(definition, params, evidence, i, i === evidence.steps.length - 1, live)

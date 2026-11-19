@@ -39,4 +39,16 @@ describe('operationFilterGroup', () => {
             ],
         })
     })
+    // An outgoing call labelled by its host must not set any attribute the endpoints table reads first.
+    test('a host-labelled outgoing call excludes every earlier route attribute', () => {
+        const group = operationFilterGroup('POST', null, { attribute: 'server.address', value: 'profiles.internal' })
+
+        expect((group.values[0] as { values: unknown[] }).values.slice(2)).toEqual(
+            ['http.route', 'url.template', 'db.system'].map((key) => ({
+                type: PropertyFilterType.SpanAttribute,
+                key,
+                operator: PropertyOperator.IsNotSet,
+            }))
+        )
+    })
 })

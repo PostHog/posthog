@@ -269,7 +269,7 @@ class DeploymentsViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets
         service = params.validated_data["service"]
 
         try:
-            rows = list_deployments(
+            result = list_deployments(
                 team=self.team,
                 date_from=window.date_from,
                 date_to=window.date_to,
@@ -279,7 +279,8 @@ class DeploymentsViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets
         except CHQueryErrorTooManyBytes:
             raise ValidationError("This window reads too many spans. Pick a shorter window.")
         payload = {
-            "results": [asdict(row) for row in rows],
+            "results": [asdict(row) for row in result.versions],
+            "version_source": result.version_source,
             "service": service,
             "environment": window.environment,
             "date_from": window.date_from,
@@ -316,6 +317,8 @@ class DependenciesViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewset
         payload = {
             "edges": [{**asdict(edge), "kind": edge.kind.value} for edge in result.edges],
             "truncated": result.truncated,
+            "sampled": result.sampled,
+            "trace_count": result.trace_count,
             "environment": window.environment,
             "service": service,
             "date_from": window.date_from,

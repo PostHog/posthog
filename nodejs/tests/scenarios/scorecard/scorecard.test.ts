@@ -58,6 +58,7 @@ const RESULT: RunResult = {
         {
             name: 'pickup_p99_under',
             unit: 's',
+            limit: 5,
             passed: false,
             breakingPoint: {
                 scale: 10,
