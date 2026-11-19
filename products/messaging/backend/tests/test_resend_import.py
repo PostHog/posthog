@@ -1,5 +1,6 @@
 import re
 import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -30,14 +31,19 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.provider_imports import resend, runs
+from products.messaging.backend.provider_imports import contacts, resend, runs
 from products.messaging.backend.provider_imports.base import (
     ImportCredentialsInvalid,
     ImportProviderUnavailable,
     ImportStepBlocked,
 )
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
+from products.messaging.backend.services import resend_client
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.messaging.backend.temporal import (
+    client as temporal_client,
+    workflow as temporal_workflow,
+)
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 from products.workflows.backend.facade.workflows import get_workflow
 
@@ -779,3 +785,15 @@ class TestResendTemplateConversion(SimpleTestCase):
         assert "FIRST_NAME" in joined
         assert "ORDER" in joined
         assert "isn't published" in joined
+
+
+class TestResendImportBudget(SimpleTestCase):
+    def test_the_largest_account_finishes_the_steps_that_read_contacts_one_at_a_time(self) -> None:
+        # Resend returns a contact's topics and properties only one contact per request.
+        per_scan = timedelta(seconds=contacts.MAX_CONTACT_MEMBERSHIPS / resend_client.REQUESTS_PER_SECOND)
+        scans = ["topic_opt_outs", "contact_properties"]
+
+        assert all(step in {spec.key for spec in resend.ResendImportProvider.steps} for step in scans)
+        assert per_scan * len(scans) < temporal_client.RUN_EXECUTION_TIMEOUT
+        assert per_scan < temporal_workflow.STEP_TIMEOUT
+        assert runs.STALE_RUN_AGE > temporal_client.RUN_EXECUTION_TIMEOUT
