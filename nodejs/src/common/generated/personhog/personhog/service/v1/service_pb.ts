@@ -254,7 +254,7 @@ export const PersonHogService: GenService<{
         output: typeof DeleteHashKeyOverridesByTeamsResponseSchema
     }
     /**
-     * Everything feature flag evaluation reads about one visitor, with the person served by a changelog follower.
+     * Everything feature flag evaluation reads about one visitor, with the person served by a changelog follower when one can answer.
      *
      * @generated from rpc personhog.service.v1.PersonHogService.GetFlagContext
      */

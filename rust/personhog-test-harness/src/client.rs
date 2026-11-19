@@ -70,7 +70,7 @@ impl HarnessClient {
             .context("GetPerson failed")
     }
 
-    /// The person as a changelog follower has them, read as part of a flag context.
+    /// The person as a followed read shows them, read as part of a flag context.
     pub async fn followed_person_in_flag_context(
         &self,
         team_id: i64,

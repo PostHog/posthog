@@ -470,7 +470,7 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def GetFlagContext(self, request, context):
-        """Everything feature flag evaluation reads about one visitor, with the person served by a changelog follower."""
+        """Everything feature flag evaluation reads about one visitor, with the person served by a changelog follower when one can answer."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")

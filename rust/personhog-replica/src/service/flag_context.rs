@@ -6,14 +6,15 @@ use tonic::metadata::MetadataMap;
 use tonic::Status;
 
 use super::error::log_and_convert_error;
+use super::followed::followed_or_stored;
 use super::PersonHogReplicaService;
 use crate::storage;
 use crate::storage::postgres::ConsistencyLevel;
 
 impl PersonHogReplicaService {
     /// Everything flag evaluation reads about one visitor, in one call. The person comes
-    /// from a follower when the router sent the call to one; every other part is the same
-    /// eventual read its own call makes.
+    /// from a follower when the router sent the call to one that can answer; every other
+    /// part is the same eventual read its own call makes.
     pub(super) async fn flag_context(
         &self,
         metadata: &MetadataMap,
@@ -21,18 +22,18 @@ impl PersonHogReplicaService {
     ) -> Result<GetFlagContextResponse, Status> {
         let team_id = req.team_id;
         let person = async {
-            match req.person_id {
-                Some(person_id) if Self::routed_to_a_follower(metadata) => {
-                    self.followed_person(metadata, team_id, person_id).await
-                }
-                Some(person_id) => self
-                    .storage
+            let Some(person_id) = req.person_id else {
+                return Ok(None);
+            };
+            let followed = self.followed_person(metadata, team_id, person_id);
+            followed_or_stored(followed, || async {
+                self.storage
                     .get_person_by_id(team_id, person_id)
                     .await
                     .map(|person| person.map(Into::into))
-                    .map_err(|e| log_and_convert_error(e, "get_flag_context_person")),
-                None => Ok(None),
-            }
+                    .map_err(|e| log_and_convert_error(e, "get_flag_context_person"))
+            })
+            .await
         };
         let cohort_memberships = async {
             let Some(person_id) = req.person_id.filter(|_| !req.static_cohort_ids.is_empty())

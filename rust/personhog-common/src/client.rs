@@ -236,7 +236,7 @@ impl RouterClient {
         .map(|response| response.person)
     }
 
-    /// Everything flag evaluation reads about one visitor. A named person is read from a
+    /// Everything flag evaluation reads about one visitor. A named person is routed to a
     /// follower of their partition, so the call then carries the routing headers.
     pub async fn get_flag_context(
         &self,

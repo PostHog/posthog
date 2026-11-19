@@ -259,10 +259,10 @@ export const DeleteHashKeyOverridesByTeamsResponseSchema: GenMessage<DeleteHashK
 
 /**
  * GetFlagContextRequest asks, in one call, for everything feature flag evaluation reads
- * about one visitor. The person is read from a changelog follower, so it reflects writes
- * the writer has not applied to Postgres yet. The caller resolves the distinct ID to a
- * person ID first and names the person in the `x-team-id` and `x-person-id` headers,
- * which route the call to a follower of that person's partition.
+ * about one visitor. The caller resolves the distinct ID to a person ID first and names
+ * the person in the `x-team-id` and `x-person-id` headers, which route the call to a
+ * changelog follower of that person's partition. A follower that can answer shows writes
+ * the writer has not applied to Postgres yet. The person is read from Postgres otherwise.
  *
  * @generated from message personhog.types.v1.GetFlagContextRequest
  */

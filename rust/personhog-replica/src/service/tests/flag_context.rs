@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{GetFlagContextRequest, GroupIdentifier};
-use tonic::{Code, Request};
+use tonic::Request;
 
 use super::super::PersonHogReplicaService;
 use super::followed::{follower_reads, own_partition};
 use super::mocks::{PopulatedStorage, SuccessStorage};
-use crate::service::PARTITION_HEADER;
+use personhog_common::client::PARTITION_HEADER;
 
 fn request(person_id: Option<i64>) -> Request<GetFlagContextRequest> {
     Request::new(GetFlagContextRequest {
@@ -68,7 +68,7 @@ async fn a_flag_context_without_a_person_holds_only_the_groups() {
 }
 
 #[tokio::test]
-async fn a_flag_context_reads_its_person_from_a_follower_only_when_routed_to_one() {
+async fn a_flag_context_reads_its_person_from_postgres_when_the_follower_has_no_answer() {
     let service =
         PersonHogReplicaService::new(Arc::new(PopulatedStorage)).with_follower(follower_reads());
     let mut routed = request(Some(42));
@@ -77,10 +77,8 @@ async fn a_flag_context_reads_its_person_from_a_follower_only_when_routed_to_one
         own_partition().to_string().parse().expect("header value"),
     );
 
-    // This follower follows nothing, so a routed person is refused, not read from Postgres.
-    let refused = service.get_flag_context(routed).await;
-    let unrouted = service.get_flag_context(request(Some(42))).await;
+    // This follower follows nothing, so it has no answer for a routed person.
+    let context = service.get_flag_context(routed).await;
 
-    assert_eq!(refused.unwrap_err().code(), Code::Unavailable);
-    assert!(unrouted.expect("served").into_inner().person.is_some());
+    assert!(context.expect("served").into_inner().person.is_some());
 }
