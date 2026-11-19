@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { IconTrash } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
-import type { ContentWidget } from '../layout/dashboardTypes'
+import { type ContentWidget, showsPart } from '../layout/dashboardTypes'
 import { WidgetView } from '../widgets/WidgetView'
 import { ContentTileFooter } from './ContentTileFooter'
 import { TileContextMenu, useContentTileActions } from './TileContextMenu'
@@ -17,7 +17,7 @@ export function ContentTile({
     widget: ContentWidget
     editable: boolean
 }): JSX.Element {
-    const actions = useContentTileActions(id)
+    const actions = useContentTileActions(id, widget)
     const remove = actions.find((action) => action.key === 'remove')
     const removeButton = remove && (
         <Button
@@ -32,29 +32,33 @@ export function ContentTile({
         </Button>
     )
 
+    const showHeader = !!widget.title && showsPart(widget, 'header')
+    const showDescription = !!widget.description && showsPart(widget, 'description')
+    const footer = showsPart(widget, 'footer') ? widget.footer : undefined
+
     return (
         <TileContextMenu actions={actions}>
             <Card
                 size="sm"
-                // A tile without a title has no title bar, so the whole tile is what it is dragged by.
-                className={clsx('DashboardV2__card', editable && !widget.title && 'DashboardV2__handle')}
+                // A tile without a header has no title bar, so the whole tile is what it is dragged by.
+                className={clsx('DashboardV2__card', editable && !showHeader && 'DashboardV2__handle')}
             >
-                {widget.title && (
+                {showHeader && (
                     <CardHeader className={clsx(editable && 'DashboardV2__handle')}>
                         <CardTitle className="truncate">{widget.title}</CardTitle>
-                        {widget.description && (
+                        {showDescription && (
                             <CardDescription className="truncate">{widget.description}</CardDescription>
                         )}
                         {editable && <CardAction className="DashboardV2__chrome">{removeButton}</CardAction>}
                     </CardHeader>
                 )}
-                {!widget.title && editable && (
+                {!showHeader && editable && (
                     <div className="DashboardV2__chrome DashboardV2__float-toolbar">{removeButton}</div>
                 )}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} />
                 </CardContent>
-                {widget.footer && <ContentTileFooter footer={widget.footer} refreshedAt={widget.refreshedAt} />}
+                {footer && <ContentTileFooter footer={footer} refreshedAt={widget.refreshedAt} />}
             </Card>
         </TileContextMenu>
     )
