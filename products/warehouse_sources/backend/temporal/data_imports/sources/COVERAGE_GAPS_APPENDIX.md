@@ -13637,12 +13637,12 @@ Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources
 - [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
 - [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
 - [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
-- [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
-- [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
-- [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
-- [ ] `call_outcomes` — lookup resolving outcome_id on the calls table we already sync (medium)
-- [ ] `text_messages` — SMS activity alongside calls and notes, completing the rep-activity picture (medium)
-- [ ] `sequence_enrollments` — which contacts/leads entered which outreach sequence and their enrollment state (medium)
+- [x] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
+- [x] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
+- [x] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
+- [x] `call_outcomes` — lookup resolving outcome_id on the calls table we already sync (medium)
+- [x] `text_messages` — SMS activity alongside calls and notes, completing the rep-activity picture (medium)
+- [x] `sequence_enrollments` — which contacts/leads entered which outreach sequence and their enrollment state (medium)
 
 Note: Zendesk Sell also ships a separate Firehose (incremental sync) API covering appointments, collaborations, visits, documents and sources. Those remain uncovered but were ranked below the cut; `sequences`, `visits`, `visit\_outcomes`, `collaborations` and `documents` are the next tier.
 
