@@ -383,7 +383,7 @@ note, and drops its oldest fire when full. Every other rejection (pause, enrolme
 missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
 hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
 allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the gates a live fire does, with the cooldown shortened by one tick, so a
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
 queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
