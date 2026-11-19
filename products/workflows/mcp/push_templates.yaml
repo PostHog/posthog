@@ -57,7 +57,7 @@ tools:
             template needs a title, a body and at least one push channel. Requires human typed confirmation. The
             response has transactional_hog_flow_id, the workflow that sends it. Then tell the user what is left: create
             a project secret API key with Transactional push notifications set to Write, and POST
-            /api/projects/@current/messaging/send/push/ from their backend with template_id, distinct_id and
+            /api/projects/{project_id}/messaging/send/push/ from their backend with template_id, distinct_id and
             message_data. The push goes to every device that person registered for the template's channels.
         exclude_params:
             - from_integration_id
