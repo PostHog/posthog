@@ -1054,6 +1054,7 @@ filters:
         - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
         - posthog/management/commands/start_temporal_worker.py
+        - 'products/*/backend/facade/temporal.py'
         - posthog/management/commands/__init__.py
         - 'posthog/settings/**'
         - ee/settings.py
@@ -1388,4 +1389,4 @@ images:
             alerts-platform-registrar:
                 repository: posthog-temporal-workers/alerts-platform-registrar
                 filter: alertsPlatformRegistrar
-                bootstrapPolicyDigest: d42757da340004567bb1797653c616faa178e540a2d8ff1c51f8faa52e06fe07
+                bootstrapPolicyDigest: ba0350ddd255906ffde3ec78fadb28b3f72f4eca720bdf82938f787526c6d4ef
