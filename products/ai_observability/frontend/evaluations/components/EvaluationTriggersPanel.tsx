@@ -1,13 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconCheck, IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { QuickFilterKey, applyQuickFilter, internalUserFilters, quickFilterApplied } from './evaluationQuickFilters'
+import {
+    QuickFilterKey,
+    applyQuickFilter,
+    internalUserFilters,
+    quickFilterApplied,
+    removeQuickFilter,
+} from './evaluationQuickFilters'
 import { EvaluationTriggers } from './EvaluationTriggers'
 
 const QUICK_FILTERS: { key: QuickFilterKey; label: string }[] = [
@@ -27,14 +33,20 @@ export function EvaluationTriggersPanel(): JSX.Element | null {
     }
     const testAccountFilters = currentTeam?.test_account_filters ?? []
     const usableInternalFilters = internalUserFilters(testAccountFilters).length
+    const applied = (key: QuickFilterKey): boolean => quickFilterApplied(key, evaluation.conditions, testAccountFilters)
     const disabledReason = (key: QuickFilterKey): string | undefined => {
         // A generation judge skips errored generations without grading them. Trace and session judges grade the
         // whole transcript, errors included, so the filter stays useful there.
-        if (key === 'errors' && evaluation.evaluation_type === 'llm_judge' && evaluation.target === 'generation') {
+        if (
+            key === 'errors' &&
+            !applied(key) &&
+            evaluation.evaluation_type === 'llm_judge' &&
+            evaluation.target === 'generation'
+        ) {
             return 'The LLM judge skips generations with errors, so this would leave it nothing to grade.'
         }
-        if (quickFilterApplied(key, evaluation.conditions, testAccountFilters)) {
-            return 'Already added'
+        if (key === 'sample' && applied(key)) {
+            return 'Already set. Change the percentage below.'
         }
         if (key === 'internal' && usableInternalFilters === 0) {
             return 'Add internal and test user filters in project settings first.'
@@ -53,8 +65,16 @@ export function EvaluationTriggersPanel(): JSX.Element | null {
                 <LemonMenu
                     items={QUICK_FILTERS.map(({ key, label }) => ({
                         label,
+                        active: applied(key),
+                        sideIcon: applied(key) ? <IconCheck /> : undefined,
                         onClick: () =>
-                            setTriggerConditions(applyQuickFilter(key, evaluation.conditions, testAccountFilters)),
+                            setTriggerConditions(
+                                (applied(key) ? removeQuickFilter : applyQuickFilter)(
+                                    key,
+                                    evaluation.conditions,
+                                    testAccountFilters
+                                )
+                            ),
                         disabledReason: disabledReason(key),
                         tooltip: tooltip(key),
                         'data-attr': `llma-evaluation-quick-filter-${key}`,
