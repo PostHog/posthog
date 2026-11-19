@@ -345,6 +345,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private pinnedGoalsSyncedAt = 0
     // Set only by a refresh, so a fallback scan finishes before the gate stops using the goals table.
     private usingPinnedGoals = false
+    // Set when the goals table stops being trusted and the watcher scan that replaces it has not succeeded yet.
+    private liveWatchersUnknown = false
     // An events batch carries few events a flow can act on, so most lookups cost a query for little.
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
     private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
@@ -493,7 +495,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
-        const usePinnedGoals = this.usingPinnedGoals
+        const usePinnedGoals = this.usingPinnedGoals && !this.watcherStateUnknown()
         const shadowPinnedGoals = !usePinnedGoals && this.pinnedGoalsMode !== 'off' && this.pinnedGoalsReady()
         const goalFlowsByTeam = new Map<number, HogFlow[] | 'any'>()
         const pinnedGoalsByTeam = new Map<number, PinnedGoalEntry[] | 'any'>()
@@ -1132,6 +1134,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private mayHaveLiveWatchers(teamId: number): boolean {
+        if (this.watcherStateUnknown()) {
+            return true
+        }
         if (this.usingPinnedGoals) {
             return this.pinnedGoalsByTeam.has(teamId) || this.teamsWithChangedFlows.has(teamId)
         }
@@ -1173,15 +1178,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         )
     }
 
+    // While the goals table is in use but no longer trusted, every event is looked up until the scan replaces it.
+    private watcherStateUnknown(): boolean {
+        return this.liveWatchersUnknown || (this.usingPinnedGoals && !this.pinnedGoalsReady())
+    }
+
     private async refreshPinnedGoals(): Promise<void> {
-        const [goals, sync] = await Promise.all([
-            this.cyclotronPool.query(
-                `SELECT team_id, function_id, goal FROM conversion_watcher_goals
-                 WHERE expires_at > NOW() - make_interval(secs => $1)`,
-                [PINNED_GOALS_EXPIRY_GRACE_SECONDS]
-            ),
-            this.cyclotronPool.query(`SELECT synced_at FROM conversion_watcher_goals_sync`),
-        ])
+        // The stamp first: goals read after it include everything the sync it records wrote.
+        const sync = await this.cyclotronPool.query(`SELECT synced_at FROM conversion_watcher_goals_sync`)
+        const goals = await this.cyclotronPool.query(
+            `SELECT team_id, function_id, goal FROM conversion_watcher_goals
+             WHERE expires_at > NOW() - make_interval(secs => $1)`,
+            [PINNED_GOALS_EXPIRY_GRACE_SECONDS]
+        )
         const pinnedGoalsByTeam = new Map<number, PinnedGoalEntry[]>()
         for (const row of goals.rows) {
             if (!row.goal || typeof row.goal !== 'object') {
@@ -1211,8 +1220,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (this.pinnedGoalsMode === 'on' && this.pinnedGoalsReady()) {
             this.usingPinnedGoals = true
         } else if (this.usingPinnedGoals || Date.now() - this.watcherRefreshedAt >= WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
+            if (this.usingPinnedGoals) {
+                this.usingPinnedGoals = false
+                this.liveWatchersUnknown = true
+                gaugeHogflowMatcherPinnedGoalsInUse.set(0)
+            }
             await this.refreshTeamsWithLiveWatchers()
-            this.usingPinnedGoals = false
+            this.liveWatchersUnknown = false
         }
         gaugeHogflowMatcherPinnedGoalsInUse.set(this.usingPinnedGoals ? 1 : 0)
     }
@@ -1220,7 +1234,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // The flows whose current goals cover every goal the team's live watchers pinned, or 'any' when a
     // watcher may hold a goal that no cached flow still shows: a paused flow, or one edited since.
     private goalFlowsForWatchers(teamId: number, flows: HogFlow[]): HogFlow[] | 'any' {
-        if (this.teamsWithChangedFlows.has(teamId)) {
+        if (this.watcherStateUnknown() || this.teamsWithChangedFlows.has(teamId)) {
             return 'any'
         }
         for (const [functionId, oldestCreatedAt] of this.liveWatcherFlowsByTeam.get(teamId) ?? []) {

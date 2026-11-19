@@ -135,6 +135,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     // conversion_watcher_goals rows, and when the janitor last synced them (null = never).
     public goalRows: { team_id: number; function_id: string; goal: any }[] = []
     public goalsSyncedAt: Date | null = null
+    public failWatcherScan = false
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
     public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
@@ -181,6 +182,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             if (sql.includes('FROM conversion_watcher_goals')) {
                 return Promise.resolve({ rows: this.goalRows, rowCount: this.goalRows.length })
+            }
+            if (this.failWatcherScan && sql.includes('MIN(created_at)')) {
+                return Promise.reject(new Error('watcher scan failed'))
             }
             // Checked before the parked-job lookup: both select `id, team_id, function_id`.
             if (sql.includes('FROM conversion_watchers')) {
@@ -2204,6 +2208,22 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 expect(watcherLookup(gated)?.params.slice(0, 4) ?? null).toEqual(
                     lookedUp ? [[1], ['user-1'], [1], ['person-uuid-1']] : null
                 )
+            })
+
+            it('looks up every event when the sync goes stale and the fallback watcher scan fails', async () => {
+                const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
+                gated.goalRows = [pinnedGoal('goal-flow-1', 'wuc_upgraded')]
+                gated.goalsSyncedAt = new Date()
+                gated.setHogFlows({ 'goal-flow-1': goalFlow(1) })
+                await (gated as any).refreshWatcherState()
+                gated.goalsSyncedAt = new Date(Date.now() - minutes(20))
+                gated.failWatcherScan = true
+                await expect((gated as any).refreshWatcherState()).rejects.toThrow('watcher scan failed')
+                gated.calls = []
+
+                await gated.runWake([eventNamed('wuc_other')])
+
+                expect(watcherLookup(gated)?.params.slice(0, 4)).toEqual([[1], ['user-1'], [1], ['person-uuid-1']])
             })
 
             it('counts a conversion and a would-be miss in shadow mode when the table lacks the goal', async () => {
