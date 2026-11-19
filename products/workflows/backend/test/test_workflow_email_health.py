@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -9,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.settings.utils import get_uuid_set
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -16,7 +18,6 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
-    find_workflow_email_decisions,
     pause_workflow_email_sending,
     resume_workflow_email_sending,
     sweep_workflow_email_health,
@@ -265,8 +266,6 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_warned_at is not None
 
     def test_a_breach_spread_across_workflows_pauses_each_workflow_at_the_rate(self):
-        # Each workflow sends under the 200-email gate of the 1h window, so none trips alone.
-        # Together they send 450 emails with 65 hard bounces (14%), over the 10% pause rate.
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)
         under_the_rate = HogFlow.objects.create(name="Onboarding", team=self.team)
         self._seed(sent=150, hard_bounces=30)
@@ -323,18 +322,48 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("own_rate_past_the_pause_line", [(0, 2, 600, 0, 0), (0, 1, 300, 0, 40)], []),
-            ("rate_that_rounds_to_the_pause_line", [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)], []),
+            ("own_rate_past_the_pause_line", [(0, 2, 600, 0, 0), (0, 1, 300, 0, 40)], 0.01, []),
+            ("rate_that_rounds_to_the_pause_line", [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)], 0.01, []),
+            (
+                "rate_that_rounds_to_an_unrounded_pause_line",
+                [(0, 2, 1000, 0, 0), (0, 1, 501, 5, 0)],
+                0.01004,
+                [],
+            ),
             (
                 "complaints_past_the_line_fall_through_to_bounces",
                 [(0, 2, 550, 0, 0), (0, 1, 300, 5, 28)],
-                [(0, "bounce")],
+                0.01,
+                [
+                    (
+                        0,
+                        "Emails to addresses that do not exist reached 9.33% of the 300 emails this workflow "
+                        "sent in the last hour.",
+                        "10%",
+                    )
+                ],
             ),
-            ("project_rate_under_the_line", [(0, 1, 100, 0, 15), (1, 1, 150, 0, 6)], [(0, "bounce")]),
+            (
+                "project_rate_under_the_line",
+                [(0, 1, 100, 0, 15), (1, 1, 150, 0, 6)],
+                0.01,
+                [
+                    (
+                        0,
+                        "Emails to addresses that do not exist reached 8.4% of the 250 emails this project's "
+                        "workflows sent in the last hour. This workflow's rate was 15% of its 100 emails.",
+                        "10%",
+                    )
+                ],
+            ),
         ]
     )
     def test_a_warning_names_a_rate_under_the_pause_line(
-        self, _name: str, seeds: list[tuple[int, int, int, int, int]], warned: list[tuple[int, str]]
+        self,
+        _name: str,
+        seeds: list[tuple[int, int, int, int, int]],
+        complaint_pause_rate: float,
+        warned: list[tuple[int, str, str]],
     ):
         flows = [self.flow, HogFlow.objects.create(name="Second blast", team=self.team)]
         for flow_index, hours_ago, sent, complaints, hard_bounces in seeds:
@@ -346,17 +375,17 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 at=self.now - timedelta(hours=hours_ago),
             )
 
-        warnings = find_workflow_email_decisions(now=self.now).warnings
-        self._sweep()
+        with override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_1H=complaint_pause_rate):
+            self._sweep()
 
         flow_ids = [str(flow.id) for flow in flows]
-        assert [(flow_ids.index(warning.hog_flow_id), warning.threshold.signal) for warning in warnings] == warned
+        delivered = [call.kwargs for call in self.warning_email.call_args_list]
+        assert [
+            (flow_ids.index(sent["hog_flow_id"]), sent["reason"], sent["pause_rate"]) for sent in delivered
+        ] == warned
         for flow in flows:
             flow.refresh_from_db()
         assert [flow.email_sending_paused_at for flow in flows] == [None, None]
-        assert [index for index, flow in enumerate(flows) if flow.email_sending_warned_at == self.now] == [
-            index for index, _ in warned
-        ]
 
     @parameterized.expand(
         [
@@ -374,6 +403,18 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 [(0, 1, 150, 30), (1, 1, 150, 30), (2, 2, 3000, 0)],
                 None,
                 [0, 1],
+            ),
+            (
+                "project_breach_after_a_clean_sibling_sent_a_large_batch",
+                [(0, 1, 150, 30), (1, 1, 150, 30), (2, 1, 1, 0), (2, 2, 3000, 0)],
+                None,
+                [0, 1],
+            ),
+            (
+                "project_breach_after_a_bouncing_sibling_sent_a_large_batch",
+                [(0, 1, 150, 30), (1, 1, 150, 30), (2, 1, 1, 1), (2, 2, 3000, 0)],
+                None,
+                [],
             ),
             ("late_bounces_after_a_resume", [(0, 2, 5000, 0), (0, 1, 1200, 80)], 2, []),
         ]
@@ -582,3 +623,19 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert resume_workflow_email_sending(self.flow) is False
         self.flow.refresh_from_db()
         assert self.flow.email_sending_resumed_at is None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("", frozenset()),
+        (" 01A16477-CF0E-0000-FCD4-AB12E88F3D00 ,", frozenset({"01a16477-cf0e-0000-fcd4-ab12e88f3d00"})),
+    ],
+)
+def test_exempt_workflow_ids_from_the_environment_match_stored_ids(raw: str, expected: frozenset[str]):
+    assert get_uuid_set(raw) == expected
+
+
+def test_a_malformed_exempt_workflow_id_stops_startup():
+    with pytest.raises(ValueError):
+        get_uuid_set("not-a-workflow-id")

@@ -39,7 +39,7 @@ The volume gates and the reason the customer reads use the window's own sends.
 The detector also judges the whole project, on hard bounces only.
 When the project's unpaused workflows together pass both volume gates and a hard bounce rate, it pauses (or warns) each of them whose own rate is at that rate, even when that workflow is under the volume gates alone.
 A workflow under the rate keeps sending.
-The project's earlier sends are those of the workflows with metrics in the window. A workflow with no rows in the window has no late feedback in it, so its earlier sends say nothing about its siblings' bounces.
+The project's earlier sends are those of the workflows with hard bounces in the window. A workflow with none has no late bounces in it, so its earlier sends say nothing about its siblings' bounces.
 Complaints stay per workflow: a complaint says one recipient objected to one workflow's email, so a sibling's complaints are no evidence against it, and complaint feedback replayed by SES during an incident would otherwise pause every workflow in the project.
 The reason then names the project's rate and the workflow's own, and the log and the `workflow_email_auto_pause_total` / `workflow_email_warning_total` counters carry `scope="project"`.
 
@@ -61,8 +61,9 @@ Staff admin actions write regardless of the flag, which is the intended dogfood 
 5. To back out, unset the flag; existing pauses stay until resumed.
 
 `WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS` takes a comma-separated list of workflow ids that stay in dry run while the flag is on.
-The detector still logs their breaches, with `mode="exempt"`, and writes nothing.
+The detector still logs their own breaches, with `mode="exempt"`, and writes nothing.
 Their sends and feedback stay out of the project totals, so an exempt workflow cannot pause its siblings.
+A project breach that only an exempt workflow's feedback would cause is neither applied nor logged.
 An id that is not a UUID stops Django from starting.
 Use it for a workflow whose email must not stop, such as sign-in verification codes.
 

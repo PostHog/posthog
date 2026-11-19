@@ -1,9 +1,8 @@
 import os
 from typing import Optional
-from uuid import UUID
 
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, get_uuid_set
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
@@ -53,10 +52,8 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
 WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED: bool = get_from_env(
     "WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False, type_cast=str_to_bool
 )
-WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS: frozenset[str] = frozenset(
-    str(UUID(workflow_id.strip()))
-    for workflow_id in os.getenv("WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS", "").split(",")
-    if workflow_id.strip()
+WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS: frozenset[str] = get_uuid_set(
+    os.getenv("WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS", "")
 )
 
 # Volume gates. A workflow that sent 12 emails and drew 1 complaint is a 8% complaint rate and

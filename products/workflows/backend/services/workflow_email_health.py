@@ -404,7 +404,7 @@ def _first_breach(
 
 def _below_pause_rate(warning: PauseDecision) -> bool:
     shown_rate = warning.project.rate if warning.project is not None else warning.rate
-    return round(shown_rate, 4) < _pause_rate_for(warning.threshold)
+    return round(shown_rate, 4) < round(_pause_rate_for(warning.threshold), 4)
 
 
 def _project_counts(judged: dict[str, tuple[HogFlow, JudgedCounts]]) -> JudgedCounts:
@@ -416,7 +416,7 @@ def _project_counts(judged: dict[str, tuple[HogFlow, JudgedCounts]]) -> JudgedCo
             bounced_hard=sum(item.counts.bounced_hard for item in counted),
             complained=sum(item.counts.complained for item in counted),
         ),
-        earlier_sent=sum(item.earlier_sent for item in counted),
+        earlier_sent=sum(item.earlier_sent for item in counted if item.counts.bounced_hard),
     )
 
 
