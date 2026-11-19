@@ -232,8 +232,6 @@ def _ensure(
         wait_timeout_seconds=wait_timeout_seconds,
         read_after_write=run_inserts,
         cache_key_context={"engine": "series_values_v1"},
-        # The executor only checks its wait budget before starting an INSERT, so an INSERT
-        # begun near the deadline would otherwise run to the default ClickHouse timeout.
         insert_settings=None
         if wait_timeout_seconds is None
         else {"max_execution_time": max(1, math.ceil(wait_timeout_seconds))},
