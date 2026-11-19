@@ -679,3 +679,28 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert response.status_code == expected, response.json()
         stored = HogFlow.objects.get(id=flow.id)
         assert (stored.draft is not None) == (expected == 409)
+
+    @parameterized.expand(
+        [
+            ("unwarned_onto_the_test_sender", "sandbox", False, 409),
+            ("warned_onto_the_test_sender", "sandbox", True, 200),
+            ("without_saying_onto_the_test_sender", "sandbox", None, 200),
+            ("unwarned_on_an_own_sender", "own", False, 200),
+        ]
+    )
+    def test_enabling_refuses_test_sender_steps_it_did_not_warn_about(
+        self, _name: str, sender: str, warned: bool | None, expected: int
+    ) -> None:
+        step = _sandbox_step() if sender == "sandbox" else _own_email_step(self._verified_sender().id)
+        definition = _flow(step)
+        flow = HogFlow.objects.create(
+            team=self.team, name="Flow", status="draft", actions=definition["actions"], edges=definition["edges"]
+        )
+        body: dict[str, Any] = {"status": "active"}
+        if warned is not None:
+            body["sandbox_sender_warned"] = warned
+        with _flag(True), _runtime(True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow.id}", body, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert HogFlow.objects.get(id=flow.id).status == ("draft" if expected == 409 else "active")

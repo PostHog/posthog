@@ -420,10 +420,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                         }
                         baseUpdatedAt = live.updated_at
                     }
-                    // The server rejects the write with a 409 when the steps changed after the check above.
-                    const body: PatchedHogFlowUpdateApi & { base_updated_at?: string } = {
+                    // The server rejects the write with a 409 when the steps changed after the check above, and
+                    // refuses an enable onto the test sender that showed no warning.
+                    const body: PatchedHogFlowUpdateApi & {
+                        base_updated_at?: string
+                        sandbox_sender_warned?: boolean
+                    } = {
                         status,
                         ...(baseUpdatedAt ? { base_updated_at: baseUpdatedAt } : {}),
+                        ...(status === 'active' ? { sandbox_sender_warned: sandboxSenderConfirmed } : {}),
                     }
                     try {
                         await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, body)

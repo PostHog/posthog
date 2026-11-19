@@ -244,10 +244,6 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type {
-    HogFlowPublishRequestApi,
-    HogFlowPublishResponseApi,
-} from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -474,6 +470,10 @@ export class ApiConfig {
         return this._currentOrganizationId
     }
 
+    static hasCurrentOrganizationId(): boolean {
+        return !!this._currentOrganizationId
+    }
+
     static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
         this._currentOrganizationId = id
     }
@@ -571,11 +571,6 @@ export class ApiRequest {
     }
 
     // API-aware endpoint composition
-
-    // # Utils
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
-    }
 
     // # Organizations
     public organizations(): ApiRequest {
@@ -1062,7 +1057,7 @@ export class ApiRequest {
 
     // # Roles
     public roles(): ApiRequest {
-        return this.organizations().current().addPathComponent('roles')
+        return this.organizationsDetail().addPathComponent('roles')
     }
 
     public rolesDetail(roleId: RoleType['id']): ApiRequest {
@@ -1079,7 +1074,7 @@ export class ApiRequest {
 
     // # OrganizationMembers
     public organizationMembers(): ApiRequest {
-        return this.organizations().current().addPathComponent('members')
+        return this.organizationsDetail().addPathComponent('members')
     }
 
     public organizationMembersForAccount(): ApiRequest {
@@ -1637,7 +1632,7 @@ export class ApiRequest {
 
     // # Organization Integrations
     public organizationIntegrations(): ApiRequest {
-        return this.organizations().current().addPathComponent('integrations')
+        return this.organizationsDetail().addPathComponent('integrations')
     }
 
     public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
@@ -1882,7 +1877,7 @@ export class ApiRequest {
     }
 
     public addProductIntent(): ApiRequest {
-        return this.projects().current().addPathComponent('add_product_intent')
+        return this.projectsDetail().addPathComponent('add_product_intent')
     }
 
     // Max Core Memory
@@ -6391,8 +6386,7 @@ const api = {
                 ...(scope !== undefined ? { scope } : {}),
             }
             return await new ApiRequest()
-                .projects()
-                .current()
+                .projectsDetail()
                 .withAction('settings_as_of')
                 .withQueryString(toParams(params, true))
                 .get()
@@ -6481,14 +6475,6 @@ const api = {
             }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
-        },
-        async publishHogFlow(
-            hogFlowId: HogFlow['id'],
-            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
-            // publish must send that token back.
-            data: HogFlowPublishRequestApi
-        ): Promise<HogFlowPublishResponseApi> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
         },
         async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()

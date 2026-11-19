@@ -316,7 +316,8 @@ describe('workflowsLogic', () => {
 
             expect(dialogs).toEqual([])
             // Enabling sends the stamp it checked, so the server refuses it if the steps changed since.
-            const fence = verb === 'toggle' && to === 'active' ? { base_updated_at: STORED_AT } : {}
+            const fence =
+                verb === 'toggle' && to === 'active' ? { base_updated_at: STORED_AT, sandbox_sender_warned: false } : {}
             expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to, ...fence } }])
             if (verb === 'restore') {
                 expect(successToast).toHaveBeenCalledWith('Workflow "Churn win-back" restored to draft status')
@@ -361,7 +362,11 @@ describe('workflowsLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess']).toFinishAllListeners()
 
             expect(writes).toEqual([
-                { method: 'PATCH', path: 'flow-1/', body: { status: 'active', base_updated_at: STORED_AT } },
+                {
+                    method: 'PATCH',
+                    path: 'flow-1/',
+                    body: { status: 'active', base_updated_at: STORED_AT, sandbox_sender_warned: true },
+                },
             ])
         })
 
@@ -392,7 +397,7 @@ describe('workflowsLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess']).toFinishAllListeners()
 
             expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
-            const fence = to === 'active' ? { base_updated_at: STORED_AT } : {}
+            const fence = to === 'active' ? { base_updated_at: STORED_AT, sandbox_sender_warned: false } : {}
             expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to, ...fence } }])
         })
 
@@ -481,7 +486,11 @@ describe('workflowsLogic', () => {
                 'warning-toast'
             )
             expect(writes).toEqual([
-                { method: 'PATCH', path: 'flow-1/', body: { status: 'active', base_updated_at: STORED_AT } },
+                {
+                    method: 'PATCH',
+                    path: 'flow-1/',
+                    body: { status: 'active', base_updated_at: STORED_AT, sandbox_sender_warned: false },
+                },
             ])
             expect(stored.status).toBe('draft')
         })

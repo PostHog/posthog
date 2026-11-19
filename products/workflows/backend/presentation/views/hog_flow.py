@@ -6177,6 +6177,8 @@ class HogFlowViewSet(
                 route_to_draft=route_to_draft,
                 base_updated_at=self.request.data.get("base_updated_at"),
                 base_live_updated_at=self.request.data.get("base_live_updated_at"),
+                # Raw body like "base_updated_at": the web builder says whether it warned about the test sender.
+                sandbox_sender_warned=self.request.data.get("sandbox_sender_warned"),
                 includes_staged_draft=bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,

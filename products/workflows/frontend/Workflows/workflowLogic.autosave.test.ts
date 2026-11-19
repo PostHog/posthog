@@ -663,7 +663,7 @@ describe('workflowLogic auto-save', () => {
                 await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
                 await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
 
-                expect(patchBodies).toMatchObject([{ status: 'active' }])
+                expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: true }])
                 expect(logic.values.originalWorkflow?.status).toBe('active')
             })
 
@@ -693,7 +693,8 @@ describe('workflowLogic auto-save', () => {
                 await enableFromEditor()
 
                 expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
-                expect(patchBodies).toMatchObject([{ status: 'active' }])
+                // Without the warning, the server refuses the enable if the steps moved after this check.
+                expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: false }])
                 expect(logic.values.originalWorkflow?.status).toBe('active')
             })
 
@@ -764,45 +765,6 @@ describe('workflowLogic auto-save', () => {
                 expect(logic.values.workflow.actions.find((action) => action.id === 'exit_node')?.name).toBe(
                     'Renamed during check'
                 )
-            })
-
-            it('checks again when the editor loads a newer copy while the enable check runs', async () => {
-                const loaded = loadedWith('none')
-                const moved = { ...loaded, ...withSandbox, updated_at: '2026-05-01T00:10:00.000Z' } as HogFlow
-                useMocks(activeMocks(loaded))
-                await mountEditor()
-                let release: () => void = () => {}
-                const held = new Promise<void>((resolve) => {
-                    release = resolve
-                })
-                let markChecking: () => void = () => {}
-                const checking = new Promise<void>((resolve) => {
-                    markChecking = resolve
-                })
-                let checks = 0
-                // Another tab moves the workflow onto the test sender after the first check read it.
-                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': moved } })
-                useMocks({
-                    get: {
-                        '/api/projects/:team_id/hog_flows/:id/': async () => {
-                            checks += 1
-                            if (checks > 1) {
-                                return [200, moved]
-                            }
-                            markChecking()
-                            await held
-                            return [200, loaded]
-                        },
-                    },
-                })
-
-                logic.actions.saveWorkflowPartial({ status: 'active' })
-                await checking
-                await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions(['loadWorkflowSuccess'])
-                release()
-
-                expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
-                expect(patchBodies).toEqual([])
             })
         })
 
@@ -1430,18 +1392,22 @@ describe('workflowLogic auto-save', () => {
             const NEWER_DRAFT = '2026-05-01T00:05:00.000Z'
 
             // The token then covers the newer draft, while the editor still shows the one it loaded.
-            it('shows the newer draft instead of publishing when it was edited somewhere else', async () => {
+            it.each([
+                ['minutes later', NEWER_DRAFT],
+                // The server stores microseconds, which a millisecond date compare reads as the same draft.
+                ['within the same millisecond', '2026-05-01T00:01:00.000400Z'],
+            ])('shows the newer draft instead of publishing when it was edited somewhere else %s', async (_, newer) => {
                 jest.mocked(LemonDialog.open).mockRestore()
                 useMocks({
                     get: {
                         '/api/projects/:team_id/hog_flows/:id/': {
                             ...staged,
                             draft: { ...staged.draft, name: 'Edited in another tab' },
-                            draft_updated_at: NEWER_DRAFT,
+                            draft_updated_at: newer,
                         },
                     },
                     post: {
-                        [PUBLISH_URL]: recordPublish(() => [200, { ...preview, draft_updated_at: NEWER_DRAFT }]),
+                        [PUBLISH_URL]: recordPublish(() => [200, { ...preview, draft_updated_at: newer }]),
                     },
                 })
                 showToasts()
@@ -1495,6 +1461,30 @@ describe('workflowLogic auto-save', () => {
                 expect(await toastShown(message)).toBe('warning-toast')
                 expect(screen.queryByText('Publish staged changes?')).toBeNull()
                 expect(logic.values.externallyEdited).toBe(conflictBanner)
+                expect(logic.values.workflow.name).toBe('Renamed while publishing')
+            })
+
+            it('keeps edits typed while a refused publish confirm runs, behind the conflict banner', async () => {
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                useMocks(
+                    serverMocks({
+                        [PUBLISH_URL]: recordPublish(async () => {
+                            await held
+                            return [409, { detail: 'stale' }]
+                        }),
+                    })
+                )
+
+                logic.actions.confirmPublishDraft('preview-token', false)
+                logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
+                release()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.externallyEdited).toBe(true)
+                expect(reloads).toBe(0)
                 expect(logic.values.workflow.name).toBe('Renamed while publishing')
             })
 

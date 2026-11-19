@@ -107,6 +107,16 @@ def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datet
     return f"{hog_flow_id}:{draft_stamp}"
 
 
+def _enables_on_sandbox_sender(before_update: HogFlow, validated_data: dict) -> bool:
+    if before_update.status == HogFlow.State.ACTIVE or validated_data.get("status") != HogFlow.State.ACTIVE:
+        return False
+    actions = validated_data.get("actions", before_update.actions)
+    return any(
+        isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        for action in (actions if isinstance(actions, list) else [])
+    )
+
+
 def publish_moves_to_sandbox_sender(*, status: str, live_actions: Any, draft: Any) -> bool:
     """Whether publishing the staged draft of an enabled workflow puts email steps on the PostHog test sender
     that the live workflow does not already send from it."""
@@ -433,6 +443,7 @@ def update_workflow(
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
     before_write: Optional[Callable[[], None]] = None,
+    sandbox_sender_warned: Optional[bool] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -490,6 +501,10 @@ def update_workflow(
             ):
                 guard_timestamp = before_update.draft_updated_at
         if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
+            raise WorkflowStale()
+        # The caller checked the steps before it asked, and showed no test sender warning. Steps that
+        # moved onto the test sender since then must not go live behind that check.
+        if sandbox_sender_warned is False and _enables_on_sandbox_sender(before_update, validated_data):
             raise WorkflowStale()
         if before_write is not None:
             before_write()

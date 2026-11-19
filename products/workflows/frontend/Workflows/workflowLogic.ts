@@ -47,6 +47,7 @@ import type { IntegrationConfigApi } from 'products/integrations/frontend/genera
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
+    hogFlowsPublishCreate,
     hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
@@ -2928,10 +2929,10 @@ export interface workflowLogicActions {
     saveWorkflowPartial: (
         workflow: Partial<HogFlow>,
         sandboxSenderConfirmed?: boolean,
-        checkedUpdatedAt?: string
+        sandboxSenderWarned?: boolean
     ) => {
-        checkedUpdatedAt: string | undefined
         sandboxSenderConfirmed: boolean
+        sandboxSenderWarned: boolean
         workflow: Partial<HogFlow>
     }
     saveWorkflowSuccess: (
@@ -3709,6 +3710,19 @@ function unusableSenderError(action: HogFlowAction, integrations: IntegrationTyp
     return undefined
 }
 
+// Edits typed while a publish request runs must survive the reload, so they get the conflict banner instead.
+function reloadKeepingEdits(
+    hasUnsavedChanges: boolean,
+    actions: Pick<workflowLogicType['actions'], 'setExternallyEdited' | 'setSyncingExternalEdit' | 'loadWorkflow'>
+): void {
+    if (hasUnsavedChanges) {
+        actions.setExternallyEdited(true)
+    } else {
+        actions.setSyncingExternalEdit(true)
+        actions.loadWorkflow()
+    }
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
@@ -3749,11 +3763,11 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowPartial: (
             workflow: Partial<HogFlow>,
             sandboxSenderConfirmed: boolean = false,
-            checkedUpdatedAt?: string
+            sandboxSenderWarned: boolean = false
         ) => ({
             workflow,
             sandboxSenderConfirmed,
-            checkedUpdatedAt,
+            sandboxSenderWarned,
         }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
@@ -3896,6 +3910,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     // carries the old value and reads as a transition back to it.
                     const isStatusSave = cache.nextSaveChangesStatus === true
                     cache.nextSaveChangesStatus = false
+                    const sandboxSenderWarned: boolean | undefined = cache.nextSaveSandboxSenderWarned
+                    cache.nextSaveSandboxSenderWarned = undefined
                     const createsBroadcast = cache.nextSaveCreatesBroadcast === true
                     cache.nextSaveCreatesBroadcast = false
 
@@ -4018,6 +4034,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                 ...payload,
                                 ...(stagingDraft ? { stage_draft: true } : {}),
                                 ...(includesStagedDraft ? { includes_staged_draft: true } : {}),
+                                // The server refuses an enable onto the test sender that showed no warning.
+                                ...(sandboxSenderWarned !== undefined
+                                    ? { sandbox_sender_warned: sandboxSenderWarned }
+                                    : {}),
                                 // A staged save's metadata still writes live; fence that write with the
                                 // live stamp so it can't overwrite a concurrent metadata edit the
                                 // draft-stamp baseline wouldn't catch.
@@ -4846,21 +4866,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 lemonToast.error(`Fix these steps before publishing: ${names}`)
                 return
             }
-            // Edits typed while publish loads must survive the reload, so they get the conflict banner instead.
-            const reloadAfterExternalEdit = (): void => {
-                if (values.hasUnsavedChanges) {
-                    actions.setExternallyEdited(true)
-                } else {
-                    actions.setSyncingExternalEdit(true)
-                    actions.loadWorkflow()
-                }
-            }
             actions.setDraftActionPending('publish')
             let preview
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
-                preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
+                preview = await hogFlowsPublishCreate(String(ApiConfig.getCurrentTeamId()), props.id, {
+                    confirm: false,
+                })
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
@@ -4869,13 +4882,10 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             // The token covers the server's draft. When that is not the draft this editor shows, the
             // dialog would describe the wrong changes, so the user reviews the newer draft first.
-            if (
-                !dayjs(values.originalWorkflow?.draft_updated_at ?? undefined).isSame(
-                    preview.draft_updated_at ?? undefined
-                )
-            ) {
+            // Compared as text: the server stamps drafts to the microsecond, and a date parse drops that.
+            if ((values.originalWorkflow?.draft_updated_at ?? null) !== (preview.draft_updated_at ?? null)) {
                 lemonToast.warning('The staged changes were edited somewhere else. Review them, then publish again.')
-                reloadAfterExternalEdit()
+                reloadKeepingEdits(values.hasUnsavedChanges, actions)
                 return
             }
             // Publish reloads the workflow, which would drop edits typed while the requests ran.
@@ -4922,7 +4932,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             try {
-                await api.hogFlows.publishHogFlow(props.id, {
+                await hogFlowsPublishCreate(String(ApiConfig.getCurrentTeamId()), props.id, {
                     confirm: true,
                     confirm_token: confirmToken,
                     sandbox_sender_warned: sandboxSenderWarned,
@@ -4934,7 +4944,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 const validationDetail = error instanceof ApiError && error.status === 400 ? error.detail : null
                 // The detail can repeat step names and template text, so analytics gets the generic message.
                 lemonToast.error(validationDetail || genericMessage, { capturedMessage: genericMessage })
-                actions.loadWorkflow()
+                reloadKeepingEdits(values.hasUnsavedChanges, actions)
             } finally {
                 actions.setDraftActionPending(null)
             }
@@ -5011,7 +5021,7 @@ export const workflowLogic = kea<workflowLogicType>([
         submitWorkflow: () => {
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
         },
-        saveWorkflowPartial: async ({ workflow, sandboxSenderConfirmed, checkedUpdatedAt }) => {
+        saveWorkflowPartial: async ({ workflow, sandboxSenderConfirmed, sandboxSenderWarned }) => {
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
@@ -5048,27 +5058,21 @@ export const workflowLogic = kea<workflowLogicType>([
                     return
                 }
                 if (isLiveOnSandboxSender({ ...live, status: 'active' })) {
-                    confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
+                    confirmEnableOnSandboxSender(merged.id, 'editor', () =>
+                        actions.saveWorkflowPartial(workflow, true, true)
+                    )
                 } else {
-                    // The form may have changed while the check ran, so the save starts again from it.
-                    actions.saveWorkflowPartial(workflow, true, live.updated_at)
+                    // The form may have changed while the check ran, so the save starts again from it. The
+                    // server refuses it if the steps moved onto the test sender since this check.
+                    actions.saveWorkflowPartial(workflow, true, false)
                 }
-                return
-            }
-            // When the editor loaded a newer copy while the check ran, the check described an older one.
-            // An editor that is behind keeps its own fence instead, so its save gets the conflict banner.
-            if (
-                enabling &&
-                checkedUpdatedAt &&
-                dayjs(values.originalWorkflow?.updated_at ?? undefined).isAfter(checkedUpdatedAt)
-            ) {
-                actions.saveWorkflowPartial(workflow)
                 return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
             cache.enablingWorkflow = enabling
+            cache.nextSaveSandboxSenderWarned = enabling ? sandboxSenderWarned : undefined
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
