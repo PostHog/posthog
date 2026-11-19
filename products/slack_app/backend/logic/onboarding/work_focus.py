@@ -200,6 +200,9 @@ def find_and_send_work_focus(integration: WorkspaceIntegration, slack_user_id: s
     state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is not None and state.work_focus_at:
         return "already_done"
+    # Not stored either: a run queued before the flag went off sends nothing, and a later trigger can still run it.
+    if not _daily_work_focus_on(integration, slack_user_id):
+        return "flag_off"
     # Not stored, so the work focus can still run once the person can reach the project, and the organization allows
     # AI data processing and has credits.
     if blocked := _blocked_reason(integration, slack_user_id):
@@ -215,9 +218,7 @@ def find_and_send_daily_focus(
     """One workday's work focus, from the messages sent after ``since``, for the run the sweep claimed at ``run_at``.
     A quiet day sends nothing. The free checks come first, so a run that cannot send spends no queries, Slack calls
     or credits."""
-    if not is_slack_app_daily_work_focus_enabled(
-        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
-    ):
+    if not _daily_work_focus_on(integration, slack_user_id):
         return "flag_off"
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if not daily.enabled:
@@ -256,6 +257,12 @@ def find_and_send_daily_focus(
     if not mark_daily_focus_sending(integration, slack_user_id, run_at):
         return "already_sent"
     return _post(integration, slack_user_id, found, blocks)
+
+
+def _daily_work_focus_on(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    return is_slack_app_daily_work_focus_enabled(
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    )
 
 
 def _search_token(integration: WorkspaceIntegration, slack_user_id: str) -> LinkedUserToken | None:
@@ -297,9 +304,7 @@ def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> Non
 def _daily_focus_footer(integration: WorkspaceIntegration, slack_user_id: str) -> dict | None:
     """The onboarding turns the daily work focus on, unless the person already chose. The footer shows while it is
     on."""
-    if not is_slack_app_daily_work_focus_enabled(
-        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
-    ):
+    if not _daily_work_focus_on(integration, slack_user_id):
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if daily.enabled is None:
@@ -682,11 +687,14 @@ def work_focus_started_blocks(blocks: list[dict]) -> list[dict]:
 
 
 def start_work_focus(integration: WorkspaceIntegration, slack_user_id: str) -> None:
-    """Starts the work focus when the person's link can search and their organization allows AI data processing.
-    Never raises, so a failed start never fails the account link or a click."""
+    """Starts the work focus when the daily work focus flag is on for the person, their link can search and their
+    organization allows AI data processing. Never raises, so a failed start never fails the account link or a click."""
     try:
         state = resolve_onboarding(integration.integration_id, slack_user_id)
         if state is not None and state.work_focus_at:
+            return
+        # The first work focus is the daily one's first run, so it rolls out with the same flag.
+        if not _daily_work_focus_on(integration, slack_user_id):
             return
         if _search_token(integration, slack_user_id) is None or not has_ai_approval(integration.team_id):
             return
