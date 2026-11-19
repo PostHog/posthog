@@ -184,28 +184,62 @@ jobs:
                       echo "Image for $SHA already present in ECR ($digest); skipping build." >&2
                   fi
 
-            # Create the error tracking release for this commit before the build, so the build can
-            # bake its id into the image as POSTHOG_RELEASE_ID (see the final stage of the Dockerfile).
-            # The Python SDK sends that id as $release_id on every event, which links a backend
-            # exception to the same release the frontend bundles carry: the sourcemap stage of the
-            # Dockerfile resolves the release by the same name and version, so it finds this one.
-            # Keep release-name and release-version equal to the --release-name and --release-version
-            # of that stage.
-            # This step must never block a deploy. Without the secret, the action passes with an empty
-            # id and a warning. A download, checksum, or API error fails the step, and
-            # continue-on-error keeps the build going with an empty id. The step timeout stops a hung
-            # API call. An empty id is fine: the SDK treats a blank value as unset.
-            - name: Resolve error tracking release
-              id: release
+            # hog uploads the frontend sourcemaps from this job, with the job's OIDC token, so no
+            # credential ever enters the image build. PostHog trusts pushes to master in this
+            # repository for error_tracking:write in project 2 (set up with `hog ci setup`). None of
+            # these steps may block a deploy: each one continues on error, and a build without the
+            # processed frontend keeps its .map files, as it did when an upload failed.
+            - name: Install hog
+              id: hog
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 5
-              uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
+              run: |
+                  path=$(.github/scripts/install-hog.sh)
+                  echo "path=$path" >> "$GITHUB_OUTPUT"
+
+            # Create the error tracking release for this commit before the build, so the build can
+            # bake its id into the image as POSTHOG_RELEASE_ID (see the final stage of the Dockerfile).
+            # The Python SDK sends that id as $release_id on every event, which links a backend
+            # exception to the same release the frontend bundles carry: the sourcemap upload below
+            # resolves the release by the same name and version, so it finds this one. An empty id is
+            # fine: the SDK treats a blank value as unset.
+            - name: Resolve error tracking release
+              id: release
+              if: steps.hog.outputs.path != ''
+              continue-on-error: true
+              timeout-minutes: 5
+              env:
+                  HOG: ${{ steps.hog.outputs.path }}
+                  HOG_HOST: https://us.posthog.com
+                  HOG_PROJECT_ID: '2'
+                  HOG_NO_UPDATE_CHECK: '1'
+              run: |
+                  id=$("$HOG" error-tracking release --release-name posthog --release-version "$GITHUB_SHA" -o text)
+                  echo "release-id=$id" >> "$GITHUB_OUTPUT"
+
+            # The same frontend build the image build runs, from the shared Depot layer cache.
+            - name: Export the frontend build
+              id: frontend
+              if: steps.hog.outputs.path != ''
+              continue-on-error: true
+              timeout-minutes: 20
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
-                  api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
-                  project-id: '2'
-                  release-name: posthog
-                  release-version: ${{ github.sha }}
+                  context: .
+                  buildx-fallback: false
+                  target: frontend-dist
+                  platforms: linux/amd64
+                  outputs: type=local,dest=${{ runner.temp }}/sourcemap-upload
+
+            - name: Upload frontend sourcemaps
+              id: sourcemaps
+              if: steps.frontend.outcome == 'success'
+              continue-on-error: true
+              timeout-minutes: 15
+              env:
+                  HOG: ${{ steps.hog.outputs.path }}
+              run: .github/scripts/upload-frontend-sourcemaps.sh "$HOG" "$RUNNER_TEMP/sourcemap-upload" "$GITHUB_SHA"
 
             - name: Build and push container image
               id: build
@@ -223,20 +257,12 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
-                  # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage resolves, and creates when the release step above could
-                  # not. That stage builds in a container with no .git directory, so the workflow
-                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
                       POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
-                      GITHUB_ACTIONS=true
-                      GITHUB_SHA=${{ github.sha }}
-                      GITHUB_REF_NAME=${{ github.ref_name }}
-                      GITHUB_REPOSITORY=PostHog/posthog
-                      GITHUB_SERVER_URL=${{ github.server_url }}
-                  secrets: |
-                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  # Replaces the Dockerfile's sourcemap-upload stage with the processed frontend, once
+                  # the upload above worked. Without it the image keeps the .map files.
+                  build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('sourcemap-upload={0}/sourcemap-upload', runner.temp) || '' }}
 
             - name: Re-login to DockerHub (retry)
               if: steps.build.outcome == 'failure'
@@ -303,20 +329,12 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
-                  # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage resolves, and creates when the release step above could
-                  # not. That stage builds in a container with no .git directory, so the workflow
-                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
                       POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
-                      GITHUB_ACTIONS=true
-                      GITHUB_SHA=${{ github.sha }}
-                      GITHUB_REF_NAME=${{ github.ref_name }}
-                      GITHUB_REPOSITORY=PostHog/posthog
-                      GITHUB_SERVER_URL=${{ github.server_url }}
-                  secrets: |
-                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  # Replaces the Dockerfile's sourcemap-upload stage with the processed frontend, once
+                  # the upload above worked. Without it the image keeps the .map files.
+                  build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('sourcemap-upload={0}/sourcemap-upload', runner.temp) || '' }}
 
             # Reconcile every tag from the already-present digest (preflight skip, or a retry
             # where attempt 1 had already reached ECR). imagetools copies the manifest
