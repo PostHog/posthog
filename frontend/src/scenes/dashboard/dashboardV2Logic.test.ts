@@ -1,7 +1,9 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
@@ -14,13 +16,14 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId } from '~/types'
+import { DashboardTile, InsightShortId } from '~/types'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
 describe('dashboardV2Logic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
     let refreshInsight: jest.SpiedFunction<typeof dashboardUtils.getInsightWithRetry>
+    let boardStream: jest.SpiedFunction<typeof api.stream>
     const tiles = Array.from({ length: 15 }, (_, index) =>
         tileFromInsight(
             {
@@ -63,10 +66,13 @@ describe('dashboardV2Logic', () => {
         refreshInsight = jest
             .spyOn(dashboardUtils, 'getInsightWithRetry')
             .mockImplementation((_teamId, insight) => Promise.resolve(insight))
+        // Without a board stream, dashboard-v2 loads each tile on its own, so the deferral rules below hold either way.
+        boardStream = jest.spyOn(api, 'stream').mockRejectedValue(new Error('stream unavailable'))
     })
 
     afterEach(() => {
         refreshInsight.mockRestore()
+        boardStream.mockRestore()
         setDashboardV2(false)
     })
 
@@ -213,5 +219,174 @@ describe('dashboardV2Logic', () => {
 
         expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
         expect(v2Logic().values.deferredTileIds).toEqual([])
+    })
+
+    describe('board stream', () => {
+        const streamBoard = (
+            run: (send: (event: Record<string, unknown>) => void, params: URLSearchParams) => Promise<void>
+        ): void => {
+            boardStream.mockImplementation(async (url, options) => {
+                await run(
+                    (event) => options.onMessage({ id: '', event: '', data: JSON.stringify(event) }),
+                    new URL(url, 'http://localhost').searchParams
+                )
+            })
+        }
+        const resultOf = (tileId: number): unknown =>
+            logic.values.insightTiles.find((tile) => tile.id === tileId)?.insight?.result
+        const computedTile = (tile: DashboardTile, insight: Record<string, unknown> = {}): Record<string, unknown> => ({
+            type: 'tile',
+            tile: {
+                ...tile,
+                insight: { ...tile.insight, result: ['computed'], query_status: { complete: true }, ...insight },
+            },
+        })
+        const firstScreen = tiles.slice(0, 12)
+        const capturedEvents = (capture: jest.SpyInstance, name: string): Record<string, any>[] =>
+            capture.mock.calls.filter(([event]) => event === name).map(([, properties]) => properties)
+
+        it('paints every cached result at once, stale ones too, and replaces them as tiles finish', async () => {
+            setDashboardV2(true)
+            let release!: () => void
+            const blocked = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            let cachedSent!: () => void
+            const painted = new Promise<void>((resolve) => {
+                cachedSent = resolve
+            })
+            let requested: URLSearchParams | undefined
+            streamBoard(async (send, params) => {
+                requested = params
+                send({
+                    type: 'cached',
+                    tiles: [
+                        { id: firstScreen[0].id, status: 'hit', stale: true, insight: { result: ['stale'] } },
+                        { id: firstScreen[1].id, status: 'hit', stale: false, insight: { result: ['fresh'] } },
+                        ...firstScreen.slice(2).map((tile) => ({ id: tile.id, status: 'miss' })),
+                    ],
+                    pending: [firstScreen[0].id, ...firstScreen.slice(2).map((tile) => tile.id)],
+                })
+                cachedSent()
+                await blocked
+                for (const tile of [firstScreen[0], ...firstScreen.slice(2)]) {
+                    send(computedTile(tile))
+                }
+                send({ type: 'complete' })
+            })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await painted
+
+            expect(resultOf(firstScreen[0].id)).toEqual(['stale'])
+            expect(resultOf(firstScreen[1].id)).toEqual(['fresh'])
+            expect(logic.values.refreshStatus[firstScreen[0].insight!.short_id]).toMatchObject({ queued: true })
+            expect(logic.values.refreshStatus[firstScreen[1].insight!.short_id]).toMatchObject({ refreshed: true })
+
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(resultOf(firstScreen[0].id)).toEqual(['computed'])
+            expect(resultOf(firstScreen[11].id)).toEqual(['computed'])
+            expect(logic.values.refreshStatus[firstScreen[0].insight!.short_id]).toMatchObject({ refreshed: true })
+            expect(refreshInsight).not.toHaveBeenCalled()
+            expect(boardStream).toHaveBeenCalledTimes(1)
+            expect(requested?.get('tile_ids')).toEqual(firstScreen.map((tile) => tile.id).join(','))
+            expect(requested?.get('cached_first')).toEqual('true')
+            expect(requested?.get('refresh')).toEqual('blocking')
+            expect(v2Logic().values.deferredTileIds).toEqual(tiles.slice(12).map((tile) => tile.id))
+        })
+
+        it('falls back to one request per tile for the tiles a failed stream did not deliver, and says so', async () => {
+            setDashboardV2(true)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            streamBoard(async (send) => {
+                send({
+                    type: 'cached',
+                    tiles: [
+                        { id: firstScreen[0].id, status: 'hit', stale: false, insight: { result: ['fresh'] } },
+                        ...firstScreen.slice(1).map((tile) => ({ id: tile.id, status: 'miss' })),
+                    ],
+                    pending: firstScreen.slice(1).map((tile) => tile.id),
+                })
+                send(computedTile(firstScreen[1]))
+                throw new Error('stream disconnected')
+            })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadedShortIds()).toEqual(firstScreen.slice(2).map((tile) => tile.insight!.short_id))
+            expect(resultOf(firstScreen[0].id)).toEqual(['fresh'])
+            expect(resultOf(firstScreen[1].id)).toEqual(['computed'])
+            const tileEvents = capturedEvents(capture, 'dashboard insight refreshed')
+            expect(
+                Object.fromEntries(tileEvents.map((event) => [event.insight_short_id, event.stream_fallback]))
+            ).toEqual(Object.fromEntries(firstScreen.map((tile, index) => [tile.insight!.short_id, index >= 2])))
+            expect(capturedEvents(capture, 'dashboard refreshed')).toEqual([
+                expect.objectContaining({ board_stream: true, stream_fallback: true, stream_failed: true }),
+            ])
+        })
+
+        it('leaves a tile the organization had no capacity for to the per-tile path', async () => {
+            setDashboardV2(true)
+            streamBoard(async (send) => {
+                send({ type: 'cached', tiles: [], pending: firstScreen.map((tile) => tile.id) })
+                send(computedTile(firstScreen[0], { query_status: { error: true, error_code: 'rate_limited' } }))
+                firstScreen.slice(1).forEach((tile) => send(computedTile(tile)))
+                send({ type: 'complete' })
+            })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadedShortIds()).toEqual([firstScreen[0].insight!.short_id])
+            expect(resultOf(firstScreen[1].id)).toEqual(['computed'])
+        })
+
+        it('a manual refresh streams every tile with a recompute', async () => {
+            setDashboardV2(true)
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const requests: URLSearchParams[] = []
+            streamBoard(async (send, params) => {
+                requests.push(params)
+                send({ type: 'cached', tiles: [], pending: tiles.map((tile) => tile.id) })
+                tiles.forEach((tile) => send(computedTile(tile)))
+                send({ type: 'complete' })
+            })
+            refreshInsight.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerDashboardRefresh()
+            }).toFinishAllListeners()
+
+            expect(requests.map((params) => [params.get('refresh'), params.get('tile_ids')])).toEqual([
+                ['force_blocking', tiles.map((tile) => tile.id).join(',')],
+            ])
+            expect(refreshInsight).not.toHaveBeenCalled()
+        })
+
+        it('without dashboard-v2, loads each tile on its own and reports no stream', async () => {
+            setDashboardV2(false)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(boardStream).not.toHaveBeenCalled()
+            expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
+            for (const name of ['dashboard refreshed', 'dashboard insight refreshed']) {
+                for (const properties of capturedEvents(capture, name)) {
+                    expect(properties).not.toHaveProperty('stream_fallback')
+                    expect(properties).not.toHaveProperty('board_stream')
+                }
+            }
+        })
     })
 })

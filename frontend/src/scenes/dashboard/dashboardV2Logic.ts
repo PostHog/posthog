@@ -4,12 +4,23 @@ import type { BuiltLogic } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
+import type { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import type { DashboardTile, InsightModel } from '~/types'
 
+import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
+
 import type { DashboardLogicProps, DashboardSettings } from './dashboardLogic'
-import { TaskQueue } from './dashboardUtils'
+import {
+    RATE_LIMITED_ERROR_CODE,
+    RATE_LIMIT_ERROR_MESSAGE,
+    TaskQueue,
+    getInsightQueryError,
+    isRefreshRejectionStub,
+} from './dashboardUtils'
 
 // With dashboard-v2, metrics tiles run in the server's own per-organization telemetry slots
 // (DEFAULT_APP_TELEMETRY_CONCURRENT_QUERIES), apart from the analytics slots. One tab takes half
@@ -18,6 +29,8 @@ const TELEMETRY_TILE_REFRESH_CONCURRENCY = 6
 // With dashboard-v2, a first load queries this many tiles up front, in layout order.
 // The rest load when they scroll near the viewport.
 const EAGER_TILE_LOADS = 12
+// Matches MAX_CACHED_TILES_BATCH_SIZE: the most tiles one board stream takes.
+const BOARD_STREAM_MAX_TILES = 100
 
 export function telemetryTileLoadQueue(cache: Record<string, any>): TaskQueue {
     return (cache.telemetryTileLoadQueue ??= new TaskQueue(TELEMETRY_TILE_REFRESH_CONCURRENCY))
@@ -100,6 +113,132 @@ export function deferOffscreenTiles<T extends DashboardTile>(
     })
     logic.actions.setDeferredTileIds(deferredTileIds, refresh.forceRefresh, refresh.settings)
     return tilesToRefresh
+}
+
+type InsightTile = DashboardTile & { insight: InsightModel }
+
+/** With dashboard-v2, a refresh on the dashboard page loads its tiles through one board stream. */
+export function usesBoardStream(dashboardV2Enabled: boolean, onDashboardPage: boolean, tileCount: number): boolean {
+    return dashboardV2Enabled && onDashboardPage && tileCount > 0 && tileCount <= BOARD_STREAM_MAX_TILES
+}
+
+export interface BoardStreamLoad<T extends InsightTile> {
+    actions: {
+        setRefreshStatus: (shortId: InsightModel['short_id'], loading?: boolean, queued?: boolean) => void
+        setRefreshError: (shortId: InsightModel['short_id'], error?: any) => void
+    }
+    teamId: number
+    dashboardId: number
+    forceRefresh: boolean
+    filters: DashboardFilter
+    variables: Record<string, HogQLVariable>
+    signal: AbortSignal
+    /** Records a tile the stream delivered, as the per-tile path records each tile it loads. */
+    reportTile: (tile: T, isCached: boolean, durationMs: number) => void
+    settle: (tile: T, outcome: 'refreshed' | 'cached' | 'errored') => void
+}
+
+export interface BoardStreamResult {
+    /** The tiles the stream settled. The caller loads every other tile through the per-tile path. */
+    settledTileIds: Set<number>
+    failed: boolean
+}
+
+function rejectedForCapacity(insight: InsightModel): boolean {
+    return (
+        insight.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+        insight.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+    )
+}
+
+/**
+ * Loads tiles through one stream: its first event paints every cached result, stale ones included, and the stream
+ * then delivers each tile it computes. A stale tile stays loading until its computed result replaces it.
+ * A tile the server had no capacity for, and every tile a failed stream did not deliver, stays unsettled.
+ */
+export async function loadThroughBoardStream<T extends InsightTile>(
+    tiles: T[],
+    load: BoardStreamLoad<T>
+): Promise<BoardStreamResult> {
+    const { actions, dashboardId, signal } = load
+    const tilesById = new Map(tiles.map((tile) => [tile.id, tile]))
+    const settledTileIds = new Set<number>()
+    const startedAt = performance.now()
+    const settleLoaded = (tile: T, insight: InsightModel, isCached: boolean): void => {
+        settledTileIds.add(tile.id)
+        dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
+        actions.setRefreshStatus(tile.insight.short_id)
+        load.reportTile(tile, isCached, Math.floor(performance.now() - startedAt))
+        load.settle(tile, isCached ? 'cached' : 'refreshed')
+    }
+    const settleErrored = (tile: T, error?: any): void => {
+        settledTileIds.add(tile.id)
+        actions.setRefreshError(tile.insight.short_id, error)
+        load.settle(tile, 'errored')
+    }
+    try {
+        await streamDashboardQueryResults(
+            load.teamId,
+            dashboardId,
+            {
+                tile_ids: tiles.map((tile) => tile.id).join(','),
+                client_query_id: uuid(),
+                refresh: load.forceRefresh ? 'force_blocking' : 'blocking',
+                cached_first: true,
+                filters_override: JSON.stringify(load.filters),
+                variables_override: JSON.stringify(load.variables),
+            },
+            signal,
+            (result) => {
+                const tile = result.id !== undefined ? tilesById.get(result.id) : undefined
+                if (signal.aborted || !tile || settledTileIds.has(tile.id)) {
+                    return
+                }
+                if ('error' in result || !result.insight) {
+                    settleErrored(tile)
+                    return
+                }
+                const insight = result.insight as unknown as InsightModel
+                if (rejectedForCapacity(insight)) {
+                    return
+                }
+                const queryError = getInsightQueryError(insight)
+                if (queryError || isRefreshRejectionStub(insight)) {
+                    settleErrored(tile, queryError?.code ? queryError : undefined)
+                    return
+                }
+                settleLoaded(tile, insight, !!insight.is_cached)
+            },
+            ({ tiles: cachedTiles, pending }) => {
+                if (signal.aborted) {
+                    return
+                }
+                const pendingIds = new Set(pending)
+                for (const entry of cachedTiles) {
+                    const tile = tilesById.get(entry.id)
+                    if (!tile || settledTileIds.has(tile.id)) {
+                        continue
+                    }
+                    const insight =
+                        entry.status === 'hit' && entry.insight
+                            ? ({ ...tile.insight, ...entry.insight } as unknown as InsightModel)
+                            : null
+                    if (pendingIds.has(tile.id)) {
+                        if (insight) {
+                            dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
+                        }
+                    } else if (insight) {
+                        settleLoaded(tile, insight, true)
+                    } else {
+                        settleErrored(tile)
+                    }
+                }
+            }
+        )
+        return { settledTileIds, failed: false }
+    } catch {
+        return { settledTileIds, failed: !signal.aborted }
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
