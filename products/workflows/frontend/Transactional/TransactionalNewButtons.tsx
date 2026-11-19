@@ -12,34 +12,40 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { newTransactionalPushLogic } from './push/newTransactionalPushLogic'
 
-export function TransactionalNewButtons(): JSX.Element {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
+// Its own component, so the new push logic mounts only when the button shows.
+function NewPushNotificationButton({ todayRailNav }: { todayRailNav: boolean }): JSX.Element {
     const { openModal: openNewPushModal } = useActions(newTransactionalPushLogic)
 
     return (
-        <div className="flex items-center gap-2">
-            {showPush ? (
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Workflow}
-                    minAccessLevel={AccessControlLevel.Editor}
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Workflow}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            {todayRailNav ? (
+                <Button data-attr="new-transactional-push" onClick={openNewPushModal} variant="outline">
+                    New push notification
+                </Button>
+            ) : (
+                <LemonButton
+                    data-attr="new-transactional-push"
+                    onClick={openNewPushModal}
+                    type="secondary"
+                    size="small"
                 >
-                    {todayRailNav ? (
-                        <Button data-attr="new-transactional-push" onClick={openNewPushModal} variant="outline">
-                            New push notification
-                        </Button>
-                    ) : (
-                        <LemonButton
-                            data-attr="new-transactional-push"
-                            onClick={openNewPushModal}
-                            type="secondary"
-                            size="small"
-                        >
-                            New push notification
-                        </LemonButton>
-                    )}
-                </AccessControlAction>
-            ) : null}
+                    New push notification
+                </LemonButton>
+            )}
+        </AccessControlAction>
+    )
+}
+
+export function TransactionalNewButtons(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
+
+    return (
+        <div className="flex items-center gap-2">
+            {showPush ? <NewPushNotificationButton todayRailNav={todayRailNav} /> : null}
             <AccessControlAction
                 resourceType={AccessControlResourceType.Workflow}
                 minAccessLevel={AccessControlLevel.Editor}
