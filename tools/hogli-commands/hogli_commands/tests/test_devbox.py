@@ -27,6 +27,7 @@ from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    dotfiles as devbox_dotfiles,
     gh_login,
     herdr as devbox_herdr,
     hogland as devbox_hogland,
@@ -4129,17 +4130,18 @@ class TestStartExistingWorkspace:
         "box_answer, workspace_arg, expected, unexpected",
         [
             (
-                "HOGLI_CHECK 0 0\nHOGLI_CHECK 1 0\nHOGLI_CHECK 2 0\n",
+                "HOGLI_CHECK 0 0\nHOGLI_CHECK 1 0\nHOGLI_CHECK 2 0\nHOGLI_CHECK 3 0\n",
                 [],
-                ["Box setup: Claude Code login, GitHub CLI login, Trunk CLI login are ready."],
+                ["Box setup: Claude Code login, GitHub CLI login, Trunk CLI login, Dotfiles are ready."],
                 ["Missing"],
             ),
             (
-                "Welcome to the box!\nHOGLI_CHECK 1 1\nHOGLI_CHECK 0 0\nHOGLI_CHECK 2 3\n",
+                "Welcome to the box!\nHOGLI_CHECK 1 1\nHOGLI_CHECK 0 0\nHOGLI_CHECK 2 3\nHOGLI_CHECK 3 1\n",
                 [],
                 [
                     "Missing GitHub CLI login. Run `hogli devbox:gh:login`.",
                     "Run `hogli devbox:exec --flox -- true, then hogli devbox:trunk:login`.",
+                    "Missing Dotfiles. Run `hogli devbox:dotfiles`.",
                 ],
                 ["Claude Code login"],
             ),
@@ -4602,6 +4604,38 @@ class TestDevboxShare:
         result = runner.invoke(cli, [command])
 
         assert result.exit_code != 0
+        assert expected_output in result.output
+
+    @pytest.mark.parametrize(
+        "saved_config, expected_commands, expected_output",
+        [
+            (
+                {"dotfiles_uri": "https://github.com/example/dotfiles.git"},
+                [["coder", "dotfiles", "-y", "https://github.com/example/dotfiles.git"]],
+                "Applying https://github.com/example/dotfiles.git",
+            ),
+            ({}, [], "No dotfiles repo is configured"),
+        ],
+        ids=["saved_repo", "no_saved_repo"],
+    )
+    def test_dotfiles_applies_the_saved_repo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        saved_config: dict[str, str],
+        expected_commands: list[list[str]],
+        expected_output: str,
+    ) -> None:
+        commands: list[list[str]] = []
+        monkeypatch.setattr(devbox_dotfiles, "load_config", lambda: saved_config)
+        monkeypatch.setattr(devbox_dotfiles, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_dotfiles, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_dotfiles, "_ensure_ssh_alias", lambda name: None)
+        monkeypatch.setattr(devbox_dotfiles, "exec_replace", lambda name, command: commands.append(command))
+
+        result = runner.invoke(cli, ["devbox:dotfiles"])
+
+        assert (result.exit_code == 0) == bool(expected_commands), result.output
+        assert commands == expected_commands
         assert expected_output in result.output
 
     def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:

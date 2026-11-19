@@ -196,7 +196,7 @@ When a build fails with `InsufficientInstanceCapacity`, AWS has no free capacity
 `devbox:start`, `devbox:restart` and `devbox:update` then start the box on the template's other instance types in turn, through the Coder build API, because the Coder CLI keeps a parameter's last-build value.
 The template changes the type of the same instance, so the disk stays, and the box keeps the type that started.
 
-After your own box starts, `devbox:start` lists the per-box setup it still needs, such as the Claude Code, GitHub CLI and Trunk CLI logins, with the command that sets each one up.
+After your own box starts, `devbox:start` lists the per-box setup it still needs, such as the Claude Code, GitHub CLI and Trunk CLI logins or dotfiles that failed to clone, with the command that sets each one up.
 Run `hogli devbox:check` to see the same list at any time.
 
 Runtime commands assume setup is already complete.
@@ -255,6 +255,7 @@ hogli devbox:gh:logout    # delete the login from the box
 
 Login also runs `gh auth setup-git`, so git uses the same login. git and `gh` then reach every repository your GitHub account can, in every process on the box, including Herdr tabs and agents that outlive the SSH connection that started them.
 Login also installs the `gh stack` extension when it's missing, for [stacked PRs](https://github.com/github/gh-stack).
+A private dotfiles repo fails to clone when a box first starts, because only Coder's app can reach GitHub then. Login applies your dotfiles again when that happened, and `hogli devbox:dotfiles` does the same on demand.
 After a logout, git falls back to Coder's app.
 
 The token stays on the box's disk until you log out or destroy the box. People you share the box with can read it, so `devbox:share` offers to log out first.

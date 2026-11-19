@@ -13,6 +13,7 @@ from typing import Literal
 import click
 
 from .cli import (
+    DOTFILES_FAILED_ON_BOX,
     TRUNK_MISSING_EXIT,
     _ensure_ssh_alias,
     _remote_claude_auth,
@@ -72,6 +73,12 @@ BOX_CHECKS: tuple[BoxCheck, ...] = (
         other_fixes={
             TRUNK_MISSING_EXIT: "hogli devbox:exec{target} --flox -- true, then hogli devbox:trunk:login{target}",
         },
+    ),
+    BoxCheck(
+        label="Dotfiles",
+        # A box without a dotfiles repo has no failure in its log, so it counts as set up.
+        probe=f"! {{ {DOTFILES_FAILED_ON_BOX}; }}",
+        fix="hogli devbox:dotfiles{target}",
     ),
 )
 

@@ -14,11 +14,14 @@ import click
 
 from .cli import (
     _GH_AUTH_TIMEOUT,
+    DOTFILES_FAILED_ON_BOX,
     _ensure_ssh_alias,
     _skip_startup_wait,
     _targets_own_box,
+    load_config,
     logout_gh,
     read_gh_logins,
+    remote_apply_dotfiles,
     remote_gh_auth,
     resolve_workspace_name,
     workspace_argument,
@@ -49,6 +52,8 @@ def _box(workspace: str | None) -> str:
 def devbox_gh_login(workspace: str | None) -> None:
     """Run `gh auth login` on the box, then `gh auth setup-git` so git uses the same login, then install gh stack.
 
+    When the box couldn't clone a private dotfiles repo at start, this applies the dotfiles again.
+
     gh prints a one-time code to enter at https://github.com/login/device on this computer.
     The login stays on the box's disk until `devbox:gh:logout` or `devbox:destroy`.
     """
@@ -72,11 +77,20 @@ def devbox_gh_login(workspace: str | None) -> None:
     login = shlex.join(remote_gh_auth("login", "--git-protocol", "https", "--web", "--scopes", "workflow"))
     setup_git = shlex.join(remote_gh_auth("setup-git"))
     # gh stack is how this repo stacks pull requests. A failed install leaves the login in place.
+    # The outer braces keep the fallback echo from also catching a failed login before it.
     install_gh_stack = (
-        "{ gh extension list | grep -q gh-stack || gh extension install github/gh-stack; } "
-        '|| echo "Couldn\'t install gh stack. Run gh extension install github/gh-stack on the box."'
+        "{ { gh extension list | grep -q gh-stack || gh extension install github/gh-stack; } "
+        '|| echo "Couldn\'t install gh stack. Run gh extension install github/gh-stack on the box."; }'
     )
-    exec_replace(name, ["bash", "-c", f"{login} && {setup_git} && {install_gh_stack}"])
+    steps = [login, setup_git, install_gh_stack]
+    dotfiles_uri = load_config().get("dotfiles_uri")
+    if dotfiles_uri:
+        # git can now read a private dotfiles repo that the box couldn't clone when it started.
+        steps.append(
+            f"if {DOTFILES_FAILED_ON_BOX}; then {shlex.join(remote_apply_dotfiles(dotfiles_uri))} "
+            '|| echo "Couldn\'t apply your dotfiles. Run hogli devbox:dotfiles on your computer."; fi'
+        )
+    exec_replace(name, ["bash", "-c", " && ".join(steps)])
 
 
 @click.command(name="devbox:gh:status", help="Show which GitHub account the GitHub CLI on your devbox uses")

@@ -1950,6 +1950,18 @@ def _warn_about_gh_login_before_sharing(name: str, workspace: dict[str, Any], *,
     click.echo("Logged out of the GitHub CLI on the box.")
 
 
+# Coder clones dotfiles at first boot, when git on the box has only Coder's GitHub app token. That token
+# can't read a private dotfiles repo, so the clone fails and Coder logs the error to ~/.dotfiles.log.
+DOTFILES_FAILED_ON_BOX = (
+    "grep -qs 'Encountered an error running \"coder dotfiles\"' ~/.dotfiles.log "
+    "&& [ ! -d ~/.config/coderv2/dotfiles/.git ]"
+)
+
+
+def remote_apply_dotfiles(uri: str) -> list[str]:
+    return ["coder", "dotfiles", "-y", uri]
+
+
 _TRUNK_AUTH_TIMEOUT = 60
 TRUNK_MISSING_EXIT = 3
 TRUNK_LOGIN_WITHOUT_CLI_EXIT = 4
