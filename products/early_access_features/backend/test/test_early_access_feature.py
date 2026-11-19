@@ -1555,6 +1555,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Access-Control-Allow-Origin"], "https://app.example.com")
         self.assertIn("GET", response.headers["Access-Control-Allow-Methods"])
+        self.assertIn("Content-Type", response.headers["Access-Control-Allow-Headers"])
 
     def test_early_access_features_preserves_documentation_and_image_urls(self):
         feature_flag = FeatureFlag.objects.create(
