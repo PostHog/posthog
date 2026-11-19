@@ -19,8 +19,8 @@ import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
-import hooks_workflowsPublish from '@/tools/workflows/testSenderNoteHooks'
 import hooks_workflowsEnable from '@/tools/workflows/testSenderNoteHooks'
+import hooks_workflowsPublish from '@/tools/workflows/testSenderNoteHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
@@ -331,6 +331,50 @@ const workflowsEmailDraftsCreate = (): ToolBase<
         return result
     },
 })
+
+const WorkflowsEnableSchema = () => {
+    const HogFlowsPartialUpdateBody = orvalSchemas.HogFlowsPartialUpdateBody()
+    const HogFlowsPartialUpdateParams = orvalSchemas.HogFlowsPartialUpdateParams()
+    return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(
+        HogFlowsPartialUpdateBody.omit({
+            name: true,
+            description: true,
+            tags: true,
+            trigger_masking: true,
+            conversion: true,
+            exit_condition: true,
+            email_sending_rate_limit: true,
+            variables: true,
+        }).shape
+    )
+}
+
+const workflowsEnable = (): ToolBase<ReturnType<typeof WorkflowsEnableSchema>, WithAgentNote<Schemas.HogFlowUpdate>> =>
+    withUiApp('workflow', {
+        name: 'workflows-enable',
+        schema: WorkflowsEnableSchema(),
+        handler: withToolHooks(
+            hooks_workflowsEnable,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEnableSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                body['status'] = 'active'
+                const result = await context.api.request<Schemas.HogFlowUpdate>({
+                    method: 'PATCH',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
+                    body: await transformRequestBody(hooks_workflowsEnable, context, params, body),
+                })
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs',
+                    'draft.actions.*.config.inputs',
+                ]) as typeof result
+                return withAgentNote(
+                    filtered,
+                    "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n"
+                )
+            }
+        ),
+    })
 
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
@@ -778,50 +822,6 @@ const workflowsPublish = (): ToolBase<
     ),
 })
 
-const WorkflowsEnableSchema = () => {
-    const HogFlowsPartialUpdateBody = orvalSchemas.HogFlowsPartialUpdateBody()
-    const HogFlowsPartialUpdateParams = orvalSchemas.HogFlowsPartialUpdateParams()
-    return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(
-        HogFlowsPartialUpdateBody.omit({
-            name: true,
-            description: true,
-            tags: true,
-            trigger_masking: true,
-            conversion: true,
-            exit_condition: true,
-            email_sending_rate_limit: true,
-            variables: true,
-        }).shape
-    )
-}
-
-const workflowsEnable = (): ToolBase<ReturnType<typeof WorkflowsEnableSchema>, WithAgentNote<Schemas.HogFlowUpdate>> =>
-    withUiApp('workflow', {
-        name: 'workflows-enable',
-        schema: WorkflowsEnableSchema(),
-        handler: withToolHooks(
-            hooks_workflowsEnable,
-            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEnableSchema>>) => {
-                const projectId = await context.stateManager.getProjectId()
-                const body: Record<string, unknown> = {}
-                body['status'] = 'active'
-                const result = await context.api.request<Schemas.HogFlowUpdate>({
-                    method: 'PATCH',
-                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-                    body: await transformRequestBody(hooks_workflowsEnable, context, params, body),
-                })
-                const filtered = omitResponseFields(result, [
-                    'actions.*.config.inputs',
-                    'draft.actions.*.config.inputs',
-                ]) as typeof result
-                return withAgentNote(
-                    filtered,
-                    "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n"
-                )
-            }
-        ),
-    })
-
 const WorkflowsReputationGetSchema = () => {
     const HogFlowsReputationRetrieveQueryParams = orvalSchemas.HogFlowsReputationRetrieveQueryParams()
     return HogFlowsReputationRetrieveQueryParams.extend({
@@ -1231,6 +1231,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-email-drafts-create': workflowsEmailDraftsCreate,
+    'workflows-enable': workflowsEnable,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
@@ -1247,7 +1248,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
-    'workflows-enable': workflowsEnable,
     'workflows-reputation-get': workflowsReputationGet,
     'workflows-restore-revision': workflowsRestoreRevision,
     'workflows-sending-rules-get': workflowsSendingRulesGet,
