@@ -194,9 +194,8 @@ def link_summaries(
         return {}
     edges_by_report = outgoing_links_by_report(team_id=team_id, report_ids=report_ids)
     plan_ids = {
-        next((edge.target_id for edge in edges if edge.kind == ReportLinkKind.PART_OF), None)
-        for edges in edges_by_report.values()
-    } - {None}
+        edge.target_id for edges in edges_by_report.values() for edge in edges if edge.kind == ReportLinkKind.PART_OF
+    }
     step_edges_by_plan = incoming_links_by_report(
         team_id=team_id, report_ids=[*report_ids, *plan_ids], kinds=(ReportLinkKind.PART_OF,)
     )
