@@ -1,14 +1,17 @@
 import { KafkaProducer, ProducerMessage, TopicMessage } from './producer'
 
-const RETRY_AFTER_FAILURE_MS = 5_000
+const FIRST_RETRY_MS = 5_000
+// node-rdkafka leaks a little native memory on each failed connect, so a long outage retries rarely.
+const MAX_RETRY_MS = 5 * 60_000
 
-// Connects in the background, retrying every few seconds, and fails produces until connected, so a cluster that is
+// Connects in the background, retrying with backoff, and fails produces until connected, so a cluster that is
 // down fails the produces that pick it rather than the boot of every pod that registers it. A produce never waits on
 // a connect: a message held past its caller's deadline could land after the caller already answered that it failed.
 export class LazyKafkaProducer implements KafkaProducer {
     private connected?: KafkaProducer
     private connecting?: Promise<KafkaProducer>
     private retry?: NodeJS.Timeout
+    private retryMs = FIRST_RETRY_MS
     private closed = false
 
     constructor(private connect: () => Promise<KafkaProducer>) {
@@ -41,6 +44,7 @@ export class LazyKafkaProducer implements KafkaProducer {
                     void producer.disconnect().catch(() => undefined)
                 } else {
                     this.connected = producer
+                    this.retryMs = FIRST_RETRY_MS
                 }
                 return producer
             },
@@ -50,7 +54,8 @@ export class LazyKafkaProducer implements KafkaProducer {
                     this.retry = setTimeout(() => {
                         this.retry = undefined
                         void this.startConnect()
-                    }, RETRY_AFTER_FAILURE_MS)
+                    }, this.retryMs)
+                    this.retryMs = Math.min(this.retryMs * 2, MAX_RETRY_MS)
                     this.retry.unref()
                 }
                 throw error

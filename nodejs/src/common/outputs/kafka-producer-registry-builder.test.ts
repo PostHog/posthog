@@ -155,7 +155,7 @@ describe('KafkaProducerRegistryBuilder', () => {
         }
     })
 
-    it('registerLazy builds while its broker is down, fails produces fast, and reconnects in the background', async () => {
+    it('registerLazy builds while its broker is down, fails produces fast, and reconnects in the background with backoff', async () => {
         jest.useFakeTimers()
         try {
             const produce = jest.fn().mockResolvedValue(undefined)
@@ -173,7 +173,11 @@ describe('KafkaProducerRegistryBuilder', () => {
             const refused = { topic: 't', value: Buffer.from('refused'), key: null }
 
             await expect(msk.produce(refused)).rejects.toThrow('not connected yet')
-            await jest.advanceTimersByTimeAsync(10_000)
+            await jest.advanceTimersByTimeAsync(5_000)
+            expect(jest.mocked(KafkaProducerWrapper.createWithConfig)).toHaveBeenCalledTimes(2)
+            await jest.advanceTimersByTimeAsync(9_999)
+            expect(jest.mocked(KafkaProducerWrapper.createWithConfig)).toHaveBeenCalledTimes(2)
+            await jest.advanceTimersByTimeAsync(1)
             await msk.produce(message)
             expect(produce.mock.calls).toEqual([[message]])
         } finally {
