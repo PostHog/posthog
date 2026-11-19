@@ -46014,6 +46014,7 @@ export namespace Schemas {
      * * `upstream_connection_error` - upstream_connection_error
      * * `upstream_timeout` - upstream_timeout
      * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_rate_limited` - upstream_rate_limited
      * * `upstream_request_rejected` - upstream_request_rejected
      * * `content_block_rejection` - content_block_rejection
      * * `turn_ended_without_response` - turn_ended_without_response
@@ -46036,6 +46037,7 @@ export namespace Schemas {
       UpstreamConnectionError: 'upstream_connection_error',
       UpstreamTimeout: 'upstream_timeout',
       UpstreamProviderFailure: 'upstream_provider_failure',
+      UpstreamRateLimited: 'upstream_rate_limited',
       UpstreamRequestRejected: 'upstream_request_rejected',
       ContentBlockRejection: 'content_block_rejection',
       TurnEndedWithoutResponse: 'turn_ended_without_response',
@@ -76136,9 +76138,20 @@ export namespace Schemas {
       direction: MaterializationRunDirectionEnum;
     }
 
+    export interface NodeRunSkippedNode {
+      /** The node left out of the run. */
+      node_id: string;
+      /** Name of the node left out of the run. */
+      name: string;
+      /** Why the node was left out: its query doesn't compile, or it depends on a node whose query doesn't compile. */
+      reason: string;
+    }
+
     export interface NodeRunResponse {
       /** The nodes included in the dependency run. */
       node_ids: string[];
+      /** Nodes the run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. */
+      skipped: NodeRunSkippedNode[];
     }
 
     export interface NodeWatching {
@@ -98368,6 +98381,7 @@ export namespace Schemas {
        * * `upstream_connection_error` - upstream_connection_error
        * * `upstream_timeout` - upstream_timeout
        * * `upstream_provider_failure` - upstream_provider_failure
+       * * `upstream_rate_limited` - upstream_rate_limited
        * * `upstream_request_rejected` - upstream_request_rejected
        * * `content_block_rejection` - content_block_rejection
        * * `turn_ended_without_response` - turn_ended_without_response
@@ -114108,9 +114122,20 @@ export namespace Schemas {
       engine?: MaterializationEngineEnum;
     }
 
+    export interface SavedQueryRunSkippedNode {
+      /** The data model node left out of the run. */
+      node_id: string;
+      /** Name of the view left out of the run. */
+      name: string;
+      /** Why the view was left out: its query doesn't compile, or it depends on a view whose query doesn't compile. */
+      reason: string;
+    }
+
     export interface SavedQueryRunResponse {
       /** The data model nodes included in the run. */
       node_ids: string[];
+      /** Views an upstream or downstream run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. Always empty for a run of only this view. */
+      skipped: SavedQueryRunSkippedNode[];
     }
 
     /**
@@ -131627,6 +131652,16 @@ export namespace Schemas {
       name: string;
       /** Number of distinct values for this attribute in recent data. */
       value_count: number;
+      /** Set to 'value' when the key matched through one of its values. Absent when its name matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn?: MatchedOnEnum;
+      /**
+         * One value that matched the search; only set when matchedOn is 'value'.
+         * @nullable
+         */
+      matchedValue?: string | null;
     }
 
     export interface _MetricAttributeKeysResponse {
@@ -146155,6 +146190,10 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    /**
+     * Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue.
+     */
+    search_values?: boolean;
     };
 
     export type MetricsDashboardTemplatesListParams = {

@@ -74,6 +74,8 @@ _LAZY = {
     "MaterializationFailedError": "facade.contracts",
     "MaterializationForbiddenError": "facade.contracts",
     "MaterializationAlreadyRunningError": "facade.contracts",
+    "SkippedRunNode": "facade.contracts",
+    "StartedNodeRun": "facade.contracts",
     "MaterializationRanRecentlyError": "facade.contracts",
     "MaterializationEngine": "facade.contracts",
     "ManagedWarehouseUnavailableError": "facade.contracts",
