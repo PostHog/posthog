@@ -127,28 +127,22 @@ def json_document_sql(
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
-def stored_properties_document_sql(properties_sql: str, temporary_properties_sql: str | None = None) -> str:
+def stored_properties_document_sql(properties_sql: str) -> str:
     """The event properties column as document text in its stored shape, which batch exports send.
 
-    Unlike `event_document_sql`, flags stay in the `$feature_flags` map. The map is left out when it is empty, and so
-    are declared string defaults. The query or view that runs this needs `json_type_escape_dots_in_keys = 1`, or a
-    dotted key prints as `a%2Eb`.
+    Unlike `event_document_sql`, flags stay in the `$feature_flags` map and temporary properties are left out. The map
+    is left out when it is empty, and so are declared string defaults. The query that runs this needs
+    `json_type_escape_dots_in_keys = 1`, or a dotted key prints as `a%2Eb`.
 
-    When `temporary_properties_sql` is given, its members follow the members of `properties_sql`, so keys such as
-    `$set` are in the document. `events_json_recent_mv` passes it. The batch export query on `events_json` does not,
-    so the two texts differ by exactly those keys.
+    `events_json_recent` holds the same documents, plus the temporary properties. The export cleaner writes them at
+    insert time, so a change here needs the matching change in
+    `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
     """
-    pairs = [
-        json_member_pairs_sql(
-            properties_sql,
-            exclude_empty_key=_FEATURE_FLAGS_KEY,
-            declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-        )
-    ]
-    if temporary_properties_sql is not None:
-        pairs.append(json_member_pairs_sql(temporary_properties_sql))
-    members = pairs[0] if len(pairs) == 1 else f"arrayConcat({', '.join(pairs)})"
-    return f"concat('{{', arrayStringConcat({members}, ','), '}}')"
+    return json_document_sql(
+        properties_sql,
+        exclude_empty_key=_FEATURE_FLAGS_KEY,
+        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+    )
 
 
 def person_document_sql(person_properties_sql: str) -> str:

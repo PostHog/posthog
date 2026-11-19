@@ -544,88 +544,62 @@ SQL
     to_table = "posthog.writable_events_json_recent"
     query    = <<SQL
 SELECT
-  * REPLACE(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', if((startsWith(kv.2, '"[') OR startsWith(kv.2, '"{')) AND isValidJSON(JSONExtractString(kv.2)), JSONExtractString(kv.2), kv.2)), arrayFilter(kv -> ((NOT (((kv.2) = '""') AND ((kv.1) IN ('$browser', '$browser_language', '$browser_version', '$config_defaults', '$current_url', '$device_type', '$geoip_city_name', '$geoip_continent_code', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$geoip_subdivision_1_name', '$geoip_time_zone', '$group_0', '$group_1', '$group_2', '$group_3', '$group_4', '$host', '$lib', '$lib_version', '$os', '$os_version', '$pathname', '$session_id', '$timezone', '$window_id')))) AND (NOT (((kv.1) = '$feature_flags') AND ((kv.2) = '{}')))), JSONExtractKeysAndValuesRaw(toJSONString(event_rows.properties)))), arrayMap(kv -> concat(toJSONString(kv.1), ':', if((startsWith(kv.2, '"[') OR startsWith(kv.2, '"{')) AND isValidJSON(JSONExtractString(kv.2)), JSONExtractString(kv.2), kv.2)), JSONExtractKeysAndValuesRaw(toJSONString(event_rows.temporary_properties)))), ','), '}') AS properties, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', if((startsWith(kv.2, '"[') OR startsWith(kv.2, '"{')) AND isValidJSON(JSONExtractString(kv.2)), JSONExtractString(kv.2), kv.2)), JSONExtractKeysAndValuesRaw(toJSONString(event_rows.temporary_properties))), ','), '}') AS temporary_properties, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', if((startsWith(kv.2, '"[') OR startsWith(kv.2, '"{')) AND isValidJSON(JSONExtractString(kv.2)), JSONExtractString(kv.2), kv.2)), arrayFilter(kv -> (NOT (((kv.2) = '""') AND ((kv.1) IN ('$browser', '$browser_language', '$browser_version', '$device_type', '$geoip_city_name', '$geoip_continent_code', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$geoip_subdivision_1_name', '$geoip_time_zone', '$initial_browser', '$initial_browser_language', '$initial_browser_version', '$initial_device_type', '$initial_geoip_city_name', '$initial_geoip_continent_code', '$initial_geoip_continent_name', '$initial_geoip_country_code', '$initial_geoip_country_name', '$initial_geoip_subdivision_1_name', '$initial_geoip_time_zone', '$initial_os', '$initial_os_version', '$os', '$os_version')))), JSONExtractKeysAndValuesRaw(toJSONString(event_rows.person_properties)))), ','), '}') AS person_properties)
+  *,
+  accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
 FROM
   (
     SELECT
-      *,
-      accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+      uuid,
+      event,
+      cleaned.properties AS properties,
+      cleaned.temporary_properties AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+      now64() AS inserted_at,
+      timestamp,
+      team_id,
+      distinct_id,
+      elements_chain,
+      created_at,
+      person_id,
+      cleaned.person_properties AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
+      person_created_at,
+      group0_properties,
+      group1_properties,
+      group2_properties,
+      group3_properties,
+      group4_properties,
+      group0_created_at,
+      group1_created_at,
+      group2_created_at,
+      group3_created_at,
+      group4_created_at,
+      person_mode,
+      historical_migration,
+      coalesce(captured_at, created_at) AS captured_at,
+      _timestamp,
+      _offset,
+      _partition,
+      consumer_breadcrumbs
     FROM
       (
         SELECT
-          uuid,
-          event,
-          ifNull(
-            accurateCastOrNull(
-              cleaned.properties,
-              'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'
-            ),
-            CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')
-          ) AS properties,
-          ifNull(
-            accurateCastOrNull(cleaned.temporary_properties, 'JSON(max_dynamic_paths = 32)'),
-            CAST('{}', 'JSON(max_dynamic_paths = 32)')
-          ) AS temporary_properties,
-          cleaned.properties_null_keys AS properties_null_keys,
-          cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
-          now64() AS inserted_at,
-          timestamp,
-          team_id,
-          distinct_id,
-          elements_chain,
-          created_at,
-          person_id,
-          ifNull(
-            accurateCastOrNull(
-              cleaned.person_properties,
-              'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))'
-            ),
-            CAST(concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}'), 'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))')
-          ) AS person_properties,
-          cleaned.person_properties_null_keys AS person_properties_null_keys,
-          person_created_at,
-          group0_properties,
-          group1_properties,
-          group2_properties,
-          group3_properties,
-          group4_properties,
-          group0_created_at,
-          group1_created_at,
-          group2_created_at,
-          group3_created_at,
-          group4_created_at,
-          person_mode,
-          historical_migration,
-          coalesce(captured_at, created_at) AS captured_at,
+          *,
           _timestamp,
           _offset,
           _partition,
-          consumer_breadcrumbs
-        FROM
-          (
-            SELECT
-              *,
-              _timestamp,
-              _offset,
-              _partition,
-              arrayMap(
-                i -> (_headers.value[i]),
-                arrayFilter(
-                  i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
-                  arrayEnumerate(_headers.name)
-                )
-              ) AS consumer_breadcrumbs,
-              JSONCleanPostHogEvent(properties, person_properties) AS cleaned
-            FROM posthog.kafka_events_json_recent
-          ) AS source
-      )
-  ) AS event_rows
-SETTINGS
-  input_format_try_infer_dates = 0,
-  input_format_try_infer_datetimes = 0,
-  json_type_escape_dots_in_keys = 1,
-  type_json_skip_duplicated_paths = 1,
-  output_format_json_escape_forward_slashes = 0
+          arrayMap(
+            i -> (_headers.value[i]),
+            arrayFilter(
+              i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+              arrayEnumerate(_headers.name)
+            )
+          ) AS consumer_breadcrumbs,
+          JSONCleanPostHogEventForExport(properties, person_properties) AS cleaned
+        FROM posthog.kafka_events_json_recent
+      ) AS source
+  )
 SQL
 
     column "uuid" {

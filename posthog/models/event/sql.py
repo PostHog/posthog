@@ -1,11 +1,6 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
-from posthog.hogql.printer.events_json_document import (
-    json_document_sql,
-    person_document_sql,
-    stored_properties_document_sql,
-)
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -490,6 +485,7 @@ FROM {database}.{kafka_table}
 
 # The subquery alias is computed once per row, so reading six tuple fields costs one process round trip.
 EVENTS_JSON_CLEANER = "JSONCleanPostHogEvent"
+EVENTS_JSON_EXPORT_CLEANER = "JSONCleanPostHogEventForExport"
 EVENTS_JSON_CLEANED_ALIAS = "cleaned"
 
 
@@ -510,7 +506,19 @@ def _cast_temporary_properties(field: str) -> str:
     )
 
 
-def _events_json_rows_sql(kafka_table: str) -> str:
+def _events_json_rows_sql(kafka_table: str, *, export_documents: bool = False) -> str:
+    cleaner = EVENTS_JSON_CLEANER
+    properties_expr = _cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())
+    temporary_properties_expr = _cast_temporary_properties("temporary_properties")
+    person_properties_expr = _cast_cleaned_properties(
+        "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
+    )
+    if export_documents:
+        # The export cleaner writes text that is already the document, so the columns take it without a cast.
+        cleaner = EVENTS_JSON_EXPORT_CLEANER
+        properties_expr = f"{EVENTS_JSON_CLEANED_ALIAS}.properties"
+        temporary_properties_expr = f"{EVENTS_JSON_CLEANED_ALIAS}.temporary_properties"
+        person_properties_expr = f"{EVENTS_JSON_CLEANED_ALIAS}.person_properties"
     return """SELECT
 *,
 accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
@@ -571,13 +579,11 @@ FROM {database}.{kafka_table}
 """.format(
         kafka_table=kafka_table,
         database=settings.CLICKHOUSE_DATABASE,
-        cleaner=EVENTS_JSON_CLEANER,
+        cleaner=cleaner,
         cleaned=EVENTS_JSON_CLEANED_ALIAS,
-        temporary_properties_expr=_cast_temporary_properties("temporary_properties"),
-        properties_expr=_cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE()),
-        person_properties_expr=_cast_cleaned_properties(
-            "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
-        ),
+        temporary_properties_expr=temporary_properties_expr,
+        properties_expr=properties_expr,
+        person_properties_expr=person_properties_expr,
     )
 
 
@@ -842,30 +848,14 @@ def KAFKA_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
 def EVENTS_JSON_RECENT_MV_SQL(
     mv_name: str = EVENTS_JSON_RECENT_MV, kafka_table: str = KAFKA_EVENTS_JSON_RECENT_TABLE
 ) -> str:
-    # The rows are the ones events_json_table_mv writes, printed as the documents batch exports send, so a realtime
-    # export reads them as stored. events_json drops $feature_flag_called in production. This table keeps those
-    # events, so do not copy that filter here.
-    #
-    # `properties` also carries the members of `temporary_properties`, such as `$set`, because a realtime export reads
-    # them from `properties` the way it does on events_recent.
-    #
-    # Each column name carries the subquery alias. ClickHouse resolves a bare name to a SELECT alias before a column,
-    # so a bare `temporary_properties` inside the `properties` expression would read the text that the next
-    # expression builds, not the JSON column.
-    rows = _events_json_rows_sql(kafka_table)
+    # The export cleaner writes each document as a read of events_json returns it, so a realtime export sends the
+    # stored text. `properties` also holds the temporary properties, such as `$set`. events_json drops
+    # $feature_flag_called in production. This table keeps those events, so do not copy that filter here.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
 AS
-SELECT * REPLACE (
-    {stored_properties_document_sql("event_rows.properties", "event_rows.temporary_properties")} AS properties,
-    {json_document_sql("event_rows.temporary_properties")} AS temporary_properties,
-    {person_document_sql("event_rows.person_properties")} AS person_properties
-)
-FROM (
-{rows}) AS event_rows
-SETTINGS {EVENTS_JSON_INSERT_SETTINGS}, output_format_json_escape_forward_slashes = 0
-"""
+{_events_json_rows_sql(kafka_table, export_documents=True)}"""
 
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED

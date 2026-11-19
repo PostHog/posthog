@@ -103,19 +103,23 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             f"""
             SELECT
                 uuid,
-                {stored_properties_document_sql("properties", "temporary_properties")},
+                {stored_properties_document_sql("properties")},
                 {person_document_sql("person_properties")},
                 {json_document_sql("temporary_properties")}
             FROM events_json
             WHERE team_id = %(team_id)s AND uuid IN %(uuids)s
             ORDER BY event
-            SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
+            SETTINGS json_type_escape_dots_in_keys = 1
             """,
             uuids,
         )
 
         assert [row[0] for row in recent] == [flag_call_uuid, pageview_uuid]
-        assert recent == from_events_json
+        # events_json keeps the temporary properties in their own column. The recent table also has them in properties.
+        assert [(row[0], *(json.loads(document) for document in row[1:])) for row in recent] == [
+            (uuid, {**json.loads(stored), **json.loads(temporary)}, json.loads(person), json.loads(temporary))
+            for uuid, stored, person, temporary in from_events_json
+        ]
         _, stored_properties, stored_person_properties, stored_temporary_properties = recent[1]
         assert {
             "properties": json.loads(stored_properties),
