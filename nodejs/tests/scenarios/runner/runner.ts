@@ -98,7 +98,7 @@ export type RunResult = {
 }
 
 export interface Runner {
-    up(): Promise<void>
+    up(signal: AbortSignal): Promise<void>
     run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
     down(): Promise<void>
 }
@@ -386,8 +386,8 @@ export function createRunner(
     }
 
     return {
-        async up() {
-            await environment.up()
+        async up(signal) {
+            await environment.up(signal)
         },
 
         async run(loaded, signal) {

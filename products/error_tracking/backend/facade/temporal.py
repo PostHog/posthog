@@ -6,6 +6,8 @@ objects, not data, so they live in their own facade submodule — keeping the
 ``temporalio`` imports out of ``facade/api.py``.
 """
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from products.error_tracking.backend.temporal import ACTIVITIES, LIFECYCLE_ACTIVITIES, LIFECYCLE_WORKFLOWS, WORKFLOWS
 from products.error_tracking.backend.temporal.built_in_filters_refresh.schedule import (
     create_error_tracking_built_in_filters_refresh_schedule,
@@ -30,3 +32,22 @@ __all__ = [
     "create_error_tracking_symbol_set_cleanup_schedule",
     "create_error_tracking_weekly_digest_schedule",
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="ERROR_TRACKING_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)
+        ),
+        QueueBinding(
+            queue_setting="ERROR_TRACKING_LIFECYCLE_TASK_QUEUE",
+            workflows=tuple(LIFECYCLE_WORKFLOWS),
+            activities=tuple(LIFECYCLE_ACTIVITIES),
+        ),
+    ),
+    schedules=(
+        create_error_tracking_symbol_set_cleanup_schedule,
+        create_error_tracking_spike_event_cleanup_schedule,
+        create_error_tracking_weekly_digest_schedule,
+        create_error_tracking_built_in_filters_refresh_schedule,
+    ),
+)

@@ -68,6 +68,9 @@ export function DependenciesTab(): JSX.Element {
         [dependencyLayout]
     )
     const nodes = dependencyLayout?.nodes ?? []
+    const serviceLink = (service: string): { onClick: () => void } => ({
+        onClick: () => setDependencyService(service),
+    })
 
     return (
         <div className="flex flex-col gap-2">
@@ -134,6 +137,7 @@ export function DependenciesTab(): JSX.Element {
                         loading={dependenciesLoading}
                         emptyState={`Nothing called ${dependencyService} in this time range.`}
                         dataAttr="apm-dependencies-upstream"
+                        serviceLink={serviceLink}
                     />
                     <DependencyTable
                         title={`Downstream: calls from ${dependencyService}`}
@@ -141,6 +145,7 @@ export function DependenciesTab(): JSX.Element {
                         loading={dependenciesLoading}
                         emptyState={`${dependencyService} called nothing in this time range.`}
                         dataAttr="apm-dependencies-downstream"
+                        serviceLink={serviceLink}
                     />
                 </div>
             ) : (
@@ -150,6 +155,7 @@ export function DependenciesTab(): JSX.Element {
                     loading={dependenciesLoading}
                     emptyState="No calls between services in this environment and time range."
                     dataAttr="apm-dependencies-all"
+                    serviceLink={serviceLink}
                 />
             )}
         </div>

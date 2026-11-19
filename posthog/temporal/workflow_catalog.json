@@ -60,11 +60,6 @@
     "task_queues": "LLMA_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "ai-sync-vectors",
-    "product": "temporal/ai",
-    "task_queues": "MAX_AI_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "alerts-platform-deliver",
     "product": "alerts_platform",
     "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
