@@ -144,6 +144,11 @@ def test_keeps_a_tool_result_that_would_not_survive_parsing_as_its_exact_text(_n
             '{"inner": "' + "[" * 200 + "]" * 200 + '"}',
             {"inner": "[" * 200 + "]" * 200},
         ),
+        (
+            "nested_json_past_the_depth_bound_leaves_its_sibling_parsed",
+            '{"keep": "{\\"a\\": 1}", "inner": "' + "[" * 200 + "]" * 200 + '"}',
+            {"keep": {"a": 1}, "inner": "[" * 200 + "]" * 200},
+        ),
     ]
 )
 def test_tool_result_json_string_parses_to_structure(_name, content, expected):
