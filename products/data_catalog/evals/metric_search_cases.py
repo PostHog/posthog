@@ -777,6 +777,13 @@ SEARCH_CASES: tuple[SearchCase, ...] = (
     _case("typo_chrun", CaseType.TYPO, "chrun rate", expected=("logo_churn_rate", "revenue_churn_rate")),
     _case("typo_lattency", CaseType.TYPO, "lattency", expected=("p95_api_latency",)),
     _case("typo_signpus", CaseType.TYPO, "signpus", expected=("new_signups",)),
+    # Stop words must not stop the typo checks, which need every query word in the name.
+    _case(
+        "typo_with_stop_words",
+        CaseType.TYPO,
+        "what is the retension",
+        expected=("d30_retention_rate", "net_revenue_retention"),
+    ),
     # Word form.
     _case("form_churned_customers", CaseType.WORD_FORM, "churned customers", expected=("logo_churn_rate",)),
     _case("form_refunded", CaseType.WORD_FORM, "refunds", expected=("refund_amount",)),

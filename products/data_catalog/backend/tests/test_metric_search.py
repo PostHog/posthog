@@ -200,6 +200,27 @@ class TestSplitSearch(SimpleTestCase):
         assert split_search(search) == expected
 
 
+class TestSemanticQueryText(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("drops_stop_words", ["what is the MRR"], ["mrr"]),
+            ("keeps_negations", ["users who did not convert"], ["users not convert"]),
+            ("joins_phrasings", ["the churn", "lost clients"], ["churn; lost clients"]),
+            ("skips_embedding_for_only_stop_words", ["what is it"], []),
+        ]
+    )
+    def test_query_embedding_text(self, _name: str, queries: list[str], expected: list[str]) -> None:
+        sent: list[str] = []
+
+        def embed_query(text: str) -> list[float] | None:
+            sent.append(text)
+            return None
+
+        search_metrics(Metric.objects.unscoped().none(), queries, embed_query=embed_query)
+
+        assert sent == expected
+
+
 class TestScoreCase(SimpleTestCase):
     @parameterized.expand(
         [

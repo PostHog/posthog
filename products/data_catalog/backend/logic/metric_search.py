@@ -6,6 +6,9 @@ runs only when the caller passes a query embedding: cosine similarity against th
 metric rows. Every hit carries the reason it matched, and the result says whether any hit is a
 confident match.
 
+Both lanes ignore English stop words in the query, such as "the" and "of". A stop word carries no
+meaning to match on, and in the typo and name checks it must otherwise match a word of the name.
+
 A team holds a few hundred metrics, so the semantic lane ranks in Python with no vector index. Above
 ``SEMANTIC_MAX_CANDIDATES`` it skips itself and logs, so a large catalog costs no more than word matching.
 """
@@ -42,6 +45,7 @@ from ..models import Metric
 from .analytics import AnalyticsProps, capture_metric_search_event
 from .metric_embeddings import METRIC_EMBEDDING_MODEL, embed_search_query, embedding_is_current, semantic_search_enabled
 from .metrics import metrics_visible_to_user
+from .stop_words import ENGLISH_STOP_WORDS, NEGATION_WORDS
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -82,6 +86,7 @@ SEMANTIC_MAX_CANDIDATES = 2000
 
 _ACRONYM_MAX_LENGTH = 6
 _WORD_RE = re.compile(r"[a-z0-9]+")
+_EMBEDDING_STOP_WORDS = ENGLISH_STOP_WORDS - NEGATION_WORDS
 
 
 class SearchMode(StrEnum):
@@ -150,8 +155,12 @@ def _words(text: str) -> list[str]:
     return _WORD_RE.findall(text.lower())
 
 
+def _content_words(text: str, stop_words: frozenset[str] = ENGLISH_STOP_WORDS) -> list[str]:
+    return [word for word in _words(text) if word not in stop_words]
+
+
 def _squash(text: str) -> str:
-    return " ".join(_words(text))
+    return " ".join(_content_words(text))
 
 
 def _acronym(text: str) -> str:
@@ -199,7 +208,7 @@ def _exact_matches(candidates: list[tuple[UUID, str, str]], phrasing: str) -> di
 
 def _full_text_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID, _LexicalMatch]:
     """Weighted full-text matches. All words must match for the ALL_WORDS tier; any word earns SOME_WORDS."""
-    words = _words(phrasing)
+    words = _content_words(phrasing)
     if not words:
         return {}
     # A plain query ANDs the words, so operators a person typed, such as a leading "-", never exclude one.
@@ -268,7 +277,7 @@ def _one_edit_apart(left: str, right: str) -> bool:
 
 def _one_edit_typo_matches(candidates: list[tuple[UUID, str, str]], phrasing: str) -> dict[UUID, _LexicalMatch]:
     """Names that hold every word of the phrasing, where a long word may be one edit away."""
-    words = [word for word in _words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
+    words = [word for word in _content_words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
     if not any(len(word) >= _ONE_EDIT_MIN_WORD_LENGTH for word in words):
         return {}
 
@@ -289,7 +298,7 @@ def _one_edit_typo_matches(candidates: list[tuple[UUID, str, str]], phrasing: st
 
 def _typo_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID, _LexicalMatch]:
     """Names that hold every word of the phrasing, allowing for spelling. The weakest word sets the score."""
-    words = [word for word in _words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
+    words = [word for word in _content_words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
     if not words:
         return {}
     per_word = [
@@ -369,7 +378,7 @@ def search_metrics(
     """Rank ``candidates`` against one or more phrasings of the same need, and load one page of hits.
 
     ``candidates`` must already be the metrics the caller may see. ``embed_query`` turns the joined
-    phrasings into a vector, or returns None when embedding fails, in which case only the lexical lane runs.
+    phrasings, without stop words, into a vector, or returns None when embedding fails, in which case only the lexical lane runs.
     """
     phrasings = normalize_phrasings(queries)
     if not phrasings:
@@ -377,7 +386,10 @@ def search_metrics(
 
     lexical = _lexical_lane(candidates, phrasings)
 
-    query_embedding = embed_query("; ".join(phrasings)) if embed_query is not None else None
+    embedding_text = "; ".join(
+        text for phrasing in phrasings if (text := " ".join(_content_words(phrasing, _EMBEDDING_STOP_WORDS)))
+    )
+    query_embedding = embed_query(embedding_text) if embed_query is not None and embedding_text else None
     semantic = _semantic_lane(candidates, query_embedding, semantic_top_k) if query_embedding is not None else {}
 
     # Rank on light rows, then load full metrics only for the hits that are returned.
