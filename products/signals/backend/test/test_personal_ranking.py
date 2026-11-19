@@ -76,6 +76,7 @@ from products.signals.backend.ranking.report_predictions import OutcomePredictio
 REFS = ["c1", "c2", "c3", "c4"]
 MODEL_REASONS = {ref: f"model {ref}" for ref in REFS}
 LIMITS = ReasonLimits(top=40, worth_a_look=30, later=20)
+WEB_USER_AGENT = "Mozilla/5.0"
 
 
 def _entry(
@@ -1134,6 +1135,7 @@ class TestBuildPersonalRanking(BaseTest):
         [
             ("tick_takes_the_background_tier", {}, "tick", "flex"),
             ("first_summary_takes_the_background_tier", {}, "first_summary", "flex"),
+            ("inbox_load_takes_the_background_tier", {}, "inbox_load", "flex"),
             ("on_demand_takes_its_own_tier", {"on_demand_service_tier": "priority"}, "on_demand", "priority"),
             ("on_demand_without_its_own_tier_sends_none", {}, "on_demand", None),
             (
@@ -1671,7 +1673,7 @@ class TestForMeEndpoint(APIBaseTest):
             traveller.shift(datetime.timedelta(hours=2))
             with patch.object(personal_ranking_serve, "gather_candidates") as gather:
                 body = self._get()
-            assert (self._state(body), gather.call_count, [args[-1] for args in self.queued]) == (
+            assert (self._state(body), gather.call_count, [args[4] for args in self.queued]) == (
                 (True, False, True),
                 0,
                 [True],
@@ -1776,6 +1778,9 @@ class TestPersonalRankingState(SimpleTestCase):
 class TestPersonalListSort(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        cache.delete(build_lock_key(self.team.id, self.user.id))
         self.payload: dict[str, Any] = {}
         self.flag_enabled = True
         self.gather = MagicMock()
@@ -1831,9 +1836,10 @@ class TestPersonalListSort(APIBaseTest):
             **{"user": self.user, "status": "ok", **defaults, **kwargs},
         )
 
-    def _list(self, **params: Any) -> dict[str, Any]:
+    def _list(self, user_agent: str | None = None, **params: Any) -> dict[str, Any]:
         query = "&".join(f"{key}={value}" for key, value in {"status": "ready", **params}.items())
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
+        headers = {"user-agent": user_agent} if user_agent is not None else {}
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}", headers=headers)
         assert response.status_code == 200, response.json()
         return response.json()
 
@@ -1967,6 +1973,7 @@ class TestPersonalListSort(APIBaseTest):
             "age_minutes": 120,
             "checked_age_minutes": 30,
             "fallback_reason": "timeout",
+            "building": False,
         }
         assert later["personal_ranking_status"] is None
         assert (self.gather.call_count, self.delay.call_count) == (0, 0)
@@ -1986,7 +1993,40 @@ class TestPersonalListSort(APIBaseTest):
                 "age_minutes": None,
                 "checked_age_minutes": None,
                 "fallback_reason": None,
+                "building": False,
             }
+
+    @parameterized.expand(
+        [
+            ("recommended_on_the_web", {"sort": "recommended"}, WEB_USER_AGENT, False, True),
+            ("personal_on_desktop", {"sort": "personal"}, "posthog/desktop.hog.dev; 1.0", False, True),
+            ("ranking_stored", {"sort": "recommended"}, WEB_USER_AGENT, True, False),
+            ("priority_sort", {"sort": "priority"}, WEB_USER_AGENT, False, False),
+            ("explicit_ordering", {"sort": "recommended", "ordering": "-updated_at"}, WEB_USER_AGENT, False, False),
+            ("teammate_scope", {"sort": "personal", "scope": "teammate"}, WEB_USER_AGENT, False, False),
+            ("api_client", {"sort": "recommended"}, "python-requests/2.32", False, False),
+        ]
+    )
+    def test_first_inbox_page_without_a_ranking_starts_one_build(
+        self, _name: str, params: dict[str, Any], user_agent: str, stored: bool, builds: bool
+    ) -> None:
+        r0, r1, *_ = self.reports
+        if stored:
+            self._ranking([r0, r1], [], status="fallback", personalized=False, fallback_reason="timeout")
+        if params.get("scope") == "teammate":
+            teammate = User.objects.create(email="teammate@example.com")
+            OrganizationMembership.objects.create(user=teammate, organization=self.organization)
+            params = {**params, "teammate_uuid": teammate.uuid}
+
+        first = self._list(user_agent, limit=2, **params)
+        again = self._list(user_agent, limit=2, **params)
+        later = self._list(user_agent, limit=2, offset=2, **params)
+
+        assert first["personal_ranking_status"]["building"] is builds
+        assert again["personal_ranking_status"]["building"] is builds
+        assert later["personal_ranking_status"] is None
+        queued = [(call.args[:2], call.args[4:]) for call in self.delay.call_args_list]
+        assert queued == ([((self.team.id, self.user.id), (True, "inbox_load"))] if builds else [])
 
     def test_ranking_status_adds_one_query_to_the_first_page(self) -> None:
         r0, r1, *_ = self.reports
