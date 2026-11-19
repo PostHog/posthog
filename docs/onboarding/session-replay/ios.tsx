@@ -108,12 +108,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // otherwise replays are recorded as wireframes and SwiftUI screens aren't recorded.
 
                                             // How each screenshot is captured. Default is .standard.
-                                            // .background renders on a background queue, which can reduce main-thread
-                                            // hangs and dropped frames on complex screens. It may trigger Xcode's Main
-                                            // Thread Checker and briefly freeze the app on the first capture.
-                                            // .gpu (experimental) renders a copy of the screen with Metal.
-                                            // Requires SDK version 4.0 or higher. Before 4.0, use
-                                            // screenshotModeBackgroundCapture = true for background capture.
+                                            // .gpu (experimental) renders a copy of the screen with Metal, which
+                                            // takes less main-thread time. Requires SDK version 4.0 or higher.
                                             config.sessionReplayConfig.captureMethod = .standard
 
                                             // Screenshot resolution as a fraction of the screen's native resolution,
