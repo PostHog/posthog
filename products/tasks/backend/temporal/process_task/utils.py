@@ -51,6 +51,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     ProcessTaskTransientError,
 )
+from products.tasks.backend.facade.agent_run_starts import AGENT_PARENT_TASK_ID_STATE_KEY
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, GithubAccess, TaskProfile
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
@@ -610,14 +611,18 @@ def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstalla
     ]
 
 
-def include_personal_mcp_for_task(task: Task) -> bool:
+def include_personal_mcp_for_task(task: Task, state: dict[str, Any] | None) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
     resolved member's personal creds. Agent-specific grant filtering happens
     in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
+    A run that an agent started is autonomous whatever its task's profile says,
+    because no person chose to start it.
     """
+    if AGENT_PARENT_TASK_ID_STATE_KEY in (state or {}):
+        return False
     profile = task.stored_profile
     if profile is not None:
         return profile.personal_mcp

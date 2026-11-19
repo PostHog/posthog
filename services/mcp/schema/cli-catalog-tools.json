@@ -42250,6 +42250,14 @@
                     "key": "write_scopes"
                 },
                 {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
+                },
+                {
                     "param": "lifecycle_locked",
                     "key": "lifecycle_locked"
                 },
@@ -42549,6 +42557,14 @@
                 {
                     "param": "write_scopes",
                     "key": "write_scopes"
+                },
+                {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
                 },
                 {
                     "param": "precheck_query",
@@ -45072,6 +45088,14 @@
                     "key": "write_scopes"
                 },
                 {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
+                },
+                {
                     "param": "lifecycle_locked",
                     "key": "lifecycle_locked"
                 },
@@ -45334,6 +45358,14 @@
                 {
                     "param": "write_scopes",
                     "key": "write_scopes"
+                },
+                {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
                 },
                 {
                     "param": "precheck_query",
