@@ -19,7 +19,11 @@ class HiBobEndpointConfig:
     cursor_location: Optional[Literal["query", "json"]] = None
     # "employee_history": rows are nested per employee under `values` and need flattening.
     # "pointer_keys": rows are keyed by JSON pointers (e.g. `/candidate/id`) and need leaf keys.
-    row_shape: Literal["flat", "employee_history", "pointer_keys"] = "flat"
+    # "pointer_values": pointer-keyed rows whose values are wrapped as `{value, humanReadable}`.
+    # "search_fields": search results wrapped as `{objectType, fields: {name: {value}}}`.
+    row_shape: Literal["flat", "employee_history", "pointer_keys", "pointer_values", "search_fields"] = "flat"
+    # Where the next cursor sits in the response body.
+    cursor_path: str = "response_metadata.next_cursor"
     # Sent as a `since` query param set this many days before the sync starts.
     since_days_ago: Optional[int] = None
 
@@ -189,6 +193,42 @@ SKILL_FIELDS = (
     "/skill/createdAt",
 )
 
+GOAL_FIELDS = (
+    "id",
+    "title",
+    "description",
+    "startDate",
+    "dueDate",
+    "typeId",
+    "category",
+    "status",
+    "progress",
+    "owner",
+    "isPrivate",
+    "alignedGoal",
+    "hasKeyResults",
+    "isActive",
+    "cycleId",
+    "weight",
+)
+
+KEY_RESULT_FIELDS = (
+    "id",
+    "title",
+    "goalId",
+    "measureType",
+    "target",
+    "startValue",
+    "dueDate",
+    "currentValue",
+    "currency",
+    "currencySymbol",
+    "progress",
+)
+
+# Max page size the job catalog lists accept.
+JOB_CATALOG_PAGE_LIMIT = 100
+
 # The time off changes endpoint rejects a `since` older than six months; 180 days
 # always falls inside that.
 TIME_OFF_CHANGES_LOOKBACK_DAYS = 180
@@ -208,6 +248,21 @@ EMPLOYERS = "employers"
 # Work locations are searched per employer, so the stream fans out over employer
 # ids — routed by name in hibob.py.
 WORK_LOCATIONS = "work_locations"
+
+GOALS = "goals"
+
+# Key results are searched per goal (a goalId filter is required), so the stream
+# fans out over goal ids — routed by name in hibob.py.
+GOAL_KEY_RESULTS = "goal_key_results"
+
+# Actual payments are searched per employee (an employeeId filter is required),
+# so the stream fans out over employee ids — routed by name in hibob.py.
+EMPLOYEE_ACTUAL_PAYMENTS = "employee_actual_payments"
+
+# The time off API lists only policy type and policy names; the details are read
+# one name at a time — routed by name in hibob.py.
+TIME_OFF_POLICY_TYPES = "time_off_policy_types"
+TIME_OFF_POLICIES = "time_off_policies"
 
 # HiBob has no updated-at filter on employees (Airbyte is full-refresh only and
 # Fivetran re-imports most tables every sync), so every stream is an honest
@@ -391,6 +446,63 @@ HIBOB_ENDPOINTS: dict[str, HiBobEndpointConfig] = {
         name="skill_proficiency_levels",
         path="/v1/skills/proficiency-levels",
         data_key="items",
+    ),
+    "job_roles": HiBobEndpointConfig(
+        name="job_roles",
+        path="/v1/job-catalog/job-roles",
+        data_key="JobRoleEntries",
+        params={"limit": JOB_CATALOG_PAGE_LIMIT},
+        cursor_location="query",
+        row_shape="pointer_values",
+    ),
+    "job_families": HiBobEndpointConfig(
+        name="job_families",
+        path="/v1/job-catalog/job-families",
+        data_key="JobFamilyEntries",
+        params={"limit": JOB_CATALOG_PAGE_LIMIT},
+        cursor_location="query",
+        row_shape="pointer_values",
+    ),
+    GOALS: HiBobEndpointConfig(
+        name=GOALS,
+        path="/v1/goals/goals/search",
+        data_key="items",
+        method="POST",
+        # The goals search documents its cursor params as accepted but not enforced, so it
+        # usually answers in one page; follow `nextCursor` in case that changes.
+        body={"fields": list(GOAL_FIELDS), "filters": []},
+        cursor_location="json",
+        cursor_path="nextCursor",
+        row_shape="search_fields",
+    ),
+    GOAL_KEY_RESULTS: HiBobEndpointConfig(
+        name=GOAL_KEY_RESULTS,
+        path="/v1/goals/goals/key-results/search",
+        data_key="items",
+        method="POST",
+        body={"fields": list(KEY_RESULT_FIELDS)},
+        # Key result ids are only documented as backend ids, so scope them to their goal.
+        primary_keys=("goalId", "id"),
+    ),
+    EMPLOYEE_ACTUAL_PAYMENTS: HiBobEndpointConfig(
+        name=EMPLOYEE_ACTUAL_PAYMENTS,
+        path="/v1/people/actual-payments/search",
+        data_key="results",
+        method="POST",
+        primary_keys=HISTORY_PRIMARY_KEYS,
+    ),
+    TIME_OFF_POLICY_TYPES: HiBobEndpointConfig(
+        name=TIME_OFF_POLICY_TYPES,
+        path="/v1/timeoff/policy-types",
+        data_key="policyTypes",
+        # Policy types have no id; the API addresses them by name.
+        primary_keys=("name",),
+    ),
+    TIME_OFF_POLICIES: HiBobEndpointConfig(
+        name=TIME_OFF_POLICIES,
+        path="/v1/timeoff/policies",
+        data_key="policyNames",
+        primary_keys=("policyTypeName", "name"),
     ),
 }
 

@@ -229,7 +229,7 @@ class EvalSuggestionsCoordinatorWorkflow(PostHogWorkflow):
 
 
 WORKFLOWS = [EvalSuggestionsCoordinatorWorkflow, EvalSuggestionsTeamWorkflow]
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     plan_eval_suggestions_activity,
     start_eval_suggestions_run_activity,
     measure_eval_suggestions_activity,

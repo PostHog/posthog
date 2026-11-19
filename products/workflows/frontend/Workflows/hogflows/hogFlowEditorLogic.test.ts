@@ -355,7 +355,7 @@ describe('hogFlowEditorLogic', () => {
             expect(insertEmail()?.type).toEqual(expectedType)
         })
 
-        it('uses the sandbox sender for a new email step when the team turns UTM tags on by default', () => {
+        it('uses the PostHog test sender for a new email step when the team turns UTM tags on by default', () => {
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
                 workflows_config: { email_utm_tags_enabled: true },
@@ -378,7 +378,7 @@ describe('hogFlowEditorLogic', () => {
             }).toDispatchActions(['provisionSandboxSender', 'provisionSandboxSenderFailed'])
 
             expect(sandboxSenderLogic.values.provisionError).toEqual(
-                "Couldn't set up the sandbox sender. Try again, or choose your own sender."
+                "Couldn't set up the PostHog test sender. Try again, or choose your own sender."
             )
         })
     })

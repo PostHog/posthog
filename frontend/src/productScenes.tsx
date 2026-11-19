@@ -63,6 +63,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeLibraries: () =>
+        import('../../products/business_knowledge/frontend/scenes/libraries/BusinessKnowledgeLibrariesScene'),
+    BusinessKnowledgeLibrary: () =>
+        import('../../products/business_knowledge/frontend/scenes/library/KnowledgeLibraryScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
     CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
@@ -90,6 +94,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
     WarehouseProperties: () =>
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
+    DashboardV2: () => import('../../products/dashboards_v2/frontend/DashboardV2Scene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
     DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),

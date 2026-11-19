@@ -710,6 +710,9 @@ importers:
       '@posthog/products-dashboards':
         specifier: workspace:*
         version: link:../products/dashboards
+      '@posthog/products-dashboards-v2':
+        specifier: workspace:*
+        version: link:../products/dashboards_v2
       '@posthog/products-data-catalog':
         specifier: workspace:*
         version: link:../products/data_catalog
@@ -1019,6 +1022,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.2.1(vite@8.1.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.6.1)(less@4.9.1(supports-color@10.2.2))(sass-embedded@1.70.0)(sass@1.107.1)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+      '@workos/radar-signals':
+        specifier: 0.0.1
+        version: 0.0.1(react@18.3.1)
       '@xterm/addon-fit':
         specifier: 0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0)
@@ -3459,6 +3465,52 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.8
         version: 14.6.8(@testing-library/dom@10.4.2)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@26.6.6)(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/dashboards_v2:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
+      '@types/react':
+        specifier: 18.3.31
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.31)
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      react-grid-layout:
+        specifier: ^2.3.0
+        version: 2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '>=9.3.4'
+        version: 10.4.2
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@26.6.6)(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
@@ -15464,6 +15516,14 @@ packages:
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
 
+  '@workos/radar-signals@0.0.1':
+    resolution: {integrity: sha512-GTFjAl+4kwDgycRVoRFSQdZ2Eog9/dZynaX5m2CE5JNMkoQ2I+n/K5qjHvrMysMh2N/GSSd7eYIgCk2HAfXzhg==}
+    peerDependencies:
+      react: 18.3.1
+    peerDependenciesMeta:
+      react:
+        optional: true
+
   '@xmldom/xmldom@0.8.15':
     resolution: {integrity: sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA==}
     engines: {node: '>=10.0.0'}
@@ -24498,8 +24558,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.535.0:
-    resolution: {integrity: sha512-dyecz94Tbm62UZDbdotYOONS2OeEpl2m3NuhJqvK7us3uh53Sfu6BdN+IRPJhNDU+e7elyfAjfPwS9e1OgytQA==}
+  unlayer-types@1.537.0:
+    resolution: {integrity: sha512-50B9H7Pk0O9HZPyv8PsYxU+1dyNMJ5sWq271zAgUlRQ5ND+j4E6WytseO2EeXqJdEhSCwVTEX7OTDoCMQjakfw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -35811,6 +35871,10 @@ snapshots:
 
   '@workflow/serde@4.1.0': {}
 
+  '@workos/radar-signals@0.0.1(react@18.3.1)':
+    optionalDependencies:
+      react: 18.3.1
+
   '@xmldom/xmldom@0.8.15': {}
 
   '@xmldom/xmldom@0.9.10': {}
@@ -45143,7 +45207,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.535.0
+      unlayer-types: 1.537.0
 
   react-grid-layout@2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -47541,7 +47605,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.535.0: {}
+  unlayer-types@1.537.0: {}
 
   unpipe@1.0.0: {}
 
