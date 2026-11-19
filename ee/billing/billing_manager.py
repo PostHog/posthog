@@ -888,24 +888,23 @@ class BillingManager:
 
         if customer_trust_scores:
             product_key_to_usage_key = {
-                product["type"]: product["usage_key"]
+                product["type"]: product.get("usage_key")
                 for product in (
                     billing_status["customer"].get("products")
                     or self.get_default_products(organization, timeout=timeout)["products"]
                 )
             }
-            org_customer_trust_scores = {}
-            for product_key in customer_trust_scores:
-                if product_key in product_key_to_usage_key:
-                    org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[
-                        product_key
-                    ]
+            org_customer_trust_scores = {
+                usage_key: score
+                for product_key, score in customer_trust_scores.items()
+                if (usage_key := product_key_to_usage_key.get(product_key))
+            }
 
             current_customer_trust_scores = organization.customer_trust_scores or {}
-            updated_customer_trust_scores = {
-                **current_customer_trust_scores,
-                **org_customer_trust_scores,
-            }
+            # Replace rather than merge: billing sends a score for every product with a usage key, and a
+            # merge would keep a grace period billing has since withdrawn. Quota limiting reads a missing
+            # key as 0.
+            updated_customer_trust_scores = org_customer_trust_scores or current_customer_trust_scores
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
