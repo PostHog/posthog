@@ -469,6 +469,20 @@ Incomplete history stops automatic changes until a person confirms the current l
 
 ### Write contract
 
+Reviewer attribution records who wrote the artefact and does not grant permission to start implementation.
+Each reviewer version carries separate, server-owned implementation authorization.
+Research, custom-agent, and scout workers authorize automatic selection of an eligible reviewer, subject to the existing autonomy and repository checks.
+Stack layers inherit the parent reviewer version, authorization, and reviewer corrections.
+After creation, each layer keeps its own reviewer state. Later plan edits do not replace an existing layer's reviewers or corrections.
+Reports filed by a person and their stack layers require an explicit implementation request.
+Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
+Sandbox API writes do not grant permission to start implementation.
+An ineligible caller never falls back to a named reviewer or another member.
+Startup reads the authorization and reviewer content from the same version, including on deferred retries.
+Unchanged automatic proposals preserve the current version's authorization.
+Research and scout proposals that retain an existing reviewer also preserve that authorization when they add reviewers or update their evidence.
+Older reviewer versions without authorization pause until a person authorizes a reviewer edit or explicitly requests implementation.
+
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.
 The web app does not need it for targeted add/remove requests.

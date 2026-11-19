@@ -36,6 +36,7 @@ from products.signals.backend.assignment_flags import assignment_writer_enabled
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
@@ -786,6 +787,7 @@ def _append_agentic_report_artefacts(
                         attribution=draft.attribution,
                         reviewer_proposal=reviewer_proposal
                         or ReviewerProposal(expected_state=service.read().state, source="research"),
+                        implementation_authorization=ImplementationAuthorization(mode="reviewer"),
                         reevaluate_autostart=False,
                     )
                 except StaleReviewerProposal:
