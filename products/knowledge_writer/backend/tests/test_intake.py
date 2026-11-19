@@ -21,11 +21,11 @@ from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegrationError, Integration
 from posthog.storage import object_storage
 
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
-from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
+from products.knowledge_writer.backend.facade.contracts import DocsRequest, MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
@@ -45,6 +45,7 @@ from products.knowledge_writer.backend.logic.pull_requests import (
 )
 from products.knowledge_writer.backend.logic.records import (
     BASE_SHA_STATE_KEY,
+    DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
@@ -1191,6 +1192,68 @@ def test_a_page_sourced_from_this_repository_is_not_handed_to_the_writer(
     assert not any(page in task.description for page in withheld_pages)
 
 
+def _legacy_writer_run(team) -> tuple[DocsRequest, TaskRun]:
+    verdict = _verdict(docs_content_root="app/(site)/docs/")
+    assert verdict.request is not None
+    legacy = intake.submit(verdict, team_id=team.id)
+    assert legacy.task_id is not None
+    legacy_task = Task.objects.get(id=legacy.task_id)
+    legacy_task.state = {key: value for key, value in legacy_task.state.items() if key != BASE_SHA_STATE_KEY}
+    legacy_task.save(update_fields=["state"])
+    return verdict.request, TaskRun.objects.get(task_id=legacy.task_id)
+
+
+@pytest.mark.django_db
+def test_a_run_launched_before_the_base_was_recorded_relaunches_its_request_once_under_the_same_dedupe_id(
+    team, writer_env
+) -> None:
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(START_WORKFLOW) as start_workflow,
+        patch.object(intake, "read_source_diff", return_value=SOURCE_DIFF_BACKING_RETENTION),
+    ):
+        recorded = intake.submit(_verdict(124), team_id=team.id)
+        assert recorded.task_id is not None
+        recorded_run = TaskRun.objects.get(task_id=recorded.task_id)
+        is_recorded_run_relaunched = intake.relaunch_run_without_base(recorded_run.id, team_id=team.id)
+        request, legacy_run = _legacy_writer_run(team)
+
+        is_relaunched = intake.relaunch_run_without_base(legacy_run.id, team_id=team.id)
+        is_retry_relaunched = intake.relaunch_run_without_base(legacy_run.id, team_id=team.id)
+
+    relaunched = tasks_facade.get_task_by_origin_key(team.id, request.dedupe_id)
+    assert (is_recorded_run_relaunched, is_relaunched, is_retry_relaunched) == (False, True, True)
+    assert relaunched is not None and relaunched.id != legacy_run.task_id
+    assert tasks_facade.read_task_state_entry(relaunched.id, team.id, BASE_SHA_STATE_KEY) == BASE_SHA
+    assert tasks_facade.read_task_state_entry(relaunched.id, team.id, DOCS_CONTENT_ROOT_STATE_KEY) == "app/(site)/docs/"
+    assert Task.objects.get(id=legacy_run.task_id).deleted
+    assert start_workflow.call_count == 3
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("launch_blocker", ["daily_run_cap", "unreadable_docs_repository"])
+def test_a_relaunch_that_cannot_start_leaves_the_old_task_holding_its_request(
+    team, writer_env, launch_blocker: str
+) -> None:
+    blocker = (
+        patch.object(intake, "daily_run_cap_reached", return_value=True)
+        if launch_blocker == "daily_run_cap"
+        else patch.object(intake, "docs_base_sha", side_effect=GitHubIntegrationError("docs repository unreadable"))
+    )
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(START_WORKFLOW),
+        patch.object(intake, "read_source_diff", return_value=SOURCE_DIFF_BACKING_RETENTION),
+    ):
+        request, legacy_run = _legacy_writer_run(team)
+        with blocker, contextlib.suppress(intake.WriterLaunchDeferred):
+            assert not intake.relaunch_run_without_base(legacy_run.id, team_id=team.id)
+
+    key_holder = tasks_facade.get_task_by_origin_key(team.id, request.dedupe_id)
+    assert key_holder is not None and key_holder.id == legacy_run.task_id
+    assert not Task.objects.get(id=legacy_run.task_id).deleted
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "pull_request_url, expected_status",
@@ -1519,10 +1582,6 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     assert "rules: AGENTS.md" in check.stdout.splitlines()
     manifest = json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())
     assert nav.read_text() == (NAV_HEAD_TEXT if is_adding_page_with_nav_edit else NAV_BASE_TEXT)
-    assert manifest.get("format") == (
-        {"command": "printf '// formatted\\n' >> src/navs/index.js; echo unformatted; exit 3", "exit_code": 3}
-        if is_editing_rules_with_failing_format
-        else None
-    )
+    assert manifest.get("format") == ({"exit_code": 3} if is_editing_rules_with_failing_format else None)
     assert manifest["patches"][DOCS_PAGE_PATH] == "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
     assert manifest["deleted"] == [str(removed_page.relative_to(tmp_path))]

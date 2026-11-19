@@ -32,7 +32,6 @@ ROUTE_GROUP_SEGMENT_PATTERN = re.compile(r"^\(.*\)$")
 NAV_LINE_TOKEN_PATTERN = re.compile(
     r"""\s*(?:(?P<punctuation>[\[\]{},])|(?P<key_quote>["']?)(?P<key>[A-Za-z_]\w*)(?P=key_quote)\s*:|'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)"|(?P<scalar>true|false|-?\d+)(?![\w.]))"""
 )
-RULES_FILE_FLAG_SUFFIX = ": edits a rules file that agents follow"
 NAV_LINK_KEYS = frozenset({"url", "to", "href", "link"})
 NAV_VALUE_OPENERS = frozenset({"[", "{"})
 NAV_LINK_PAIR_PATTERN = re.compile(
@@ -589,7 +588,12 @@ def parsed_json_object(text: str | None) -> dict | None:
 class CompanionCheck:
     refusal: str | None
     flags: tuple[str, ...]
+    rules_flags: tuple[str, ...] = ()
     refused_path: str | None = None
+
+    @property
+    def all_flags(self) -> tuple[str, ...]:
+        return (*self.rules_flags, *self.flags)
 
 
 def companion_refused(refused_path: str) -> CompanionCheck:
@@ -607,12 +611,12 @@ def companion_check(
         changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
     ]
     rules_flags = [
-        f"{changed_file['filename']}{RULES_FILE_FLAG_SUFFIX}"
+        f"{changed_file['filename']}: edits a rules file that agents follow"
         for changed_file in changed_files
         if is_rules_file(changed_file["filename"])
     ]
     if not companion_files:
-        return CompanionCheck(refusal=None, flags=tuple(rules_flags))
+        return CompanionCheck(refusal=None, flags=(), rules_flags=tuple(rules_flags))
     folders_with_rules = rules_folders(changed_files, docs_folders)
     unlisted_companion = next(
         (changed_file for changed_file in companion_files if not is_listed_companion(changed_file, folders_with_rules)),
@@ -649,7 +653,7 @@ def companion_check(
         if file_flags is None:
             return companion_refused(filename)
         flags.extend(file_flags)
-    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys([*rules_flags, *flags])))
+    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)), rules_flags=tuple(rules_flags))
 
 
 def is_companion_edit_too_large(changed_file: dict, base_text: str | None, head_text: str | None) -> bool:
@@ -920,7 +924,7 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     )
     for rules_path in applicable_rules_files(change.changed_files, settings.docs_folders):
         show_agent(f"rules: {rules_path}")
-    for warning in companion.flags:
+    for warning in companion.all_flags:
         show_agent(f"warning: {warning}")
     if companion.refused_path is not None:
         change.problems.append(companion_problem(companion.refused_path, change, settings))
@@ -968,7 +972,7 @@ def run_format_command(base_sha: str) -> dict | None:
     if exit_code:
         output_tail = "\n".join(output.splitlines()[-FORMAT_OUTPUT_TAIL_LINES:])
         show_agent(f"warning: the format command `{command}` exited with {exit_code}:\n{output_tail}")
-    return {"command": command, "exit_code": exit_code}
+    return {"exit_code": exit_code}
 
 
 def run_with_timeout(command: str) -> tuple[int | None, str]:

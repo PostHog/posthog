@@ -33,7 +33,15 @@ from .pull_requests import (
     source_github,
     source_repository_github,
 )
-from .records import LEGACY_HELD_REQUESTS_STATE_KEY, DocsRequest, source_change_of, stored_request
+from .records import (
+    BASE_SHA_STATE_KEY,
+    LEGACY_HELD_REQUESTS_STATE_KEY,
+    PULL_REQUEST_STATE_KEY,
+    DocsRequest,
+    source_change_of,
+    stored_request,
+    task_request,
+)
 from .routing import route_request
 from .server_commit import docs_branch_head
 
@@ -86,9 +94,11 @@ def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: 
     return launch_request(verdict.request, writer, team_id=team_id)
 
 
-def launch_request(request: DocsRequest, writer: WriterSettings, *, team_id: int) -> IntakeOutcome:
+def launch_request(
+    request: DocsRequest, writer: WriterSettings, *, team_id: int, replacing_task_id: UUID | None = None
+) -> IntakeOutcome:
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
-    if existing_task is not None:
+    if existing_task is not None and existing_task.id != replacing_task_id:
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
     team = Team.objects.get(id=team_id)
     if not is_agent_launch_enabled(team):
@@ -119,7 +129,7 @@ def launch_request(request: DocsRequest, writer: WriterSettings, *, team_id: int
             writer=writer,
             base_sha=base_sha,
             source_diff=read_source_diff(source_github(team_id, source_change), source_change),
-            before_task_create=lambda: admit_under_open_pull_request_cap(writer, listed_open_count),
+            before_task_create=lambda: admit_launch(writer, listed_open_count, request, replacing_task_id),
         )
     except WriterCapReached:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
@@ -127,6 +137,33 @@ def launch_request(request: DocsRequest, writer: WriterSettings, *, team_id: int
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
     return IntakeOutcome(status="started", task_id=task_id)
+
+
+def relaunch_run_without_base(task_run_id: UUID, *, team_id: int) -> bool:
+    writer = writer_settings()
+    run = tasks_facade.get_task_run(task_run_id, team_id)
+    if writer is None or writer.team_id != team_id or run is None:
+        return False
+    if run.task_origin_product != tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER:
+        return False
+    if tasks_facade.read_task_state_entry(run.task_id, team_id, BASE_SHA_STATE_KEY) is not None:
+        return False
+    if tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY) is not None:
+        return False
+    try:
+        request = task_request(run.task_id, team_id)
+    except ValidationError:
+        return False
+    outcome = launch_request(request, writer, team_id=team_id, replacing_task_id=run.task_id)
+    logger.info(
+        "knowledge_writer_run_relaunched",
+        task_run_id=str(task_run_id),
+        team_id=team_id,
+        dedupe_id=request.dedupe_id,
+        status=outcome.status,
+        task_id=str(outcome.task_id) if outcome.task_id else None,
+    )
+    return outcome.status in ("started", "duplicate")
 
 
 def drain_legacy_held_requests() -> None:
@@ -176,6 +213,14 @@ def remove_held_entry(task_id: UUID, entry: object, team_id: int) -> None:
         return [kept for kept in held if kept != entry] or None, None
 
     tasks_facade.update_task_state_entry(task_id, team_id, LEGACY_HELD_REQUESTS_STATE_KEY, remove)
+
+
+def admit_launch(
+    writer: WriterSettings, open_pull_request_count: int, request: DocsRequest, replacing_task_id: UUID | None
+) -> None:
+    admit_under_open_pull_request_cap(writer, open_pull_request_count)
+    if replacing_task_id is not None:
+        tasks_facade.release_task_origin_key(writer.team_id, request.dedupe_id)
 
 
 def admit_under_open_pull_request_cap(writer: WriterSettings, open_pull_request_count: int) -> None:

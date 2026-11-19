@@ -1,5 +1,10 @@
+from dataclasses import replace
+from uuid import UUID
+
 from pydantic import TypeAdapter
 from pydantic.dataclasses import dataclass
+
+from products.tasks.backend.facade import api as tasks_facade
 
 from ..facade.contracts import DocsRequest
 
@@ -55,3 +60,19 @@ def stored_source_change(entry: object) -> SourceChange:
     if not isinstance(entry, dict):
         return SourceChange()
     return source_change_json.validate_python(entry)
+
+
+def task_request(task_id: UUID, team_id: int) -> DocsRequest:
+    request = stored_request(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
+    docs_content_root = tasks_facade.read_task_state_entry(task_id, team_id, DOCS_CONTENT_ROOT_STATE_KEY)
+    stored_change = tasks_facade.read_task_state_entry(task_id, team_id, SOURCE_CHANGE_STATE_KEY)
+    source_change = (
+        stored_source_change(stored_change) if isinstance(stored_change, dict) else source_change_of(request)
+    )
+    return replace(
+        request,
+        docs_content_root=docs_content_root if isinstance(docs_content_root, str) else None,
+        source_repository=source_change.repository,
+        source_commit_sha=source_change.commit_sha,
+        source_author_login=source_change.author_login,
+    )

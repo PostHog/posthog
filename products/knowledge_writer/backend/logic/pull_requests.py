@@ -27,7 +27,6 @@ from ..feature_flags import open_pull_requests_flag_state
 from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
-    RULES_FILE_FLAG_SUFFIX,
     CompanionCheck,
     PatchMismatch,
     ancestor_directories,
@@ -118,6 +117,7 @@ class DraftFlags:
     grounding: GroundingResult
     extra_pages: tuple[str, ...]
     companion_flags: tuple[str, ...]
+    rules_flags: tuple[str, ...] = ()
     format_failure: str | None = None
 
     @property
@@ -127,6 +127,7 @@ class DraftFlags:
             and not self.grounding.unsupported_lines
             and not self.extra_pages
             and not self.companion_flags
+            and not self.rules_flags
             and self.format_failure is None
         )
 
@@ -138,9 +139,8 @@ def pull_request_body(request: DocsRequest, flags: DraftFlags) -> str:
     )
 
 
-def listed_companion_flags(companion_flags: tuple[str, ...]) -> tuple[str, ...]:
-    rules_flag_count = sum(flag.endswith(RULES_FILE_FLAG_SUFFIX) for flag in companion_flags)
-    return companion_flags[: max(MAX_LISTED_COMPANION_FLAGS, rules_flag_count)]
+def listed_companion_flags(flags: DraftFlags) -> tuple[str, ...]:
+    return (*flags.rules_flags, *flags.companion_flags[:MAX_LISTED_COMPANION_FLAGS])
 
 
 def flag_sections(flags: DraftFlags) -> list[str]:
@@ -160,9 +160,9 @@ def flag_sections(flags: DraftFlags) -> list[str]:
     if flags.extra_pages:
         sections.append("These existing pages changed but were not routed to this request:")
         sections.append("\n".join(f"- {page_path}" for page_path in flags.extra_pages))
-    if flags.companion_flags:
-        listed_flags = tuple(listed_line(flag) for flag in listed_companion_flags(flags.companion_flags))
-        unlisted_count = len(flags.companion_flags) - len(listed_flags)
+    if flags.rules_flags or flags.companion_flags:
+        listed_flags = tuple(listed_line(flag) for flag in listed_companion_flags(flags))
+        unlisted_count = len(flags.rules_flags) + len(flags.companion_flags) - len(listed_flags)
         sections.append("Check these edits outside the docs pages:")
         sections.append(fenced_block(listed_flags))
         if unlisted_count:
@@ -441,6 +441,7 @@ def publish_change(
         grounding=ground_draft(source_github(team_id, source_change), source_change, changed_files),
         extra_pages=extra_pages(changed_files, docs_folders, routed_page_keys(task_id, team_id)),
         companion_flags=publication.flags,
+        rules_flags=publication.rules_flags,
         format_failure=change.format_failure,
     )
     draft = replace(draft, flags=flags)
@@ -620,7 +621,7 @@ def capture_draft(
             if flags is not None
             else None,
             "grounding_ran": flags.grounding.ran if flags is not None else None,
-            "companion_flags": [listed_line(flag) for flag in listed_companion_flags(flags.companion_flags)]
+            "companion_flags": [listed_line(flag) for flag in listed_companion_flags(flags)]
             if flags is not None
             else None,
             "format_failure": listed_line(flags.format_failure)

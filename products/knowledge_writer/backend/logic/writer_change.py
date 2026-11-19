@@ -90,9 +90,10 @@ def parse_writer_change(raw: bytes) -> WriterChange:
 def format_failure(format_entry: object) -> str | None:
     if format_entry is None:
         return None
-    command = format_entry.get("command") if isinstance(format_entry, dict) else None
-    exit_code = format_entry.get("exit_code") if isinstance(format_entry, dict) else None
-    if not isinstance(command, str) or not (exit_code is None or type(exit_code) is int):
+    if not isinstance(format_entry, dict) or "exit_code" not in format_entry:
+        raise WriterChangeRefused("manifest_unreadable")
+    exit_code = format_entry["exit_code"]
+    if not (exit_code is None or type(exit_code) is int):
         raise WriterChangeRefused("manifest_unreadable")
     if exit_code == 0:
         return None

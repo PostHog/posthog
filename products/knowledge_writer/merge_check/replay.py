@@ -342,7 +342,7 @@ def publish_eval_command(labelled_commits_path: Path) -> int:
                     "truth": truth,
                     "outcome": publish_outcome(publication),
                     "refusal": publication.refusal,
-                    "flags": list(publication.flags),
+                    "flags": list(publication.all_flags),
                 }
             ),
             flush=True,
@@ -362,7 +362,7 @@ def publish_eval_command(labelled_commits_path: Path) -> int:
 def publish_outcome(publication: CompanionCheck) -> str:
     if publication.refusal is not None:
         return "refuse"
-    return "flag" if publication.flags else "publish"
+    return "flag" if publication.all_flags else "publish"
 
 
 def publish_eval_mistake(truth: str, outcome: str) -> str | None:
