@@ -39416,6 +39416,10 @@ export namespace Schemas {
       edges: DependencyEdge[];
       /** True when more edges matched than the response holds. */
       truncated: boolean;
+      /** True when the window held more traces than the sample reads, so the counts cover only the sampled traces. */
+      sampled: boolean;
+      /** How many whole traces the edges were computed from. */
+      trace_count: number;
       /**
          * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
          * @nullable
@@ -39449,7 +39453,7 @@ export namespace Schemas {
     }
 
     export interface DeploymentVersion {
-      /** The service.version resource attribute. */
+      /** The version, read from the attribute named by version_source. */
       version: string;
       /** First span of this version in the window. */
       first_seen: string;
@@ -39488,9 +39492,26 @@ export namespace Schemas {
       active: boolean;
     }
 
+    /**
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name
+     */
+    export type VersionSourceEnum = typeof VersionSourceEnum[keyof typeof VersionSourceEnum];
+
+
+    export const VersionSourceEnum = {
+      Serviceversion: 'service.version',
+      K8sreplicasetname: 'k8s.replicaset.name',
+    } as const;
+
     export interface DeploymentsResponse {
       /** One row per version, oldest first. */
       results: DeploymentVersion[];
+      /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
+       *
+       * * `service.version` - Service Version
+       * * `k8s.replicaset.name` - K8S Replicaset Name */
+      version_source: VersionSourceEnum | null;
       /** The service the versions belong to. */
       service: string;
       /**
@@ -42367,6 +42388,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailSendStatusEnum = typeof EmailSendStatusEnum[keyof typeof EmailSendStatusEnum];
+
+
+    export const EmailSendStatusEnum = {
+      Scheduled: 'scheduled',
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -42433,16 +42476,17 @@ export namespace Schemas {
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
-      /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+      /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
        *
+       * * `scheduled` - Scheduled
        * * `queued` - Queued
        * * `failed` - Failed
        * * `sent` - Sent
        * * `delivered` - Delivered
        * * `bounced` - Bounced
        * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
-      /** When the send was queued. */
+      status: EmailSendStatusEnum;
+      /** When PostHog accepted the send. */
       created_at: string;
       /** When the email reached its current status. */
       status_at: string;
@@ -42918,6 +42962,11 @@ export namespace Schemas {
       span_count: number;
       /** Requests with an error status in the window. */
       error_count: number;
+      /**
+         * Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.
+         * @nullable
+         */
+      apdex: number | null;
     }
 
     export interface EndpointHealth {
@@ -42928,7 +42977,7 @@ export namespace Schemas {
       /** The raw entry span name the row counts, for tracing filters. */
       span_name: string;
       /**
-         * The span attribute the route came from (http.route or url.template), or null when the label is the span name.
+         * The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.
          * @nullable
          */
       route_attribute: string | null;
@@ -45932,6 +45981,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome
+     */
+    export type EvalFixProblemEnum = typeof EvalFixProblemEnum[keyof typeof EvalFixProblemEnum];
+
+
+    export const EvalFixProblemEnum = {
+      NoRuns: 'no_runs',
+      OneOutcome: 'one_outcome',
+    } as const;
+
+    /**
      * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
      */
     export type EvalSuggestionDraft = { [key: string]: unknown };
@@ -46078,6 +46139,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly target_evaluation_name: string | null;
+      /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+       *
+       * * `no_runs` - No runs
+       * * `one_outcome` - One outcome */
+      readonly fix_problem: EvalFixProblemEnum | null;
       /**
          * Existing evaluation that may already cover this suggestion.
          * @nullable
@@ -64724,6 +64790,7 @@ export namespace Schemas {
     /**
      * * `customerio` - Customer.io
      * * `resend` - Resend
+     * * `postmark` - Postmark
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
@@ -64731,6 +64798,7 @@ export namespace Schemas {
     export const ImportProviderKeyEnum = {
       Customerio: 'customerio',
       Resend: 'resend',
+      Postmark: 'postmark',
     } as const;
 
     export interface ImportStepOption {
@@ -64746,7 +64814,8 @@ export namespace Schemas {
       /** Provider key to send when starting an import.
        *
        * * `customerio` - Customer.io
-       * * `resend` - Resend */
+       * * `resend` - Resend
+       * * `postmark` - Postmark */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -104045,7 +104114,8 @@ export namespace Schemas {
       /** The provider the run imports from.
        *
        * * `customerio` - Customer.io
-       * * `resend` - Resend */
+       * * `resend` - Resend
+       * * `postmark` - Postmark */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -116598,7 +116668,7 @@ export namespace Schemas {
       /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
       text?: string;
       /**
-         * Addresses replies to the email your code rendered go to.
+         * Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`.
          * @maxItems 10
          */
       reply_to?: string[];
@@ -116622,7 +116692,7 @@ export namespace Schemas {
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
-         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
          * @maxLength 1024
          */
       from?: string;
@@ -119952,6 +120022,12 @@ export namespace Schemas {
       description?: string | null;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
     }
 
     export interface SourceSetupWebhook {
@@ -120446,7 +120522,8 @@ export namespace Schemas {
       /** The provider to import from.
        *
        * * `customerio` - Customer.io
-       * * `resend` - Resend */
+       * * `resend` - Resend
+       * * `postmark` - Postmark */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -120455,7 +120532,7 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.
          * @maxLength 512
          */
       api_key?: string;
@@ -127452,8 +127529,13 @@ export namespace Schemas {
       readonly scanners_period_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
-      /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-      readonly free_monthly_credits: number;
+      /**
+         * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+         * @nullable
+         */
+      readonly free_monthly_credits: number | null;
+      /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+      readonly awaiting_billing_sync: boolean;
     }
 
     export interface VisionSpendDay {
@@ -147508,7 +147590,7 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent

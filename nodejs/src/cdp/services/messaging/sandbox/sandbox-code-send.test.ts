@@ -37,8 +37,8 @@ import {
     MinimalAppMetric,
 } from '../../../types'
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
-import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
+import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
@@ -186,7 +186,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         queued = []
         api = new CdpApi(
             hub,
-            { ...createCdpConsumerDeps(hub), idempotencyValkey: createIdempotencyValkeyPool(hub) },
+            { ...createCdpConsumerDeps(hub), emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub) },
             {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: {
@@ -426,6 +426,17 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 attachment_bytes: 0,
             })
             expect(queued).toEqual([])
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+                    .map(({ value }) => value)
+            ).toEqual([
+                expect.objectContaining({
+                    kind: 'transactional-email',
+                    teamId: world.team.id,
+                    job: expect.objectContaining({ id: res.body.invocation_id }),
+                }),
+            ])
         } finally {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
         }
@@ -792,13 +803,6 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             attachment_bytes: 0,
         })
         expect(queued).toHaveLength(1)
-        expect(queued[0].state?.idempotencyKey).toEqual(
-            expect.objectContaining({
-                senderKind: 'email_sandbox',
-                fingerprint: expect.any(String),
-                currentFingerprint: expect.any(String),
-            })
-        )
 
         await deliver()
         expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])

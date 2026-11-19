@@ -41,6 +41,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             iconType: 'business_knowledge',
         },
+        BusinessKnowledgeLibraries: {
+            name: 'Business knowledge libraries',
+            import: () => import('./frontend/scenes/libraries/BusinessKnowledgeLibrariesScene'),
+            projectBased: true,
+            iconType: 'business_knowledge',
+        },
+        BusinessKnowledgeLibrary: {
+            name: 'Knowledge library',
+            import: () => import('./frontend/scenes/library/KnowledgeLibraryScene'),
+            projectBased: true,
+            iconType: 'business_knowledge',
+        },
         BusinessKnowledgeSource: {
             name: 'Knowledge source',
             import: () => import('./frontend/scenes/source/KnowledgeSourceScene'),
@@ -58,6 +70,9 @@ export const manifest: ProductManifest = {
         // Static sibling must stay above :id so kea-router does not treat "playground" as an id.
         '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
         '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
+        // Static sibling must stay above :id so kea-router does not treat "libraries" as an id.
+        '/business-knowledge/libraries': ['BusinessKnowledgeLibraries', 'businessKnowledgeLibraries'],
+        '/business-knowledge/libraries/:id': ['BusinessKnowledgeLibrary', 'businessKnowledgeLibrary'],
         '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     },
     redirects: {},
@@ -67,6 +82,8 @@ export const manifest: ProductManifest = {
         businessKnowledgeUsage: (): string => '/business-knowledge/usage',
         businessKnowledgePlayground: (chatId?: string): string =>
             chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
+        businessKnowledgeLibraries: (): string => '/business-knowledge/libraries',
+        businessKnowledgeLibrary: (id: string): string => `/business-knowledge/libraries/${id}`,
         businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     },
     fileSystemTypes: {},
