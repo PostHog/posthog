@@ -13,7 +13,7 @@ from django.core.exceptions import (
     ValidationError as DjangoValidationError,
 )
 from django.core.validators import validate_email
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 import posthoganalytics
@@ -845,6 +845,12 @@ def _is_sender_address(address: str) -> bool:
     return True
 
 
+class ExpectedType(models.TextChoices):
+    # Named and labelled to keep the generated ExpectedTypeEnum unchanged.
+    EMAIL = "email", "email"
+    PUSH = "push", "push"
+
+
 class MakeTransactionalSerializer(serializers.Serializer):
     from_integration_id = serializers.IntegerField(
         required=False,
@@ -853,7 +859,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
         "default sender. Ignored for push templates.",
     )
     expected_type = serializers.ChoiceField(
-        choices=["email", "push"],
+        choices=ExpectedType.choices,
         required=False,
         help_text="The template type the caller means to make transactional. A template of another type is refused, "
         "so a push tool can't make an email template transactional, and the other way round.",
