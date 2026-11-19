@@ -77,6 +77,36 @@ describe('shortcutLogic key handling', () => {
         expect(onOther).toHaveBeenCalledTimes(1)
         expect(onSequence).not.toHaveBeenCalled()
     })
+
+    it.each([
+        { matchInEditable: true, expectedCalls: 1 },
+        { matchInEditable: false, expectedCalls: 0 },
+    ])(
+        'fires a sequence typed into a text field only when matchInEditable is $matchInEditable',
+        ({ matchInEditable, expectedCalls }) => {
+            const onTyped = jest.fn()
+            logic.actions.registerShortcut({
+                name: 'Typed',
+                keybind: [['h', 'then', 'e', 'then', 'y']],
+                intent: 'Easter egg',
+                interaction: 'function',
+                matchInEditable,
+                callback: onTyped,
+            })
+            const input = document.createElement('input')
+            document.body.appendChild(input)
+
+            const events = ['x', 'H', 'e', 'y'].map(
+                (key) => new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+            )
+            events.forEach((event) => input.dispatchEvent(event))
+            input.remove()
+
+            expect(onTyped).toHaveBeenCalledTimes(expectedCalls)
+            expect(onSingleKey).not.toHaveBeenCalled()
+            expect(events.some((event) => event.defaultPrevented)).toBe(false)
+        }
+    )
 })
 
 describe('shortcutLogic', () => {

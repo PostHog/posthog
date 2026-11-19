@@ -40,6 +40,8 @@ interface ShortcutBase {
     priority?: number
     /** Easter egg enabler */
     hidden?: boolean
+    /** Sequence shortcuts only: also fire when the sequence is typed into a text field, without swallowing the keys */
+    matchInEditable?: boolean
 }
 
 interface ShortcutWithRef extends ShortcutBase {
@@ -210,6 +212,7 @@ export const shortcutLogic = kea<shortcutLogicType>([
         cache.sequenceKeys = [] as string[]
         cache.sequenceShortcut = null as ShortcutType | null
         cache.sequenceLastKeyTime = 0
+        cache.editableKeys = [] as string[]
 
         cache.onKeyDown = (event: KeyboardEvent) => {
             const target = event.composedPath()[0]
@@ -277,6 +280,38 @@ export const shortcutLogic = kea<shortcutLogicType>([
                     event.preventDefault()
                     event.stopPropagation()
                     triggerShortcut(matchingShortcut, pressedKeys)
+                }
+                return
+            }
+
+            if (isEditableElement(event) && !event.altKey && !event.isComposing) {
+                // The keys still reach the field, so this never calls preventDefault.
+                if (event.key.length !== 1) {
+                    cache.editableKeys = []
+                    return
+                }
+                cache.editableKeys.push(event.key.toLowerCase())
+                const typed: string[] = cache.editableKeys
+                const typedShortcut = values.registeredShortcuts.find(
+                    (shortcut) =>
+                        shortcut.matchInEditable &&
+                        !values.disabledShortcutNames.includes(shortcut.name) &&
+                        shortcut.keybind.some((keybind) => {
+                            if (!isSequenceKeybind(keybind)) {
+                                return false
+                            }
+                            const sequenceKeys = getSequenceKeys(keybind)
+                            return (
+                                typed.length >= sequenceKeys.length &&
+                                typed.slice(-sequenceKeys.length).every((k, i) => k === sequenceKeys[i])
+                            )
+                        })
+                )
+                if (typedShortcut) {
+                    cache.editableKeys = []
+                    triggerShortcut(typedShortcut, typedShortcut.keybind.find((kb) => isSequenceKeybind(kb))!)
+                } else if (typed.length > 32) {
+                    typed.shift()
                 }
                 return
             }
