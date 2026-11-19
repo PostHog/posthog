@@ -6,6 +6,7 @@ import os
 import csv
 import sys
 import json
+import time
 import errno
 import shlex
 import signal
@@ -28,6 +29,7 @@ from hogli_commands.devbox import (
     herdr as devbox_herdr,
     hogland as devbox_hogland,
     mutagen as devbox_mutagen,
+    secrets_lend,
     sync as devbox_sync,
     worktree as devbox_worktree,
 )
@@ -4289,6 +4291,8 @@ class TestDevboxShare:
         calls: list[str] = []
 
         def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "devbox-secrets" in command[-1]:
+                return subprocess.CompletedProcess([], 0, "checked\n", "")
             if "logout" in command[-1]:
                 calls.append("logout")
                 return subprocess.CompletedProcess([], 0, "", "")
@@ -4340,6 +4344,8 @@ class TestDevboxShare:
         status_commands: list[str] = []
 
         def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "devbox-secrets" in command[-1]:
+                return subprocess.CompletedProcess([], 0, "checked\n", "")
             if "logout" in command[-1]:
                 calls.append("logout")
                 return subprocess.CompletedProcess([], logout_exit, "", "")
@@ -6437,3 +6443,167 @@ class TestHoglandEndpoint:
     def test_box_without_ssh_fails(self) -> None:
         with pytest.raises(SystemExit):
             devbox_hogland.parse_endpoint({"action": "running", "box": {"id": "box-1", "status": "placing"}})
+
+
+class TestDevboxSecretsLend:
+    """`devbox:secrets:push` and the `devbox-secrets` script it installs on the box."""
+
+    BOX_SCRIPT = Path(secrets_lend.__file__).with_name("devbox-secrets.sh")
+
+    def _box(self, tmp_path: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "HOME": str(tmp_path / "home"), "DEVBOX_SECRETS_DIR": str(tmp_path / "shm")}
+        return subprocess.run(
+            ["bash", str(self.BOX_SCRIPT), *args], input=stdin, capture_output=True, text=True, env=env
+        )
+
+    def test_push_sends_values_on_stdin_only(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        references = tmp_path / "devbox-secrets.env"
+        references.write_text("# eval keys\nOPENAI_API_KEY=op://Vault/OpenAI/credential\n")
+        ssh_calls: list[tuple[list[str], str]] = []
+
+        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if args[:2] == ["op", "inject"]:
+                assert kwargs["input"] == "OPENAI_API_KEY={{ op://Vault/OpenAI/credential }}\n"
+                return subprocess.CompletedProcess(args, 0, "OPENAI_API_KEY=sk-secret\n", "")
+            ssh_calls.append((args, kwargs["input"]))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(secrets_lend, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(secrets_lend, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(secrets_lend, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(secrets_lend, "get_sharing_status", lambda name: subprocess.CompletedProcess([], 0, "", ""))
+        monkeypatch.setattr(secrets_lend.subprocess, "run", fake_run)
+        monkeypatch.setattr(secrets_lend.time, "time", lambda: 1000)
+
+        result = runner.invoke(cli, ["devbox:secrets:push", "--hours", "2", "--file", str(references)])
+
+        assert result.exit_code == 0, result.output
+        store_args, store_stdin = ssh_calls[-1]
+        assert store_args[-1] == "~/.local/bin/devbox-secrets store 8200"
+        assert store_stdin == "OPENAI_API_KEY=sk-secret\n"
+        assert all("sk-secret" not in " ".join(args) for args, _ in ssh_calls)
+        assert "sk-secret" not in result.output
+
+    def test_push_rejects_a_pasted_value_without_echoing_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        references = tmp_path / "devbox-secrets.env"
+        references.write_text("OPENAI_API_KEY=sk-pasted-by-mistake\n")
+
+        with pytest.raises(SystemExit):
+            secrets_lend._read_references(references)
+
+        assert "sk-pasted" not in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "status_exit, status_out, expected_output",
+        [
+            (0, "USER  GROUP  ROLE\nalice  -  use\n", "alice"),
+            (0, "USER  GROUP  ROLE\n-  eng  use\n", "group eng"),
+            (1, "", "Couldn't check who"),
+        ],
+        ids=["user_share", "group_share", "status_lookup_fails"],
+    )
+    def test_push_refuses_a_shared_box(
+        self, monkeypatch: pytest.MonkeyPatch, status_exit: int, status_out: str, expected_output: str
+    ) -> None:
+        monkeypatch.setattr(secrets_lend, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(secrets_lend, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(secrets_lend, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(
+            secrets_lend,
+            "get_sharing_status",
+            lambda name: subprocess.CompletedProcess([], status_exit, status_out, ""),
+        )
+        monkeypatch.setattr(secrets_lend, "_resolve", lambda refs: pytest.fail("resolved secrets for a shared box"))
+
+        result = runner.invoke(cli, ["devbox:secrets:push"])
+
+        assert result.exit_code != 0
+        assert expected_output in result.output
+
+    def test_push_refuses_a_multi_line_value_without_echoing_it(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        references = [
+            secrets_lend.SecretReference("NOTES", "op://Vault/Notes/notesPlain"),
+            secrets_lend.SecretReference("OPENAI_API_KEY", "op://Vault/OpenAI/credential"),
+        ]
+        injected = "NOTES=first line\nhunter2_SecretPart9\nOPENAI_API_KEY=sk\n"
+        monkeypatch.setattr(
+            secrets_lend.subprocess, "run", lambda args, **kw: subprocess.CompletedProcess(args, 0, injected, "")
+        )
+
+        with pytest.raises(SystemExit):
+            secrets_lend._resolve(references)
+
+        output = capsys.readouterr().out
+        assert "NOTES" in output
+        assert "hunter2" not in output
+
+    def test_box_script_hands_secrets_to_one_command_until_they_expire(self, tmp_path: Path) -> None:
+        in_an_hour = str(int(time.time()) + 3600)
+        stored = self._box(tmp_path, "store", in_an_hour, stdin="OPENAI_API_KEY=sk 'quoted' $value\n")
+        assert stored.returncode == 0, stored.stderr
+
+        stored_env = (tmp_path / "shm/env").read_text()
+        ran = self._box(tmp_path, "run", "--", "bash", "-c", 'printf %s "$OPENAI_API_KEY"')
+        assert ran.stdout == "sk 'quoted' $value"
+        marked = self._box(tmp_path, "run", "--", "bash", "-c", 'printf %s "$DEVBOX_SECRETS_LENT"')
+        assert marked.stdout == "1"
+        assert "OPENAI_API_KEY" in self._box(tmp_path, "status").stdout
+        assert "devbox-secrets run --" in (tmp_path / "home/.claude/CLAUDE.md").read_text()
+
+        failed = self._box(tmp_path, "store", in_an_hour, stdin="ANTHROPIC_API_KEY=new\nnot a name\n")
+        assert failed.returncode != 0
+        assert (tmp_path / "shm/env").read_text() == stored_env
+        assert not list(tmp_path.glob(".devbox-secrets-staging.*"))
+
+        (tmp_path / "shm/expires").write_text("1\n")
+        expired = self._box(tmp_path, "run", "--", "true")
+        assert expired.returncode != 0
+        assert not (tmp_path / "shm").exists()
+
+    def test_box_script_expiry_deletes_only_its_own_lend(self, tmp_path: Path) -> None:
+        self._box(tmp_path, "store", str(int(time.time()) + 3600), stdin="OPENAI_API_KEY=sk\n")
+        (tmp_path / "shm/expires").write_text("1000\n")
+
+        self._box(tmp_path, "expire-at", "999")
+        assert (tmp_path / "shm/env").exists()
+
+        self._box(tmp_path, "expire-at", "1000")
+        assert not (tmp_path / "shm").exists()
+
+    @pytest.mark.parametrize(
+        "probe_answer, expected_output",
+        [
+            ("stored\nchecked\n", "devbox:secrets:clear"),
+            ("running\nchecked\n", "devbox-secrets run"),
+            ("", "Couldn't check the devbox"),
+        ],
+        ids=["store_present", "command_still_holds_secrets", "probe_did_not_finish"],
+    )
+    def test_share_refuses_while_secrets_are_lent(
+        self, monkeypatch: pytest.MonkeyPatch, probe_answer: str, expected_output: str
+    ) -> None:
+        shared: list[str] = []
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess([], 0, probe_answer, ""),
+        )
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": shared.append(name))
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"])
+
+        assert result.exit_code != 0
+        assert expected_output in result.output
+        assert shared == []
