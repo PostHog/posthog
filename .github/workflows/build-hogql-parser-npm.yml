@@ -32,8 +32,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
-                  filter: blob:none
                   sparse-checkout: |
                       /common/hogql_parser/package.json
                       /.github/scripts/post-reminder-section.mjs
@@ -45,6 +43,7 @@ jobs:
               if: github.event_name == 'pull_request'
               uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
+                  use_rest_api: true
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**

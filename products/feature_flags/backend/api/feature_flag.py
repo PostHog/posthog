@@ -289,7 +289,7 @@ def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
 def _mark_filters_enforced_rejection(serializer: serializers.Serializer) -> None:
     """Marks a rejection as coming from a switch-gated tier, so the counter can tell it apart
     from the checks that rejected long before enforcement (cohort existence, circular
-    dependencies, regex, size cap, the early_exit gate, the serde guard). Without the split,
+    dependencies, regex, size cap, the serde guard). Without the split,
     the rejected series is dominated by those and says nothing about the flip's impact."""
     root = serializer.root if serializer.root is not None else serializer
     root._filters_enforced_rejection = True  # type: ignore[attr-defined]
@@ -333,8 +333,6 @@ def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-
-EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Gates enforcement of `feature_flag:write` on cross-resource flag mutations
 # (Survey / Early Access Feature endpoints). Kept off during the migration grace
@@ -2499,19 +2497,6 @@ class FeatureFlagSerializer(
         if self.context["request"].method == "POST" and not merged["groups"]:
             raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
-        # Gate enabling early_exit behind the feature-flag-early-exit flag. The UI hides
-        # the toggle, but the public REST API, MCP tools, and terraform provider all reach
-        # this validator — without the gate they could persist early_exit before server-side
-        # local evaluation honors it. Only block newly turning it on: leaving an existing
-        # truthy value unchanged (or turning it off) always passes, so flags created while
-        # the feature was enabled keep working if access is later revoked.
-        early_exit = merged.get("early_exit")
-        previously_enabled = (
-            bool((self.instance.filters or {}).get("early_exit")) if self.instance is not None else False
-        )
-        if early_exit and not previously_enabled and not self._is_early_exit_enabled():
-            raise serializers.ValidationError("early_exit is not available for this organization.")
-
         # A running experiment reads its variants from this flag, so a save that drops any
         # of its variant keys (a rename counts: it's a drop plus an add) breaks the
         # experiment's exposure and results queries. Adding variants and changing rollout
@@ -2759,26 +2744,6 @@ class FeatureFlagSerializer(
                 flag_key = self._validate_flag_reference(flag_reference)
                 dependencies.add(flag_key)
         return dependencies
-
-    def _is_early_exit_enabled(self) -> bool:
-        try:
-            request = self.context.get("request")
-            if not request:
-                return False
-            user = getattr(request, "user", None)
-            if user is None or user.is_anonymous:
-                return False
-            return feature_enabled_or_false(
-                EARLY_EXIT_FLAG,
-                user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.exception("Failed to check early exit flag")
-            return False
 
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""

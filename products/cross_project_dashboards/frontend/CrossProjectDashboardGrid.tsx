@@ -17,7 +17,7 @@ import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import type { DashboardLayoutSize, InsightColor } from '~/types'
 
-import type { CrossProjectDashboardFilters, CrossProjectTileProject } from './crossProjectDashboardLogic'
+import type { CrossProjectTileProject } from './crossProjectDashboardLogic'
 import {
     GRID_BREAKPOINTS,
     GRID_COLUMN_COUNTS,
@@ -26,6 +26,7 @@ import {
     type ResponsiveTileLayouts,
 } from './crossProjectLayouts'
 import { CrossProjectTile } from './CrossProjectTile'
+import type { TileFetchResult } from './crossProjectTileFetch'
 import type { CrossProjectDashboardTileApi } from './generated/api.schemas'
 
 const CONTAINER_PADDING: [number, number] = [0, 0]
@@ -45,7 +46,8 @@ export interface CrossProjectDashboardGridProps {
     tileProjects: Record<number, CrossProjectTileProject>
     timezonesDiverge: boolean
     missingPropertyKeys: Record<number, string[]>
-    dashboardFilters: CrossProjectDashboardFilters
+    tileResults: Record<string, TileFetchResult>
+    loadingTileIds: string[]
     onLayoutsChange: (layouts: Partial<ResponsiveTileLayouts>) => void
     onSetTileColor: (tileId: string, color: InsightColor | null) => void
     onSetTileOverride: (tile: CrossProjectDashboardTileApi) => void
@@ -60,7 +62,8 @@ export function CrossProjectDashboardGrid({
     tileProjects,
     timezonesDiverge,
     missingPropertyKeys,
-    dashboardFilters,
+    tileResults,
+    loadingTileIds,
     onLayoutsChange,
     onSetTileColor,
     onSetTileOverride,
@@ -251,7 +254,8 @@ export function CrossProjectDashboardGrid({
                                 projectTimezone={tileProjects[tile.project_id]?.timezone}
                                 showTimezone={timezonesDiverge}
                                 missingPropertyKeys={missingPropertyKeys[tile.project_id]}
-                                dashboardFilters={dashboardFilters}
+                                result={tileResults[tile.id]}
+                                loading={loadingTileIds.includes(tile.id)}
                                 showResizeHandles={canEditLayout}
                                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}

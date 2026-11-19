@@ -2815,6 +2815,7 @@ class SignalReportMonitoringAttempt(UUIDModel):
     check_versions = models.JSONField(default=dict)
     aggregation_state = models.CharField(max_length=24, choices=MonitoringAggregation, null=True, blank=True)
     aggregation_result_ids = models.JSONField(null=True, blank=True)
+    aggregation_cancelled_check_count = models.IntegerField(null=True, blank=True)
     aggregation_reason = models.TextField(null=True, blank=True)
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)

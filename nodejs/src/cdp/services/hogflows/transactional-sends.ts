@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
+import { PublishSettlement } from '../../intake/intake-producer'
 import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
@@ -175,11 +176,18 @@ const producedResult = (
     produced: Produced,
     invocationId: string,
     scheduledAt: Date | null,
-    replyFields: Record<string, number>
+    replyFields: Record<string, number>,
+    senderKind: SenderKind | undefined
 ): TransactionalSendResult => {
     switch (produced) {
         case 'accepted':
-            return { outcome: 'queued', invocationId, scheduledAt: scheduledAt?.toISOString() ?? null, replyFields }
+            return {
+                outcome: 'queued',
+                invocationId,
+                scheduledAt: scheduledAt?.toISOString() ?? null,
+                replyFields,
+                senderKind,
+            }
         case 'unavailable':
             return { outcome: 'intake_unavailable' }
         case 'too_large':
@@ -320,7 +328,8 @@ export class TransactionalSends {
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
         files: SendFiles,
-        sender: CodeSendSender = { kind: 'own' }
+        sender: CodeSendSender = { kind: 'own' },
+        settlement?: PublishSettlement
     ): Promise<TransactionalSendResult> {
         const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
@@ -459,11 +468,11 @@ export class TransactionalSends {
             }
             if (isAsync) {
                 stages.start('intake_produce')
-                const produced = await this.deps.runIntake.produce(run)
-                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
+                const produced = await this.deps.runIntake.produce(run, settlement)
+                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals, senderKind)
             }
             stages.start('queue_insert')
-            committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
+            committed = (await this.deps.runIntake.launch([run], { wait: 'committed', settlement }))[0]
         } catch (error) {
             await releaseKey()
             if (isLockTimeout(error)) {

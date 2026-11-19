@@ -451,6 +451,23 @@ describe('MCPClientProfile', () => {
         })
     })
 
+    describe('drawsTimeSeriesCharts()', () => {
+        it.each([
+            [{ userAgent: 'claude-code/2.1.326 (cli)' }, true],
+            [{ userAgent: 'claude-code/2.1.326 (cli, agent-sdk/0.2.1)' }, true],
+            [{ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, true],
+            [{ userAgent: 'claude-code/2.1.326 (claude-desktop, agent-sdk/0.2.1)' }, false],
+            [{ userAgent: 'claude-code/2.1.326 (claude-vscode, agent-sdk/0.2.1)' }, false],
+            [{ userAgent: 'claude-code/2.1.326 (sdk-cli)' }, false],
+            [{ userAgent: 'claude-code/2.1.326 (sdk-ts, agent-sdk/0.2.1)' }, false],
+            [{ vendorClient: 'Cowork', userAgent: 'Claude-User' }, false],
+            [{ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }, false],
+            [{ userAgent: 'Claude-User' }, false],
+        ])('reads %j as a chart-drawing client: %s', (input, expected) => {
+            expect(new MCPClientProfile(input).drawsTimeSeriesCharts()).toBe(expected)
+        })
+    })
+
     describe('isClaudeChatHost()', () => {
         it.each([
             // Claude web/desktop ignore the `instructions` payload → keep env-context.

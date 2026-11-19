@@ -1655,7 +1655,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                     check_interval_minutes=60 * 24,
                     recurrence_unit="day",
                     owner=PlatformAlertOwner.PLATFORM,
-                    destinations_owner=PlatformAlertOwner.PLATFORM,
                 )
 
         watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)

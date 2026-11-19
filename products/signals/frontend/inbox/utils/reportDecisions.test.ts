@@ -1,71 +1,81 @@
+import type { ReportDecisionSetByApi, ReportDecisionsApi } from 'products/signals/frontend/generated/api.schemas'
+
 import type { SignalReportArtefact } from '../types'
 import { reportDecisionAttributions } from './reportDecisions'
 
-const person = { id: 1, uuid: 'person-1', distinct_id: 'person-1', first_name: 'Jane', email: 'jane@example.com' }
+const person = { id: 1, uuid: 'person-1', first_name: 'Jane', last_name: 'Doe', email: 'jane@example.com' }
 
-function artefact(overrides: Partial<SignalReportArtefact>): SignalReportArtefact {
+function decisions(setBy: Partial<ReportDecisionSetByApi>, value = 'P1'): ReportDecisionsApi {
     return {
-        id: 'a',
-        type: 'priority_judgment',
-        content: {},
-        created_at: '2026-06-10T09:00:00Z',
-        actor_kind: 'task',
-        ...overrides,
+        repository: null,
+        priority: {
+            value: value as 'P1',
+            reason: 'Stored reason.',
+            set_at: '2026-06-12T09:00:00Z',
+            set_by: { kind: 'task', user: null, agent: null, task_id: null, ...setBy },
+        },
+        actionability: null,
+        already_addressed: null,
     }
 }
+
+function judgment(priority: string, createdAt: string): SignalReportArtefact {
+    return {
+        id: createdAt,
+        type: 'priority_judgment',
+        content: { priority },
+        created_at: createdAt,
+        actor_kind: 'task',
+    }
+}
+
+const history = [
+    judgment('P3', '2026-06-10T09:00:00Z'),
+    judgment('P2', '2026-06-11T09:00:00Z'),
+    judgment('P1', '2026-06-12T09:00:00Z'),
+]
 
 describe('reportDecisionAttributions', () => {
     it.each([
         {
-            name: 'the newest agent choice with its reason',
-            artefacts: [
-                artefact({
-                    type: 'repo_selection',
-                    content: { repository: 'example/web', reason: 'Newer reason.' },
-                    created_at: '2026-06-11T09:00:00Z',
-                }),
-                artefact({ type: 'repo_selection', content: { repository: 'example/api', reason: 'Older reason.' } }),
-            ],
-            decision: 'repository' as const,
-            expected: { person: null, setAt: '2026-06-11T09:00:00Z', reason: 'Newer reason.', previousValue: null },
+            name: 'a task choice with its reason and no previous value',
+            decisions: decisions({ kind: 'task', task_id: 'task-1' }),
+            artefacts: history,
+            expected: { person: null, agent: null, reason: 'Stored reason.', previousValue: null },
         },
         {
             name: 'a person change with the last different value before it',
-            artefacts: [
-                artefact({ content: { priority: 'P3', explanation: 'Agent reason.' } }),
-                artefact({
-                    content: { priority: 'P2', explanation: 'Agent reason.' },
-                    created_at: '2026-06-11T09:00:00Z',
-                }),
-                artefact({
-                    content: { priority: 'P1', explanation: 'Priority changed in the inbox.' },
-                    created_at: '2026-06-12T09:00:00Z',
-                    actor_kind: 'user',
-                    created_by: person,
-                }),
-            ],
-            decision: 'priority' as const,
-            expected: { person, setAt: '2026-06-12T09:00:00Z', reason: null, previousValue: 'P2' },
+            decisions: decisions({ kind: 'user', user: person }),
+            artefacts: history,
+            expected: { person, agent: null, reason: null, previousValue: 'P2' },
         },
         {
-            name: 'an agent acting for a person as the agent',
-            artefacts: [
-                artefact({
-                    content: { priority: 'P1', explanation: 'Agent reason.' },
-                    actor_kind: 'agent',
-                    created_by: person,
-                }),
-            ],
-            decision: 'priority' as const,
-            expected: { person: null, setAt: '2026-06-10T09:00:00Z', reason: 'Agent reason.', previousValue: null },
+            name: "a person's own agent as the person, with the agent and its reason",
+            decisions: decisions({ kind: 'agent', user: person, agent: 'Codex' }),
+            artefacts: history,
+            expected: { person, agent: 'Codex', reason: 'Stored reason.', previousValue: 'P2' },
         },
         {
-            name: 'no history as null',
-            artefacts: [artefact({ content: { priority: 'P1' } })],
-            decision: 'repository' as const,
-            expected: null,
+            name: 'a person change before the history loads without a previous value',
+            decisions: decisions({ kind: 'user', user: person }),
+            artefacts: null,
+            expected: { person, agent: null, reason: null, previousValue: null },
         },
-    ])('reads $name', ({ artefacts, decision, expected }) => {
-        expect(reportDecisionAttributions(artefacts)[decision]).toEqual(expected)
+        {
+            name: 'a person change against a history that predates it',
+            decisions: decisions({ kind: 'user', user: person }, 'P0'),
+            artefacts: history,
+            expected: { person, agent: null, reason: null, previousValue: 'P1' },
+        },
+    ])('reads $name', ({ decisions, artefacts, expected }) => {
+        expect(reportDecisionAttributions(decisions, artefacts)?.priority).toEqual({
+            setAt: '2026-06-12T09:00:00Z',
+            ...expected,
+        })
+    })
+
+    it('reads a decision with no history as null, and a report without decisions as null', () => {
+        expect(reportDecisionAttributions(decisions({}), [])?.repository).toBeNull()
+        expect(reportDecisionAttributions(undefined, history)).toBeNull()
     })
 })
