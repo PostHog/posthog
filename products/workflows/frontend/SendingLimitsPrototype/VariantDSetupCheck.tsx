@@ -204,6 +204,7 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
     const days = state.key === 'new' ? Math.ceil(broadcast.audience / Math.max(startPerDay, 1)) : sendDays(state)
     // Above the Starter band the first send is a sample, because an aged domain can be bought.
     const sampleFirst = state.key === 'new' && check.band === 'Established'
+    const sent = sampleFirst ? Math.round(broadcast.audience * 0.05) : broadcast.sentSoFar
     return (
         <BroadcastShell
             state={state}
@@ -236,16 +237,18 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
             status={
                 blocked || stopped
                     ? { label: blocked ? 'Paused' : 'Stopped', type: 'danger' }
-                    : broadcast.sentSoFar < broadcast.audience
-                      ? { label: 'Sending', type: 'primary' }
-                      : { label: 'Sent', type: 'success' }
+                    : sampleFirst
+                      ? { label: 'Checking sample', type: 'warning' }
+                      : broadcast.sentSoFar < broadcast.audience
+                        ? { label: 'Sending', type: 'primary' }
+                        : { label: 'Sent', type: 'success' }
             }
             afterLaunch={
                 <>
                     <div>
-                        {fmt(broadcast.sentSoFar)} of {fmt(broadcast.audience)} people got it.
+                        {fmt(sent)} of {fmt(broadcast.audience)} people got it.
                     </div>
-                    <LemonProgress percent={(broadcast.sentSoFar / broadcast.audience) * 100} />
+                    <LemonProgress percent={(sent / broadcast.audience) * 100} />
                     {stopped && (
                         <LemonBanner type="error">
                             We stopped this broadcast because too many emails bounced. Remove addresses that bounced,
@@ -259,6 +262,12 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
                                 : `Paused: ${state.domain} showed up on a spam blocklist on Dec 9.`}{' '}
                             <Link>See the domain check</Link>.
                         </LemonBanner>
+                    )}
+                    {sampleFirst && (
+                        <span className="text-sm">
+                            {fmt(Math.round(broadcast.audience * 0.05))} people got it as a sample. We check bounces
+                            until 15:40, then send to the other {fmt(Math.round(broadcast.audience * 0.95))}.
+                        </span>
                     )}
                     {!blocked && !stopped && !sampleFirst && broadcast.sentSoFar < broadcast.audience && (
                         <span className="text-sm text-secondary">The rest goes out over the next {days - 1} days.</span>
