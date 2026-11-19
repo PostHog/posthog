@@ -79,7 +79,7 @@ _tracer = trace.get_tracer(__name__)
 # The SDK drops AI events once a client's AI queue is full. Each run has its own client, and the
 # queue fills while capture is slow, so it must hold every event of a long run. The SDK default
 # of 1,000 events is smaller than the longest runs.
-AI_EVENT_QUEUE_SIZE = 5000
+AI_EVENT_QUEUE_SIZE = 3000
 
 
 class SubagentCallbackHandler(MaxCallbackHandler):
