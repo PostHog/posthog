@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { TooltipContext } from '../core/types'
 import { createDefaultTooltipAccessor, makeOverlayContext, renderOverlayInChart } from '../testing'
 import { DefaultTooltip } from './DefaultTooltip'
+import { Tooltip } from './Tooltip'
 import { TooltipSurface } from './TooltipSurface'
 
 const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
@@ -48,6 +49,25 @@ describe('DefaultTooltip', () => {
     it('formats values with default (no formatter)', () => {
         renderTooltip({})
         screen.getByText((19402).toLocaleString())
+    })
+
+    it('excludes portalled tooltip values from autocapture', () => {
+        renderOverlayInChart(
+            <Tooltip
+                context={{
+                    dataIndex: 0,
+                    label: 'Example category',
+                    seriesData: SERIES_DATA,
+                    position: { x: 0, y: 0 },
+                    hoverPosition: null,
+                    canvasBounds: CANVAS_BOUNDS,
+                    isPinned: false,
+                }}
+                renderTooltip={() => <span>Example tooltip value</span>}
+            />,
+            makeOverlayContext(SCALES)
+        )
+        expect(screen.getByText('Example tooltip value').closest('.ph-no-capture')).not.toBeNull()
     })
 
     it('renders TooltipSurface outside a chart', () => {

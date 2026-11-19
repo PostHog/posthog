@@ -201,6 +201,92 @@ const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schem
     },
 })
 
+const ProviderImportsCreateSchema = () => {
+    const MessagingProviderImportsCreateBody = orvalSchemas.MessagingProviderImportsCreateBody()
+    return MessagingProviderImportsCreateBody
+}
+
+const providerImportsCreate = (): ToolBase<
+    ReturnType<typeof ProviderImportsCreateSchema>,
+    Schemas.ProviderImportRun
+> => ({
+    name: 'provider-imports-create',
+    schema: ProviderImportsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProviderImportsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.provider !== undefined) {
+            body['provider'] = params.provider
+        }
+        if (params.steps !== undefined) {
+            body['steps'] = params.steps
+        }
+        if (params.api_key !== undefined) {
+            body['api_key'] = params.api_key
+        }
+        const result = await context.api.request<Schemas.ProviderImportRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ProviderImportsGetSchema = () => {
+    const MessagingProviderImportsRetrieveParams = orvalSchemas.MessagingProviderImportsRetrieveParams()
+    return MessagingProviderImportsRetrieveParams.omit({ project_id: true })
+}
+
+const providerImportsGet = (): ToolBase<ReturnType<typeof ProviderImportsGetSchema>, Schemas.ProviderImportRun> => ({
+    name: 'provider-imports-get',
+    schema: ProviderImportsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProviderImportsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProviderImportRun>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ProviderImportsListSchema = () => z.object({})
+
+const providerImportsList = (): ToolBase<
+    ReturnType<typeof ProviderImportsListSchema>,
+    WithPostHogUrl<Schemas.ProviderImportRun[]>
+> => ({
+    name: 'provider-imports-list',
+    schema: ProviderImportsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ProviderImportsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProviderImportRun[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/`,
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const ProviderImportsProvidersSchema = () => z.object({})
+
+const providerImportsProviders = (): ToolBase<
+    ReturnType<typeof ProviderImportsProvidersSchema>,
+    Schemas.ImportProviderOption[]
+> => ({
+    name: 'provider-imports-providers',
+    schema: ProviderImportsProvidersSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ProviderImportsProvidersSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ImportProviderOption[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/providers/`,
+        })
+        return result
+    },
+})
+
 const SupabaseAuthEmailsSettingsGetSchema = () => z.object({})
 
 const supabaseAuthEmailsSettingsGet = (): ToolBase<
@@ -299,6 +385,63 @@ const suppressionsAdd = (): ToolBase<ReturnType<typeof SuppressionsAddSchema>, S
     },
 })
 
+const SuppressionsListSchema = () => {
+    const MessagingSuppressionsSuppressionsRetrieveQueryParams =
+        orvalSchemas.MessagingSuppressionsSuppressionsRetrieveQueryParams()
+    return MessagingSuppressionsSuppressionsRetrieveQueryParams
+}
+
+const suppressionsList = (): ToolBase<
+    ReturnType<typeof SuppressionsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedMessageSuppression>
+> => ({
+    name: 'suppressions-list',
+    schema: SuppressionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SuppressionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMessageSuppression>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_suppressions/suppressions/`,
+            query: {
+                page: params.page,
+                page_size: params.page_size,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const SuppressionsRemoveSchema = () => {
+    const MessagingSuppressionsBulkRemoveSuppressionsCreateBody =
+        orvalSchemas.MessagingSuppressionsBulkRemoveSuppressionsCreateBody()
+    return MessagingSuppressionsBulkRemoveSuppressionsCreateBody
+}
+
+const suppressionsRemove = (): ToolBase<
+    ReturnType<typeof SuppressionsRemoveSchema>,
+    Schemas.BulkRemoveSuppressionsResponse
+> => ({
+    name: 'suppressions-remove',
+    schema: SuppressionsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SuppressionsRemoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifiers !== undefined) {
+            body['identifiers'] = params.identifiers
+        }
+        if (params.confirm_complaints !== undefined) {
+            body['confirm_complaints'] = params.confirm_complaints
+        }
+        const result = await context.api.request<Schemas.BulkRemoveSuppressionsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_suppressions/bulk_remove_suppressions/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'message-categories-create': messageCategoriesCreate,
     'message-categories-get': messageCategoriesGet,
@@ -307,8 +450,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'opt-outs-add': optOutsAdd,
     'opt-outs-list': optOutsList,
     'opt-outs-remove': optOutsRemove,
+    'provider-imports-create': providerImportsCreate,
+    'provider-imports-get': providerImportsGet,
+    'provider-imports-list': providerImportsList,
+    'provider-imports-providers': providerImportsProviders,
     'supabase-auth-emails-settings-get': supabaseAuthEmailsSettingsGet,
     'supabase-auth-emails-settings-update': supabaseAuthEmailsSettingsUpdate,
     'supabase-auth-emails-starter-templates-create': supabaseAuthEmailsStarterTemplatesCreate,
     'suppressions-add': suppressionsAdd,
+    'suppressions-list': suppressionsList,
+    'suppressions-remove': suppressionsRemove,
 }

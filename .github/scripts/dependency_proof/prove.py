@@ -36,6 +36,8 @@ PROVER_FILES = (
     ".github/scripts/dependency_proof/__main__.py",
     ".github/scripts/dependency_proof/policy.py",
     ".github/scripts/dependency_proof/prove.py",
+    ".github/scripts/dependency_scan.py",
+    ".github/scripts/dependency_scan.py.lock",
     ".github/workflows/dependency-proof-trigger.yml",
     ".github/workflows/dependency-proof.yml",
     ".nvmrc",

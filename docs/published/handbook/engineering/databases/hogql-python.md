@@ -66,6 +66,11 @@ For example, use `embedText('example text', 'text-embedding-3-small-1536')`.
 A missing or invalid model raises a HogQL `QueryError` that lists the valid model names.
 Other argument validation failures also raise `QueryError`, so query APIs and AI SQL validation can expose them to the caller.
 
+## Person query limits
+
+Queries that join from `persons` apply their row limit after the join.
+The persons V2 deduplication optimization only pushes a limit into the inner person scan when no join can filter or reshape those rows.
+
 ## Disabling projection optimization
 
 Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
@@ -188,6 +193,9 @@ SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limit
 For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
 
 ## ClickHouse query errors
+
+HogQL query API errors include metadata diagnostics with the same `values` bindings used for execution.
+A missing column reports that column's error even when the query contains placeholders.
 
 `posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
 For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.

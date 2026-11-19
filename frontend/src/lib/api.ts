@@ -34,7 +34,7 @@ import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -1641,11 +1641,6 @@ export class ApiRequest {
         return this.organizationIntegrations().addPathComponent(id)
     }
 
-    // # Organization OAuth Applications
-    public organizationOAuthApplications(): ApiRequest {
-        return this.organizations().current().addPathComponent('oauth_applications')
-    }
-
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -2059,20 +2054,24 @@ function clientBuildHeader(url: string): Record<string, string> {
 // pinned: a URL parameter in shared links, and the cookie name that NewEventsSchemaCookieMiddleware reads
 export const NEW_EVENTS_SCHEMA = 'ph_new_events_schema'
 
+// Read once when the page loads, because pages such as the SQL editor rewrite their URL without it.
+const requestedNewEventsTable = new URLSearchParams(window.location.search).get(NEW_EVENTS_SCHEMA)
+
+export function getPageNewEventsTable(): boolean | null {
+    return requestedNewEventsTable === '1' ? true : requestedNewEventsTable === '0' ? false : null
+}
+
 /**
- * The events table the page's URL asks for, so two tabs of one browser, which share one cookie, can
- * show the two tables side by side. Same-origin only, for the same CORS reason as the build header.
+ * Two tabs of one browser share one cookie, so each page sends the table its link asked for.
+ * Same-origin only, for the same CORS reason as the build header.
  */
 function newEventsTableHeader(url: string): Record<string, string> {
-    const requested = new URLSearchParams(window.location.search).get(NEW_EVENTS_SCHEMA)
-    if (
-        (requested !== '0' && requested !== '1') ||
-        new URL(url, window.location.origin).origin !== window.location.origin
-    ) {
+    const requested = getPageNewEventsTable()
+    if (requested === null || new URL(url, window.location.origin).origin !== window.location.origin) {
         return {}
     }
     // pinned: NewEventsSchemaCookieMiddleware reads this header name and the values "1" and "0"
-    return { 'X-PostHog-New-Events-Schema': requested }
+    return { 'X-PostHog-New-Events-Schema': requested ? '1' : '0' }
 }
 
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
@@ -2844,6 +2843,8 @@ const api = {
                 flatSpans?: boolean
                 // true omits the per-span attribute maps — use when only scalar span fields are read.
                 excludeAttributes?: boolean
+                // true adds each span's OTel events. The column is large, so keep `limit` small.
+                includeEvents?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -6211,12 +6212,6 @@ const api = {
         },
         async delete(id: IntegrationType['id']): Promise<void> {
             await new ApiRequest().organizationIntegrationsDetail(id).delete()
-        },
-    },
-
-    organizationOAuthApplications: {
-        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
-            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
         },
     },
 

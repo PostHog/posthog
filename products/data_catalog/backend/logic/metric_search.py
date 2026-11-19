@@ -38,7 +38,6 @@ from posthog.helpers.trigram_search import normalize_search_term
 from posthog.models import Team, User
 
 from ..facade.contracts import MetricListFilters
-from ..facade.enums import MetricStatus
 from ..models import Metric
 from .analytics import AnalyticsProps, capture_metric_search_event
 from .metric_embeddings import METRIC_EMBEDDING_MODEL, embed_search_query, embedding_is_current, semantic_search_enabled
@@ -64,6 +63,9 @@ RRF_K = 60
 TRIGRAM_MIN_WORD_SIMILARITY = 0.45
 # Shorter words, such as "of", share too few trigrams with any name to count for or against a typo match.
 _TYPO_MIN_WORD_LENGTH = 3
+# Swapped letters, as in "chrun", break most trigrams, so a name word one edit away also counts as a typo.
+# Shorter words have too many neighbors one edit away, such as "rate" and "late".
+_ONE_EDIT_MIN_WORD_LENGTH = 5
 
 # The semantic lane keeps its closest metrics with no cosine floor. On short metric text, correct hits
 # and the nearest metric to a query with no metric score in the same range, so a floor drops right
@@ -246,6 +248,45 @@ def _full_text_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID
     return matches
 
 
+def _one_edit_apart(left: str, right: str) -> bool:
+    """True when one swap of neighboring letters, one insert, one delete or one change turns ``left`` into ``right``."""
+    if left == right:
+        return True
+    if abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        diffs = [index for index, (a, b) in enumerate(zip(left, right)) if a != b]
+        if len(diffs) == 1:
+            return True
+        if len(diffs) != 2:
+            return False
+        first, second = diffs
+        return second == first + 1 and left[first] == right[second] and left[second] == right[first]
+    shorter, longer = sorted((left, right), key=len)
+    return any(longer[:index] + longer[index + 1 :] == shorter for index in range(len(longer)))
+
+
+def _one_edit_typo_matches(candidates: list[tuple[UUID, str, str]], phrasing: str) -> dict[UUID, _LexicalMatch]:
+    """Names that hold every word of the phrasing, where a long word may be one edit away."""
+    words = [word for word in _words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
+    if not any(len(word) >= _ONE_EDIT_MIN_WORD_LENGTH for word in words):
+        return {}
+
+    def found(word: str, name_words: set[str]) -> bool:
+        if word in name_words:
+            return True
+        return len(word) >= _ONE_EDIT_MIN_WORD_LENGTH and any(_one_edit_apart(word, other) for other in name_words)
+
+    matches: dict[UUID, _LexicalMatch] = {}
+    for metric_id, name, display_name in candidates:
+        name_words = set(_words(name)) | set(_words(display_name))
+        if all(found(word, name_words) for word in words):
+            matches[metric_id] = _LexicalMatch(
+                tier=MatchTier.TYPO, rank=TRIGRAM_MIN_WORD_SIMILARITY, reason="similar spelling to the name"
+            )
+    return matches
+
+
 def _typo_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID, _LexicalMatch]:
     """Names that hold every word of the phrasing, allowing for spelling. The weakest word sets the score."""
     words = [word for word in _words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
@@ -276,6 +317,7 @@ def _lexical_lane(candidates: QuerySet[Metric], phrasings: list[str]) -> dict[UU
     for phrasing in phrasings:
         for lane in (
             _exact_matches(names, phrasing),
+            _one_edit_typo_matches(names, phrasing),
             _full_text_matches(candidates, phrasing),
             _typo_matches(candidates, phrasing),
         ):
@@ -339,25 +381,16 @@ def search_metrics(
     semantic = _semantic_lane(candidates, query_embedding, semantic_top_k) if query_embedding is not None else {}
 
     # Rank on light rows, then load full metrics only for the hits that are returned.
-    rows = {
-        metric_id: (name, status)
-        for metric_id, name, status in candidates.filter(id__in=set(lexical) | set(semantic)).values_list(
-            "id", "name", "status"
-        )
-    }
-    # Inside one tier an approved metric ranks first, because approval says more than the text rank.
+    names = dict(candidates.filter(id__in=set(lexical) | set(semantic)).values_list("id", "name"))
+    # Approval never moves a hit. The agent decides whether to use a proposed metric, so the order is
+    # relevance only, and every relevant metric gets the best chance at the first page.
     lexical_ranked = sorted(
-        (metric_id for metric_id in rows if metric_id in lexical),
-        key=lambda metric_id: (
-            -lexical[metric_id].tier,
-            rows[metric_id][1] != MetricStatus.APPROVED,
-            -lexical[metric_id].rank,
-            rows[metric_id][0],
-        ),
+        (metric_id for metric_id in names if metric_id in lexical),
+        key=lambda metric_id: (-lexical[metric_id].tier, -lexical[metric_id].rank, names[metric_id]),
     )
     semantic_ranked = sorted(
-        (metric_id for metric_id in rows if metric_id in semantic),
-        key=lambda metric_id: (-semantic[metric_id], rows[metric_id][0]),
+        (metric_id for metric_id in names if metric_id in semantic),
+        key=lambda metric_id: (-semantic[metric_id], names[metric_id]),
     )
     # A confident word match ranks above every meaning-only hit. The weaker word matches and the semantic
     # lane interleave by their best rank below them.
@@ -370,12 +403,7 @@ def search_metrics(
             scores[metric_id] = max(scores.get(metric_id, 0.0), 1.0 / (RRF_K + position))
     ranked = confident_ids + sorted(
         scores,
-        key=lambda metric_id: (
-            -scores[metric_id],
-            metric_id not in lexical,
-            rows[metric_id][1] != MetricStatus.APPROVED,
-            rows[metric_id][0],
-        ),
+        key=lambda metric_id: (-scores[metric_id], metric_id not in lexical, names[metric_id]),
     )
 
     page = ranked[offset : offset + limit]

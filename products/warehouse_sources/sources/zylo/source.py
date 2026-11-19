@@ -44,6 +44,10 @@ _ENDPOINT_SCOPES: dict[str, str] = {
     "ActivityHistory": "team:read",
     "Automations": "automations",
     "AutomationExecutions": "automations",
+    "PendingContracts": "contracts:read",
+    "ApplicationStats": "applications:read, spend:read and contracts:read",
+    "Users": "team:read",
+    "Views": "admin",
 }
 
 

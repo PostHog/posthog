@@ -1,6 +1,8 @@
-"""The feature flag that gates suggestions per organization, and the tunables its payload carries."""
+"""The feature flag that gates suggestions per organization, the tunables its payload carries, and the windows a run
+reads."""
 
 import json
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -18,6 +20,9 @@ FEATURE_FLAG = "llm-analytics-eval-suggestions"
 SHADOW_FEATURE_FLAG = "llm-analytics-eval-suggestions-shadow"
 # Tags the paid model calls in the gateway's analytics.
 AI_PRODUCT = "aio_eval_suggestions"
+WINDOW = timedelta(days=7)
+# The review reads call types and calls from the last day of the window.
+REVIEW_WINDOW = timedelta(days=1)
 # The review's text budget grows with its calls. Below MIN_REVIEW_CALLS, the call types' system prompts could fill it
 # alone and leave no room for calls, and above MAX_REVIEW_CALLS it nears the review model's context. More calls give
 # each card more judged passes to calibrate on, which keeps cards that fewer calls drop for lack of passes.

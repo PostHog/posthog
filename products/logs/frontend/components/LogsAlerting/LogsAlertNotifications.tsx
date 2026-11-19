@@ -42,6 +42,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             {...logsAlertDestinationsLogicProps(alertId)}
             typeOptions={LOGS_ALERT_DESTINATION_TYPE_OPTIONS}
             destinationView={destinationView}
+            messageCustomization={customization}
         />
     )
 }

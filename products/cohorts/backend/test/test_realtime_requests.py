@@ -127,7 +127,10 @@ class TestRealtimeCohortRequests(BaseTest):
     def _level(self) -> str:
         return RealtimeCohortTeamAccess.objects.get(team=self.team).level
 
-    def test_an_enable_refused_over_the_scan_limit_is_done_after_a_backfill_that_skips_the_limit(self) -> None:
+    @mock.patch("products.cohorts.backend.realtime_requests.ph_scoped_capture")
+    def test_an_enable_refused_over_the_scan_limit_is_done_after_a_backfill_that_skips_the_limit(
+        self, scoped_capture: mock.MagicMock
+    ) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         self.peak_day_events = 2_000
 
@@ -153,6 +156,14 @@ class TestRealtimeCohortRequests(BaseTest):
 
         assert (enabled.state, enabled.error) == (RealtimeCohortRequestState.DONE, "")
         assert self._level() == RealtimeCohortLevel.SERVING
+        capture = scoped_capture.return_value.__enter__.return_value
+        assert [
+            (call.kwargs["event"], call.kwargs["distinct_id"], list(call.kwargs["properties"]))
+            for call in capture.call_args_list
+        ] == [
+            ("realtime cohorts join refused", str(self.team.uuid), []),
+            ("realtime cohorts join completed", str(self.team.uuid), ["seconds_since_request"]),
+        ]
 
     def test_a_second_delivery_of_a_claimed_request_changes_nothing(self) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
@@ -252,6 +263,7 @@ class TestRealtimeCohortRequests(BaseTest):
                 RuntimeError("ClickHouse timeout"),
                 RealtimeCohortRequestState.FAILED,
                 "Behavioral run failed: ClickHouse timeout",
+                ["realtime cohorts join failed"],
             ),
             (
                 "behavioral_backfill_scan_error",
@@ -260,6 +272,7 @@ class TestRealtimeCohortRequests(BaseTest):
                 RuntimeError("ClickHouse timeout"),
                 RealtimeCohortRequestState.FAILED,
                 "ClickHouse timeout",
+                [],
             ),
             (
                 "person_backfill_over_the_sizing_cap",
@@ -268,6 +281,7 @@ class TestRealtimeCohortRequests(BaseTest):
                 PersonSeedEstimateScanCapExceeded("The sizing scan hit its read cap"),
                 RealtimeCohortRequestState.REFUSED,
                 "The sizing scan hit its read cap",
+                [],
             ),
         ]
     )
@@ -279,6 +293,7 @@ class TestRealtimeCohortRequests(BaseTest):
         error: Exception,
         state: RealtimeCohortRequestState,
         message: str,
+        join_events: list[str],
     ) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         resave_team_cohorts(self.team, batch_size=500, dry_run=False, coalesce_rebuilds=False)
@@ -287,7 +302,10 @@ class TestRealtimeCohortRequests(BaseTest):
                 team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.BETA
             )
 
-        with mock.patch(f"products.cohorts.backend.{target}", side_effect=error):
+        with (
+            mock.patch(f"products.cohorts.backend.{target}", side_effect=error),
+            mock.patch("products.cohorts.backend.realtime_requests.ph_scoped_capture") as scoped_capture,
+        ):
             ended = self._submit_and_run(
                 lambda: (
                     submit_enablement(self.team.id, requested_by_id=self.user.id, reason="Beta signup")
@@ -303,3 +321,5 @@ class TestRealtimeCohortRequests(BaseTest):
             )
 
         assert (ended.state, ended.error) == (state, message)
+        capture = scoped_capture.return_value.__enter__.return_value
+        assert [call.kwargs["event"] for call in capture.call_args_list] == join_events

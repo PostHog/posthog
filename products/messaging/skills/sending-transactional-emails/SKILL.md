@@ -63,7 +63,7 @@ Use PostHog's SDK for the backend's language, and the HTTP API when there is non
 PostHog has an SDK for Node.js, Python, Go, Ruby, PHP, .NET, Rust and Elixir.
 
 - **Send forms:** A code send has `template_key`, `to`, `subject`, `html` and/or `text`, and `distinct_id`, with `from`, `reply_to` (a list of addresses), `sensitive` and `tracking` optional. A template send has `template_id`, `to`, `message_data`, and `distinct_id`, and none of the code send's fields: the template carries its own sender, reply-to address, tracking and sensitive setting, and a template send with any code send field is refused. A send names either `template_key` or `template_id`, never both.
-- **HTTP API, for any language:** `POST https://<app host>/api/projects/@current/messaging/send/email/` with `Authorization: Bearer <project secret API key>`, an `Idempotency-Key` header, and the send's fields as the JSON body. Only the HTTP API, not the SDKs, takes `cc`, `bcc` and `attachments` on a code send; upload each attachment first with `POST /api/projects/@current/messaging/attachments/uploads/`.
+- **HTTP API, for any language:** `POST https://<app host>/api/messaging/send/email/` with `Authorization: Bearer <project secret API key>`, an `Idempotency-Key` header, and the send's fields as the JSON body. Only the HTTP API, not the SDKs, takes `cc`, `bcc` and `attachments` on a code send; upload each attachment first with `POST /api/messaging/attachments/uploads/`.
 
 Install the SDK's latest release, and at least the version `references/sdks.md` gives. If the installed SDK has no emails API, or its send doesn't take a template key, upgrade it or use the HTTP API.
 
@@ -80,7 +80,7 @@ Get these right in the code you write:
 
 ## Check what happened to an email
 
-A send returns a message ID. Read its status with the SDK's status read in `references/sdks.md`, or with `GET /api/projects/@current/messaging/emails/<message_id>/`. The status is `queued`, `sent`, `failed`, `delivered`, `bounced`, or `complained`, with a `reason` for a failed or bounced email.
+A send returns a message ID. Read its status with the SDK's status read in `references/sdks.md`, or with `GET /api/messaging/emails/<message_id>/`. The status is `queued`, `sent`, `failed`, `delivered`, `bounced`, or `complained`, with a `reason` for a failed or bounced email.
 
 - A status takes a few seconds to appear after the send, and it is kept for 30 days. The SDKs don't retry a `not_found`, so code that reads a status right after the send retries a few times with a wait. A missing status doesn't mean the email failed.
 - Handle the read's error before you look at the status, so an auth, permission or rate limit error doesn't disappear.

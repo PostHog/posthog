@@ -328,6 +328,13 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # class as :etimedout and :econnrefused (pooler couldn't hand us a backend connection; recovers
     # once the pool has capacity or the backend reconnects), so recover by reconnecting.
     "{:error, :timeout}",
+    # The bare-atom sibling of "{:error, :timeout}": on some Supavisor versions the same pool
+    # checkout/backend-connect timeout is reported with the reason atom alone, not wrapped in the
+    # `{:error, ...}` tuple — "Failed to connect to database: :timeout" rather than "Failed to
+    # connect to database: {:error, :timeout}". Same transient pooler-timeout class, so recover the
+    # same way. Match the fuller phrase, not the bare ":timeout" atom, which alone is too generic
+    # and would match unrelated messages that happen to mention a timeout.
+    "failed to connect to database: :timeout",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is

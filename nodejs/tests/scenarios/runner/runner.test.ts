@@ -10,6 +10,8 @@ import fs, {
     readFileSync,
     readdirSync,
     rmSync,
+    statSync,
+    utimesSync,
     writeFileSync,
 } from 'fs'
 import http from 'http'
@@ -54,14 +56,16 @@ import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 import { seedBacklog } from '../backlog/backlog'
 import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
-import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
+import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
+import { LIVE_FILE, LiveRecord } from './live'
 import { RunResult, Runner, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
@@ -113,6 +117,14 @@ const failNextDisconnect = (): void => {
     })
 }
 
+const joinedGroupsOf = (specs: RoleSpec[]): KafkaGroup[] =>
+    specs.flatMap((spec) =>
+        consumerGroupsOf([spec]).map(({ group, topics }) => ({
+            group,
+            partitions: topics.map((topic) => ({ topic, lag: 0, client: `${SCENARIO_SESSION_PREFIX}${spec.role}` })),
+        }))
+    )
+
 describe('runner', () => {
     let cacheHome: string
     let stateDir: string
@@ -137,6 +149,16 @@ describe('runner', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
+        wiring: () =>
+            Promise.resolve(
+                wiringOf({
+                    adapter: WORKFLOWS_ADAPTER,
+                    specs: roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), stateDir),
+                    groups: joinedGroupsOf(roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), stateDir)),
+                    clients: [],
+                    recordedAt: new Date(),
+                })
+            ),
         down: () => Promise.resolve(),
     }
 
@@ -145,15 +167,20 @@ describe('runner', () => {
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
-        runner = createRunner(environment, {
-            ...processEnv,
-            XDG_CACHE_HOME: cacheHome,
-            DATABASE_URL: PROCESS_DATABASE_URL,
-            ...api.credentials,
-        })
+        runner = createRunner(
+            environment,
+            {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                DATABASE_URL: PROCESS_DATABASE_URL,
+                ...api.credentials,
+            },
+            { topologyEveryMs: 10 }
+        )
     })
 
     afterEach(async () => {
+        jest.useRealTimers()
         jest.restoreAllMocks()
         await runner.down()
         rmSync(cacheHome, { recursive: true, force: true })
@@ -528,6 +555,37 @@ describe('runner', () => {
 
         expect(readFileSync(path.join(evidenceDir, 'logs', 'cdp-api.log'), 'utf8')).toBe('line from this run\n')
     })
+
+    it('stops the live heartbeat of a run that fails before it writes its end record', async () => {
+        jest.useFakeTimers({
+            doNotFake: [
+                'Date',
+                'hrtime',
+                'nextTick',
+                'performance',
+                'queueMicrotask',
+                'setImmediate',
+                'clearImmediate',
+                'setTimeout',
+                'clearTimeout',
+            ],
+        })
+        jest.spyOn(os, 'cpus').mockImplementation(() => {
+            throw new Error('the host hides its CPUs')
+        })
+
+        await expect(runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)).rejects.toThrow(
+            'the host hides its CPUs'
+        )
+
+        const [live] = readdirSync(stateDir)
+            .map((name) => path.join(stateDir, name, LIVE_FILE))
+            .filter((file) => existsSync(file))
+        const minuteAgo = new Date(Date.now() - 60_000)
+        utimesSync(live, minuteAgo, minuteAgo)
+        jest.advanceTimersByTime(5000)
+        expect(statSync(live).mtimeMs).toBe(minuteAgo.getTime())
+    })
 })
 
 type DeliveringRoles = { stop(): Promise<void> }
@@ -721,6 +779,14 @@ describe('runner through seed, drive and judge', () => {
     let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
+    let failedWiringReads = 0
+    let cyclotronJoinsAtRead = 0
+    let wiringReads = 0
+    let exitsAtWiringRead: RoleExit[] = []
+    let wiringChurns = false
+    let groupsJoinAtRead = 0
+    let interruptAtWiringRead: { read: number; interrupt: AbortController } | undefined
+    let hangsFromWiringRead = Infinity
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -758,6 +824,39 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        wiring: (signal) => {
+            const read = wiringReads++
+            const interrupt = interruptAtWiringRead?.read === read ? interruptAtWiringRead.interrupt : undefined
+            if (read >= hangsFromWiringRead) {
+                return new Promise((_, reject) => {
+                    signal.addEventListener('abort', () => reject(signal.reason))
+                    interrupt?.abort()
+                })
+            }
+            interrupt?.abort()
+            exits.push(...exitsAtWiringRead.splice(0))
+            if (read < failedWiringReads) {
+                return Promise.reject(new Error('rpk group list timed out'))
+            }
+            return Promise.resolve(
+                wiringOf({
+                    adapter: WORKFLOWS_ADAPTER,
+                    specs: handles,
+                    groups: read >= groupsJoinAtRead ? joinedGroupsOf(handles) : [],
+                    clients:
+                        read >= cyclotronJoinsAtRead
+                            ? [
+                                  {
+                                      application: 'scenario-cdp-cyclotron-worker-hogflow',
+                                      database: wiringChurns ? `cyclotron-${read}` : 'cyclotron',
+                                      connections: 1,
+                                  },
+                              ]
+                            : [],
+                    recordedAt: new Date(),
+                })
+            )
+        },
         writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
@@ -841,6 +940,14 @@ describe('runner through seed, drive and judge', () => {
     })
 
     beforeEach(async () => {
+        failedWiringReads = 0
+        cyclotronJoinsAtRead = 0
+        wiringReads = 0
+        exitsAtWiringRead = []
+        wiringChurns = false
+        groupsJoinAtRead = 0
+        interruptAtWiringRead = undefined
+        hangsFromWiringRead = Infinity
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -915,12 +1022,13 @@ describe('runner through seed, drive and judge', () => {
         delivering: Parameters<typeof environmentOf>[0],
         valves: ValveEntry[] = [],
         traffic?: string,
-        options: Parameters<typeof shortSmoke>[2] = {}
+        options: Parameters<typeof shortSmoke>[2] = {},
+        signal: AbortSignal = NEVER_ABORTED
     ): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env).run(
-            shortSmoke(valves, traffic, options),
-            NEVER_ABORTED
-        )
+        const result = await createRunner(environmentOf(delivering), env, {
+            topologyWithinMs: 1000,
+            topologyEveryMs: 10,
+        }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
     }
@@ -1020,6 +1128,14 @@ describe('runner through seed, drive and judge', () => {
                 deliveredBy ? offered.map(({ unitId }) => `${unitId}/${deliveredBy}/200`).sort() : []
             )
             expect(offered).not.toHaveLength(0)
+            expect(evidenceOf(result, 'topology.json')).toMatchObject({
+                hash: result.topologyHash,
+                databases: [{ role: 'cdp-cyclotron-worker-hogflow', database: 'cyclotron' }],
+                hosts: deliveredBy
+                    ? [{ host: deliveredBy === 'email' ? 'ses' : 'hooks.example.com', requests: offered.length }]
+                    : [],
+            })
+            expect(api.captured[0]?.properties.topology_hash).toEqual(expect.stringMatching(/^[0-9a-f]{12}$/))
         },
         30_000
     )
@@ -1069,7 +1185,7 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('samples every replica the profile starts and seeds flows that park as often as it asks', async () => {
+    it('samples every replica the profile starts, follows every sample live, and seeds flows that park as often as it asks', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'event_email', { replicas: { 'cdp-cyclotron-worker-email': 2 }, parks: 1 }),
             NEVER_ABORTED
@@ -1088,7 +1204,13 @@ describe('runner through seed, drive and judge', () => {
             defaultConfig.DATABASE_URL
         )
         const { samples } = evidenceOf(result, 'metrics.json') as { samples: { role: string; replica: number }[] }
+        const followed = readFileSync(path.join(result.evidenceDir, LIVE_FILE), 'utf8')
+            .trimEnd()
+            .split('\n')
+            .map((line) => parseJSON(line) as LiveRecord)
+            .flatMap((record) => (record.type === 'tick' ? record.samples : []))
         expect({
+            unfollowedSamples: samples.length - followed.length,
             parksPerFlow: [
                 ...new Set(flows.map(({ actions }) => actions.filter(({ type }) => type === 'delay').length)),
             ],
@@ -1097,7 +1219,7 @@ describe('runner through seed, drive and judge', () => {
                     samples.filter(({ role }) => role === 'cdp-cyclotron-worker-email').map(({ replica }) => replica)
                 ),
             ].sort(),
-        }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
+        }).toEqual({ unfollowedSamples: 0, parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
 
     it.each<[string, Parameters<typeof environmentOf>[0], string, string | undefined, string, object]>([
@@ -1255,6 +1377,104 @@ describe('runner through seed, drive and judge', () => {
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+            })
+        },
+        30_000
+    )
+
+    it('fails a run in which a role exits while its topology settles', async () => {
+        exitsAtWiringRead = [
+            {
+                role: 'cdp-cyclotron-worker-hogflow',
+                replica: 0,
+                at: new Date().toISOString(),
+                code: 1,
+                signal: null,
+                byValve: false,
+            },
+        ]
+
+        const result = await run('all')
+
+        expect(result).toMatchObject({
+            status: 'failed',
+            statusReason: 'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it',
+        })
+    }, 30_000)
+
+    it('drives a run whose topology still changes at the deadline, and records a read past the first two', async () => {
+        wiringChurns = true
+
+        const result = await run('all')
+
+        const [recorded] = (evidenceOf(result, 'topology.json') as Wiring).databases
+        expect({
+            status: result.status,
+            recordedPastTheFirstTwoReads: Number(recorded.database.replace('cyclotron-', '')) >= 2,
+        }).toEqual({ status: 'passed', recordedPastTheFirstTwoReads: true })
+    }, 30_000)
+
+    it('calls a run invalid before its drive when it is interrupted during a topology read that never answers', async () => {
+        const interrupt = new AbortController()
+        interruptAtWiringRead = { read: 1, interrupt }
+        hangsFromWiringRead = 1
+        const result = await run('all', [KILL_EMAIL_WORKER], undefined, {}, interrupt.signal)
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'the run stopped: the run was interrupted while it read its topology',
+            timeline: [],
+        })
+    }, 30_000)
+
+    it('drives a run whose topology read still hangs at the deadline, and records the read before it', async () => {
+        wiringChurns = true
+        hangsFromWiringRead = 2
+
+        const result = await run('all')
+
+        expect({
+            status: result.status,
+            databases: (evidenceOf(result, 'topology.json') as Wiring).databases.map(({ database }) => database),
+        }).toEqual({ status: 'passed', databases: ['cyclotron-1'] })
+    }, 30_000)
+
+    it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
+        cyclotronJoinsAtRead = Infinity
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason:
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
+            timeline: [],
+        })
+        expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
+    }, 30_000)
+
+    it.each([
+        ['a database client that joined late', { failed: 0, joinsAt: 2, groupsJoinAt: 0 }],
+        ['a read that failed', { failed: 1, joinsAt: 0, groupsJoinAt: 0 }],
+        ['a consumer group that joined late', { failed: 0, joinsAt: 0, groupsJoinAt: 3 }],
+    ])(
+        'reads the topology again past %s, and runs the card',
+        async (_case, { failed, joinsAt, groupsJoinAt }) => {
+            failedWiringReads = failed
+            cyclotronJoinsAtRead = joinsAt
+            groupsJoinAtRead = groupsJoinAt
+            const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card
+                .valves
+
+            const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+            expect({
+                statusReason: result.statusReason,
+                consumers: (evidenceOf(result, 'topology.json') as Wiring).consumers.length,
+            }).toEqual({
+                statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
+                consumers: consumerGroupsOf(handles).length,
             })
         },
         30_000

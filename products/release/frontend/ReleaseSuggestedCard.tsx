@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton, Text } from '@posthog/quill'
@@ -11,8 +11,11 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { linkSuggestionsKey, releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
+import { ReleaseShowMore } from './ReleaseShowMore'
 import { linkedKeys } from './releaseTracks'
 import { ReleaseRow } from './releaseUtils'
+
+const GROUP_LIMIT = 3
 
 interface Suggestion {
     key: string
@@ -73,22 +76,34 @@ function Group({
     title,
     items,
     onDismiss,
+    dataAttr,
 }: {
     title: string
     items: Suggestion[]
     onDismiss: (key: string) => void
+    dataAttr: string
 }): JSX.Element | null {
+    const [visible, setVisible] = useState(GROUP_LIMIT)
     if (!items.length) {
         return null
     }
     return (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5" data-attr={dataAttr}>
             <Text size="xxs" weight="semibold" variant="muted" className="px-2 uppercase tracking-wide">
-                {title}
+                {`${title} · ${items.length}`}
             </Text>
-            {items.map((item) => (
+            {items.slice(0, visible).map((item) => (
                 <SuggestionRow key={item.key} item={item} onDismiss={() => onDismiss(item.key)} />
             ))}
+            <div className="px-2">
+                <ReleaseShowMore
+                    total={items.length}
+                    visible={visible}
+                    limit={GROUP_LIMIT}
+                    onChange={setVisible}
+                    dataAttr={dataAttr}
+                />
+            </div>
         </div>
     )
 }
@@ -167,11 +182,19 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
                 ) : (
                     <>
                         <Group
+                            key={`found-${row.id}`}
                             title="Uses this release's flags"
                             items={found}
                             onDismiss={(key) => dismissSuggestion(row.id, key)}
+                            dataAttr="release-suggested-found"
                         />
-                        <Group title="Similar name" items={maybe} onDismiss={(key) => dismissSuggestion(row.id, key)} />
+                        <Group
+                            key={`maybe-${row.id}`}
+                            title="Similar name"
+                            items={maybe}
+                            onDismiss={(key) => dismissSuggestion(row.id, key)}
+                            dataAttr="release-suggested-maybe"
+                        />
                         {failed && (
                             <div
                                 className="flex items-center justify-between gap-2 px-2"

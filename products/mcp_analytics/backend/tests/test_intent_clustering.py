@@ -64,6 +64,8 @@ from products.mcp_analytics.backend.intent_clustering import (
     fetch_session_calls,
     fetch_tool_descriptions,
     fetch_window_stats,
+    merge_reworded_recurring,
+    recurring_exclusion_texts,
     sample_corpus_sessions,
     top_corpus_tools,
 )
@@ -195,6 +197,8 @@ class TestBuildSnapshot:
                 "call_count": 10,
                 "error_count": 1,
                 "error_rate_pct": 10.0,
+                "variant_count": 1,
+                "sample_variants": [],
             }
         ]
 
@@ -480,6 +484,21 @@ class TestExcludeRecurringSessions:
         kept = exclude_recurring_sessions(rows, {"nightly scout"})
 
         assert [row[0] for row in kept] == ["human-1", "human-1"]
+
+    @parameterized.expand(
+        [
+            ("uuid", "Scout run 01a1c368-41f8-7279-a942-9fe728cef1b9", "Scout run <id>"),
+            ("long_hex", "replay abcdef0123456789abcd done", "replay <id> done"),
+            ("long_digits", "ticket 1234567 triage", "ticket <id> triage"),
+            ("short_numbers_kept", "top 10 events in 2025", "top 10 events in 2025"),
+        ]
+    )
+    def test_run_ids_are_masked_before_matching(self, _name: str, intent: str, recurring_text: str) -> None:
+        rows = [("run-1", "execute_sql", intent, False), ("human-1", "execute_sql", "why did signups drop", False)]
+
+        kept = exclude_recurring_sessions(rows, {recurring_text})
+
+        assert [row[0] for row in kept] == ["human-1"]
 
 
 class TestBuildCallCorpus:
@@ -1184,10 +1203,14 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
         self._seed_tool_call("human-2", "execute_sql", intent="twice only", timestamp=base)
         self._seed_tool_call("human-3", "execute_sql", intent="twice only", timestamp=base)
+        # Per-run texts that differ only by a run ID count as one recurring text.
+        for i in range(4):
+            self._seed_tool_call(f"run-{i}", "execute_sql", intent=f"Scout run {uuid.uuid4()}", timestamp=base)
         flush_persons_and_events()
 
         assert fetch_recurring_intents(self.team) == [
-            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1)
+            RecurringIntent(intent_text="Scout run <id>", session_count=4, call_count=4, error_count=0),
+            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1),
         ]
 
     def test_sampling_skips_sessions_that_open_with_a_recurring_text(self) -> None:
@@ -1196,10 +1219,12 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("scout-1", "execute_sql", intent=" nightly scout", timestamp=base + timedelta(minutes=1))
         self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
         self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
+        self._seed_tool_call("run-1", "execute_sql", intent=f"Scout run {uuid.uuid4()}", timestamp=base)
         flush_persons_and_events()
 
-        assert sample_corpus_sessions(self.team, recurring_texts={"nightly scout"}) == ["human-1"]
-        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts={"nightly scout"}) == {
+        recurring = {"nightly scout", "Scout run <id>"}
+        assert sample_corpus_sessions(self.team, recurring_texts=recurring) == ["human-1"]
+        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts=recurring) == {
             "execute_sql": {"human-1"}
         }
 
@@ -1209,10 +1234,17 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             "session-a", "exec", intent="find slow queries", timestamp=base, exec_tool_name="execute_sql"
         )
         self._seed_tool_call("session-a", "query_trends", timestamp=base + timedelta(minutes=1), is_error=True)
+        # Past the per-session bound: only a session's first calls enter the corpus.
+        self._seed_tool_call("session-a", "dashboard_get", timestamp=base + timedelta(minutes=2))
         self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
         flush_persons_and_events()
 
-        rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+        # One session per chunk, so both chunks have to come back.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CALLS_PER_SESSION", 2),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
 
         by_session: dict[str, list] = {}
         for row in rows:
@@ -1222,6 +1254,20 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             ("query_trends", "", True),
         ]
         assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
+
+    def test_session_calls_stop_fetching_chunks_past_the_text_budget(self) -> None:
+        self._seed_tool_call("session-a", "query_trends", intent="find slow queries")
+        self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
+        flush_persons_and_events()
+
+        # The first chunk alone exhausts the budget, so the second is never queried.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CORPUS_TEXT_CHARS", 1),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+
+        assert [(r[0], r[1]) for r in rows] == [("session-a", "query_trends")]
 
     def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
         # A sender with the capture token controls these strings; without the SQL
@@ -1244,12 +1290,19 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
     def test_advertised_tools_union_across_tools_list_events(self) -> None:
         self._seed_tools_list("session-a", ["exec", "render-ui"])
         self._seed_tools_list("session-a", ["exec", "query_trends"])
+        self._seed_tools_list("session-b", ["render-ui"])
         self._seed_tools_list("session-other", ["exec"])
         flush_persons_and_events()
 
-        advertised = fetch_advertised_tools(self.team, ["session-a", "session-no-list"])
+        with patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1):
+            advertised = fetch_advertised_tools(self.team, ["session-no-list", "session-a", "session-b"])
+            narrowed = fetch_advertised_tools(
+                self.team, ["session-no-list", "session-a", "session-b"], keep_tools={"exec", "query_trends"}
+            )
 
-        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}}
+        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}, "session-b": {"render-ui"}}
+        # A session that advertised none of the kept tools still counts as advertised.
+        assert narrowed == {"session-a": {"exec", "query_trends"}, "session-b": set()}
 
     def test_advertised_catalog_is_bounded_per_list_and_per_session(self) -> None:
         # Both the array and the number of tools-list events are sender-controlled, and the
@@ -1534,3 +1587,115 @@ class TestEmbeddingCacheModel(_MCPAnalyticsTeamScopedTestMixin, BaseTest):
                 model=EMBEDDING_MODEL,
                 embedding=_encode_embedding([1.0]),
             )
+
+
+# merge_reworded_recurring ------------------------------------------------
+
+_SCOUT_WORDINGS = [
+    "Read pinned scout skill",
+    "Discover pinned scout skill",
+    "Discover the pinned scout skill reader.",
+    "Find the pinned scout skill.",
+    "Load the pinned scout skill before investigation.",
+    "Discover the bound scout skill tool.",
+    "Discover the bound skill reader.",
+]
+
+
+_TEAM: Any = SimpleNamespace(id=1)
+
+
+def _topic_embeddings(texts: list[str]) -> np.ndarray:
+    """Stand-in for the embedding model: texts about one topic point the same way, with a little jitter."""
+    topic_axis = {"skill": 0, "funnel": 1, "order": 2}
+    rows = []
+    for i, text in enumerate(texts):
+        axis = next(a for word, a in topic_axis.items() if word in text.lower())
+        vector = np.zeros(3, dtype=np.float32)
+        vector[axis] = 1.0
+        vector[(axis + 1) % 3] = 0.05 * (i % 3)
+        rows.append(vector)
+    return np.stack(rows)
+
+
+class TestMergeRewordedRecurring:
+    def _merge(self, recurring: list[RecurringIntent]) -> list[RecurringIntent]:
+        async def fake_embed(team: Any, texts: list[str], prefix: str = "") -> tuple[np.ndarray, list[int]]:
+            return _topic_embeddings(texts), list(range(len(texts)))
+
+        with patch.object(intent_clustering, "embed_texts_async", fake_embed):
+            return asyncio.run(merge_reworded_recurring(_TEAM, recurring))
+
+    def test_scout_wordings_collapse_into_one_entry_with_summed_counts(self) -> None:
+        scout = [
+            RecurringIntent(intent_text=text, session_count=100 - i, call_count=200, error_count=10)
+            for i, text in enumerate(_SCOUT_WORDINGS)
+        ]
+        distinct = [
+            RecurringIntent(intent_text="signup funnel comparison", session_count=50, call_count=60, error_count=0),
+            RecurringIntent(intent_text="aggregated order counts", session_count=40, call_count=40, error_count=4),
+        ]
+
+        merged = self._merge([*scout, *distinct])
+
+        assert [m.intent_text for m in merged] == [
+            "Read pinned scout skill",
+            "signup funnel comparison",
+            "aggregated order counts",
+        ]
+        assert merged[0].session_count == sum(100 - i for i in range(len(_SCOUT_WORDINGS)))
+        assert merged[0].call_count == 200 * len(_SCOUT_WORDINGS)
+        assert merged[0].error_count == 10 * len(_SCOUT_WORDINGS)
+        assert merged[0].variants == tuple(_SCOUT_WORDINGS)
+        assert recurring_exclusion_texts(merged) == {
+            *_SCOUT_WORDINGS,
+            "signup funnel comparison",
+            "aggregated order counts",
+        }
+
+    def test_snapshot_limit_applies_after_merging(self) -> None:
+        scout = [
+            RecurringIntent(intent_text=f"{text} {i}", session_count=1000, call_count=1, error_count=0)
+            for i, text in enumerate(_SCOUT_WORDINGS * 10)
+        ]
+        others = [
+            RecurringIntent(intent_text=f"orders report {i}", session_count=5, call_count=1, error_count=0)
+            for i in range(intent_clustering.MAX_RECURRING_INTENTS)
+        ]
+        # The "orders report" texts share one topic, so they merge into a single entry as well.
+        merged = self._merge([*scout, *others])
+
+        snapshot = intent_clustering._serialize_recurring(merged)
+
+        assert len(merged) == 2
+        assert snapshot[0]["variant_count"] == len(scout)
+        assert len(snapshot[0]["sample_variants"]) == intent_clustering.MAX_SAMPLE_VARIANTS
+
+    def test_serialized_entries_cap_at_the_display_limit(self) -> None:
+        entries = [
+            RecurringIntent(intent_text=f"automation {i}", session_count=100 - i, call_count=1, error_count=0)
+            for i in range(intent_clustering.MAX_RECURRING_INTENTS + 10)
+        ]
+
+        assert len(intent_clustering._serialize_recurring(entries)) == intent_clustering.MAX_RECURRING_INTENTS
+
+    @parameterized.expand([("worker_error", True), ("worker_hangs", False)])
+    def test_embedding_failure_falls_back_to_exact_text_entries(self, _name: str, raises: bool) -> None:
+        recurring = [
+            RecurringIntent(intent_text=text, session_count=10, call_count=1, error_count=0)
+            for text in _SCOUT_WORDINGS[:2]
+        ]
+
+        async def failing_embed(*args: Any, **kwargs: Any) -> Any:
+            if raises:
+                raise RuntimeError("embedding worker down")
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(intent_clustering, "embed_texts_async", failing_embed),
+            patch.object(intent_clustering, "RECURRING_MERGE_TIMEOUT_SECONDS", 0.01),
+        ):
+            merged = asyncio.run(merge_reworded_recurring(_TEAM, recurring))
+
+        assert merged == recurring
+        assert recurring_exclusion_texts(merged) == set(_SCOUT_WORDINGS[:2])

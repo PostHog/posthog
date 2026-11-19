@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
+    DASHBOARD_V2_WARMING_START_WINDOW,
     WARMING_CHAIN_LIFETIME,
     WARMING_START_WINDOW,
     insights_to_keep_fresh,
@@ -237,6 +238,55 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
             self.assertEqual(len(remaining_tasks), 1)
             self.assertNotIn("eta", remaining_tasks[0].options)
             self.assertEqual(remaining_tasks[0].options["expires"], expected_start + WARMING_CHAIN_LIFETIME)
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, 1, DASHBOARD_V2_WARMING_START_WINDOW),
+            ("flag_off", False, 2, WARMING_START_WINDOW),
+        ]
+    )
+    def test_dashboard_v2_warms_only_read_tiles_spread_across_the_hour(
+        self, _name: str, flag_on: bool, expected_warms: int, start_window: timedelta
+    ) -> None:
+        dispatched_at = datetime.now(UTC)
+        self.team1.extra_settings = {"insights_cache_warming": True}
+        self.team1.save(update_fields=["extra_settings"])
+        dashboard = Dashboard.objects.create(team=self.team1, last_accessed_at=dispatched_at)
+        read_insight, unread_insight = Insight.objects.create(team=self.team1), Insight.objects.create(team=self.team1)
+        for insight in (read_insight, unread_insight):
+            DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+            update_target_age(
+                team_id=self.team1.pk,
+                insight_id=insight.pk,
+                dashboard_id=dashboard.pk,
+                target_age=dispatched_at - timedelta(minutes=1),
+            )
+        record_read(
+            team_id=self.team1.pk,
+            insight_id=read_insight.pk,
+            dashboard_id=dashboard.pk,
+            at=dispatched_at - timedelta(hours=2),
+        )
+
+        with (
+            time_machine.travel(dispatched_at, tick=False),
+            patch("posthog.caching.utils.sync_execute", return_value=[]),
+            patch(
+                "posthog.caching.warming.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag_on and flag == "dashboard-v2",
+            ),
+            patch("posthog.caching.warming.warm_insight_cache_task.si") as warm_task,
+            patch("posthog.caching.warming.chain") as warm_chain,
+        ):
+            schedule_warming_for_teams_task()
+
+        warmed = [call.args for call in warm_task.call_args_list]
+        self.assertEqual(len(warmed), expected_warms)
+        self.assertIn((read_insight.pk, dashboard.pk), warmed)
+        self.assertEqual(
+            warm_chain.return_value.apply_async.call_args.kwargs["eta"],
+            dispatched_at + deterministic_offset(str(self.team1.pk), start_window),
+        )
 
 
 class TestWarmInsightCacheTask(APIBaseTest):

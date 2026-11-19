@@ -1,7 +1,8 @@
+import re
 import json
 import uuid
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -96,7 +97,7 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
-from products.signals.backend.source_filters import compile_source_filter
+from products.signals.backend.source_filters import SourceFilterPreviewStatus, compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -150,6 +151,7 @@ from .ranking.inbox_sort import inbox_merge_key
 from .ranking.public_outcomes import RankingOutcome
 from .ranking.report_predictions import ReportPredictions, read_report_predictions
 from .ranking.staleness import EDIT_ARTEFACT_TYPES
+from .repo_corrections import MAX_REPOSITORY_NAME_LENGTH, sanitized_repository
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
@@ -171,6 +173,8 @@ from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, val
 logger = structlog.get_logger(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+_REPOSITORY_NAME_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 
 @frozen
@@ -572,6 +576,141 @@ class AlertPatternPreviewResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
 
 
+class SignalFilterFieldType(TextChoices):
+    STRING = "string", "string"
+    INTEGER = "integer", "integer"
+    NUMBER = "number", "number"
+    BOOLEAN = "boolean", "boolean"
+    DATETIME = "datetime", "datetime"
+    ARRAY_STRING = "array<string>", "array<string>"
+    ARRAY_INTEGER = "array<integer>", "array<integer>"
+    ARRAY_NUMBER = "array<number>", "array<number>"
+    ARRAY_BOOLEAN = "array<boolean>", "array<boolean>"
+
+
+class SourceFilterCatalogFieldSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name to use for this field in a filter expression.")
+    type = serializers.ChoiceField(
+        choices=SignalFilterFieldType.choices,
+        help_text="Type of the field's value. Compare it with values of the same type.",
+    )
+    description = serializers.CharField(
+        help_text="What the field holds, and its value when the record has none (null, or an empty array)."
+    )
+
+
+class SourceFilterCatalogSerializer(serializers.Serializer):
+    source_product = serializers.CharField(help_text="Source product the filter applies to, for example `linear`.")
+    source_type = serializers.CharField(help_text="Source type the filter applies to, for example `issue`.")
+    catalog_version = serializers.IntegerField(
+        help_text="Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version."
+    )
+    filter_fields = serializers.ListField(
+        child=SourceFilterCatalogFieldSerializer(),
+        help_text="Fields a filter expression can use.",
+    )
+    starter_expressions = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Example expressions that are valid for this source.",
+    )
+
+
+class SourceFilterCatalogListSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=SourceFilterCatalogSerializer(),
+        help_text=(
+            "One entry per source whose filter this project can set. A source that is missing does not take a filter."
+        ),
+    )
+
+
+# Wider than the expression limit, so a long expression reads back as an `invalid_expression` preview, not a 400.
+_SOURCE_FILTER_PREVIEW_MAX_LENGTH = 16384
+
+
+class SourceFilterPreviewRequestSerializer(serializers.Serializer):
+    source_product = serializers.CharField(
+        max_length=100,
+        help_text="Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+    )
+    source_type = serializers.CharField(
+        max_length=100,
+        help_text="Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+    )
+    expression = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=_SOURCE_FILTER_PREVIEW_MAX_LENGTH,
+        help_text=(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the "
+            "fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. "
+            "An empty expression lets every record through."
+        ),
+    )
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "integer"},
+            {"type": "array", "items": {"type": "string"}},
+        ],
+        "nullable": True,
+    }
+)
+class _SourceFilterFieldValueField(serializers.JSONField):
+    pass
+
+
+class SourceFilterPreviewRecordSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The record's id in the source.")
+    identifier = serializers.CharField(allow_null=True, help_text="Short identifier people use for the record.")
+    title = serializers.CharField(allow_null=True, help_text="The record's title.")
+    url = serializers.CharField(allow_null=True, help_text="Link to the record in the source.")
+    created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the record was created, as emission reads it."
+    )
+    malformed = serializers.BooleanField(
+        help_text="True when a field the expression uses holds a value that cannot be read, so the record never passes."
+    )
+    field_values = serializers.DictField(
+        source="fields",
+        child=_SourceFilterFieldValueField(),
+        help_text="Each catalog field's value for this record. A malformed value reads as null, or an empty array.",
+    )
+
+
+class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SourceFilterPreviewStatus.choices,
+        help_text=(
+            "`ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. "
+            "`not_connected` when the project has no syncing import for the source. `not_synced` when the import has "
+            "not finished a first sync. `access_denied` when you cannot read the source's warehouse table. "
+            "`incompatible_table` when the table does not have the columns the filter fields read. "
+            "`query_failed` when the preview query did not run."
+        ),
+    )
+    error = serializers.CharField(allow_null=True, help_text="Why the status is not `ok`, when there is a reason.")
+    catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
+    lookback_days = serializers.IntegerField(help_text="The preview reads records created in this many past days.")
+    total_count = serializers.IntegerField(
+        help_text="Records in the window that emission would read before the filter. 0 unless `status` is `ok`."
+    )
+    passing_count = serializers.IntegerField(help_text="Records in the window that pass the filter.")
+    excluded_count = serializers.IntegerField(help_text="Records in the window that the filter excludes.")
+    malformed_count = serializers.IntegerField(
+        help_text="Excluded records that hold a value the filter cannot read. Included in `excluded_count`."
+    )
+    passing = SourceFilterPreviewRecordSerializer(
+        many=True, help_text="The newest records that pass the filter, at most 10."
+    )
+    excluded = SourceFilterPreviewRecordSerializer(
+        many=True, help_text="The newest records that the filter excludes, at most 10."
+    )
+
+
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
 # not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
 # and the request body a caller can push through this field.
@@ -622,6 +761,33 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         allow_blank=True,
         max_length=AGENT_STEERING_MAX_LENGTH,
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
+    )
+    scout_custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. "
+            "Only a project admin with editor access to skills can set it. An image that is missing or not ready at run time falls back "
+            "to the standard image."
+        ),
+    )
+    research_custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. "
+            "Only a project admin can change it. An image that is missing or not ready at run time falls back "
+            "to the standard image."
+        ),
+    )
+    implementation_custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. "
+            "Only a project admin can change it. An image that is missing or not ready at run time falls back "
+            "to the standard image."
+        ),
     )
     issue_tracking_integration = IntegrationReferenceField(
         kinds=sorted(SUPPORTED_EXTERNAL_ISSUE_PROVIDERS),
@@ -820,6 +986,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "scout_instructions",
             "research_instructions",
             "implementation_instructions",
+            "scout_custom_image_id",
+            "research_custom_image_id",
+            "implementation_custom_image_id",
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",
@@ -2103,6 +2272,102 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportRepositoryUpdateSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        min_length=1,
+        max_length=MAX_REPOSITORY_NAME_LENGTH,
+        help_text=(
+            "Repository the report's work targets, in 'owner/repo' format (case-insensitive). It must be a "
+            "repository the project's GitHub integration can reach. Later implementation runs use it."
+        ),
+    )
+
+    def validate_repository(self, value: str) -> str:
+        repository = sanitized_repository(value)
+        if repository is None:
+            raise serializers.ValidationError("Use the 'owner/repo' format.")
+        return repository
+
+
+class ReportDecisionSetBySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=SignalActorKind.choices,
+        help_text=(
+            "Who set the value. `user`: a person in PostHog. `agent`: a person's external coding agent. "
+            "`task`: a PostHog agent task, such as report research. `system`: the pipeline, or an older row "
+            "with no recorded attribution."
+        ),
+    )
+    user = _UserSerializer(
+        allow_null=True,
+        help_text="The person who set the value, or whose external agent did. Null for task and system writes.",
+    )
+    agent = serializers.CharField(
+        allow_null=True, help_text="External agent client name when kind is `agent`, otherwise null."
+    )
+    task_id = serializers.UUIDField(allow_null=True, help_text="PostHog task that set the value when kind is `task`.")
+
+
+class _ReportDecisionSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text="The reason stored with the value by whoever set it. Null when none was stored.",
+    )
+    set_by = ReportDecisionSetBySerializer(help_text="Who set the current value.")
+    set_at = serializers.DateTimeField(help_text="When the current value was set.")
+
+
+class ReportRepositoryDecisionSerializer(_ReportDecisionSerializer):
+    value = serializers.CharField(
+        allow_null=True,
+        help_text="'owner/repo' the report's work targets. Null when repository selection chose no repository.",
+    )
+
+
+class ReportPriorityDecisionSerializer(_ReportDecisionSerializer):
+    value = serializers.ChoiceField(
+        choices=AutonomyPriority.choices, allow_null=True, help_text="Report priority, from P0 (critical) to P4."
+    )
+
+
+class ReportActionabilityDecisionSerializer(_ReportDecisionSerializer):
+    # A string like the flat `actionability` field: ActionabilityChoice is a plain Enum, so a ChoiceField
+    # named `value` would get a field-name based enum component that collides with other `value` enums.
+    value = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "`immediately_actionable`, `requires_human_input`, or `not_actionable`: whether the report can be "
+            "acted on now, needs a person's input first, or needs no action."
+        ),
+    )
+
+
+class ReportAlreadyAddressedDecisionSerializer(_ReportDecisionSerializer):
+    value = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the issue is already fixed, or has a fix in flight that someone else is working on.",
+    )
+
+
+class ReportDecisionsSerializer(serializers.Serializer):
+    repository = ReportRepositoryDecisionSerializer(
+        allow_null=True, help_text="From the latest repo_selection artefact. Null when there is none."
+    )
+    priority = ReportPriorityDecisionSerializer(
+        allow_null=True, help_text="From the latest priority_judgment artefact. Null when there is none."
+    )
+    actionability = ReportActionabilityDecisionSerializer(
+        allow_null=True, help_text="From the latest actionability_judgment artefact. Null when there is none."
+    )
+    already_addressed = ReportAlreadyAddressedDecisionSerializer(
+        allow_null=True,
+        help_text=(
+            "From the latest actionability_judgment artefact, so it shares the reason and the setter with "
+            "actionability. Null when there is none."
+        ),
+    )
+
+
 class ReviewerStateSerializer(serializers.Serializer):
     reviewers_id = serializers.UUIDField(
         allow_null=True, help_text="Current reviewer artefact ID, or null before the first list."
@@ -2271,6 +2536,48 @@ class ReportResearchContextSerializer(serializers.Serializer):
         choices=ReportRepositoryStatus.choices,
         help_text="Code availability when the report was researched; not a live integration health check.",
     )
+
+
+_DECISION_ARTEFACT_TYPES = (
+    SignalReportArtefact.ArtefactType.REPO_SELECTION,
+    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+)
+
+
+def _report_decision(
+    artefact: SignalReportArtefact | None,
+    *,
+    reason_key: str,
+    value: Callable[[dict], object],
+    valid: Callable[[object], bool],
+) -> dict | None:
+    """One `ReportDecisionsSerializer` entry from the latest artefact that holds the decision.
+
+    Tolerant like the flat fields beside it: unreadable content reads as no decision, and a value
+    outside the allowed set reads as null instead of failing the report.
+    """
+    if artefact is None:
+        return None
+    try:
+        content = json.loads(artefact.content)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(content, dict):
+        return None
+    current = value(content)
+    reason = content.get(reason_key)
+    return {
+        "value": current if current is None or valid(current) else None,
+        "reason": reason if isinstance(reason, str) and reason.strip() else None,
+        "set_by": {
+            "kind": artefact.actor_kind or SignalActorKind.SYSTEM,
+            "user": _UserSerializer(artefact.created_by).data if artefact.created_by else None,
+            "agent": artefact.actor_agent,
+            "task_id": str(artefact.task_id) if artefact.task_id else None,
+        },
+        "set_at": artefact.created_at,
+    }
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
@@ -2495,6 +2802,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "responses, because finding a plan's steps costs several queries per report."
         ),
     )
+    decisions = serializers.SerializerMethodField(
+        help_text=(
+            "The current value of each decision made about the report (repository, priority, actionability, "
+            "already addressed), with the reason stored with it and who set it. Always null in list responses."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -2522,6 +2835,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "priority",
             "actionability",
             "already_addressed",
+            "decisions",
             "dismissal_reason",
             "dismissal_note",
             "suppression_source",
@@ -2671,6 +2985,50 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("already_addressed")
         return value if isinstance(value, bool) else None
+
+    @extend_schema_field(ReportDecisionsSerializer(allow_null=True))
+    def get_decisions(self, obj: SignalReport) -> dict | None:
+        if isinstance(self, SignalReportListSerializer):
+            return None
+        latest = {
+            artefact.type: artefact
+            for artefact in SignalReportArtefact.objects.filter(
+                team_id=obj.team_id, report_id=obj.id, type__in=_DECISION_ARTEFACT_TYPES
+            )
+            .select_related("created_by")
+            .order_by("type", "-created_at", "-id")
+            .distinct("type")
+        }
+        repository = latest.get(SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        priority = latest.get(SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
+        actionability = latest.get(SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        actionability_values = {choice.value for choice in ActionabilityChoice}
+        return {
+            "repository": _report_decision(
+                repository,
+                reason_key="reason",
+                value=lambda content: content.get("repository") or None,
+                valid=lambda value: isinstance(value, str),
+            ),
+            "priority": _report_decision(
+                priority,
+                reason_key="explanation",
+                value=lambda content: content.get("priority"),
+                valid=lambda value: value in AutonomyPriority.values,
+            ),
+            "actionability": _report_decision(
+                actionability,
+                reason_key="explanation",
+                value=lambda content: content.get("actionability"),
+                valid=lambda value: value in actionability_values,
+            ),
+            "already_addressed": _report_decision(
+                actionability,
+                reason_key="explanation",
+                value=lambda content: content.get("already_addressed"),
+                valid=lambda value: isinstance(value, bool),
+            ),
+        }
 
     def _get_dismissal_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_dismissal_artefacts", None)
@@ -4511,6 +4869,8 @@ class SignalReportTaskActionSerializer(serializers.Serializer):
             "and stops without merging it. "
             "`resolve_conflicts` updates the report's open pull request from its base branch, resolves the "
             "conflicts, pushes, and stops without merging it or fixing unrelated CI. "
+            "`implement` starts the run the inbox's Implement button starts: it claims the report, implements "
+            "the fix, and opens a pull request that is attached to the report. "
             "`suggested_prompt` sends one of the prompts the report suggests."
         ),
     )
@@ -4550,9 +4910,27 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
             "replaces the "
             "action's fixed request and keeps its instructions and gates: pass it when you know something "
             "the report does not, such as a merge order, a failure that is already on the base branch, or "
-            "an expected conflict. Not accepted for `suggested_prompt`."
+            "an expected conflict. Optional for `implement`, where it is added to the prompt as extra "
+            "instructions. Not accepted for `suggested_prompt`."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=140,
+        help_text=(
+            "Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). "
+            "It must be connected to the project, and it becomes the report's repo selection. Omit it to use "
+            "the report's own repository. A report whose repository cannot be resolved returns "
+            "`report_implementation_repository_unresolved`."
+        ),
+    )
+
+    def validate_repository(self, value: str) -> str:
+        value = value.strip().lower()
+        if not _REPOSITORY_NAME_RE.match(value):
+            raise serializers.ValidationError("Must be in 'owner/repo' format.")
+        return value
 
     def validate(self, attrs: dict) -> dict:
         action = attrs["action"]
@@ -4566,6 +4944,8 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
             )
         if action == ReportTaskActionKind.ASK and not attrs.get("message"):
             raise serializers.ValidationError({"message": "Give the message to send with `ask`."})
+        if attrs.get("repository") and action != ReportTaskActionKind.IMPLEMENT:
+            raise serializers.ValidationError({"repository": "Only accepted for `implement`."})
         return attrs
 
 

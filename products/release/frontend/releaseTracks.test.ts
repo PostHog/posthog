@@ -4,7 +4,15 @@ import { urls } from 'scenes/urls'
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { RelatedSurvey } from './releaseRelated'
 import { RolloutStep } from './releaseRollout'
-import { Scale, buildTrack, mergeOverlapping, rolloutSegments, surveyStatus, todayScrollLeft } from './releaseTracks'
+import {
+    Scale,
+    buildTrack,
+    mergeOverlapping,
+    rolloutSegments,
+    spanWidth,
+    surveyStatus,
+    todayScrollLeft,
+} from './releaseTracks'
 import { ReleaseEvent, ReleaseRow, ReleaseSpan, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
 
 const span = (key: string, kind: ReleaseSpan['kind'], from: string, to: string, label: string): ReleaseSpan => ({
@@ -27,6 +35,18 @@ describe('mergeOverlapping', () => {
             ['/ea', 'Early access, beta'],
             ['/exp-1', '2 experiments'],
         ])
+    })
+})
+
+describe('spanWidth', () => {
+    const scale: Scale = { start: dayjs('2026-11-01T00:00:00Z'), days: 30, day: 10 }
+
+    it('extends an undated span to the visible edge and keeps a dated span bounded', () => {
+        const undated = { ...span('open', 'experiment', '2026-11-05', '2026-11-11', 'Running'), ongoing: true }
+        const dated = span('closed', 'experiment_done', '2026-11-05', '2026-11-11', 'Complete')
+
+        expect(spanWidth(undated, scale)).toBe(260)
+        expect(spanWidth(dated, scale)).toBe(65)
     })
 })
 
@@ -62,6 +82,8 @@ describe('survey lanes', () => {
             survey_ids: [SURVEY.id],
             surveys: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
@@ -155,10 +177,35 @@ describe('rolloutSegments', () => {
         ])
     })
 
-    it('keeps a step that runs into the window from before it', () => {
-        const segments = rolloutSegments([step('2026-09-01T00:00:00Z', '2026-11-11T12:00:00Z', 50)], scale, today)
+    it.each([
+        ['active', false, 300],
+        ['archived', true, 105],
+    ])('bounds the final step for a %s flag without schedules', (_status, isArchived, width) => {
+        const segments = rolloutSegments(
+            [step('2026-09-01T00:00:00Z', '2026-11-11T12:00:00Z', 50)],
+            scale,
+            today,
+            isArchived
+        )
 
-        expect(segments.map(({ left, width }) => [left, width])).toEqual([[0, 105]])
+        expect(segments.map(({ left, width: segmentWidth }) => [left, segmentWidth])).toEqual([[0, width]])
+    })
+
+    it('extends the final scheduled step to the visible edge', () => {
+        const segments = rolloutSegments(
+            [
+                step('2026-11-05T00:00:00Z', '2026-11-11T12:00:00Z', 50),
+                step('2026-11-15T00:00:00Z', '2026-11-30T00:00:00Z', 100, true),
+            ],
+            scale,
+            today
+        )
+
+        expect(segments.map(({ left, width, projected }) => [left, width, projected])).toEqual([
+            [40, 65, false],
+            [105, 35, true],
+            [140, 160, false],
+        ])
     })
 })
 

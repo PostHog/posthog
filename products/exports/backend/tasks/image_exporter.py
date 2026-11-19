@@ -26,6 +26,7 @@ from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
+from posthog.api.shared import ImageSizeSerializer
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
@@ -47,6 +48,7 @@ from products.exports.backend.tasks.failure_handler import (
     classify_failure_type,
     is_reportable_export_failure,
 )
+from products.exports.backend.tasks.image_size import fit_image_to_size
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
@@ -57,6 +59,12 @@ IMAGE_EXPORT_RENDER_DURATION = Histogram(
     "Image export render time (browser navigate + wait + screenshot), by backend and outcome",
     labelnames=["backend", "outcome"],
     buckets=(0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90, 120, float("inf")),
+)
+IMAGE_EXPORT_RENDER_STAGE_DURATION = Histogram(
+    "image_export_render_stage_duration_seconds",
+    "Image export render time per completed stage, by the content the render waits for",
+    labelnames=["content", "stage"],
+    buckets=(0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, float("inf")),
 )
 IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
     "image_export_render_failure_total",
@@ -355,7 +363,7 @@ def _export_to_png(
 
         access_token = get_render_access_token(exported_asset, timedelta(minutes=15))
 
-        screenshot_width: ScreenWidth
+        screenshot_width: int
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         page_load_timeout: int = 40
@@ -434,6 +442,12 @@ def _export_to_png(
                 reportable=True,
             )
 
+        size = ImageSizeSerializer(data=(exported_asset.export_context or {}).get("image_size", {}))
+        size.is_valid(raise_exception=True)
+        image_size = size.validated_data
+        screenshot_width = image_size.get("width") or screenshot_width
+        screenshot_height = image_size.get("height") or screenshot_height
+
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         render_start = time.perf_counter()
@@ -448,7 +462,10 @@ def _export_to_png(
                 max_height_pixels,
                 page_load_timeout,
                 read_site_style,
+                fixed_width=image_size.get("width"),
+                device_scale_factor=1 if any(image_size.values()) else 2,
             )
+            fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
                 time.perf_counter() - render_start
@@ -560,20 +577,44 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
         pass
 
 
+# Exports can set their own selector, so the metric label maps the known ones and buckets the rest.
+_RENDER_STAGE_CONTENT = {
+    ".InsightCard": "dashboard",
+    ".ExportedInsight": "insight",
+    REPLAY_WRAPPER_SELECTOR: "replay",
+    ".heatmap-exporter": "heatmap",
+    ".heatmaps-ready": "heatmap",
+}
+
+
+class _RenderStages:
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self._started_at = time.perf_counter()
+
+    def done(self, stage: str) -> None:
+        now = time.perf_counter()
+        IMAGE_EXPORT_RENDER_STAGE_DURATION.labels(content=self._content, stage=stage).observe(now - self._started_at)
+        self._started_at = now
+
+
 def _screenshot_asset_browserless(
     image_path: str,
     url_to_render: str,
-    screenshot_width: ScreenWidth,
+    screenshot_width: int,
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
     read_site_style: bool = False,
+    fixed_width: int | None = None,
+    device_scale_factor: int = 2,
 ) -> Optional[dict]:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
 
+    stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
     with sync_playwright() as p:
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
@@ -584,12 +625,13 @@ def _screenshot_asset_browserless(
 
         disconnected = [False]
         browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))
+        stages.done("connect")
 
         context = None
         page = None
         try:
             context = browser.new_context(
-                device_scale_factor=2,
+                device_scale_factor=device_scale_factor,
                 viewport={"width": screenshot_width, "height": screenshot_height},
             )
             page = context.new_page()
@@ -611,6 +653,7 @@ def _screenshot_asset_browserless(
                     capture_exception(e)
 
                 raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
+            stages.done("page_load")
 
             try:
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
@@ -619,13 +662,17 @@ def _screenshot_asset_browserless(
                     posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
                     capture_exception(e)
+            stages.done("content")
 
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render
             )
-            width = _resolve_width(
-                page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+            width = max(
+                fixed_width or 0,
+                _resolve_width(
+                    page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+                ),
             )
 
             page.set_viewport_size({"width": width, "height": height})
@@ -641,7 +688,12 @@ def _screenshot_asset_browserless(
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
             page.screenshot(path=image_path)
-            return _read_site_style(page, failed_stylesheets) if read_site_style else None
+            stages.done("screenshot")
+            if not read_site_style:
+                return None
+            site_style = _read_site_style(page, failed_stylesheets)
+            stages.done("site_style")
+            return site_style
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:
@@ -787,6 +839,7 @@ def export_image(
                 # falling back to saved dashboard variables
                 export_context = exported_asset.export_context or {}
                 dashboard_variables = export_context.get("variables_override")
+                dashboard_filters = exported_asset.get_dashboard_filters()
                 if not dashboard_variables and exported_asset.dashboard.variables:
                     variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
@@ -811,6 +864,7 @@ def export_image(
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
+                            filters_override=dashboard_filters,
                             analytics_props=export_analytics_props,
                         )
                         if result.cache_key:

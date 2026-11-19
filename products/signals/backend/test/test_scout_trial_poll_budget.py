@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from products.signals.backend.scout_harness.limits import TRIAL_ACTIVITY_TIMEOUT_S, TRIAL_MAX_RUNTIME_S
 from products.tasks.backend.facade.agents import poll_for_turn
+from products.tasks.backend.facade.api import TaskRunLog
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 
 
@@ -19,7 +20,11 @@ class TestScoutTrialPollBudget(SimpleTestCase):
     async def test_trial_deadline_leaves_time_for_io_and_final_salvage(self, read_seconds: float) -> None:
         task_run = AgentTaskRunDTO(task_id=uuid4(), run_id=uuid4(), team_id=2, workflow_id="synthetic-trial")
         run = SimpleNamespace(
-            id=task_run.run_id, log_url="synthetic-trial-log", status="in_progress", error_message=None
+            id=task_run.run_id,
+            log_url="synthetic-trial-log",
+            log=TaskRunLog(key="synthetic-trial-log"),
+            status="in_progress",
+            error_message=None,
         )
         updates = [
             {"sessionUpdate": "agent_message", "content": {"type": "text", "text": "Synthetic final assessment."}},

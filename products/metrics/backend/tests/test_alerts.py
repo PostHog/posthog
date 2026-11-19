@@ -1,4 +1,6 @@
+import io
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -17,11 +19,14 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
+from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_configuration,
@@ -49,6 +54,7 @@ from products.metrics.backend.alerts.freshness import (
 )
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+from products.product_analytics.backend.facade.models import Insight
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -128,6 +134,16 @@ class TestMetricsAlertCreate(APIBaseTest):
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
         assert renamed.json()["check_interval_minutes"] == 5
 
+    @parameterized.expand([("a_day", 1441, status.HTTP_201_CREATED), ("past_a_day", 1442, status.HTTP_400_BAD_REQUEST)])
+    def test_a_metrics_alert_can_look_back_over_a_day_of_checks(self, _name: str, periods: int, expected: int) -> None:
+        response = self._create(
+            {"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
+            evaluation_periods=periods,
+            datapoints_to_alarm=periods,
+        )
+
+        assert response.status_code == expected, response.json()
+
     def test_a_project_without_the_metrics_rollout_flag_cannot_create_one(self) -> None:
         self.enterContext(
             patch(
@@ -179,10 +195,32 @@ def _vector(*series: tuple[dict[str, str], str]) -> dict[str, Any]:
     }
 
 
+def _matrix(end: datetime, *series: tuple[dict[str, str], list[str]]) -> dict[str, Any]:
+    """A range result whose values are oldest first and end at `end`, one minute apart."""
+    return {
+        "status": "success",
+        "data": {
+            "resultType": "matrix",
+            "result": [
+                {
+                    "metric": labels,
+                    "values": [
+                        [(end - timedelta(minutes=len(values) - 1 - index)).timestamp(), value]
+                        for index, value in enumerate(values)
+                    ],
+                }
+                for labels, values in series
+            ],
+        },
+    }
+
+
 def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
     response._content = json.dumps(body).encode()
+    # A streamed read iterates `raw`.
+    response.raw = io.BytesIO(response._content)
     return response
 
 
@@ -324,6 +362,8 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
         assert self.snuffle.call_args.kwargs["ch_user"] == ClickHouseUser.ALERTS_PLATFORM_METRICS
+        # The step sizes an implicit MetricsQL rollup window, so it matches the range query's step.
+        assert self.snuffle.call_args.kwargs["data"]["step"] == "60s"
         assert self.snuffle.call_args.kwargs["workload"] == Workload.METRICS
 
         self._next_check(first)
@@ -367,6 +407,84 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.snuffle.return_value = _response(200, _vector(({"group": "b"}, "NaN")))
 
         assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+
+    def test_a_window_fires_only_once_the_condition_has_held_for_every_check_in_it(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        read_at = self.due_at - CHECKPOINT_EVAL_DELAY
+        with team_scope(self.team.id):
+            platform_testing.set_evaluation_window(self.configuration_id, periods=3, datapoints=3)
+        self.snuffle.return_value = _response(
+            200,
+            _matrix(
+                read_at,
+                ({"group": "held"}, ["2000", "2000", "2000"]),
+                ({"group": "new"}, ["10", "10", "2000"]),
+                ({"group": "gap"}, ["2000", "10", "2000"]),
+            ),
+        )
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"held": AlertEventKind.FIRING}
+        request = self.snuffle.call_args
+        assert request.args[2] == "/api/v1/query_range"
+        assert request.kwargs["data"]["start"] == str((read_at - timedelta(minutes=2)).timestamp())
+        assert request.kwargs["data"]["end"] == str(read_at.timestamp())
+        assert request.kwargs["data"]["step"] == "60s"
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        # A value with no number reaches no verdict, so the firing group must not resolve on it.
+        self.snuffle.return_value = _response(
+            200, _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, ({"group": "held"}, ["2000", "2000", "NaN"]))
+        )
+
+        assert self._kinds(self._evaluate()) == {}
+
+    def test_a_response_over_the_size_budget_records_a_failure(self) -> None:
+        self.enterContext(patch("products.metrics.backend.alerts.evaluation.MAX_RESPONSE_BYTES", 1_000))
+        self.snuffle.return_value = _response(200, _vector(*(({"group": str(index)}, "2000") for index in range(50))))
+
+        outcome = self._evaluate()
+
+        assert outcome.failure is not None
+        assert "more than" in (outcome.error_message or "")
+        assert self.snuffle.call_args.kwargs["stream"] is True
+
+    def test_a_group_missing_now_keeps_its_earlier_breaches(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        with team_scope(self.team.id):
+            platform_testing.set_evaluation_window(self.configuration_id, periods=3, datapoints=2)
+        self.snuffle.return_value = _response(
+            200, _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, ({"group": "a"}, ["2000", "2000", "2000"]))
+        )
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING}
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        read_at = self.due_at - CHECKPOINT_EVAL_DELAY
+        # Two of the last three checks breached, so the group stays firing though it is missing now.
+        self.snuffle.return_value = _response(
+            200,
+            {
+                "status": "success",
+                "data": {
+                    "resultType": "matrix",
+                    "result": [
+                        {
+                            "metric": {"group": "a"},
+                            "values": [
+                                [(read_at - timedelta(minutes=2)).timestamp(), "2000"],
+                                [(read_at - timedelta(minutes=1)).timestamp(), "2000"],
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert self._kinds(self._evaluate()) == {}
 
     def test_a_check_behind_its_last_read_waits_until_ingestion_passes_it(self) -> None:
         self.freshness.return_value = self.due_at
@@ -522,3 +640,106 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
+
+
+class TestMetricsInsightAlertOwnership(APIBaseTest):
+    def _disabled_alert_of_a_former_member(self) -> AlertConfiguration:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+        )
+        threshold = Threshold.objects.create(
+            team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100.0}}
+        )
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            threshold=threshold,
+            created_by=former_member,
+            enabled=False,
+            calculation_interval="daily",
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
+            condition={"type": "absolute_value"},
+        )
+
+    @parameterized.expand([False, True])
+    def test_transfer_checks_metrics_owner_rollout_without_access_control(self, owner_enabled: bool) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        owner = User.objects.create_user(email="metrics-owner@example.com", first_name="", password=None)
+        OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        alert.config = {"type": "MetricsAlertConfig"}
+        alert.save()
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=owner_enabled,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/", {"user_uuid": str(owner.uuid)}
+            )
+
+        assert response.status_code == (200 if owner_enabled else 400), response.content
+        alert.refresh_from_db()
+        assert alert.created_by == (owner if owner_enabled else previous_owner)
+        assert alert.enabled is owner_enabled
+        if not owner_enabled:
+            assert "metrics" in response.json()["detail"]
+
+    @parameterized.expand([False, True])
+    def test_take_ownership_checks_token_scope_on_locked_insight(self, has_metrics_scope: bool) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="transfer",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["alert:write", "metrics:read"] if has_metrics_scope else ["alert:write"],
+        )
+        self.client.logout()
+        edited = False
+
+        def edit_before_recipient_lookup(execute: Callable, sql: str, params: Any, many: bool, context: dict) -> Any:
+            nonlocal edited
+            if not edited and '"posthog_user"."uuid" =' in sql:
+                edited = True
+                type(alert.insight).objects.filter(pk=alert.insight_id).update(
+                    query={"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+                )
+                AlertConfiguration.objects.filter(pk=alert.pk).update(config={"type": "MetricsAlertConfig"})
+            return execute(sql, params, many, context)
+
+        with (
+            connection.execute_wrapper(edit_before_recipient_lookup),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/",
+                {},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert edited
+        assert response.status_code == (status.HTTP_200_OK if has_metrics_scope else status.HTTP_403_FORBIDDEN), (
+            response.content
+        )
+        if not has_metrics_scope:
+            assert response.json()["detail"] == "API key missing required scope 'metrics:read'"
+        alert.refresh_from_db()
+        assert alert.created_by == (self.user if has_metrics_scope else previous_owner)
+        assert alert.enabled is has_metrics_scope

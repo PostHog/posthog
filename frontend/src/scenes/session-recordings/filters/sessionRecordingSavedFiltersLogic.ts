@@ -22,7 +22,7 @@ import { sessionRecordingPlaylistsRetrieve } from 'products/replay/frontend/gene
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
-import { comparableRecordingFilters, deletePlaylist, stripSessionIds } from '../playlist/playlistUtils'
+import { deletePlaylist, stripSessionIds } from '../playlist/playlistUtils'
 import { isNewReplayLayout } from '../playlist/replayLayout'
 import type { ReplayLayout } from '../playlist/replayLayout'
 import { asUniversalFilters, getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
@@ -374,7 +374,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             (s) => [s.appliedSavedFilter],
             (appliedSavedFilter: SessionRecordingPlaylistType | null): RecordingUniversalFilters | null => {
                 const universal = appliedSavedFilter ? asUniversalFilters(appliedSavedFilter.filters) : undefined
-                return universal ? comparableRecordingFilters({ ...getDefaultFilters(), ...universal }) : null
+                return universal ? stripSessionIds({ ...getDefaultFilters(), ...universal }) : null
             },
         ],
         paginationSavedFilters: [

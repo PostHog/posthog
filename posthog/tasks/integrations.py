@@ -9,7 +9,13 @@ from celery import Task, shared_task
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
-from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import (
+    CrossTeamFilter,
+    IntegrationInUse,
+    IntegrationManager,
+    IntegrationNotFound,
+    IntegrationRecord,
+)
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     FirebaseIntegration,
@@ -24,6 +30,7 @@ from posthog.models.integration.email import (
     lock_sender_if_expirable,
 )
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.redis import get_client as get_redis_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -168,12 +175,13 @@ UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
 # Each expired sender can queue one SES DeleteIdentity call, which SES accepts once per second per account, so a
 # backlog drains over several hourly runs instead of one burst that exhausts the cleanup task's retries.
 EXPIRED_EMAIL_SENDERS_PER_RUN = 10
-# Bounds the sender deletes and cleanup tasks of one run, which the identity budget above does not count.
-DELETED_EMAIL_SENDERS_PER_RUN = 200
+CHECKED_EMAIL_SENDERS_PER_RUN = 200
+# The next run resumes after the last sender a run reached, so senders kept in use cannot hold back the rest.
+EMAIL_SENDER_EXPIRY_CURSOR_KEY = "posthog:expire_unverified_email_senders:after_id"
+EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS = 24 * 60 * 60
 
 
-def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
-    after_id: int | None = None
+def _unverified_email_senders_oldest_first(after_id: int | None) -> Iterator[IntegrationRecord]:
     while page := IntegrationManager.email.any.list_across_teams(
         CrossTeamFilter(where={"verified": False}, limit=100, after_id=after_id)
     ):
@@ -185,31 +193,49 @@ def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
 @skip_team_scope_audit
 def expire_unverified_email_senders() -> None:
     cutoff = timezone.now() - UNVERIFIED_EMAIL_SENDER_LIFETIME
-    expired = deleted = 0
-    for sender in _unverified_email_senders_oldest_first():
+    redis_client = get_redis_client()
+    cursor = redis_client.get(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
+    after_id = int(cursor) if cursor else None
+    expired = checked = kept_in_use = 0
+    for sender in _unverified_email_senders_oldest_first(after_id):
         # Rows come back in id order, which is creation order, so every later sender is younger too.
-        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or deleted >= DELETED_EMAIL_SENDERS_PER_RUN:
+        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or checked >= CHECKED_EMAIL_SENDERS_PER_RUN:
+            if after_id is not None:
+                redis_client.set(EMAIL_SENDER_EXPIRY_CURSOR_KEY, after_id, ex=EMAIL_SENDER_EXPIRY_CURSOR_TTL_SECONDS)
             break
         if sender.created_at >= cutoff:
+            redis_client.delete(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
             break
+        after_id = sender.id
         # A contested domain's senders hold the only record that verifying it needs the organization's own record.
         if sender.config.get(ORGANIZATION_PROOF_REQUIRED_KEY):
             continue
         domain = sender.config.get("domain")
-        with transaction.atomic():
-            if not lock_sender_if_expirable(sender):
-                continue
-            # The budget paces SES identity deletes, so a sender that leaves siblings on its domain does not use it.
-            frees_identity = (
-                len(IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}, limit=2)))
-                == 1
-            )
-            # An unverified sender cannot send, so a workflow that still names it loses nothing it had.
-            IntegrationManager.email.any.delete(sender.team_id, sender.id, ignore_usages=True)
-        deleted += 1
+        checked += 1
+        try:
+            with transaction.atomic():
+                if not lock_sender_if_expirable(sender):
+                    continue
+                # The budget paces SES identity deletes, so a sender that leaves siblings on its domain does not use it.
+                frees_identity = (
+                    len(
+                        IntegrationManager.email.any.list_across_teams(
+                            CrossTeamFilter(where={"domain": domain}, limit=2)
+                        )
+                    )
+                    == 1
+                )
+                IntegrationManager.email.any.delete(sender.team_id, sender.id)
+        except IntegrationInUse:
+            # Deleting it would turn the workflow's unverified-domain failure into "sender not found", which reports
+            # no send failure and which verifying the domain cannot fix.
+            kept_in_use += 1
+            continue
         if frees_identity:
             expired += 1
-    logger.info("expired_unverified_email_senders", count=expired)
+    else:
+        redis_client.delete(EMAIL_SENDER_EXPIRY_CURSOR_KEY)
+    logger.info("expired_unverified_email_senders", count=expired, kept_in_use=kept_in_use)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)

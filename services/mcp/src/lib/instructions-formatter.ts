@@ -87,17 +87,24 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
+    /** Whether `endpoint-create` is advertised to this client. Same reason as `docsSearchEnabled`. */
+    endpointsEnabled?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
     inboxFirstEnabled?: boolean | undefined
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
+    learnToolEnabled?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
 const REPLAY_VISION =
     'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
+
+const ENDPOINT_CREATE_TOOL = 'endpoint-create'
+const ENDPOINTS_ROUTING =
+    'When the user wants PostHog data in code, a script, a scheduled job, a backend, or a customer-facing feature, offer to save the query as an endpoint, even if they never say "endpoint". Create it with `endpoint-create` only after they agree, then give them its run URL. Do not write code that calls `/api/projects/:id/query/`, which is for one-off exploration. Use variables for values the caller changes, and materialization for heavy or frequent aggregates. Raw-data exports belong on batch exports.'
 
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
@@ -148,6 +155,10 @@ function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
  *  build a context without it (the CLI's `--agent-help`). */
 function docsSearchAvailable(ctx: InstructionsContext): boolean {
     return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
+}
+
+function endpointsAvailable(ctx: InstructionsContext): boolean {
+    return ctx.endpointsEnabled ?? ctx.tools?.some(({ name }) => name === ENDPOINT_CREATE_TOOL) ?? false
 }
 
 function replayVisionAvailable(ctx: InstructionsContext): boolean {
@@ -252,6 +263,21 @@ export class InstructionsFormatter {
         ]
     }
 
+    buildLearnToolDescription(): string {
+        return this.skillsFirstSection(false)
+    }
+
+    private skillsFirstSection(execSyntax: boolean): string {
+        return formatPrompt(SKILLS_FIRST, {
+            learn_call: execSyntax
+                ? 'run `learn -s "<task keywords>"` here'
+                : 'call the `learn` tool with `learn -s "<task keywords>"`',
+            skill_store_note: execSyntax
+                ? ''
+                : ' Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.',
+        })
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
@@ -287,6 +313,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 PROJECT_SCOPE,
+                ...(ctx.learnToolEnabled ? [this.skillsFirstSection(false)] : []),
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
@@ -352,7 +379,7 @@ export class InstructionsFormatter {
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
             PROJECT_SCOPE,
-            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.skillsEnabled ? [this.skillsFirstSection(true)] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]
@@ -502,6 +529,7 @@ export class InstructionsFormatter {
             tools: undefined,
             docsSearchEnabled: docsSearchAvailable(ctx),
             replayVisionEnabled: replayVisionAvailable(ctx),
+            endpointsEnabled: endpointsAvailable(ctx),
         }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
@@ -535,6 +563,7 @@ export class InstructionsFormatter {
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
+            endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
             ...metricCatalogPromptVars(resolveMetricCatalogMode(ctx.metricCatalog)),

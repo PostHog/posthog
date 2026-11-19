@@ -77,7 +77,7 @@ logger = structlog.get_logger(__name__)
 
 ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX = "error_tracking_issue_summary_write"
 ISSUE_SUMMARY_LOCK_KEY_PREFIX = "error_tracking_issue_summary_lock"
-ISSUE_SUMMARY_AI_PRODUCT = "error_tracking"
+ISSUE_SUMMARY_AI_PRODUCT = "error_tracking_issue_summaries"
 ISSUE_SUMMARY_TASK_EVENT = "error_tracking_issue_summary_generation"
 # The Go gateway keeps the prompt and the reply out of the AI observability project when this is set.
 PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"

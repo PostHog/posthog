@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
@@ -28,6 +29,7 @@ import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseMergeButton } from './ReleaseMergeButton'
 import { ReleaseMergeIntoDialog } from './ReleaseMergeIntoDialog'
+import { ReleaseMetricsCard } from './ReleaseMetricsCard'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
@@ -124,7 +126,14 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={row.name}
+                nameAction={
+                    <SidebarPinButton
+                        target={{ type: 'release', ref: row.id, name: 'Release', href: urls.release(row.id) }}
+                        dataAttr="release-title-pin"
+                    />
+                }
                 description={row.description}
+                descriptionAlwaysVisible
                 resourceType={{ type: 'release', forceIcon: <IconFlag /> }}
                 canEdit={canEditReleases}
                 renameDebounceMs={800}
@@ -142,6 +151,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 <div className="grid items-start gap-4 @4xl:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
                         <ReleaseStatusCard row={row} />
+                        <ReleaseMetricsCard row={row} />
                         <ReleaseTrackCard row={row} />
                         <ReleaseHistory row={row} />
                     </div>

@@ -48,6 +48,7 @@ from products.canvas.backend.layout import (
 from products.canvas.backend.logic.canvases import (
     create_canvas as create_canvas,
     delete_canvas as delete_canvas,
+    editable_canvas_ids as editable_canvas_ids,
     get_canvas as get_canvas,
     home_canvas as home_canvas,
     list_canvases as list_canvases,

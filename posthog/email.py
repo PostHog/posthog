@@ -180,6 +180,9 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "loop_run_summary": "01a16473-9c4d-0000-99d8-958c03b0f1a0",
     "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
     "report_note_mentioned": "01a1d219-2b68-0000-c323-fc36fde319d2",
+    "oauth_app_provisioning_accepted": "01a1ead9-ce16-0000-e8fd-dad300f776e0",
+    "oauth_app_provisioning_rejected": "01a1eada-49dc-0000-ebd5-6c02c2a9b87b",
+    "oauth_app_provisioning_in_review": "01a1eada-c67b-0000-7581-1894d06284d9",
 }
 
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
@@ -292,13 +295,13 @@ def _queue_workflows_email(
 
     Takes the same arguments as posthog-python's `Emails.send`, so the SDK can replace this body once it ships.
     """
-    payload: dict[str, Any] = {"to": to, "message_data": template_data}
+    payload: dict[str, Any] = {"template_id": template_id, "to": to, "message_data": template_data}
     if distinct_id:
-        payload["identifiers"] = {"distinct_id": distinct_id}
+        payload["distinct_id"] = distinct_id
     try:
         response = requests.post(
-            # The project secret API key names the project, so `@current` resolves to it.
-            f"{settings.POSTHOG_HOST.rstrip('/')}/api/projects/@current/messaging_templates/{template_id}/send/",
+            # The path names no project, because PostHog sends from the project the secret API key belongs to.
+            f"{settings.POSTHOG_HOST.rstrip('/')}/api/messaging/send/email/",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY}",

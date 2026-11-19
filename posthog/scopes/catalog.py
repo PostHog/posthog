@@ -1,5 +1,6 @@
 """Every scope object and action, and the scope strings PostHog's own code uses as markers."""
 
+from collections.abc import Iterable
 from typing import Literal, get_args
 
 ## API Scopes
@@ -39,6 +40,8 @@ APIScopeObject = Literal[
     "business_knowledge",
     "canvas",
     "clickhouse_test_cluster_perf",
+    "code_review",
+    "code_review_approval",
     "cohort",
     "comment",
     "conversation",
@@ -119,7 +122,6 @@ APIScopeObject = Literal[
     "query",  # Covers query and events endpoints
     "query_performance",
     "replay_scanner",
-    "review_hog",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -132,7 +134,6 @@ APIScopeObject = Literal[
     "signal_scratchpad_internal",
     "signal_usage",
     "slack_run",
-    "stamphog",
     "streamlit_app",
     "subscription",
     "support_ticket",
@@ -183,3 +184,25 @@ APIScopeObjectOrNotSupported = Literal[
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+
+
+# PostHog desktop and agent builds already shipped request these scope objects by their old names,
+# CIMD and DCR metadata may still declare them, and stored keys, ceilings and tokens hold both
+# names until a follow-up migration drops the old ones. Every place a scope string enters OAuth or
+# a key write path runs it through `translate_renamed_scopes`, so nothing downstream sees an old
+# name. Remove the mapping once builds that request the old names have aged out and the old names
+# are gone from storage.
+RENAMED_OAUTH_SCOPE_OBJECTS: dict[str, str] = {
+    "review_hog": "code_review",
+    "stamphog": "code_review_approval",
+}
+
+
+def translate_renamed_scopes(scopes: Iterable[str]) -> list[str]:
+    """`scopes` with every scope of a renamed object written under its new name, order kept, deduplicated."""
+    translated = []
+    for scope in scopes:
+        scope_object, separator, action = scope.partition(":")
+        new_object = RENAMED_OAUTH_SCOPE_OBJECTS.get(scope_object)
+        translated.append(f"{new_object}{separator}{action}" if new_object and separator else scope)
+    return list(dict.fromkeys(translated))

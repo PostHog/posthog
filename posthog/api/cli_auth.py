@@ -34,8 +34,10 @@ from rest_framework.response import Response
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
+from posthog.helpers.two_factor_session import enforce_credential_two_factor
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
+from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
@@ -223,7 +225,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         user_code = serializer.validated_data["user_code"]
         project_id = serializer.validated_data["project_id"]
-        scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
+        scopes = translate_renamed_scopes(serializer.validated_data.get("scopes", CLI_SCOPES))
         user: User = request.user
 
         # Validate that at least one scope is provided
@@ -280,6 +282,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 {"error": "access_denied", "error_description": "You do not have access to this project"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        enforce_credential_two_factor(request, None, [team.id])
 
         # Label max length is 40 chars, so truncate if needed
         timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")

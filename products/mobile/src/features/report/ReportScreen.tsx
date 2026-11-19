@@ -26,6 +26,7 @@ import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { SceneFrame } from '@/ui/SceneFrame'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
@@ -178,15 +179,16 @@ function ReportElsewhere({ reportId, link }: { reportId: string; link: ReportLin
     }
     return (
         <View style={styles.screen}>
-            <TopChrome onBack={goBack} />
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                title="This report is in another project"
-                message="The app isn't signed in to this report's project or region. Open the link in your browser instead."
-                actionLabel={webUrl ? 'Open in browser' : 'Go back'}
-                onAction={webUrl ? openWeb : goBack}
-                testID="report-elsewhere"
-            />
+            <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                    title="This report is in another project"
+                    message="The app isn't signed in to this report's project or region. Open the link in your browser instead."
+                    actionLabel={webUrl ? 'Open in browser' : 'Go back'}
+                    onAction={webUrl ? openWeb : goBack}
+                    testID="report-elsewhere"
+                />
+            </ScreenBlur>
         </View>
     )
 }
@@ -202,15 +204,16 @@ function ReportNotFound(): ReactElement {
     }, [])
     return (
         <View style={styles.screen}>
-            <TopChrome onBack={goBack} />
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                title="Couldn't find this report"
-                message="This link doesn't point to a report. Go back and open the report from your inbox."
-                actionLabel="Go back"
-                onAction={goBack}
-                testID="report-not-found"
-            />
+            <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                <StateView
+                    icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                    title="Couldn't find this report"
+                    message="This link doesn't point to a report. Go back and open the report from your inbox."
+                    actionLabel="Go back"
+                    onAction={goBack}
+                    testID="report-not-found"
+                />
+            </ScreenBlur>
         </View>
     )
 }
@@ -275,8 +278,9 @@ function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElemen
     if (access.state !== 'ok') {
         return (
             <View style={styles.screen}>
-                <TopChrome onBack={goBack} />
-                <ViewsReauthState access={access} feature="inbox" />
+                <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                    <ViewsReauthState access={access} feature="inbox" />
+                </ScreenBlur>
             </View>
         )
     }
@@ -288,19 +292,20 @@ function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElemen
     if (!report) {
         return (
             <View style={styles.screen}>
-                <TopChrome onBack={goBack} />
-                {query.isLoading ? (
-                    <LoadingView label="Loading the report" />
-                ) : (
-                    <StateView
-                        icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                        title="Couldn't load this report"
-                        message={query.error?.message ?? 'Check your connection and try again.'}
-                        actionLabel="Try again"
-                        onAction={() => void query.refetch()}
-                        testID="report-error"
-                    />
-                )}
+                <ScreenBlur chrome={<TopChrome onBack={goBack} />}>
+                    {query.isLoading ? (
+                        <LoadingView label="Loading the report" />
+                    ) : (
+                        <StateView
+                            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                            title="Couldn't load this report"
+                            message={query.error?.message ?? 'Check your connection and try again.'}
+                            actionLabel="Try again"
+                            onAction={() => void query.refetch()}
+                            testID="report-error"
+                        />
+                    )}
+                </ScreenBlur>
             </View>
         )
     }

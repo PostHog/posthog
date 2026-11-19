@@ -5586,6 +5586,45 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         ]
         assert response.json()["source_column_metadata_available"] is False
 
+    @parameterized.expand(
+        [
+            ("stale_column_dropped", ["email", "total"], ["email", "total", "id"], 200, ["email", "id"]),
+            ("only_stale_column_left", ["total"], ["total"], 400, ["total"]),
+            ("new_unknown_column_rejected", ["total"], ["email", "nope"], 400, ["total"]),
+        ]
+    )
+    def test_enabled_columns_save_drops_stored_columns_the_source_lost(
+        self,
+        _name: str,
+        stored: list[str],
+        sent: list[str],
+        expected_status: int,
+        expected_enabled_columns: list[str],
+    ):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            enabled_columns=stored,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ]
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": sent}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.enabled_columns == expected_enabled_columns
+
     def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
@@ -5677,10 +5716,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled.
+            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled,
+            # whether the self-managed table migration made the source.
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
-            (ExternalDataSourceType.STRIPE, False, False, False),
-            (ExternalDataSourceType.POSTGRES, True, True, True),
+            (ExternalDataSourceType.STRIPE, False, False, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True, True, False),
+            (ExternalDataSourceType.AMAZONS3, True, False, False, True),
         ]
     )
     def test_retrieve_includes_source_summary(
@@ -5689,8 +5730,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         expected_column_selection: bool,
         expected_row_filters: bool,
         direct_query_enabled: bool,
+        migrated: bool,
     ):
         source, schema = self._create(source_type=source_type, direct_query_enabled=direct_query_enabled)
+        if migrated:
+            source.connection_metadata = {"self_managed_migration": {"group_key": "s3/us-east-1/example-bucket"}}
+            source.save(update_fields=["connection_metadata"])
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
@@ -5701,6 +5746,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
         assert summary["direct_query_enabled"] is direct_query_enabled
+        # The schema page hides "Pull new schemas" on a source that reads a whole bucket.
+        assert summary["supports_table_discovery"] is not migrated
         assert "user_access_level" in summary
 
     @parameterized.expand(
