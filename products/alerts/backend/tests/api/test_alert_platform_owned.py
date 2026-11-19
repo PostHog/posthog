@@ -1697,6 +1697,17 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             for activity in ("created", "deleted")
         ]
 
+    def test_taking_ownership_of_a_moved_alert_makes_the_new_owner_its_copys_creator(self) -> None:
+        former_owner = User.objects.create_and_join(self.organization, "former-owner@example.com", None)
+        AlertConfiguration.objects.filter(id=self.alert.id).update(created_by=former_owner)
+        with team_scope(self.team.id):
+            platform_testing.set_created_by(self.copy_id, former_owner.id)
+
+        response = self.client.post(f"{self.url}/{self.alert.id}/take_ownership/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._copy().created_by_id == self.user.id
+
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):
             platform_testing.forget_source_row(self.copy_id)

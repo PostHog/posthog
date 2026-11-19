@@ -316,6 +316,7 @@ def _check(
         instances=tuple(_composed(c, alert) for alert in alerts),
         grouping=Grouping.from_stored(c.grouping),
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
+        owner_changed_at=c.owner_changed_at,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
         created_by_id=c.created_by_id,

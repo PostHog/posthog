@@ -604,18 +604,6 @@ def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Clie
     return run
 
 
-def on_shard_host(
-    cluster: ClickhouseCluster,
-    shard_num: int,
-    fn: Callable[[Client], T],
-    query_tags: DagsterTags,
-    workload: Workload,
-    node_role: NodeRole,
-) -> T:
-    host = cluster.any_host_in_shard_by_roles(shard_num, [node_role], workload)
-    return cluster.on_host(host, tagged(query_tags, fn)).result()
-
-
 def inserted_rows(result: Any) -> int:
     # sync_execute returns the written row count for an INSERT that wrote rows. It returns
     # an empty result for an INSERT that wrote none.
