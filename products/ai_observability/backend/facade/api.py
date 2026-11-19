@@ -369,7 +369,6 @@ def _to_overview(trace: Trace) -> contracts.TraceOverview:
 def _to_list_item(trace: Trace, review: TraceReviewState) -> contracts.TraceListItem:
     return contracts.TraceListItem(
         **dict(_to_overview(trace)),
-        distinct_id=trace.distinct_id,
         default_node_id=None if trace.partial else trace.default_node_id,
         first_error=trace.first_error_text,
         tools_called=list(trace.tools_called),

@@ -1550,11 +1550,9 @@ export interface TraceListItemApi {
     errorCount: number
     /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
     totalsPartial: boolean
-    /** The distinct id of whoever ran the trace, preferring the trace event's, or null when no event has one. */
-    distinctId: string | null
     /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
     defaultNodeId: string | null
-    /** The error text of the trace's earliest failed step, cut at 200 characters. Null when the trace has no error or the failed step carries no text. */
+    /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
     firstError: string | null
     /** The tools the trace's steps called, each once, in the order first called. */
     toolsCalled: string[]

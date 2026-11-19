@@ -67,12 +67,7 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
         [item] = self._list().items
         trace = api.get_trace(self.team, self.user, "trace-1", None)
 
-        assert (item.name, item.session_id, item.distinct_id, item.error_count) == (
-            "Answer billing question",
-            "session-1",
-            "user-1",
-            1,
-        )
+        assert (item.name, item.session_id, item.error_count) == ("Answer billing question", "session-1", 1)
         assert item.model_dump(include=OVERVIEW_FIELDS) == trace.model_dump(include=OVERVIEW_FIELDS)
         assert item.default_node_id == trace.default_node_id
         assert (item.first_error, item.has_error) == ("Rate limit reached", True)

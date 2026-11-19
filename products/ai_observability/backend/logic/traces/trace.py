@@ -6,7 +6,6 @@ from .event import TraceEvent
 from .git import GitRef
 from .node_ids import NodeIdResolver, NodeIds
 from .node_labels import number_repeated_names
-from .person import trace_distinct_id
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
@@ -26,7 +25,6 @@ class Trace:
         self.events = tuple(
             sorted((TraceEvent(row=row, trace_id=trace_id) for row in rows), key=lambda event: event.row.timestamp)
         )
-        self.distinct_id = trace_distinct_id(rows)
 
     @cached_property
     def tree(self) -> tuple[TreeNode, ...]:
@@ -71,8 +69,7 @@ class Trace:
 
     @cached_property
     def first_error_text(self) -> str | None:
-        errored = next((event for event in self.events if event.has_error), None)
-        return errored.row.error_text if errored else None
+        return next((event.row.error_text for event in self.events if event.has_error and event.row.error_text), None)
 
     @cached_property
     def tools_called(self) -> tuple[str, ...]:
