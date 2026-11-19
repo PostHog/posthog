@@ -1,7 +1,5 @@
-import re
 import datetime as dt
 import posixpath
-from collections.abc import Mapping
 
 from posthog.temporal.common.logger import get_logger
 
@@ -14,27 +12,6 @@ from products.batch_exports.backend.temporal.errors import MissingRequiredInputs
 
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-_UNFILLED_VARIABLE = re.compile(r"\{\w+\}")
-
-
-def render_key_prefix_template(prefix: str, variables: Mapping[str, str]) -> str:
-    """Replace each `{name}` in a key prefix with its value. Any other text, braces included, stays as typed."""
-    for name, value in variables.items():
-        prefix = prefix.replace(f"{{{name}}}", value)
-    return prefix
-
-
-def datetime_template_variables(at: dt.datetime) -> dict[str, str]:
-    """The date and time variables a key prefix can use, read from `at` as given."""
-    return {
-        "second": f"{at:%S}",
-        "minute": f"{at:%M}",
-        "hour": f"{at:%H}",
-        "day": f"{at:%d}",
-        "month": f"{at:%m}",
-        "year": f"{at:%Y}",
-    }
-
 
 def get_allowed_template_variables(
     data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModelInput | None
@@ -43,7 +20,12 @@ def get_allowed_template_variables(
     export_datetime = dt.datetime.fromisoformat(data_interval_end)
 
     return {
-        **datetime_template_variables(export_datetime),
+        "second": f"{export_datetime:%S}",
+        "minute": f"{export_datetime:%M}",
+        "hour": f"{export_datetime:%H}",
+        "day": f"{export_datetime:%d}",
+        "month": f"{export_datetime:%m}",
+        "year": f"{export_datetime:%Y}",
         "data_interval_start": data_interval_start or "START",
         "data_interval_end": data_interval_end,
         "table": batch_export_model.name if batch_export_model is not None else "events",
@@ -59,12 +41,13 @@ def get_key_prefix(
     """Format a key prefix with template variables."""
     template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
 
-    rendered = render_key_prefix_template(prefix, template_variables)
-    if _UNFILLED_VARIABLE.search(rendered):
+    try:
+        return prefix.format(**template_variables)
+    except (KeyError, ValueError) as e:
         EXTERNAL_LOGGER.warning(
-            f"The key prefix '{prefix}' names template variables that have no value, so they are kept as typed"
+            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
         )
-    return rendered
+        return prefix
 
 
 def get_absolute_key_prefix(

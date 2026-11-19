@@ -62,9 +62,9 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
+    render_key_prefix,
     s3_client,
 )
-from products.batch_exports.backend.facade.key_prefix import datetime_template_variables, render_key_prefix_template
 from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
@@ -139,14 +139,6 @@ MAX_RETRY_DELAY = ConcurrentS3Consumer.MAX_RETRY_DELAY
 EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFFICIENT
 
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
-
-
-def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table: str) -> str:
-    """Fill the prefix the way a batch export fills its key prefix, with times from the run's start in UTC."""
-    variables = {"table": table}
-    if run_started_at is not None:
-        variables |= datetime_template_variables(run_started_at.astimezone(dt.UTC))
-    return render_key_prefix_template(prefix, variables)
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -300,11 +292,16 @@ class S3DestinationWriter:
         self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
         raw_prefix: str = config.get("prefix") or ""
-        self._prefix: str = render_key_prefix(
-            raw_prefix, run_started_at=ctx.run_started_at, table=ctx.table_name
-        ).strip("/")
+        # Batch exports' renderer returns the prefix as typed when it cannot fill it.
+        rendered_prefix = (
+            render_key_prefix(raw_prefix, at=ctx.run_started_at.astimezone(dt.UTC), table=ctx.table_name)
+            if ctx.run_started_at is not None
+            else raw_prefix
+        )
+        self._prefix: str = rendered_prefix.strip("/")
         # A prefix that places `{table}` itself already gives each table its own folder.
-        self._table_folder: str = "" if "{table}" in raw_prefix else ctx.table_name
+        filled_table = rendered_prefix != raw_prefix and "{table}" in raw_prefix
+        self._table_folder: str = "" if filled_table else ctx.table_name
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
 
