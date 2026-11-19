@@ -19,7 +19,7 @@ from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_trends_series_values
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_series_values
 
 logger = structlog.get_logger(__name__)
 
@@ -124,7 +124,7 @@ def compare_series_values_shadow(
         if not is_series_values_precompute_enabled(alert.team):
             return
         runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-        closed = closed_trends_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
+        closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
         comparison = compare_closed_values(closed, calculation_result.result)
     except Exception as err:
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
