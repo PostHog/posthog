@@ -181,6 +181,15 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
   To audit the writes after a run, see "Auditing what a scout changed" in `working-with-scouts`: the changes land in the activity log under the scout's acting user, tagged "via MCP", with no scout or run name on the row.
   Applies from the scout's next run.
+- `report_actions`: defaults to `[]`. Lists the report actions the scout may start on an inbox report with `inbox-report-actions-run`.
+  `make_it_green` is the only kind you can grant. It starts a run that fixes failing CI and merge conflicts on the report's open pull request, and stops without merging it.
+  The started run acts as the person the scout's runs act as, with that person's access. So only that person can add a kind. A project admin can only remove one. A scoped API key needs `inbox:write` and `task:write`, and a token from a scout run cannot change the field.
+  A scout cannot start `get_it_merged`, and it cannot send its own `message` with an action. A person merges.
+  A granted run gets a _Report actions_ section in its prompt, with the kinds it holds and the limits. A dry run (`emit: false`) holds no action and gets no section.
+  The grant is permission, not a job: say in the body when the scout starts an action. The orchestrator pattern in `references/scout-patterns.md` gives the nudge ladder to follow.
+  Applies from the scout's next run.
+- `max_report_actions_per_day`: defaults to `3`, at most `20`. Caps the actions the scout starts in a rolling 24 hours, across all its runs.
+  Only the person the scout's runs act as can raise it. A project admin can lower it. A start past the cap is refused with `report_action_scout_daily_cap`.
 - `output_destinations` — defaults to none.
   When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.
   Set `slack` to deliver every surfaced report the scout emits (`ready` or `pending_input`) to Slack as well as the inbox; a report the judge suppressed stays out of Slack by design: an `integration_id` for the workspace, plus either a `channel` (`channel_id|#channel-name`) or up to five `users` to DM (`member_id|@display-name`), never both.
