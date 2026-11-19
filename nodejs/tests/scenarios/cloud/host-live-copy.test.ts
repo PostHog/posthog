@@ -47,7 +47,7 @@ case $target in
     [ -z "\${FAKE_LIVE_DELAY:-}" ] || sleep "$FAKE_LIVE_DELAY"
     if [ "\${FAKE_LIVE_HANGS:-}" = every ] || { [ "\${FAKE_LIVE_HANGS:-}" = first ] && [ ! -e "$FAKE_S3.hanging" ]; }; then
         trap '' TERM
-        touch "$FAKE_S3.hanging"
+        echo hanging >>"$FAKE_S3.hanging"
         exec sleep 1000
     fi
     ;;
@@ -250,9 +250,9 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     })
 
     it.each([
-        ['cancels a copy in flight and makes its final copy', 'first', '60', `${START}\n`],
-        ['bounds a final copy that hangs', 'every', '1', undefined],
-    ])('%s when the card ends', async (_, hangs, limit, finalCopy) => {
+        ['cancels a copy in flight and makes its final copy', 'first', '60', 1, `${START}\n`],
+        ['bounds a final copy that hangs', 'every', '1', 2, undefined],
+    ])('%s when the card ends', async (_, hangs, limit, hungCopies, finalCopy) => {
         const run = start(
             'run',
             {
@@ -273,6 +273,9 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
         expect(ended).toBe(true)
         expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 0, uploaded: true })
+        expect(readFileSync(path.join(run.dir, 's3.hanging'), 'utf8').split('\n').filter(Boolean)).toHaveLength(
+            hungCopies
+        )
         expect(existsSync(object(run, 'live.jsonl')) ? copied(run) : undefined).toBe(finalCopy)
     })
 
