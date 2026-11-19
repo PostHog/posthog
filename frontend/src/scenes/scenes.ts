@@ -989,7 +989,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     ...productRoutes,
 }
 
-/** Route and redirect paths with no `:param` or `*` segment, so they resolve the same in every project. */
+/** Route and redirect paths with no `:param`, `*`, query or hash, so they resolve the same in every project. */
 export const staticRoutePaths: ReadonlySet<string> = new Set(
     [...Object.keys(routes), ...Object.keys(redirects)].filter((path) => !/[:*?#]/.test(path))
 )
