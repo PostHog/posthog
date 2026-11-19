@@ -3,6 +3,8 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
@@ -306,7 +308,10 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
+        collapsePlans: linkStrips,
+    })
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
@@ -321,7 +326,7 @@ export function ReportsTab(): JSX.Element {
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
         : -1
-    useReportImpressions(rows, selectedSections)
+    useReportImpressions(rows, selectedSections, linkStrips)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
 

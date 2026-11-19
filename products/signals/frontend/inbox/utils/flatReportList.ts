@@ -12,6 +12,8 @@ import { compareSignalReports } from './reportOrdering'
 export interface MergedReportRow {
     report: SignalReport
     sectionKey: InboxReportSectionKey
+    /** The other loaded reports of the same plan that this row stands for, when plan layers collapse. */
+    collapsedReportIds?: string[]
 }
 
 /**
@@ -74,7 +76,8 @@ export function mergeReportRows(
     reportsBySection: Record<InboxReportSectionKey, SignalReport[]>,
     selectedSections: InboxReportSectionKey[],
     sortField: InboxSortField,
-    sortDirection: InboxSortDirection
+    sortDirection: InboxSortDirection,
+    { collapsePlans = false }: { collapsePlans?: boolean } = {}
 ): MergedReportRow[] {
     const seen = new Set<string>()
     const rowsBySection: MergedReportRow[][] = []
@@ -89,8 +92,57 @@ export function mergeReportRows(
         rowsBySection.push(sectionRows)
     }
     const compare = compareSignalReports(sortField, sortDirection)
-    if (isMergeKeySortField(sortField)) {
-        return mergeSortedSections(rowsBySection, compare)
+    const rows = isMergeKeySortField(sortField)
+        ? mergeSortedSections(rowsBySection, compare)
+        : rowsBySection.flat().sort((a, b) => compare(a.report, b.report))
+    return collapsePlans ? collapsePlanRows(rows) : rows
+}
+
+/** The plan a row collapses into: the plan it is a layer of, or its own id when it is the plan. */
+function planKey(report: SignalReport): string | null {
+    const summary = report.link_summary
+    if (!summary?.plan || (summary.kind !== 'part_of' && summary.kind !== 'plan')) {
+        return null
     }
-    return rowsBySection.flat().sort((a, b) => compare(a.report, b.report))
+    return summary.plan.id
+}
+
+/**
+ * Show each plan as one card, at the place of its best-ranked loaded row, so a plan never sorts below its
+ * strongest layer. The card is the plan's lead layer when that layer is loaded, else the best-ranked
+ * loaded layer, else the plan itself. Only loaded rows collapse, so a filter that matches some layers
+ * collapses over those, and a layer that arrives on a later page joins the card already shown.
+ */
+export function collapsePlanRows(rows: MergedReportRow[]): MergedReportRow[] {
+    const members = new Map<string, MergedReportRow[]>()
+    for (const row of rows) {
+        const key = planKey(row.report)
+        if (key) {
+            members.set(key, [...(members.get(key) ?? []), row])
+        }
+    }
+    const collapsed: MergedReportRow[] = []
+    const shown = new Set<string>()
+    for (const row of rows) {
+        const key = planKey(row.report)
+        if (!key) {
+            collapsed.push(row)
+            continue
+        }
+        if (shown.has(key)) {
+            continue
+        }
+        shown.add(key)
+        const group = members.get(key) ?? [row]
+        const layers = group.filter((member) => member.report.id !== key)
+        const card =
+            layers.find((member) => member.report.link_summary?.plan?.lead_step_id === member.report.id) ??
+            layers[0] ??
+            row
+        collapsed.push({
+            ...card,
+            collapsedReportIds: group.filter((member) => member !== card).map((member) => member.report.id),
+        })
+    }
+    return collapsed
 }

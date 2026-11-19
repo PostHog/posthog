@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
@@ -302,7 +303,11 @@ function findReportRank(id: string): {
         reportsBySection,
         selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
         filterValues.activeSortField,
-        filterValues.activeSortDirection
+        filterValues.activeSortDirection,
+        {
+            collapsePlans:
+                !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS],
+        }
     )
     const idx = rows.findIndex((row) => row.report.id === id)
     if (idx >= 0) {

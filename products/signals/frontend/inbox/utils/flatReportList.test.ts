@@ -65,4 +65,59 @@ describe('mergeReportRows', () => {
             ['m-unkeyed', 'monitoring'],
         ])
     })
+    const plan = (lead: string): NonNullable<SignalReport['link_summary']>['plan'] => ({
+        id: 'plan',
+        title: 'plan',
+        status: 'ready',
+        steps: ['layer-1', 'layer-2', 'layer-3'].map((id) => ({ id, title: id, state: 'waiting' as const })),
+        lead_step_id: lead,
+        position: null,
+    })
+    const planRow = (id: string, key: number, lead: string): SignalReport =>
+        report(id, {
+            inbox_merge_key: key,
+            link_summary: {
+                kind: id === 'plan' ? 'plan' : 'part_of',
+                report: null,
+                also_follow_up: false,
+                plan: plan(lead),
+                other_links: [],
+            },
+        })
+
+    // A plan shows once, at its best-ranked loaded row, as its lead layer when that layer is loaded.
+    it.each([
+        {
+            name: 'the lead layer takes the best rank of the plan',
+            rows: [
+                planRow('layer-1', 1, 'layer-3'),
+                report('other', { inbox_merge_key: 2 }),
+                planRow('layer-3', 3, 'layer-3'),
+                planRow('plan', 4, 'layer-3'),
+            ],
+            expected: [
+                ['layer-3', ['layer-1', 'plan']],
+                ['other', []],
+            ],
+        },
+        {
+            name: 'the best-ranked layer stands in when the lead is not loaded',
+            rows: [planRow('plan', 1, 'layer-1'), planRow('layer-2', 2, 'layer-1'), planRow('layer-3', 3, 'layer-1')],
+            expected: [['layer-2', ['plan', 'layer-3']]],
+        },
+        {
+            name: 'the plan shows itself when no layer is loaded',
+            rows: [report('other', { inbox_merge_key: 1 }), planRow('plan', 2, 'layer-1')],
+            expected: [
+                ['other', []],
+                ['plan', []],
+            ],
+        },
+    ])('collapses plan layers: $name', ({ rows, expected }) => {
+        const merged = mergeReportRows(sections({ 'needs-decision': rows }), ['needs-decision'], 'recommended', 'asc', {
+            collapsePlans: true,
+        })
+
+        expect(merged.map((row) => [row.report.id, row.collapsedReportIds ?? []])).toEqual(expected)
+    })
 })
