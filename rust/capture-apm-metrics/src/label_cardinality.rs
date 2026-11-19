@@ -186,6 +186,9 @@ impl Sketch {
 
 struct KeySketch {
     sketch: Sketch,
+    /// Distinct series with this key removed. The key's share of the series is what removing
+    /// it would save, which a second label cannot inflate.
+    others: Sketch,
     name: Box<str>,
     rows: u64,
     new_rows: u64,
@@ -211,7 +214,7 @@ struct NewSeriesCount {
 struct RowHashes<'a> {
     series: u64,
     new_series: bool,
-    values: Vec<(Scope, u64, u64, &'a str)>,
+    values: Vec<(Scope, u64, u64, u64, &'a str)>,
 }
 
 pub struct LabelCardinality {
@@ -259,11 +262,13 @@ impl LabelCardinality {
 
     /// Marks the current window of `token` as incomplete, so it is not judged.
     pub fn skip(&self, token: &str) {
-        if self.settings.mode == Mode::Off || self.candidates.is_empty() {
+        let token_hash = token_key(token);
+        // Only a token with candidates has a window to skip, which bounds this map.
+        if self.settings.mode == Mode::Off || !self.candidates_per_token.contains_key(&token_hash) {
             return;
         }
         let window = self.window_index((self.clock)());
-        self.skipped.insert(token_key(token), window);
+        self.skipped.insert(token_hash, window);
     }
 
     fn window_index(&self, now: i64) -> i64 {
@@ -512,9 +517,10 @@ impl LabelCardinality {
                 }
                 let key = key_hash(name);
                 let hash = value_hash(value);
-                series = series.wrapping_add(pair_hash(scope, key, hash));
+                let pair = pair_hash(scope, key, hash);
+                series = series.wrapping_add(pair);
                 if !self.protected.contains(&(scope, key)) {
-                    values.push((scope, key, hash, name.as_str()));
+                    values.push((scope, key, hash, pair, name.as_str()));
                 }
             }
         }
@@ -530,9 +536,11 @@ impl LabelCardinality {
         let max_keys = self.settings.max_keys_per_candidate;
         let new_rows = u64::from(row.new_series);
         let mut keys_full = 0u64;
-        for (scope, key, hash, name) in row.values {
+        for (scope, key, hash, pair, name) in row.values {
+            let others = row.series.wrapping_sub(pair);
             if let Some(entry) = candidate.keys.get_mut(&(scope, key)) {
                 entry.sketch.insert(hash);
+                entry.others.insert(others);
                 entry.rows += 1;
                 entry.new_rows += new_rows;
                 continue;
@@ -543,10 +551,13 @@ impl LabelCardinality {
             }
             let mut sketch = Sketch::new();
             sketch.insert(hash);
+            let mut others_sketch = Sketch::new();
+            others_sketch.insert(others);
             candidate.keys.insert(
                 (scope, key),
                 KeySketch {
                     sketch,
+                    others: others_sketch,
                     name: truncated(name).into(),
                     rows: 1,
                     new_rows,
@@ -570,8 +581,8 @@ impl LabelCardinality {
         candidate.keys.clear();
     }
 
-    /// A key must drive the metric's series and give most of its points a new series. The first
-    /// test skips a stable key, such as a user ID, that only appears with a per-point key.
+    /// A key must account for most of the metric's series and give most of its points a new
+    /// series. The first test skips a stable key, such as a user ID, beside a per-point key.
     /// The second test skips a key, such as a pod name, whose series repeat.
     fn evaluate(&self, candidate: &mut Candidate) {
         candidate.flagged.clear();
@@ -585,8 +596,9 @@ impl LabelCardinality {
         let series = candidate.series.estimate();
         for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
+            let saved = series.saturating_sub(entry.others.estimate());
             if distinct < self.settings.value_limit
-                || (distinct as f64) < self.settings.min_share * series as f64
+                || (saved as f64) < self.settings.min_share * series as f64
                 || (entry.new_rows as f64) < self.settings.min_new_share * entry.rows as f64
             {
                 continue;
@@ -946,6 +958,33 @@ mod tests {
         detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
         end_window(&detector, &now);
         assert!(rule_keys(&detector).contains(&rule_key("latency", Scope::Attribute, "user_id")));
+    }
+
+    #[test]
+    fn a_key_split_across_a_second_label_is_still_flagged() {
+        let (detector, now) = detector(Mode::Shadow);
+        let timestamp = Utc::now().timestamp_millis();
+        let series: Vec<TimeSeries> = (0..1500)
+            .map(|i| TimeSeries {
+                labels: vec![
+                    label("__name__", "jobs"),
+                    label("hax", &format!("h{}", i / 5)),
+                    label("pad", &format!("p{}", i % 5)),
+                ],
+                samples: vec![Sample {
+                    value: 1.0,
+                    timestamp,
+                }],
+            })
+            .collect();
+        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
+
+        assert_eq!(
+            rule_keys(&detector),
+            HashSet::from([rule_key("jobs", Scope::Attribute, "hax")])
+        );
     }
 
     #[test]

@@ -24,7 +24,7 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 | METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN | 2000000 | Most series one pod remembers for one token |
 | METRICS_LABEL_CARDINALITY_MODE | shadow | `off` or `shadow`. Shadow reports flagged keys but changes no row |
 | METRICS_LABEL_CARDINALITY_VALUE_LIMIT | 10000 | Distinct values per key per window before the key is flagged |
-| METRICS_LABEL_CARDINALITY_MIN_SHARE | 0.5 | Smallest ratio of a key's values to the metric's series for a flag |
+| METRICS_LABEL_CARDINALITY_MIN_SHARE | 0.5 | Smallest share of the metric's series that removing the key would save, for a flag |
 | METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE | 0.5 | Smallest share of a key's rows that start a new series, for a flag |
 | METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES | 500 | New series per window before a metric's labels are measured |
 | METRICS_LABEL_CARDINALITY_MAX_CANDIDATES | 2000 | Most metrics one pod measures |
@@ -50,7 +50,7 @@ The cache is bounded. When the global or the per-token cap is full, a new series
 
 The service finds a label key that splits one metric into many series. The `_bucket`, `_count` and `_sum` series of a remote-write histogram or summary count as one metric, unless the request's metadata declares them as other types.
 
-A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets HyperLogLog sketches of its series and of each label key. Each key also counts its rows and the rows that start a new series, as the gate decides across all pods. At the end of each window, a key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values, at least `METRICS_LABEL_CARDINALITY_MIN_SHARE` of the series, and at least `METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE` of its rows on a new series. A request ID passes all three. A pod name fails the last, because each series repeats in a window. A user ID that only appears with a request ID fails the second. A token whose gate cache is full is not measured.
+A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets HyperLogLog sketches of its series and of each label key. Each key also counts its rows and the rows that start a new series, as the gate decides across all pods. At the end of each window, a key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values, removing it would save at least `METRICS_LABEL_CARDINALITY_MIN_SHARE` of the series, and at least `METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE` of its rows on a new series. A request ID passes all three. A pod name fails the last, because each series repeats in a window. A user ID that only appears with a request ID fails the second. A token whose gate cache is full is not measured, so its labels are kept.
 
 Each flagged key is logged at warn level once per window. Metrics start with `capture_metrics_label_cardinality_`.
 
