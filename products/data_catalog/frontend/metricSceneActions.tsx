@@ -44,7 +44,6 @@ export interface MetricSceneActionsInput {
     metric: DataCatalogMetricApi
     mutating: boolean
     running: boolean
-    biModeEnabled: boolean
     isMaxAvailable: boolean
     handlers: MetricSceneActionHandlers
 }
@@ -60,7 +59,6 @@ export function buildMetricSceneActions({
     metric,
     mutating,
     running,
-    biModeEnabled,
     isMaxAvailable,
     handlers,
 }: MetricSceneActionsInput): MetricSceneAction[] {
@@ -70,7 +68,7 @@ export function buildMetricSceneActions({
     const isMarkdownMetric = metric.definition_kind === 'MarkdownDefinition'
 
     return [
-        ...(biModeEnabled && definitionSql
+        ...(definitionSql
             ? [
                   {
                       key: 'explore-bi',

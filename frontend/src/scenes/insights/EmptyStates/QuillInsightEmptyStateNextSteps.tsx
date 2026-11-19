@@ -112,7 +112,7 @@ export function QuillInsightEmptyStateNextSteps({
             <EmptyHeader>
                 <QuillInsightEmptyStateIcon icon={icon ?? REASON_ICONS[reason.kind]} />
                 {children}
-                <EmptyDescription>{detail}</EmptyDescription>
+                <EmptyDescription className="text-sm">{detail}</EmptyDescription>
             </EmptyHeader>
             {(fix || canEdit) && (
                 <EmptyContent className="flex-row justify-center">

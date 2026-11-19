@@ -1,4 +1,4 @@
-"""Replay destination invocations that failed during an incident.
+"""Replay destination and workflow invocations that failed during an incident.
 
 Prints the plan by default and sends nothing. To send, pass --execute together
 with --fingerprint set to the value the preview printed. The command computes
@@ -70,6 +70,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Also replay functions that already failed the same way in the day before the window.",
         )
+        parser.add_argument(
+            "--include-workflows",
+            action="store_true",
+            help="Also replay workflow runs that stopped on a failed step. Each run continues from that step.",
+        )
         parser.add_argument("--details", action="store_true", help="Print one line per function.")
         parser.add_argument("--execute", action="store_true", help="Send the replay. Requires --fingerprint.")
         parser.add_argument("--fingerprint", default="", help="The fingerprint printed by the preview.")
@@ -96,6 +101,7 @@ class Command(BaseCommand):
                 require_success_since_window=not options["include_functions_without_recent_success"],
                 skip_already_rerun=not options["include_already_rerun"],
                 skip_failing_before_window=not options["include_functions_failing_before_window"],
+                include_workflows=options["include_workflows"],
             )
         except ValueError as error:
             raise CommandError(str(error)) from error
@@ -104,7 +110,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             f"{plan.invocation_count} invocation(s) to replay across "
-            f"{len(plan.replayable_functions)} destination(s) in {plan.team_count} team(s)."
+            f"{len(plan.replayable_functions)} destination(s) or workflow(s) in {plan.team_count} team(s)."
         )
         for template_id, count in plan.invocations_by_template.items():
             self.stdout.write(f"  {template_id or '(no template)'}: {count}")
@@ -112,12 +118,12 @@ class Command(BaseCommand):
             self.stdout.write(f"  skipped, {SKIP_REASON_LABELS[reason]}: {count}")
         for team in plan.teams:
             self.stdout.write(
-                f"  team {team.team_id} ({team.team_name}): {team.invocation_count} in {team.function_count} destination(s)"
+                f"  team {team.team_id} ({team.team_name}): {team.invocation_count} in {team.function_count} destination(s) or workflow(s)"
             )
         if options["details"]:
             for function in plan.functions:
                 self.stdout.write(
-                    f"  function {function.function_id} team={function.team_id} template={function.template_id} "
+                    f"  {function.function_kind} {function.function_id} team={function.team_id} template={function.template_id} "
                     f"replay={len(function.invocation_ids)} skipped={function.skipped}"
                 )
         self.stdout.write(f"Fingerprint: {plan.fingerprint}")

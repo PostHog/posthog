@@ -16,7 +16,7 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by the `TEMPORAL` declaration in `backend/facade/temporal.py`.
 The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
@@ -383,7 +383,8 @@ note, and drops its oldest fire when full. Every other rejection (pause, enrolme
 missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
 hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
 allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
+queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 
@@ -569,7 +570,7 @@ Research authors its checks in the verification turn (`FixVerificationOutput.che
 
 Every metric uses an `InsightVizNode` around one `TrendsQuery` over event or action sources. Consumers derive a `BoldNumber` for the whole-window value and an `ActionsBar` for longitudinal buckets. An `affected_users` metric uses exactly one series with `math: dau`. An `affected_sessions` metric uses exactly one series with `math: unique_session`. Neither kind uses formulas or group math. The default daily window starts at `-13d`, which gives 14 inclusive buckets including today. A longer window keeps only the trailing 14 buckets in the strip, while the whole-window value uses the full window. New authoring omits comparisons until the server can keep equal adjacent windows live. Non-currency units are lowercase. Revenue uses an uppercase ISO currency code such as `USD`.
 
-Report list serialization returns snapshot-only metric metadata. It omits live query definitions and legacy comparisons, and it never runs a query. When a person opens the inbox list or a report, the frontend posts the visible ids to `refresh_metrics`. A snapshot measured in the last 15 minutes is served as is through a query-cache override. One call runs at most 40 source series and stops on a best-effort 20-second deadline. Refresh writes `value`, `value_at`, and `series`, and clears `comparison`. The endpoint allows 10 requests per minute for each team. There is no background job, so a report nobody opens costs no queries. Full metric-state compare-and-swap persistence prevents an old query result from overwriting a concurrent report edit. Snapshot refreshes leave `updated_at` unchanged so the inbox does not reorder reports.
+Report list serialization returns snapshot-only metric metadata. It omits live query definitions and legacy comparisons, and it never runs a query. When a person opens the inbox list or a report, the frontend posts the visible ids to `refresh_metrics`. A snapshot measured in the last 15 minutes is served as is through a query-cache override. One call runs at most 40 source series and stops on a best-effort 20-second deadline. Refresh writes `value`, `value_at`, `series`, and `series_buckets` (each bucket's Trends label, so a reader can date the buckets), and clears `comparison`. Ready and pending-input reports refresh, and so do Monitoring reports while Monitoring is enabled, because their inbox row draws the lead check's metric across the fix; that metric refreshes first on a Monitoring row. The endpoint allows 10 requests per minute for each team. There is no background job, so a report nobody opens costs no queries. Full metric-state compare-and-swap persistence prevents an old query result from overwriting a concurrent report edit. Snapshot refreshes leave `updated_at` unchanged so the inbox does not reorder reports.
 
 Snapshots are materialized without a requesting user under the team's default property rules. List and detail serialization re-check access before exposing data-bearing fields. Both response shapes omit legacy comparisons. An unsafe query definition is null on detail. Snapshot-only or queryless rows are legacy or malformed and are always redacted.
 
@@ -1022,18 +1023,27 @@ Internal-only service-to-service endpoint authenticated via `X-Internal-Api-Secr
 
 Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `APIScopePermission` with scope object **`task`**.
 
-| Method | Path                           | Description               |
-| ------ | ------------------------------ | ------------------------- |
-| GET    | `signals/source_configs/`      | List configs for the team |
-| POST   | `signals/source_configs/`      | Create a new config       |
-| GET    | `signals/source_configs/{id}/` | Retrieve a config         |
-| PATCH  | `signals/source_configs/{id}/` | Update a config           |
-| DELETE | `signals/source_configs/{id}/` | Delete a config           |
+| Method | Path                                      | Description                                                    |
+| ------ | ----------------------------------------- | -------------------------------------------------------------- |
+| GET    | `signals/source_configs/`                 | List configs for the team                                      |
+| POST   | `signals/source_configs/`                 | Create a new config                                            |
+| GET    | `signals/source_configs/{id}/`            | Retrieve a config                                              |
+| PATCH  | `signals/source_configs/{id}/`            | Update a config                                                |
+| DELETE | `signals/source_configs/{id}/`            | Delete a config                                                |
+| GET    | `signals/source_configs/filter_catalogs/` | Filter fields and starters for each source the team can filter |
+| POST   | `signals/source_configs/filter_preview/`  | Passing and excluded records for an unsaved filter             |
 
 Important side effects:
 
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
+
+Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.writable_sources`: a source appears in `filter_catalogs`, takes a preview, and accepts a saved filter only when its catalog is eligible and its rollout state lets the organization in.
+`filter_preview` (`source_filter_preview.py`) reads the records created in the last 7 days with emission's own window field, built-in conditions and saved scope allowlist, and binds the expression to the active catalog version the save would pin.
+Unlike emission, it runs as the requester under warehouse access control, so a user without access to the source table gets `access_denied` and no rows.
+It creates no signals, calls no AI, and moves no sync cursor.
+A source config with a saved filter also returns a read-only `filter_status`, built from its `SignalSourceFilterState` rows: `failing` while a fetch failed and no later fetch succeeded, with the error, the time it failed, and the earliest window still to read again.
+It counts only results recorded for the filter saved now (each state row stores a fingerprint of the filter that produced it), on warehouse schemas that this environment owns and that are not deleted.
 
 #### `SignalTeamConfigViewSet`
 
@@ -1240,7 +1250,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`, `nudge_rendered`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
-- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
+- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable, `source_products`: the report's distinct signal source products, empty when the lookup fails). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
 - `signals_report_linked` — a typed `report_link` was written (+ `report_id`, `linked_report_id`, `kind`, `has_reason`, `actor_kind`, `actor_agent`). Fired from the one write path every producer shares, so links get a denominator they do not otherwise have. See Typed report links
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
@@ -1389,7 +1399,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 **Guard clause** — all must pass:
 
 - Report actionability is `immediately_actionable`
-- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
+- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). The issues a report was filed from never count: research lists them from GitHub issue signals and `source_issue` artefacts, so a requester who assigns their own issue does not block the work. Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)

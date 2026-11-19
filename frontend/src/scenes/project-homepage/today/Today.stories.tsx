@@ -976,6 +976,11 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/search/': ({ request }) => {
+                    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
+                    const results = LIBRARY.filter((entry) => entry.path.toLowerCase().includes(search))
+                    return [200, { results: results.map((entry) => ({ entry, rank: [] })) }]
+                },
                 '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
@@ -1670,6 +1675,14 @@ export const HomeWithComposer: Story = {
             FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
             FEATURE_FLAGS.PHAI_SANDBOX_MODE,
         ],
+    },
+}
+
+// Without PostHog AI 2.0, the home composer opens a chat instead of starting a task.
+export const HomeWithLegacyComposer: Story = {
+    decorators: [keepNumbers([])],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS],
     },
 }
 

@@ -76,9 +76,16 @@ export interface PinsState {
  * into one pin. A complete list read forgets the order and mode of pins that are gone.
  *
  * Only the Views list passes `refetchOnMount`. Pin buttons and error states on view screens read the cached list, so
- * opening a view sends no pin list request; the list's refresh rules own the re-reads.
+ * opening a view sends no pin list request; the list's refresh rules own the re-reads. Live's Meanwhile passes
+ * `refetchOnReconnect: false`, so it reads the list only when nothing has.
  */
-export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean } = {}): PinsState {
+export function usePins({
+    refetchOnMount = false,
+    refetchOnReconnect = true,
+}: {
+    refetchOnMount?: boolean
+    refetchOnReconnect?: boolean
+} = {}): PinsState {
     const context = useViewsContext()
     const demo = context.mode === 'demo'
     const queryKey = viewsKeys.shortcuts(context.scope)
@@ -88,6 +95,7 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
         enabled: context.ready && !demo,
         staleTime: READ_FLOOR_MS,
         refetchOnMount,
+        refetchOnReconnect,
         retry: retryListRead,
     })
     const prefsKey = context.scope ? projectKey(context.scope) : null

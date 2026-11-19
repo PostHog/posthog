@@ -313,6 +313,7 @@ def compile_hogql_to_trino_sql(
     )
     from posthog.hogql.printer.utils import prepare_and_print_ast, prepare_ast_for_printing  # noqa: PLC0415
     from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
+    from posthog.hogql.utils import alias_output_columns  # noqa: PLC0415
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
     from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
 
@@ -412,32 +413,14 @@ def compile_hogql_to_trino_sql(
         if clickhouse_output_names is None:
             return prepared
 
-        output_types: list[ast.SelectSetQueryType] = []
         trino_output = prepared
         while isinstance(trino_output, ast.SelectSetQuery):
-            if isinstance(trino_output.type, ast.SelectSetQueryType):
-                output_types.append(trino_output.type)
             trino_output = trino_output.initial_select_query
-
-        if len(trino_output.select) != len(clickhouse_output_names):
+        if not alias_output_columns(prepared, clickhouse_output_names):
             raise ValueError(
                 "ClickHouse and Trino preparation produced different output column counts "
                 f"({len(clickhouse_output_names)} and {len(trino_output.select)})"
             )
-
-        named_columns: dict[str, ast.Type] = {}
-        named_select: list[ast.Expr] = []
-        for column, name in zip(trino_output.select, clickhouse_output_names):
-            expression = column.expr if isinstance(column, ast.Alias) else column
-            column_type = column.type.type if isinstance(column.type, ast.FieldAliasType) else column.type
-            alias_type = ast.FieldAliasType(alias=name, type=column_type or ast.UnknownType())
-            named_select.append(ast.Alias(alias=name, expr=expression, type=alias_type))
-            named_columns[name] = alias_type
-        trino_output.select = named_select
-        if isinstance(trino_output.type, ast.SelectQueryType):
-            trino_output.type.columns = named_columns
-        for output_type in output_types:
-            output_type.columns = named_columns
 
         # The output can read a derived table by column name, as the incremental guard does. Trino
         # does not name an unaliased expression, so give each one the name the resolver referenced.
@@ -465,7 +448,7 @@ def compile_hogql_to_trino_sql(
         output = prepared
         while isinstance(output, ast.SelectSetQuery):
             output = output.initial_select_query
-        needs_row_type_probe = any(_may_hold_anonymous_row(column, trino_context) for column in output.select)
+        needs_row_type_probe = any(_needs_output_type_probe(column, trino_context) for column in output.select)
         return preserve_output_names(prepared) if preserve_clickhouse_output_names else prepared
 
     trino_sql, _ = prepare_and_print_ast(
@@ -502,12 +485,32 @@ def compile_hogql_to_trino_sql(
     )
 
 
-def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
-    """Whether the resolved type of an output column is, or contains, a tuple or an unknown type."""
+_BOOLEAN_TRINO_FUNCTIONS = frozenset({"jsonhas", "multisearchanycaseinsensitive"})
+
+
+def _calls_boolean_function(expression: Any) -> bool:
+    """Whether the expression calls a function that HogQL types as an integer and Trino returns as a boolean."""
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415 -- keeps compiler imports off Django startup
+
+    class _Finder(TraversingVisitor):
+        found = False
+
+        def visit_call(self, node: Any) -> None:
+            if node.name.lower() in _BOOLEAN_TRINO_FUNCTIONS:
+                self.found = True
+            super().visit_call(node)
+
+    finder = _Finder()
+    finder.visit(expression)
+    return finder.found
+
+
+def _needs_output_type_probe(column: Any, context: Any) -> bool:
+    """Whether the resolved type of an output column is, or contains, a tuple, a boolean or an unknown type."""
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
 
     def check(constant_type: ast.ConstantType) -> bool:
-        if isinstance(constant_type, ast.TupleType | ast.UnknownType):
+        if isinstance(constant_type, ast.TupleType | ast.BooleanType | ast.UnknownType):
             return True
         if isinstance(constant_type, ast.ArrayType):
             return check(constant_type.item_type)
@@ -520,6 +523,9 @@ def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
     if column.type is None:
         return True
     try:
+        # HogQL types these calls as integers, but the Trino printer emits a boolean for them.
+        if _calls_boolean_function(column):
+            return True
         return check(column.type.resolve_constant_type(context))
     except Exception:  # noqa: BLE001 -- a type that cannot be resolved is probed, which is always safe
         return True

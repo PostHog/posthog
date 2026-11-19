@@ -23,7 +23,13 @@ import pyarrow as pa
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import PRIORITY_COLUMN, PROJECT_VECTOR_KINDS, Extras, FeatureSet
+from products.signals.backend.ranking.features import (
+    BIRTH_GRAIN,
+    PRIORITY_COLUMN,
+    PROJECT_VECTOR_KINDS,
+    Extras,
+    FeatureSet,
+)
 from products.signals.dags.inbox_ranking.dataset.dag import STATE_SCHEMA
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import (
@@ -39,6 +45,11 @@ from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_
 
 NN_HEADS = PROTOTYPE_HEADS
 NN_HEAD_NAMES = tuple(head.name for head in NN_HEADS)
+# The days after a report's birth whose labels the examples read, so `load_snapshots` can drop every
+# other row. None at another grain, which reads every row of every snapshot.
+BIRTH_HORIZONS: tuple[int, ...] | None = (
+    tuple(sorted({head.horizon_days for head in NN_HEADS})) if FEATURE_SET.example_grain == BIRTH_GRAIN else None
+)
 
 _ROW_COLUMNS = ("report_id", "snapshot_date", "report_team_id")
 # Parquet schema metadata key that carries each head's example window.

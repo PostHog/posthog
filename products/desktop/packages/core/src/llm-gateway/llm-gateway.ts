@@ -14,7 +14,6 @@ import {
 import { inject, injectable } from "inversify";
 import type { AuthService } from "../auth/auth";
 import { AUTH_SERVICE } from "../auth/auth.module";
-import { AuthServiceEvent } from "../auth/schemas";
 import { blockedRoute, type GatewayTokenService } from "./gateway-token";
 import {
   GATEWAY_TOKEN_SERVICE,
@@ -118,21 +117,12 @@ export class LlmGatewayService {
     this.endpoints = host;
     this.log = logger.scope("llm-gateway");
     this.authService = authService;
-    let orgId = authService.getState().currentOrgId;
-    authService.on(AuthServiceEvent.StateChanged, (state) => {
-      if (state.currentOrgId === orgId) return;
-      orgId = state.currentOrgId;
-      this.legacyUsageOrgs.clear();
-    });
   }
 
   private readonly auth: LlmGatewayAuth;
   private readonly endpoints: LlmGatewayEndpoints;
   private readonly log: LlmGatewayLogger;
   private readonly authService: AuthService;
-
-  // Orgs whose server has no Django usage endpoint yet (a 404 once).
-  private readonly legacyUsageOrgs = new Set<string>();
 
   async prompt(
     messages: LlmMessage[],
@@ -388,30 +378,19 @@ export class LlmGatewayService {
     };
   }
 
-  async fetchUsage(): Promise<UsageOutput> {
+  async fetchUsage(): Promise<UsageOutput | null> {
     const auth = await this.auth.getValidAccessToken();
-    const { currentOrgId, currentProjectId } = this.authService.getState();
-    const useLegacy =
-      currentProjectId === null ||
-      (currentOrgId !== null && this.legacyUsageOrgs.has(currentOrgId));
-    const usageUrl = useLegacy
-      ? this.endpoints.legacyUsageUrl(auth.apiHost)
-      : this.endpoints.usageUrl(auth.apiHost, currentProjectId);
+    const { currentProjectId } = this.authService.getState();
+    if (currentProjectId === null) return null;
+    const usageUrl = this.endpoints.usageUrl(auth.apiHost, currentProjectId);
 
     this.log.debug("Fetching usage", { url: usageUrl });
 
     let response: Response;
     try {
       response = await this.auth.authenticatedFetch(usageUrl, {
-        headers: this.projectScopeHeaders(),
+        headers: buildPosthogProjectHeaderRecord(currentProjectId),
       });
-      if (!useLegacy && response.status === 404) {
-        if (currentOrgId !== null) this.legacyUsageOrgs.add(currentOrgId);
-        response = await this.auth.authenticatedFetch(
-          this.endpoints.legacyUsageUrl(auth.apiHost),
-          { headers: this.projectScopeHeaders() },
-        );
-      }
     } catch (err) {
       this.log.warn("Usage fetch network error", {
         error: err instanceof Error ? err.message : String(err),
@@ -434,12 +413,6 @@ export class LlmGatewayService {
       this.gatewayTokens.clearBlocked();
     }
     return usage;
-  }
-
-  private projectScopeHeaders(): Record<string, string> {
-    return buildPosthogProjectHeaderRecord(
-      this.authService.getState().currentProjectId,
-    );
   }
 }
 

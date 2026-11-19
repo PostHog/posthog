@@ -25,6 +25,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
 from posthog.test.authentication_checks import covers_authentication
+from posthog.test.id_jag import id_jag_access_token
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.skills.backend.marketplace.auth import MarketplaceGitBasicAuthentication
@@ -855,6 +856,16 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert key.scoped_teams == [self.team.id]  # locked to this team
         assert key.label == self._label()
         assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
+
+    def test_post_refuses_id_jag_tokens(self):
+        token = id_jag_access_token(self.user, self.organization, "llm_skill:write")
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.post(self._url(), {"rotate": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert self._credential() is None
 
     def test_post_again_without_rotate_reuses_and_returns_no_token(self):
         self.client.post(self._url())

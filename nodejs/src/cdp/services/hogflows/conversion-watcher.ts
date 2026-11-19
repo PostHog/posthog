@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -8,7 +9,7 @@ import { hasEventOrActionTarget } from './hogflow-utils'
 
 // A goal is configured if either detection path has something to evaluate. Gates the watcher: a
 // workflow with no goal has nothing to measure, so it writes no rows.
-function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
+export function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
     const properties = hogFlow.conversion?.filters?.length ? hogFlow.conversion.bytecode : undefined
     // Drop entries that target neither events nor actions: those compile to always-true bytecode and
     // would count a conversion on the first event of any kind. Same guard the wait_until and conversion
@@ -25,6 +26,11 @@ function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
         ...(properties?.length ? { properties } : {}),
         ...(events.length ? { events } : {}),
     }
+}
+
+// Only the Postgres queue records when it stored the job, so a Kafka job falls back to its first execution.
+export function runStartedAt(invocation: CyclotronJobInvocationHogFlow): DateTime {
+    return invocation.queueCreatedAt ?? DateTime.utc()
 }
 
 // The watcher outlives the run, which is the whole point: once the run finishes its cyclotron job is
@@ -59,6 +65,7 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
         person_id: personId,
         flow_version: invocation.state.flowVersion ?? null,
         goal,
+        created_at: runStartedAt(invocation).toJSDate(),
         expires_at: new Date(Date.now() + conversionWindowMinutes(invocation.hogFlow) * 60_000),
     }
 }

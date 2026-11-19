@@ -5,6 +5,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -22,6 +23,8 @@ from products.warehouse_sources.sources.sdk import (
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
+# Items of a view otherwise follow the view's own sort, which can be a field that changes while we page.
+VIEW_ITEMS_ORDER_BY = "created_datetime:asc"
 
 # A Gorgias subdomain is a single DNS label (1-63 chars, no leading/trailing hyphen).
 # Validating against this before building the URL prevents a crafted domain (e.g. one
@@ -41,6 +44,9 @@ class GorgiasResumeConfig:
     cursor: str | None
     # Index into the endpoint's `param_variants` the cursor belongs to.
     variant: int = 0
+    # For a paged child walk: the parent the `cursor` link belongs to. With no `cursor`, this
+    # parent is complete and the walk continues with the next parent id.
+    parent_id: int | None = None
 
 
 def normalize_domain(domain: str) -> str:
@@ -152,6 +158,29 @@ def _flatten_customer_field_values(customer: dict[str, Any], items: list[Any]) -
             continue
         rows.append({**item, **parent, "field_id": field_id, "value": _field_value_as_text(item.get("value"))})
     return rows
+
+
+def _is_ticket_view(view: Any) -> bool:
+    # The items endpoint documents ticket rows only, and a deactivated view no longer updates.
+    return (
+        isinstance(view, dict)
+        and isinstance(view.get("id"), int)
+        and view.get("type", "ticket-list") == "ticket-list"
+        and not view.get("deactivated_datetime")
+    )
+
+
+def _view_item_rows(view_id: int, items: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {"view_id": view_id, "ticket_id": item["id"], "ticket_created_datetime": item.get("created_datetime")}
+        for item in items
+        if isinstance(item, dict) and item.get("id") is not None
+    ]
+
+
+def _link_params(link: str | None) -> dict[str, str]:
+    # Only the query of a `next_items` link is used, so a link can never move the request to another path or host.
+    return dict(parse_qsl(urlsplit(link).query)) if link else {}
 
 
 def _get_auth_header(email: str, api_key: str) -> str:
@@ -285,12 +314,63 @@ def get_rows(
             rows.extend(_flatten_customer_field_values(parent, items or []))
         return rows
 
+    def list_parent_ids() -> list[int]:
+        # Views are few, so list them all first. Walking them in id order lets a resume skip the
+        # views that are already complete.
+        ids: list[int] = []
+        list_cursor: str | None = None
+        while True:
+            data = fetch_page(list_cursor, {})
+            ids.extend(view["id"] for view in data.get("data", []) if _is_ticket_view(view))
+            resumable_source_manager.safe_point()
+            list_cursor = (data.get("meta") or {}).get("next_cursor")
+            if not list_cursor:
+                return sorted(set(ids))
+
+    def paged_child_rows(child_path: str) -> Iterator[list[dict[str, Any]]]:
+        resume_parent = resume_config.parent_id if resume_config else None
+        resume_link = resume_config.cursor if resume_config else None
+        for parent_id in list_parent_ids():
+            if resume_parent is not None and (
+                parent_id < resume_parent or (parent_id == resume_parent and resume_link is None)
+            ):
+                continue
+            link = resume_link if parent_id == resume_parent else None
+            while True:
+                params = {"limit": PAGE_SIZE, "order_by": VIEW_ITEMS_ORDER_BY, **_link_params(link)}
+                response = fetch(f"{base_url}{child_path.format(id=parent_id)}", params)
+                # The view can be deleted between listing it and walking its items.
+                if response.status_code == 404:
+                    rows: list[dict[str, Any]] = []
+                    next_link = None
+                else:
+                    raise_for_error(response)
+                    data = response.json()
+                    rows = _view_item_rows(parent_id, data.get("data") or [])
+                    next_link = (data.get("meta") or {}).get("next_items")
+                    if next_link == link:
+                        next_link = None
+
+                resumable_source_manager.save_state(GorgiasResumeConfig(cursor=next_link, parent_id=parent_id))
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+
+                if not next_link:
+                    break
+                link = next_link
+
     def page_rows(items: list[Any]) -> list[Any]:
         if config.child_path:
             return fetch_child_rows(config.child_path, items)
         if config.ticket_child:
             return _flatten_ticket_child(items, config.ticket_child)
         return items
+
+    if config.paged_child_path:
+        yield from paged_child_rows(config.paged_child_path)
+        return
 
     for variant_index in range(start_variant, len(config.param_variants)):
         variant_params = config.param_variants[variant_index]

@@ -30,13 +30,7 @@ from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.hogql_queries.ai.utils import with_global_in_subqueries
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_hog import (
-    build_hog_event_global,
-    execute_hog_eval_bytecode,
-    finalize_hog_eval_result,
-    hog_bytecode_references_global,
-)
+from posthog.temporal.ai_observability.evaluation_hog import finalize_hog_eval_result
 from posthog.temporal.ai_observability.evaluation_llm_judge import call_llm_judge, get_output_type_config
 from posthog.temporal.ai_observability.evaluation_payload import (
     PAYLOAD_BYTES_EXPR,
@@ -45,10 +39,17 @@ from posthog.temporal.ai_observability.evaluation_payload import (
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_SESSION_MAX_CHARS,
+    build_hog_event_global,
+    execute_hog_eval_bytecode,
+    extract_event_io,
+    extract_text_from_messages,
+    hog_bytecode_references_global,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_SESSION_EVAL_EVENTS,
@@ -60,11 +61,6 @@ from products.ai_observability.backend.text_repr.formatters import (
     llm_trace_to_formatter_format,
 )
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
-
-# Sessions run ~3.5x a trace at p90 (222 events against a trace's typical handful) and the shared
-# formatter uniformly samples lines rather than truncating, so the trace's 150k budget would hand
-# the judge a shredded transcript. 500k chars is ~2.2k chars per event at p90.
-JUDGE_SESSION_MAX_CHARS = 500_000
 
 # Floor so a session with many traces still renders each one readably instead of one line each.
 _MIN_TRACE_CHARS_IN_SESSION = 2_000

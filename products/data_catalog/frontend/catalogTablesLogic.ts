@@ -172,6 +172,9 @@ export interface catalogTablesLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
     loadRunHistory: (viewIds: string[]) => {
         viewIds: string[]
     } // viewsTabLogic
@@ -327,7 +330,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         actions: [
             databaseTableListLogic,
-            ['loadDatabase'],
+            ['loadDatabase', 'refreshDatabaseSchema'],
             certificationsLogic,
             ['loadCertificationsSuccess'],
             viewsTabLogic,
@@ -578,7 +581,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             const keptIds = new Set(kept.map((certification) => certification.id))
             const added = [...updatedById.values()].filter((certification) => !keptIds.has(certification.id))
             actions.loadCertificationsSuccess([...added, ...kept])
-            actions.loadDatabase({ force: true })
+            actions.refreshDatabaseSchema()
         }
         const runSequentially = async (
             rows: CatalogTableRow[],
@@ -718,7 +721,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
     })),
     afterMount(({ actions, values }) => {
         if (!values.database) {
-            actions.loadDatabase()
+            actions.loadDatabase({ shallow: true })
         }
         actions.loadPosthogTableSubjectIds()
     }),

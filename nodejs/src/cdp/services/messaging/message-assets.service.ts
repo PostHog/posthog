@@ -12,6 +12,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
+import { isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { escapeHtml } from './helpers/escape-html'
 
@@ -100,7 +101,7 @@ const oversizedPlaceholderHtml = (bytes: number): string => {
 }
 
 // Stored instead of the body when the template is marked sensitive, so the person view still shows the send.
-const SENSITIVE_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email body not stored</h3><p style="margin:0">This email was sent. Its template is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
+const SENSITIVE_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email body not stored</h3><p style="margin:0">This email was sent. It's marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
 
 // Stored instead of the rendered notification when the push step is marked sensitive.
 const SENSITIVE_PUSH_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Notification content not stored</h3><p style="margin:0">This push notification was sent. Its step is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
@@ -145,7 +146,7 @@ export class MessageAssetsService {
             return null
         }
         const bodyBytes = Buffer.byteLength(body, 'utf8')
-        const sensitive = invocation.hogFunction.metadata?.sensitive === true
+        const sensitive = isSensitiveMessage(invocation)
         let html = body
         if (sensitive) {
             html = SENSITIVE_PLACEHOLDER_HTML

@@ -6,8 +6,9 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ActorsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
+import { toActorsQueryProperties } from './audience/audienceList'
 import {
     BroadcastEmailValue,
     BroadcastPushValue,
@@ -137,7 +138,7 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
                         tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
                         // The recipients step only offers person-scoped filters, which is all an
                         // actors query accepts.
-                        properties: values.audienceProperties as AnyPersonScopeFilter[],
+                        properties: toActorsQueryProperties(values.audienceProperties),
                         select: ['id', 'person_display_name -- Person', 'properties'],
                         limit: PREVIEW_PERSON_LIMIT,
                     }

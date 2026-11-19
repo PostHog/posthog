@@ -150,7 +150,8 @@ Start with `zscore` or `mad` and move to these only when the user asks.
 }
 ```
 
-- `type` and `instructions` are the only fields.
+- `type`, `instructions`, and `model` are the only fields.
+  `model` is `claude-haiku-5-5` (the default when it is left out) or `gpt-6-luna`.
   `threshold`, `window`, and `preprocessing` are refused.
 - Not on `real_time`, not on breakdown insights, and not in an ensemble.
 

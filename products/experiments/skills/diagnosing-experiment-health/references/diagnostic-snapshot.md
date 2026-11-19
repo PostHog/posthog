@@ -7,13 +7,13 @@ Read in the order below.
 Each step costs more than the one before, and most diagnostics are settled by the first three.
 Run the snapshot once and reuse the results across the dispatch table in `SKILL.md`.
 
-| Step | Read                                                               | Cost                                                                     |
-| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| 1    | Configuration: `experiment-get`                                    | One read                                                                 |
-| 2    | Stored results: `experiment-metrics-recalculation-latest-retrieve` | One read, never starts a calculation                                     |
-| 3    | Changes: `experiment-activity`                                     | One read                                                                 |
-| 4    | Exposure data: `experiment-results-get`                            | Runs the exposure query and every metric query that has no cached result |
-| 5    | Raw exposure events: `execute-sql`                                 | A scan of events. Only for what steps 1 to 4 cannot show                 |
+| Step | Read                                                               | Cost                                                     |
+| ---- | ------------------------------------------------------------------ | -------------------------------------------------------- |
+| 1    | Configuration: `experiment-get`                                    | One read                                                 |
+| 2    | Stored results: `experiment-metrics-recalculation-latest-retrieve` | One read, never starts a calculation                     |
+| 3    | Changes: `experiment-activity`                                     | One read                                                 |
+| 4    | Exposure data and health checks: `experiment-health-get`           | Runs the exposure query, no metric query                 |
+| 5    | Raw exposure events: `execute-sql`                                 | A scan of events. Only for what steps 1 to 4 cannot show |
 
 ## Stored results
 
@@ -64,10 +64,22 @@ Ask the user before starting a recalculation, and say that it recomputes every m
 
 Powers A1, A2, A3, A7b, B0, C2 and the plateau check in `empty-experiment.md`.
 
-`experiment-results-get` returns an `exposures` object next to the metric results.
+`experiment-health-get` returns the health checks and the `exposures` object without running the metric queries.
+Read its health before the values below:
+
+- **`summary`** — the findings counted by severity and the checks counted by status.
+  It also names the checks that did not run.
+- **`findings`** — the health check findings, most severe first.
+  Each one carries `code`, `severity`, `title`, `evidence` and `detail`: what is wrong, what it does to the experiment and how to fix it.
+  `diagnostic_ref` names the matching diagnostic in this skill, for example `A2`.
+- **`checks`** — the status of each check that ran: `passed`, `finding`, `not_applicable` or `not_checked`.
+  A check that is `not_applicable` or `not_checked` carries a `reason` and did not judge the experiment: do not report it as passed.
+  The list holds the checks that read the exposures once the experiment has started, and it can hold checks of the configuration too.
+  A check that is not in the list did not run.
+
 Call it when the diagnosis needs one of the values below.
 A split that the stored results already show as close to the configured one, on a complaint that is not about bias, does not need it.
-It is the experiment's own exposure query: the experiment's exposure event, current variant keys only, the test-account filter, the experiment's window, each person counted once at the first exposure.
+`exposures` is the experiment's own exposure query: the experiment's exposure event, current variant keys only, the test-account filter, the experiment's window, each person counted once at the first exposure.
 Variants in `excluded_variants` are left out of it, and on a group-aggregated flag it counts groups in place of persons.
 With an activation event (`exposure_criteria.activation_config`) it counts a person only from the first activation event at or after the first flag exposure, at the time of that event.
 The raw exposure queries below do not apply the activation event: they show the flag's calls.
@@ -89,7 +101,9 @@ Read off:
 - **Observed split against the configured split** — judge it by the p-value, not by eye (A2).
 - **The daily series** — a gap between the arms that grows in one direction (A9), an arm that stops growing (A7b, A6), all arms flat (the closing section of `empty-experiment.md`).
 
-Three properties of this tool:
+`experiment-results-get` returns the same `exposures` next to the metric results, and opens with `health`, an overview of the same findings (severity, code and title only).
+Call it only when the diagnosis needs the metric rows.
+Three properties of that tool:
 
 - **It sends every metric query of the experiment in one call.**
   A query with a result younger than 24 hours is answered from the cache. The rest run.
@@ -104,8 +118,8 @@ Three properties of this tool:
 
 <!-- Source for maintainers (may rot): ExperimentExposuresQueryRunner in
 products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py; getExposures and getMetricResults in
-services/mcp/src/api/client.ts (refresh is sent as 'blocking', the API's default mode); transformExperimentResults in
-services/mcp/src/schema/experiments.ts. -->
+services/mcp/src/api/client.ts (refresh is sent as 'blocking', the API's default mode); transformExperimentResults and
+transformExperimentHealth in services/mcp/src/schema/experiments.ts. -->
 
 ## Raw exposure events
 

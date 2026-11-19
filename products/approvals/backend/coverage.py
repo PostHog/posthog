@@ -145,6 +145,29 @@ def adoption_drops_approval_cover(
     )
 
 
+def release_drops_approval_cover(
+    current_owner_kind: str,
+    team,
+    organization,
+) -> bool:
+    """Whether letting go of this flag would leave some write of it less governed.
+
+    The mirror of `adoption_drops_approval_cover`. A product releases a flag when its last
+    owning row goes away, such as the soft deletion of the only experiment on the flag. The
+    flag then moves to the unowned family, so the same comparison applies: a write the owning
+    family governs now must stay governed afterwards.
+
+    Without this the release is a way around a policy, and a cheaper one than adoption,
+    because it needs no second product to adopt the flag.
+    """
+    if not _adoption_guard_applies(organization):
+        return False
+    return cover_dropped(
+        governing_gates(current_owner_kind, team, organization),
+        governing_gates(None, team, organization),
+    )
+
+
 def adoption_skips_enable_review(
     flag_active: bool,
     current_owner_kind: Optional[str],

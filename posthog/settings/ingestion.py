@@ -52,8 +52,9 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
 # The AI lane is a different capture deployment (capture-ai), not just a different path:
-# `/i/v1/ai/events` is mounted only on CaptureMode::Ai, and capture-analytics refuses
-# AI-lane event names. In the clusters this is capture-ai.capture-ai.svc.cluster.local.
+# `/i/v1/ai/events` is mounted only on CaptureMode::Ai. capture-analytics accepts `$ai_*`
+# events only temporarily and routes them to the AI topic, so send them here.
+# In the clusters this is capture-ai.capture-ai.svc.cluster.local.
 CAPTURE_AI_INTERNAL_URL = os.getenv("CAPTURE_AI_INTERNAL_URL", "http://localhost:8010")
 
 # Internal OTLP/HTTP endpoint for first-party log emission into Logs (the `capture-logs` service,
@@ -102,6 +103,9 @@ NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
 CAPTURE_V1_AI_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_AI_INTERNAL_ENDPOINT", "/i/v1/ai/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
+CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES = get_from_env(
+    "CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES", type_cast=int, default=0 if TEST else 3
+)
 CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
     "CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS", type_cast=float, default=5.0
 )

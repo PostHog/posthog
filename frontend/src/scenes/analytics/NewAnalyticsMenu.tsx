@@ -13,7 +13,7 @@ import {
 } from '@posthog/quill'
 
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
-import { ANALYTICS_TYPES } from './analyticsUtils'
+import { CREATABLE_ANALYTICS_TYPES } from './analyticsUtils'
 import { NewAnalyticsSource, newAnalyticsLogic } from './newAnalyticsLogic'
 
 interface NewAnalyticsMenuProps {
@@ -31,7 +31,7 @@ export function NewAnalyticsMenu({ trigger, source, children }: NewAnalyticsMenu
         <DropdownMenu>
             <DropdownMenuTrigger render={trigger}>{children}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-72">
-                {ANALYTICS_TYPES.map((info) => (
+                {CREATABLE_ANALYTICS_TYPES.map((info) => (
                     <DropdownMenuItem
                         key={info.type}
                         className="h-auto cursor-pointer items-start py-1.5 whitespace-normal"

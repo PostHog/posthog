@@ -19,21 +19,22 @@ const STORED_EVENT: Record<string, unknown> = {
 describe('LazyEventDetailsRenderer', () => {
     beforeEach(() => {
         initKeaTests()
-        // Answer with the columns the request selects, so a column the query omits comes back missing.
-        jest.spyOn(api, 'query').mockImplementation(async (query: any) => ({
-            results: [query.select.map((column: string) => STORED_EVENT[column])],
-        }))
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
     })
 
-    it('shows the event distinct id in the metadata tab', async () => {
+    it.each(['$pageview', '$screen'])('shows the %s distinct id in the metadata tab', async (eventName) => {
+        const event = { ...STORED_EVENT, uuid: `event-${eventName}`, event: eventName }
+        // Answer with the columns the request selects, so a column the query omits comes back missing.
+        const querySpy = jest.spyOn(api, 'query').mockImplementation(async (query: any) => ({
+            results: [query.select.map((column: string) => event[column as keyof typeof event])],
+        }))
         const { findByText } = render(
             <LazyEventDetailsRenderer
                 item={{
-                    id: 'event-uuid-1',
+                    id: event.uuid,
                     category: ItemCategory.PAGE_VIEWS,
                     timestamp: dayjs('2026-01-01T00:00:00.000Z'),
                     payload: {},
@@ -44,5 +45,8 @@ describe('LazyEventDetailsRenderer', () => {
         fireEvent.click(await findByText('Metadata'))
 
         expect(await findByText('user-distinct-id-1')).toBeTruthy()
+        expect(querySpy.mock.calls[0][0]).toMatchObject({
+            where: expect.arrayContaining([expect.stringContaining(`equals(event, '${eventName}')`)]),
+        })
     })
 })

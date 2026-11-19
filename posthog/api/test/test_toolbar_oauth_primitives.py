@@ -347,6 +347,7 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert redirect_url.startswith("https://example.com/page#")
         assert "__posthog_toolbar=code:auth_code_123" in redirect_url
         assert "client_id:" in redirect_url
+        assert redirect_url.endswith(f",team_id:{self.team.id},project_id:{self.team.project_id}")
 
     def test_callback_preserves_original_url_fragment(self):
         state = self._authorize_and_get_state(redirect_url="https://example.com/page#section1")

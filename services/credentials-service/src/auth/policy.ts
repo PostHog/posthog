@@ -27,16 +27,16 @@ export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
 
 /**
  * Operations that read or change rows of more than one team. A token that holds these holds
- * no other op and carries no `owner`. `reverse_sync` reads the changes feed of every team.
- * `delete_owner` is not one of them: it deletes the rows of
+ * no other op and carries no `owner`. `delete_owner` is not one of them: it deletes the rows of
  * the token's owner.
+ * `reverse_sync` is one: the reverse sync reads the changes of every team with one cursor.
  */
 export const CROSS_TEAM_OPS = [
+    'reverse_sync',
     'list_across_teams',
     'read_by_external_id',
     'write_by_external_id',
     'delete_by_external_id',
-    'reverse_sync',
 ] as const satisfies readonly IntegrationOp[]
 
 export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]

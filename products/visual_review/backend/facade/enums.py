@@ -168,6 +168,59 @@ class AutoQuarantineMode(LabeledStrEnum):
     ON = "on", "on"
 
 
+class BaselineMode(LabeledStrEnum):
+    """Which record of approved baselines decides a repo's runs.
+
+    Each label repeats its value, as the other labeled enums here do.
+    """
+
+    YAML = "yaml", "yaml"
+    SHADOW = "shadow", "shadow"
+    LEDGER = "ledger", "ledger"
+
+
+class RunGate(LabeledStrEnum):
+    """What turns a run's verdict into a merge gate. Set when the run is created and never changed."""
+
+    CI_JOB = "ci_job", "ci_job"
+    COMMIT_STATUS = "commit_status", "commit_status"
+
+
+class NoRunNeededOutcome(LabeledStrEnum):
+    """What a "no visual run needed" report did."""
+
+    POSTED = "posted", "posted"
+    RUN_EXISTS = "run_exists", "run_exists"
+    STATUS_GATE_OFF = "status_gate_off", "status_gate_off"
+
+
+class BaselineEntrySource(LabeledStrEnum):
+    """How an entry got into the baseline ledger."""
+
+    SEED = "seed", "seed"
+    MERGE = "merge", "merge"
+
+
+class BaselineApprovalState(LabeledStrEnum):
+    """Where an approved baseline change of one pull request stands."""
+
+    OPEN = "open", "open"
+    PROMOTED = "promoted", "promoted"
+    # The merge-queue run did not reproduce the approved hash
+    VOIDED = "voided", "voided"
+    # The ledger baseline moved under the approval before it landed
+    CONFLICTED = "conflicted", "conflicted"
+    SUPERSEDED = "superseded", "superseded"
+    ABANDONED = "abandoned", "abandoned"
+
+
+class BaselineEvidence(LabeledStrEnum):
+    """Whether a full observe run off the default branch rendered an approved hash."""
+
+    REPRODUCED = "reproduced", "reproduced"
+    NOT_REPRODUCED = "not_reproduced", "not_reproduced"
+
+
 class ToleratedReason(StrEnum):
     """Why a hash was tolerated."""
 

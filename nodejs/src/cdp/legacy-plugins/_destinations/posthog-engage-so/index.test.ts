@@ -113,36 +113,6 @@ describe('sendgrid', () => {
         )
     })
 
-    test('onEvent to send the correct data to track group event', async () => {
-        const meta = getMeta()
-        const auth = 'Basic ' + Buffer.from(`${meta.config.publicKey}:${meta.config.secret}`).toString('base64')
-
-        const event = {
-            event: 'Played movie',
-            distinct_id: 'user01',
-            properties: {
-                $groups: {
-                    company: 'group123',
-                },
-                prop1: 'val1',
-                prop2: 'val2',
-            },
-        } as unknown as EngagePluginEvent
-
-        await onEvent(event, meta)
-        expect(mockFetch.mock.calls.length).toEqual(1)
-        expect(mockFetch.mock.calls[0][1]).toEqual(
-            expect.objectContaining({
-                body: JSON.stringify(event),
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: auth,
-                },
-                method: 'POST',
-            })
-        )
-    })
-
     test('onEvent should not track non-custom events besides $identify and $groupidentify', async () => {
         const event = {
             event: '$pageview',

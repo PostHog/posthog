@@ -15,15 +15,12 @@ interface OptionEntry {
 export interface ManifestEntry {
     name: string
     description: string
-    available: boolean
     arguments?: { name: string; description: string; required: boolean; variadic: boolean; stdin: boolean }[]
     options?: OptionEntry[]
     scopes?: readonly string[]
     // Set when the command fails in CI unless an agent runs it.
     refusesCI?: true
     examples?: readonly string[]
-    // The posthog-cli command to run instead, for commands hog doesn't have yet.
-    use?: string
 }
 
 function describeOptions(options: Readonly<Record<string, OptionSpec>>): OptionEntry[] {
@@ -43,15 +40,15 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
         const path = prefix ? `${prefix} ${name}` : name
         switch (node.kind) {
             case 'group':
-                return describeCommands(node.commands, path)
-            case 'legacy':
-                return [{ name: path, description: node.description, available: false, use: node.use }]
+                return [
+                    ...(node.guide ? describeCommands({ [name]: node.guide }, prefix) : []),
+                    ...describeCommands(node.commands, path),
+                ]
             case 'command':
                 return [
                     {
                         name: path,
                         description: node.description,
-                        available: true,
                         arguments: Object.entries(node.args ?? {}).map(([argName, spec]) => ({
                             name: kebabCase(argName),
                             description: spec.description,

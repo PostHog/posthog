@@ -5,11 +5,11 @@ import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Func, Q, QuerySet, Value
 from django.utils import timezone
 
 import pydantic
@@ -57,13 +57,16 @@ from products.signals.backend.anomaly_scores.search import (
     AnomalyHistoryFilters as AnomalyHistoryFilters,
     AnomalyInsightHistory as AnomalyInsightHistory,
     AnomalyInterval as AnomalyInterval,
+    AnomalyOrder as AnomalyOrder,
     AnomalySearchFilters as AnomalySearchFilters,
     AnomalySearchResult as AnomalySearchResult,
 )
 from products.signals.backend.artefact_schemas import (
+    SIGNALS_PRODUCT,
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
     TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
 )
 from products.signals.backend.briefing_reports import (
     IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
@@ -89,6 +92,7 @@ from products.signals.backend.inbox_summary import (
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
+    SignalReportSlackThread,
     SignalScoutConfig,
     SignalScoutRun,
     SignalSourceConfig,
@@ -163,6 +167,11 @@ ActivitySummaryProductKey = activity_summary_render.Product
 ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT = activity_summary_read.DEFAULT_VERSIONS_LIMIT
 ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT = activity_summary_search.DEFAULT_LIMIT
 ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT = activity_summary_search.MAX_LIMIT
+ACTIVITY_SUMMARY_SEARCH_MAX_OFFSET = activity_summary_search.MAX_OFFSET
+ActivitySummaryObjectFilter = activity_summary_search.ObjectFilter
+ActivitySummaryObjectRelation = activity_summary_search.ObjectRelation
+ActivitySummaryObjectSource = activity_summary_search.SummaryObjectRelation
+ACTIVITY_SUMMARY_SEARCH_MAX_ACTIVE_SINCE_DAYS = activity_summary_search.MAX_ACTIVE_SINCE_DAYS
 
 
 @frozen
@@ -287,20 +296,30 @@ def search_activity_summaries(
     team: Team,
     query: str | None,
     search_mode: SearchMode,
+    object_filter: ActivitySummaryObjectFilter | None,
     product: str | None,
+    mode: str | None,
+    active_since_days: int | None,
+    user_uuids: list[str],
     exclude_user_uuids: list[str],
     include_profile: bool,
     limit: int,
+    offset: int,
 ) -> ActivitySummarySearchResult | None:
-    """The project members whose activity summary matches `query`, or None when search is off for the team."""
+    """The project members whose activity summary matches `query` and every filter, or None when search is off for the team."""
     return search_summaries(
         team,
         query=query,
         search_mode=search_mode,
+        object_filter=object_filter,
         product=product,
+        mode=mode,
+        active_since_days=active_since_days,
+        user_uuids=user_uuids,
         exclude_user_uuids=exclude_user_uuids,
         include_profile=include_profile,
         limit=limit,
+        offset=offset,
     )
 
 
@@ -452,13 +471,124 @@ def validate_signal_input(
 
 def dismiss_report_from_slack(
     team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
-) -> bool:
+) -> Literal["changed", "unchanged", "refused"]:
     """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
     from products.signals.backend.report_actions import (
         suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def resolve_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> Literal["changed", "unchanged", "refused"]:
+    """Facade entrypoint for the Slack 'Mark resolved' button. See report_actions.resolve_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        resolve_report_from_slack as resolve_report_from_slack_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return resolve_report_from_slack_impl(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def remove_reviewer_from_slack(
+    team_id: int, report_id: str, *, user_id: int
+) -> Literal["removed", "not_reviewer", "failed"]:
+    """Facade entrypoint for the Slack 'Remove me' button. Takes the member off the report's suggested reviewers."""
+    from products.signals.backend.facade.reviewer_exclusions import (  # noqa: PLC0415 — avoids importing the views layer at facade import time
+        ReviewerWriteError,
+        remove_report_reviewer,
+    )
+
+    team = Team.objects.filter(id=team_id).first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return "failed"
+    try:
+        removed = remove_report_reviewer(
+            team=team, report_id=report_id, user=user, scoped_team_ids=None, was_impersonated=False
+        )
+    except ReviewerWriteError:
+        logger.warning("signals_remove_reviewer_from_slack_refused", report_id=report_id, team_id=team_id)
+        return "failed"
+    except Exception:
+        # The removal raises DRF's NotFound for a missing report, which this facade must not import.
+        logger.exception("signals_remove_reviewer_from_slack_failed", report_id=report_id, team_id=team_id)
+        return "failed"
+    return "removed" if removed else "not_reviewer"
+
+
+def report_slack_thread_pr_notified(
+    *, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str, pr_url: str
+) -> bool:
+    return (
+        SignalReportSlackThread.objects.for_team(team_id)
+        .filter(
+            slack_workspace_id=slack_workspace_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            notified_pr_urls__contains=[pr_url],
+        )
+        .exists()
+    )
+
+
+def mark_report_slack_thread_pr_notified(
+    *, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str, pr_url: str
+) -> None:
+    SignalReportSlackThread.objects.for_team(team_id).filter(
+        slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    ).exclude(notified_pr_urls__contains=[pr_url]).update(
+        notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append")
+    )
+
+
+def notify_implementation_prs_opened(
+    team_id: int, task_id: str, pr_urls: list[str], *, run_id: str | None = None
+) -> None:
+    from products.signals.backend.implementation_pr_notification_tasks import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+        deliver_implementation_pr_notifications,
+    )
+    from products.signals.backend.slack_report_threads import eligible_implementation_pr_urls  # noqa: PLC0415
+
+    try:
+        urls = eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=pr_urls)
+        if urls:
+            transaction.on_commit(
+                lambda: deliver_implementation_pr_notifications.delay(
+                    team_id=team_id, task_id=task_id, pr_urls=urls, run_id=run_id
+                )
+            )
+    except Exception:
+        logger.exception("signals_inbox_pr_notification_failed", team_id=team_id, task_id=task_id)
+
+
+def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
+    notify_implementation_prs_opened(team_id, task_id, [pr_url])
+
+
+def notify_report_slack_thread_created(team_id: int, report_id: str) -> None:
+    from products.signals.backend.models import (
+        SignalReport,  # noqa: PLC0415 - keeps model imports off the facade import path
+    )
+    from products.tasks.backend.facade.api import (
+        get_pull_requests_for_tasks,  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+    )
+
+    try:
+        task_ids = [
+            run.task_id
+            for run in SignalReport.associated_task_runs(
+                team_id=team_id, report_id=report_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+            )
+        ]
+        for task_id, pull_requests in get_pull_requests_for_tasks(team_id, task_ids).items():
+            for run_id in dict.fromkeys(pr.run_id for pr in pull_requests):
+                notify_implementation_prs_opened(
+                    team_id, task_id, [pr.url for pr in pull_requests if pr.run_id == run_id], run_id=run_id
+                )
+    except Exception:
+        logger.exception("signals_inbox_existing_pr_notification_failed", team_id=team_id, report_id=report_id)
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
@@ -484,8 +614,14 @@ def report_team_id_for_slack_thread(
     )
 
 
-def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
-    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+def record_slack_report_discussion(
+    *, team_id: int, report_id: str, task_id: str, user_id: int, question: str | None = None
+) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved.
+
+    `question` is kept on the action row rather than read back from the task, because a `task:write`
+    credential can rewrite the task's description. `report_discussions` returns it to the report's scout.
+    """
     from products.signals.backend.models import SignalReport, SignalReportAction
     from products.signals.backend.task_run_artefacts import record_report_task
 
@@ -496,6 +632,7 @@ def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str
         report_id=report_id,
         user_id=user_id,
         action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+        metadata={"task_id": task_id, "question": question} if question else None,
     )
 
 

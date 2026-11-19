@@ -122,7 +122,6 @@ dbt/dbt.py::get_rows
 deel/deel.py::_gross_to_net_items
 deepsource/deepsource.py::_fan_out_connection_rows
 deepsource/deepsource.py::_per_repository_object_rows
-deepsource/deepsource.py::_repositories_rows
 deepsource/deepsource.py::_root_connection_rows
 descope/descope.py::_user_history_rows
 dixa/dixa.py::_fan_out_rows
@@ -381,7 +380,6 @@ wordpress/wordpress.py::get_rows
 writesonic/writesonic.py::_iter_daily
 youtube_analytics/youtube_analytics.py::get_rows
 zendesk_sunshine/zendesk_sunshine.py::_object_records_incremental
-zenduty/zenduty.py::_paginate_fan_out
 zenduty/zenduty.py::_paginate_top_level
 zep/zep.py::_fan_out_message_rows
 zep/zep.py::_page_based_rows

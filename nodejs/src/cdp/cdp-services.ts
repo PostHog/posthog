@@ -1,9 +1,10 @@
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { limitNewConnectionsWith } from '~/common/utils/connection-rate-limiter'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -14,7 +15,13 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import {
+    CdpEventsDlqOutput,
+    CdpIntakeDlqOutput,
+    CdpIntakeRunOutput,
+    SesWebhooksOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -46,6 +53,10 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { SandboxEmailRuntime } from './services/messaging/sandbox/sandbox-email-runtime'
+import { SandboxEmailSendStep } from './services/messaging/sandbox/sandbox-email-step'
+import { SandboxEmailTester } from './services/messaging/sandbox/sandbox-email-tester'
+import { deliveredAddressReader } from './services/messaging/sandbox/sandbox-render'
 import {
     HogFunctionMonitoringService,
     parseInternalLogsSources,
@@ -71,6 +82,8 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | CdpIntakeDlqOutput
+    | CdpIntakeRunOutput
     | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -177,6 +190,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'WORKFLOWS_SANDBOX_SENDER_ENABLED'
+        | 'WORKFLOWS_SANDBOX_EMAIL_TEST_URL'
+        | 'WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET'
         | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
@@ -198,6 +213,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -224,6 +240,12 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_INTAKE_DLQ_TOPIC'
+        | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
+        | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
+        | 'CDP_INTAKE_PRODUCER'
+        | 'CDP_INTAKE_MSK_PRODUCER'
+        | 'CDP_INTAKE_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
     > &
@@ -235,6 +257,7 @@ export interface CdpCoreServicesDeps {
     encryptedFields: EncryptedFields
     teamManager: TeamManager
     personRepository: PersonReadRepository
+    consistentPersonReader?: ConsistentPersonReader
     integrationManager: IntegrationManagerService
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
@@ -252,6 +275,7 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
+    sandboxEmail?: SandboxEmailRuntime | null
 }
 
 /**
@@ -426,6 +450,7 @@ export function createCdpCoreServices(
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+    limitNewConnectionsWith(redis)
 
     // Every CDP process funnels through here, so this is the one place the per-feature read
     // source has to be applied for `dualRead` / `dualWrite` to see it.
@@ -479,8 +504,13 @@ export function createCdpCoreServices(
         softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
-    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager)
+    const personsManager = new PersonsManagerService(
+        deps.teamManager,
+        deps.personRepository,
+        config.SITE_URL,
+        deps.consistentPersonReader
+    )
+    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager, deps.postgres)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     // cdp-api also gets the pool, but its sends are all test sends, which skip both limits.
@@ -505,6 +535,7 @@ export function createCdpCoreServices(
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
+            templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -535,6 +566,7 @@ export function createCdpCoreServices(
         // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
         personsManager,
+        workflowsActivationReporter,
         messageAssetsService
     )
 
@@ -595,6 +627,7 @@ export function createCdpCoreServices(
         createUsageIngestionClient(config, 'cdp'),
         usageReportTeamMatcher(config)
     )
+    const sandboxDeliveredAddress = deliveredAddressReader(deps.postgres)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
@@ -606,7 +639,31 @@ export function createCdpCoreServices(
         cdpUsageReporter,
         {
             awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED,
-            sandboxEmail: { enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED },
+            sandboxEmail: {
+                enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                send: deps.sandboxEmail
+                    ? new SandboxEmailSendStep({
+                          service: deps.sandboxEmail.service,
+                          events: deps.sandboxEmail.events,
+                          hogInputsService,
+                          deliveredAddress: sandboxDeliveredAddress,
+                          siteUrl: config.SITE_URL,
+                          recipientPreferences: recipientPreferencesService,
+                          teamWorkflowsConfig: teamWorkflowsConfigService,
+                          sesBucket: deps.sandboxEmail.sesBucket,
+                      })
+                    : null,
+                testClient: new SandboxEmailTester({
+                    hogInputsService,
+                    deliveredAddress: sandboxDeliveredAddress,
+                    siteUrl: config.SITE_URL,
+                    endpoint: config.WORKFLOWS_SANDBOX_EMAIL_TEST_URL,
+                    jwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST,
+                        config.WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET
+                    ),
+                }),
+            },
         }
     )
 

@@ -68,7 +68,10 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckCitation
+                              |AEOCheckSearch
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
@@ -98,6 +101,9 @@ rules:
                               |AutoresearchRun
                               |AutoresearchSuggestion
                               |AutoresearchTrainingRun
+                              |BaselineApproval
+                              |BaselineCommit
+                              |BaselineEntry
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -122,8 +128,10 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
@@ -202,6 +210,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
                               |ErrorTrackingIssueTag
+                              |ErrorTrackingIssueTagRule
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -257,6 +266,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowBatchJobAudienceMember
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -273,10 +283,12 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeKeyLibrary
                               |KnowledgeLearningRun
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
+                              |KnowledgeRunCitation
                               |KnowledgeSource
                               |KnowledgeUsageRecord
                               |PlaygroundChat
@@ -287,6 +299,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSigningSecret
                               |LogsView
                               |Loop
                               |LoopFire
@@ -311,19 +324,24 @@ rules:
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
+                              |MembershipCleanupCandidate
+                              |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
                               |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
+                              |MCPAnalyticsWrapped
                               |MCPAuditEvent
                               |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPMeasuredStats
+                              |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -363,7 +381,10 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |RecommendationResolution
                               |Release
+                              |ReleaseImportState
+                              |ReleaseAutoLinkedFlag
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -398,6 +419,7 @@ rules:
                               |SandboxSession
                               |ResourceLink
                               |ScoreDefinition
+                              |ScoreDefinitionInput
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
@@ -410,6 +432,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalGroupingRecord
                               |SignalFirstReportNotification
                               |SignalRatedUsage
                               |SignalReport
@@ -431,6 +454,7 @@ rules:
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalSourceFilterState
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
@@ -480,6 +504,8 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |AgentEgressRegistration
+                              |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -504,6 +530,8 @@ rules:
                               |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
+                              |IntercomImportJob
+                              |PylonImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -630,6 +658,9 @@ rules:
                         |AutoresearchRun
                         |AutoresearchSuggestion
                         |AutoresearchTrainingRun
+                        |BaselineApproval
+                        |BaselineCommit
+                        |BaselineEntry
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
@@ -654,8 +685,10 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
@@ -734,6 +767,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
                         |ErrorTrackingIssueTag
+                        |ErrorTrackingIssueTagRule
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -786,6 +820,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowBatchJobAudienceMember
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -802,10 +837,12 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeKeyLibrary
                         |KnowledgeLearningRun
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
+                        |KnowledgeRunCitation
                         |KnowledgeSource
                         |KnowledgeUsageRecord
                         |PlaygroundChat
@@ -835,16 +872,21 @@ rules:
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
+                        |MembershipCleanupCandidate
+                        |MembershipCleanupScan
                         |Metric
                         |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
+                        |MCPAnalyticsWrapped
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule
                         |MCPServiceAccount
@@ -884,7 +926,10 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RecommendationResolution
                         |Release
+                        |ReleaseImportState
+                        |ReleaseAutoLinkedFlag
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation
@@ -919,6 +964,7 @@ rules:
                         |SandboxSession
                         |ResourceLink
                         |ScoreDefinition
+                        |ScoreDefinitionInput
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
@@ -931,6 +977,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalGroupingRecord
                         |SignalFirstReportNotification
                         |SignalRatedUsage
                         |SignalReport
@@ -952,6 +999,7 @@ rules:
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalSourceFilterState
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
@@ -1001,6 +1049,8 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |AgentEgressRegistration
+                        |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -1024,6 +1074,8 @@ rules:
                         |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
+                        |IntercomImportJob
+                        |PylonImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
@@ -1131,6 +1183,7 @@ rules:
                         AccessControl
                         |ActivityLog
                         |AgentArtifact
+                        |AgentEgressRegistration
                         |AgentMemory
                         |AITrainingDeletionRequest
                         |Alert
@@ -1194,6 +1247,9 @@ rules:
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Evaluation
                         |EvaluationConfig
                         |EvaluationContext
@@ -1248,6 +1304,7 @@ rules:
                         |LogsAlertConfiguration
                         |LogsExclusionRule
                         |LogsRetentionRule
+                        |LogsSigningSecret
                         |LogsView
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot
@@ -1636,6 +1693,7 @@ rules:
                               AccountAuditCredential
                               |CommunitySkillVote
                               |GitHubInstallRequest
+                              |IdentityProviderEmailVerification
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1693,6 +1751,7 @@ rules:
                         AccountAuditCredential
                         |CommunitySkillVote
                         |GitHubInstallRequest
+                        |IdentityProviderEmailVerification
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

@@ -1,6 +1,7 @@
 import json
 import uuid
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
 import time_machine
@@ -22,10 +23,17 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
 
+from products.aeo.backend import brand, catalog
+from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
-from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, create_keywords, get_prompt_set_overview
+from products.aeo.backend.facade.api import (
+    RECOMPUTE_DEBOUNCE_SECONDS,
+    create_keywords,
+    get_prompt_set_overview,
+    refresh_stored_results,
+)
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
-from products.aeo.backend.test.factories import create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
 
 class TestAEOPromptAPI(APIBaseTest):
@@ -51,7 +59,11 @@ class TestAEOPromptAPI(APIBaseTest):
         answer_text: str | None = None,
         cited_urls: list[str] | None = None,
         search_queries: list[str] | None = None,
+        mode: str = "web_search",
+        names_brand: bool | None = None,
     ) -> str:
+        if names_brand is None and not check_failed:
+            names_brand = brand.names_brand(answer_text, catalog.own_domains(self.team.pk))
         with team_scope(self.team.pk):
             prompt = AEOPrompt.objects.get(id=prompt_id)
             check = AEOCitationCheck.objects.create(
@@ -65,10 +77,12 @@ class TestAEOPromptAPI(APIBaseTest):
                 prompt_version=prompt.current_version,
                 engine=engine,
                 model=engine,
+                mode=mode,
                 cited=cited,
                 target_best_position=position,
                 check_failed=check_failed,
                 answer_text=answer_text,
+                names_brand=names_brand,
                 cited_urls=cited_urls or [],
                 top_cited_domains=top_domains(cited_urls or []),
                 search_queries=search_queries or [],
@@ -76,6 +90,7 @@ class TestAEOPromptAPI(APIBaseTest):
             AEOCitationCheck.objects.filter(id=check.id).update(
                 created_at=timezone.now() - dt.timedelta(minutes=minutes_ago)
             )
+        store_what_the_runner_stores(check.id)
         return str(check.id)
 
     def _import_one_prompt(self) -> str:
@@ -351,6 +366,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.json() == [{"topic": "", "prompts": 1}, {"topic": "Replay", "prompts": 2}]
 
     def test_list_returns_the_latest_check_per_engine(self) -> None:
+        create_own_brand(self.team, "example.com")
         prompts = [{"prompt": "checked?", "topic": "a"}, {"prompt": "never checked?", "topic": "b"}]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
         ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
@@ -361,13 +377,19 @@ class TestAEOPromptAPI(APIBaseTest):
         )
         self._record_check(checked_id, "claude-web-search", minutes_ago=90, check_failed=True)
         self._record_check(checked_id, "claude-web-search", minutes_ago=30, cited=True, position=2)
+        self._record_check(
+            checked_id, "claude-no-search", minutes_ago=1, mode="no_search", answer_text="Example, from memory."
+        )
 
         listed = {row["prompt"]: row for row in self.client.get(self.url).json()["results"]}
         retrieved = self.client.get(f"{self.url}{checked_id}/").json()
 
         for row in (listed["checked?"], retrieved):
             latest = {check["engine"]: check for check in row["latest_checks"]}
-            assert len(row["latest_checks"]) == 2
+            assert len(row["latest_checks"]) == 3
+            # A no-search engine never cites, so its column reads the mention instead.
+            no_search = latest["claude-no-search"]
+            assert (no_search["mode"], no_search["cited"], no_search["mentioned"]) == ("no_search", False, True)
             assert (latest["exa-answer"]["cited"], latest["exa-answer"]["check_failed"]) == (False, False)
             assert (latest["claude-web-search"]["cited"], latest["claude-web-search"]["check_failed"]) == (True, False)
             assert (
@@ -375,10 +397,23 @@ class TestAEOPromptAPI(APIBaseTest):
                 latest["claude-web-search"]["target_best_position"],
             ) == (None, 2)
             assert latest["exa-answer"]["search_queries"] == ["checked 2026", "checked review"]
+            # An answer with no text reads as not mentioned, never null.
+            assert latest["exa-answer"]["mentioned"] is False
             assert latest["claude-web-search"]["search_queries"] == []
         assert listed["never checked?"]["latest_checks"] == []
 
-    def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(self) -> None:
+    @parameterized.expand(
+        [
+            ("defaults", {}, ["cited long ago?", "edited again?", "never cited?"]),
+            # claude-web-search cites "cited?", but exa-answer never does.
+            ("one_engine", {"engine": "exa-answer"}, ["cited long ago?", "cited?", "edited again?", "never cited?"]),
+            # The window reaches the citation of 40 days ago.
+            ("longer_window", {"days": "60"}, ["edited again?", "never cited?"]),
+        ]
+    )
+    def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(
+        self, _name: str, query: dict[str, str], expected: list[str]
+    ) -> None:
         texts = ["cited?", "never cited?", "only failed?", "cited long ago?", "never checked?"]
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": t} for t in texts]}, format="json")
         ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
@@ -388,6 +423,7 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["only failed?"], "exa-answer", minutes_ago=10, check_failed=True)
         self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=60 * 24 * 40, cited=True)
         self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=10, cited=False)
+        self._record_check(ids["never checked?"], "claude-no-search", minutes_ago=10, mode="no_search")
         # A citation on the old wording must not hide a current wording that no engine cites.
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "edited?"}]}, format="json")
         edited_id = next(row["id"] for row in self.client.get(self.url).json()["results"] if row["prompt"] == "edited?")
@@ -395,14 +431,10 @@ class TestAEOPromptAPI(APIBaseTest):
         self.client.patch(f"{self.url}{edited_id}/", {"prompt": "edited again?"}, format="json")
         self._record_check(edited_id, "exa-answer", minutes_ago=10, cited=False)
 
-        response = self.client.get(self.url, {"needs_improvement": "true"}).json()
+        response = self.client.get(self.url, {"needs_improvement": "true", **query}).json()
 
-        assert sorted(row["prompt"] for row in response["results"]) == [
-            "cited long ago?",
-            "edited again?",
-            "never cited?",
-        ]
-        assert response["count"] == 3
+        assert sorted(row["prompt"] for row in response["results"]) == expected
+        assert response["count"] == len(expected)
 
     @parameterized.expand(
         [
@@ -451,6 +483,67 @@ class TestAEOPromptAPI(APIBaseTest):
             self.client.get(f"{self.url}?limit=4")
 
         assert len(four_prompts.captured_queries) == len(one_prompt.captured_queries)
+
+    @parameterized.expand([("overview", "overview/"), ("rankings", "rankings/")])
+    def test_a_repeated_set_level_read_runs_no_check_queries_until_the_data_changes(
+        self, _name: str, path: str
+    ) -> None:
+        create_own_brand(self.team, "example.com")
+        prompt_id = self._import_one_prompt()
+        self._record_check(prompt_id, "exa-answer", minutes_ago=30, cited_urls=["https://rival.io/a"])
+        first = self.client.get(f"{self.url}{path}").json()
+
+        with CaptureQueriesContext(connection) as repeated:
+            again = self.client.get(f"{self.url}{path}").json()
+        with self.captureOnCommitCallbacks(execute=True):
+            self._record_check(prompt_id, "exa-answer", minutes_ago=10, cited_urls=["https://rival.io/b"])
+        after_write = self.client.get(f"{self.url}{path}").json()
+
+        assert again == first
+        assert [q["sql"] for q in repeated.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
+        answers = "answers" if path == "rankings/" else None
+        assert (after_write[answers] if answers else after_write["current"]["checks"]) == 2
+
+    def test_refresh_stores_the_views_the_page_opens_on(self) -> None:
+        create_own_brand(self.team, "example.com")
+        self._record_check(self._import_one_prompt(), "exa-answer", minutes_ago=30)
+
+        refresh_stored_results(self.team.id, timezone_name=self.team.timezone)
+
+        with CaptureQueriesContext(connection) as queries:
+            overview = self.client.get(f"{self.url}overview/").json()
+            self.client.get(f"{self.url}rankings/")
+        assert overview["current"]["checks"] == 1
+        assert [q["sql"] for q in queries.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
+
+    @parameterized.expand(
+        [
+            ("prompt_list", "", ["answer_text"]),
+            (
+                "overview",
+                "overview/",
+                ["answer_text", "prompt_text", "search_queries", "cited_urls", "top_cited_domains"],
+            ),
+        ]
+    )
+    def test_set_level_reads_never_load_the_wide_columns(self, _name: str, path: str, wide_columns: list[str]) -> None:
+        create_own_brand(self.team, "example.com")
+        self._record_check(
+            self._import_one_prompt(),
+            "exa-answer",
+            minutes_ago=1,
+            answer_text="Try Example.",
+            cited_urls=["https://rival.io/a"],
+            search_queries=["best tool"],
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"{self.url}{path}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [
+            query["sql"] for query in queries.captured_queries if any(column in query["sql"] for column in wide_columns)
+        ] == []
 
     @parameterized.expand([("all_engines", "", ["c", "b", "a"]), ("one_engine", "&engine=exa-answer", ["c", "a"])])
     def test_checks_list_history_newest_first_in_pages(self, _name: str, filters: str, expected: list[str]) -> None:
@@ -550,6 +643,7 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_stats_count_checks_per_engine_and_per_day(self) -> None:
+        create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
         day = 24 * 60
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, cited=True, position=1)
@@ -557,14 +651,15 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(prompt_id, "exa-answer", minutes_ago=day, check_failed=True)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=2 * day, cited=True, position=3)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=40 * day)
-
-        create_own_brand(self.team, "example.com")
+        self._record_check(
+            prompt_id, "claude-no-search", minutes_ago=30, mode="no_search", answer_text="Example is a good pick."
+        )
 
         response = self.client.get(f"{self.url}{prompt_id}/stats/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         stats = response.json()
-        assert stats["total_checks"] == 5
+        assert stats["total_checks"] == 6
         assert (stats["daily_from"], stats["daily_to"]) == ("2026-09-21", "2026-10-20")
         engines = {
             row["engine"]: (
@@ -577,23 +672,31 @@ class TestAEOPromptAPI(APIBaseTest):
             )
             for row in stats["engines"]
         }
-        assert engines == {"claude-web-search": (2, 1, 1, 0, 0.5, 0.5), "exa-answer": (3, 1, 2, 1, 0.5, 1.0)}
+        assert engines == {
+            "claude-no-search": (1, 0, 1, 0, 0.0, 1.0),
+            "claude-web-search": (2, 1, 1, 0, 0.5, 0.5),
+            "exa-answer": (3, 1, 2, 1, 0.5, 1.0),
+        }
         assert [
             (row["date"], row["engine"], row["checks"], row["cited"], row["mentioned"], row["failed"])
             for row in stats["daily"]
         ] == [
             ("2026-10-18", "claude-web-search", 1, 1, 1, 0),
             ("2026-10-19", "exa-answer", 1, 0, 0, 1),
+            ("2026-10-20", "claude-no-search", 1, 0, 1, 0),
             ("2026-10-20", "exa-answer", 2, 1, 2, 0),
         ]
         assert {row["engine"]: row["avg_position"] for row in stats["engines"]} == {
+            "claude-no-search": None,
             "claude-web-search": 3.0,
             "exa-answer": 1.0,
         }
-        assert [row["avg_position"] for row in stats["daily"]] == [3.0, None, 1.0]
+        assert [row["avg_position"] for row in stats["daily"]] == [3.0, None, None, 1.0]
         assert stats["brand_names"] == ["example"]
+        # Consensus and search words read web-search answers only, so the no-search answer adds nothing.
         assert (stats["consensus"], stats["top_words"]) == ([], [])
         assert [(row["engine"], row["unscored"]) for row in stats["sentiment"]] == [
+            ("claude-no-search", 1),
             ("claude-web-search", 1),
             ("exa-answer", 2),
         ]
@@ -604,16 +707,17 @@ class TestAEOPromptAPI(APIBaseTest):
             ("brand_case_ignored", {"answer_text": "EXAMPLE ships session replay."}, 1),
             ("brand_inside_another_word", {"answer_text": "Counterexample: nothing fits."}, 0),
             ("cited_without_the_name_in_the_text", {"cited": True, "answer_text": "See [1]."}, 1),
+            ("stored_flag_set", {"names_brand": True, "answer_text": "Nothing about the brand."}, 1),
+            ("stored_flag_decides_over_the_text", {"names_brand": False, "answer_text": "Try Example."}, 0),
             ("failed_check", {"check_failed": True}, 0),
         ]
     )
     def test_stats_count_a_mention_when_the_answer_names_the_brand(
         self, _name: str, check: dict, expected_mentioned: int
     ) -> None:
+        create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, **check)
-
-        create_own_brand(self.team, "example.com")
 
         stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
 
@@ -621,6 +725,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [row["mentioned"] for row in stats["daily"]] == [expected_mentioned]
 
     def test_stats_count_brand_sentiment_per_engine_and_checks_expose_it(self) -> None:
+        create_own_brand(self.team, "example.com")
         prompt_id = self._import_one_prompt()
         scored = self._record_check(prompt_id, "exa-answer", minutes_ago=10, answer_text="Example is great.")
         self._record_check(prompt_id, "exa-answer", minutes_ago=20, answer_text="Example is slow.")
@@ -631,8 +736,9 @@ class TestAEOPromptAPI(APIBaseTest):
                 AEOCitationCheck.objects.filter(answer_text__contains=text).update(
                     brand_sentiment=label, brand_sentiment_score=score
                 )
-
-        create_own_brand(self.team, "example.com")
+            AEOCitationCheck.objects.filter(id=scored).update(
+                brand_sentiment_sentences=[{"start": 0, "end": 17, "label": "positive", "score": 0.9}]
+            )
 
         stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
         checks = self.client.get(f"{self.url}{prompt_id}/checks/?engine=exa-answer").json()["results"]
@@ -646,6 +752,11 @@ class TestAEOPromptAPI(APIBaseTest):
             **{check["id"]: (check["brand_sentiment"], check["brand_sentiment_score"]) for check in checks[1:]},
         }
         assert [check["brand_sentiment"] for check in checks] == ["positive", "negative", None]
+        assert [check["brand_sentiment_sentences"] for check in checks] == [
+            [{"start": 0, "end": 17, "label": "positive", "score": 0.9}],
+            [],
+            [],
+        ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_stats_rank_engine_consensus_and_search_words_over_the_window(self) -> None:
@@ -704,8 +815,31 @@ class TestAEOPromptAPI(APIBaseTest):
             ("startups", 1),
         ]
 
+    def test_engine_settings_start_from_defaults_and_drive_the_run_schedule(self) -> None:
+        engines_url = f"/api/projects/{self.team.id}/aeo_engines/"
+        with patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ):
+            listed = self.client.get(engines_url).json()
+            updated = self.client.patch(
+                f"{engines_url}claude-no-search/", {"enabled": True, "frequency": "weekly"}, format="json"
+            )
+            unknown = self.client.patch(f"{engines_url}not-an-engine/", {"enabled": True}, format="json")
+            schedule = engine_schedule(self.team.id)
+
+        defaults = {row["engine"]: (row["mode"], row["enabled"], row["frequency"]) for row in listed}
+        assert defaults["claude-web-search"] == ("web_search", True, "daily")
+        assert defaults["claude-no-search"] == ("no_search", False, "daily")
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert (updated.json()["enabled"], updated.json()["frequency"]) == (True, "weekly")
+        assert unknown.status_code == status.HTTP_404_NOT_FOUND
+        assert [engine.name for engine in schedule.weekly] == ["claude-no-search"]
+        assert "claude-no-search" not in [engine.name for engine in schedule.daily]
+
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_overview_counts_the_set_per_window_engine_and_topic(self) -> None:
+        create_own_brand(self.team, "example.com")
         ids = self._import_prompts(
             [
                 {"prompt": "funnels?", "topic": "Analytics"},
@@ -758,8 +892,24 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=35 * day, search_queries=["funnel tools"])
         self._record_check(ids["replay?"], "exa-answer", minutes_ago=40 * day, cited=True, position=4)
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=70 * day, cited=True)
-
-        create_own_brand(self.team, "example.com")
+        # No-search answers never count toward the overview: every number below reads web-search checks only.
+        no_search: list[tuple[str, str, int, str | None, bool]] = [
+            ("funnels?", "claude-no-search", 20, "Example has funnels.", False),
+            ("retention?", "claude-no-search", day, "Example tracks retention.", False),
+            ("surveys?", "claude-no-search", day, "Try a survey tool.", False),
+            ("surveys?", "claude-no-search", 2 * day, None, True),
+            ("funnels?", "openai-no-search", 30, "Example, among others.", False),
+            ("replay?", "claude-no-search", 40 * day, "Example records sessions.", False),
+        ]
+        for prompt, engine, minutes_ago, answer_text, failed in no_search:
+            self._record_check(
+                ids[prompt],
+                engine,
+                minutes_ago=minutes_ago,
+                answer_text=answer_text,
+                check_failed=failed,
+                mode="no_search",
+            )
 
         response = self.client.get(f"{self.url}overview/")
 
@@ -779,6 +929,16 @@ class TestAEOPromptAPI(APIBaseTest):
             "citation_rate": 0.5,
             "mention_rate": 0.75,
         }
+        assert [
+            (row["date"], row["engine"], row["checks"], row["cited"], row["mentioned"], row["failed"])
+            for row in overview["daily"]
+        ] == [
+            ("2026-10-17", "exa-answer", 1, 1, 1, 0),
+            ("2026-10-18", "claude-web-search", 1, 0, 0, 0),
+            ("2026-10-19", "exa-answer", 1, 0, 1, 0),
+            ("2026-10-20", "claude-web-search", 1, 1, 1, 0),
+            ("2026-10-20", "openai-web-search", 1, 0, 0, 1),
+        ]
         assert overview["previous"] == {
             "checks": 2,
             "failed": 0,
@@ -940,6 +1100,7 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True, cited_urls=["https://rival.io/x"]
         )
         self._record_check(ids["replay?"], "claude-web-search", minutes_ago=35 * day, answer_text="Example.")
+        self._record_check(ids["replay?"], "claude-web-search", minutes_ago=day, answer_text="Rival.", mode="no_search")
         # Written after the request's snapshot instant, so no count may include it.
         self._record_check(
             ids["replay?"], "exa-answer", minutes_ago=-5, answer_text="Late.", cited_urls=["https://late.example.net/x"]
@@ -1044,6 +1205,8 @@ class TestAEOPromptAPI(APIBaseTest):
         expected_searches: list[str],
         expected_rankings: tuple[int, list[str]],
     ) -> None:
+        for domain in target_domains:
+            create_own_brand(self.team, domain)
         ids = self._import_prompts(
             [
                 {"prompt": "is example good for funnels?"},
@@ -1082,13 +1245,17 @@ class TestAEOPromptAPI(APIBaseTest):
         )
         self._record_check(ids["best funnel tools?"], "exa-answer", minutes_ago=35 * 24 * 60, answer_text="None.")
 
-        for domain in target_domains:
-            create_own_brand(self.team, domain)
         overview = self.client.get(f"{self.url}overview/", {"branded": branded}).json()
         rankings = self.client.get(f"{self.url}rankings/", {"branded": branded}).json()
 
         current, previous = overview["current"], overview["previous"]
         assert overview["branded"] == rankings["branded"] == branded
+        assert (overview["engine"], overview["topic"], rankings["engine"], rankings["topic"]) == (
+            None,
+            None,
+            None,
+            None,
+        )
         assert (
             current["checks"],
             current["failed"],
@@ -1104,11 +1271,155 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [row["query"] for row in overview["top_searches"]] == expected_searches
         assert (rankings["answers"], sorted(row["url"] for row in rankings["top_pages"])) == expected_rankings
 
-    def test_overview_rejects_an_unknown_branded_value(self) -> None:
-        assert self.client.get(f"{self.url}overview/?branded=yes").status_code == status.HTTP_400_BAD_REQUEST
+    @parameterized.expand(
+        [
+            ("every_check", {}, (3, 3), ["claude-web-search", "exa-answer"], ["", "Pricing", "Replay"], 2),
+            ("one_engine", {"engine": "exa-answer"}, (1, 3), ["exa-answer"], ["", "Pricing", "Replay"], 1),
+            ("one_topic", {"topic": "Pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
+            ("no_topic", {"topic": ""}, (1, 1), ["exa-answer"], [""], 1),
+            ("unknown_engine", {"engine": "nope"}, (0, 3), [], ["", "Pricing", "Replay"], 0),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_overview_and_rankings_narrow_to_one_engine_or_topic(
+        self,
+        _name: str,
+        query: dict[str, str],
+        expected_counts: tuple[int, int],
+        expected_engines: list[str],
+        expected_topics: list[str],
+        expected_cited_pages: int,
+    ) -> None:
+        ids = self._import_prompts(
+            [
+                {"prompt": "pricing?", "topic": "Pricing"},
+                {"prompt": "replay?", "topic": "Replay"},
+                {"prompt": "anything?"},
+            ]
+        )
+        ours = "https://example.com/pricing"
+        self._record_check(ids["pricing?"], "claude-web-search", minutes_ago=10, cited=True, cited_urls=[ours])
+        self._record_check(ids["replay?"], "claude-web-search", minutes_ago=10)
+        self._record_check(ids["anything?"], "exa-answer", minutes_ago=10, cited=True, cited_urls=[ours])
+        create_own_brand(self.team, "example.com")
 
-    def test_overview_rejects_a_window_outside_the_bounds(self) -> None:
-        assert self.client.get(f"{self.url}overview/?days=0").status_code == status.HTTP_400_BAD_REQUEST
+        overview = self.client.get(f"{self.url}overview/", query).json()
+        rankings = self.client.get(f"{self.url}rankings/", query).json()
+
+        assert (overview["current"]["checks"], overview["prompts_tracked"]) == expected_counts
+        assert [row["engine"] for row in overview["engines"]] == expected_engines
+        assert [row["topic"] for row in overview["topics"]] == expected_topics
+        assert sum(row["answers"] for row in overview["top_domains"]) == expected_cited_pages
+        assert rankings["answers"] == expected_counts[0]
+        assert sum(row["answers"] for row in rankings["top_pages"]) == expected_cited_pages
+        assert (overview["engine"], overview["topic"]) == (query.get("engine"), query.get("topic"))
+        assert (rankings["engine"], rankings["topic"]) == (query.get("engine"), query.get("topic"))
+
+    @parameterized.expand(
+        [
+            ("unknown_branded", "overview", "branded=yes"),
+            ("window_below_bounds", "overview", "days=0"),
+            ("window_above_bounds", "rankings", "days=91"),
+            ("engine_too_long", "overview", f"engine={'e' * 65}"),
+            ("topic_too_long", "rankings", f"topic={'t' * 201}"),
+            ("needs_improvement_window_above_bounds", "", "needs_improvement=true&days=91"),
+        ]
+    )
+    def test_set_reads_reject_invalid_filters(self, _name: str, endpoint: str, query: str) -> None:
+        path = f"{self.url}{endpoint}/" if endpoint else self.url
+        assert self.client.get(f"{path}?{query}").status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("exact_url", "url=https://docs.example.com/funnels", ["best funnel tools?"]),
+            ("url_is_not_a_prefix", "url=https://docs.example.com/", []),
+            ("domain_matches_subdomains", "domain=Example.com", ["best funnel tools?"]),
+            ("host", "domain=docs.example.com", ["best funnel tools?"]),
+            ("domain_skips_lookalikes", "domain=notexample.com", ["is example good?"]),
+            ("longer_window", "domain=example.com&days=60", ["best funnel tools?", "best funnel tools?"]),
+            ("engine", "domain=example.com&engine=claude-web-search", []),
+            ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
+            ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
+            ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),
+            ("no_filter", "days=7", None),
+            ("two_filters", "url=https://example.com/&domain=example.com", None),
+        ]
+    )
+    def test_citations_list_the_answers_behind_a_page_site_or_search(
+        self, _name: str, query: str, expected: list[str] | None
+    ) -> None:
+        create_own_brand(self.team, "example.com")
+        ids = self._import_prompts([{"prompt": "best funnel tools?"}, {"prompt": "is example good?"}])
+        self._record_check(
+            ids["best funnel tools?"],
+            "exa-answer",
+            minutes_ago=10,
+            cited=True,
+            position=1,
+            cited_urls=["https://docs.example.com/funnels", "https://rival.example.org/x"],
+            search_queries=["Funnel  Tools"],
+        )
+        self._record_check(
+            ids["is example good?"],
+            "claude-web-search",
+            minutes_ago=20,
+            answer_text="Example is fine.",
+            cited_urls=["https://notexample.com/a"],
+            search_queries=["funnel tools pricing"],
+        )
+        self._record_check(
+            ids["best funnel tools?"], "exa-answer", minutes_ago=40 * 24 * 60, cited_urls=["https://example.com/"]
+        )
+        self._record_check(
+            ids["is example good?"], "exa-answer", minutes_ago=5, check_failed=True, search_queries=["funnel tools"]
+        )
+        self._record_check(
+            ids["is example good?"],
+            "claude-no-search",
+            minutes_ago=5,
+            mode="no_search",
+            cited_urls=["https://example.com/"],
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_check_id = create_citation_check(other_team, "other")
+        with team_scope(other_team.pk):
+            AEOCitationCheck.objects.filter(id=other_check_id).update(
+                cited_urls=["https://example.com/"], top_cited_domains=["example.com"], search_queries=["funnel tools"]
+            )
+
+        response = self.client.get(f"{self.url}citations/?{query}")
+
+        if expected is None:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            return
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["count"] == len(expected)
+        assert [row["prompt_text"] for row in body["results"]] == expected
+        for row in body["results"]:
+            assert row["prompt_id"] == ids[row["prompt_text"]]
+            assert row["answer_text"] is None
+
+    def test_citations_flag_mentions_and_return_answers_on_request(self) -> None:
+        create_own_brand(self.team, "example.com")
+        ids = self._import_prompts([{"prompt": "best replay tool?", "topic": "Replay"}])
+        for minutes_ago, answer in ((10, "Example does replay."), (20, "Rival does replay.")):
+            self._record_check(
+                ids["best replay tool?"],
+                "exa-answer",
+                minutes_ago=minutes_ago,
+                answer_text=answer,
+                cited_urls=["https://rival.example.org/replay"],
+            )
+
+        rows = self.client.get(
+            f"{self.url}citations/?domain=rival.example.org&include_answer_text=true&limit=1&offset=1"
+        ).json()
+
+        assert rows["count"] == 2
+        assert [(row["answer_text"], row["mentioned"], row["prompt_topic"]) for row in rows["results"]] == [
+            ("Rival does replay.", False, "Replay")
+        ]
 
     @parameterized.expand([("above_range", 140), ("not_a_number", "NaN"), ("infinite", "Infinity")])
     def test_bulk_import_rejects_invalid_visibility(self, _name: str, visibility: object) -> None:
@@ -1304,6 +1615,32 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert AEOBrand.objects.for_team(other_team.id).get(id=brand_id).status == "suggested"
 
+    def test_competitor_candidates_lists_brands_answers_name_and_cite(self) -> None:
+        ids = self._import_prompts([{"prompt": "which lighting tools?"}])
+        brand_id = self._brand(self.team, "lantern.example.org")
+        self._record_check(
+            ids["which lighting tools?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Lantern is a good pick.",
+            cited_urls=["https://lantern.example.org/pricing"],
+        )
+
+        url = f"/api/projects/{self.team.id}/aeo_brands/competitor_candidates/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == [
+            {
+                "brand_id": brand_id,
+                "name": "lantern",
+                "domain": "lantern.example.org",
+                "answers_naming": 1,
+                "answers_citing": 1,
+            }
+        ]
+        assert self.client.get(f"{url}?limit=0").status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("answer", True, "completed", ["Best session replay tool?"], 1),
@@ -1421,6 +1758,7 @@ class TestAEOKeywordAPI(APIBaseTest):
         position: int | None = None,
         check_failed: bool = False,
         days_ago: int = 0,
+        topic: str = "",
     ) -> None:
         with team_scope(self.team.pk):
             prompt = self._prompts.get(prompt_text)
@@ -1439,6 +1777,7 @@ class TestAEOKeywordAPI(APIBaseTest):
                 prompt_text=prompt_text,
                 prompt_source=prompt.prompt_source,
                 prompt_hash=prompt.prompt_hash,
+                prompt_topic=topic,
                 engine=engine,
                 model=engine,
                 cited=cited,
@@ -1450,6 +1789,7 @@ class TestAEOKeywordAPI(APIBaseTest):
             AEOCitationCheck.objects.filter(id=check.id).update(
                 created_at=timezone.now() - dt.timedelta(days=days_ago, minutes=5)
             )
+        store_what_the_runner_stores(check.id)
 
     def _keywords(self) -> list[str]:
         return [row["keyword"] for row in self.client.get(self.url).json()]
@@ -1644,6 +1984,54 @@ class TestAEOKeywordAPI(APIBaseTest):
         ]
         assert self_hosted["example_searches"] == ["self hosted analytics 2026", "self hosted analytics"]
 
+    @parameterized.expand(
+        [
+            ("every_answer", {}, 3, 3, ["claude-web-search", "exa-answer", "openai-web-search"]),
+            ("one_engine", {"engine": "exa-answer"}, 1, 1, ["exa-answer"]),
+            ("one_topic", {"topic": "Pricing"}, 2, 2, ["claude-web-search", "openai-web-search"]),
+            ("no_topic", {"topic": ""}, 1, 1, ["exa-answer"]),
+            ("branded", {"branded": "branded"}, 1, 1, ["claude-web-search"]),
+            ("non_branded", {"branded": "non_branded"}, 2, 2, ["exa-answer", "openai-web-search"]),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_report_and_modifiers_count_only_the_answers_in_scope(
+        self,
+        _name: str,
+        query: dict[str, str],
+        expected_answers: int,
+        expected_pricing_answers: int,
+        expected_engines: list[str],
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.client.post(self.url, {"keywords": ["pricing"]}, format="json")
+        create_own_brand(self.team, "example.com")
+        self._record("example costs?", engine="claude-web-search", searches=["example pricing"], topic="Pricing")
+        self._record("tool costs?", searches=["tool pricing"], topic="Pricing")
+        self._record("anything?", engine="exa-answer", searches=["anything pricing"])
+        # An unfiltered report first, so a filtered one served from its cache entry fails.
+        self.client.get(f"{self.url}report/")
+
+        report = self.client.get(f"{self.url}report/", query).json()
+        modifiers = self.client.get(f"{self.url}modifiers/", query).json()
+
+        pricing = next(row for row in report["keywords"] if row["keyword"] == "pricing")
+        assert (report["answers"], pricing["searched_checks"]) == (expected_answers, expected_pricing_answers)
+        assert modifiers["answers"] == expected_answers
+        pricing_modifier = next(row for row in modifiers["modifiers"] if row["term"] == "pricing")
+        assert sorted(row["engine"] for row in pricing_modifier["engines"]) == expected_engines
+
+    @parameterized.expand(
+        [
+            ("window_above_bounds", "report", "days=91"),
+            ("unknown_branded", "modifiers", "branded=yes"),
+            ("engine_too_long", "report", f"engine={'e' * 65}"),
+        ]
+    )
+    def test_report_endpoints_reject_invalid_filters(self, _name: str, endpoint: str, query: str) -> None:
+        assert self.client.get(f"{self.url}{endpoint}/?{query}").status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand([("report",), ("modifiers",)])
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_report_endpoints_are_throttled_for_the_session_authenticated_ui(
@@ -1656,3 +2044,65 @@ class TestAEOKeywordAPI(APIBaseTest):
             statuses = [self.client.get(f"{self.url}{endpoint}/").status_code for _ in range(3)]
 
         assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    @parameterized.expand(
+        [
+            ("answer", True, 1, status.HTTP_202_ACCEPTED, "completed", ["session replay"]),
+            ("timeout", True, 1, status.HTTP_202_ACCEPTED, "failed", []),
+            ("answer", False, 1, status.HTTP_403_FORBIDDEN, None, []),
+            ("answer", True, 200, status.HTTP_400_BAD_REQUEST, None, []),
+        ]
+    )
+    def test_suggest_runs_as_a_job_and_never_saves_keywords(
+        self,
+        outcome: str,
+        ai_approved: bool,
+        tracked: int,
+        start_status: int,
+        final_status: str | None,
+        expected: list[str],
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        create_keywords(self.team.id, ["pricing", *(f"keyword {i}" for i in range(tracked - 1))])
+        self._record("Best session replay tool?", searches=["session replay tools", "Session  replay pricing"])
+        answered = MagicMock(status_code=200)
+        answered.json.return_value = {
+            "stop_reason": "end_turn",
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        [
+                            {"keyword": "session replay", "reason": "Buyers search for it."},
+                            {"keyword": "Pricing", "reason": "Already tracked."},
+                        ]
+                    ),
+                }
+            ],
+        }
+        post = MagicMock(side_effect={"answer": [answered], "timeout": requests.Timeout()}[outcome])
+        gateway = MagicMock(url="http://gateway", api_key="test-key")
+
+        with (
+            patch("products.aeo.backend.keyword_suggestions.resolve_ai_gateway_config", return_value=gateway),
+            patch("products.aeo.backend.llm.requests.Session.post", post),
+        ):
+            started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
+
+        assert started.status_code == start_status, started.json()
+        assert AEOKeyword.objects.for_team(self.team.id).count() == tracked
+        if final_status is None:
+            assert post.call_count == 0
+            return
+        instructions = post.call_args.kwargs["json"]["messages"][0]["content"]
+        assert "- session replay pricing (1)" in instructions
+        assert "- Best session replay tool?" in instructions
+        job = self.client.get(f"{self.url}suggest/{started.json()['id']}/").json()
+        assert job["status"] == final_status
+        # Two of the check's searches contain the keyword, and the check counts once, as in the keyword report.
+        assert [(s["keyword"], s["searched_checks"]) for s in job["suggestions"]] == [(k, 1) for k in expected]
+
+    def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
+        response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

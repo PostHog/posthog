@@ -8,22 +8,22 @@ from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db.models import Count, IntegerField, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
 from dateutil.relativedelta import relativedelta
+from rest_framework import status
+from rest_framework.exceptions import APIException
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
-from products.replay_vision.backend.billing import (
-    ESTIMATE_MONTH_DAYS,
-    FREE_TIER_MONTHLY_CREDITS,
-    observation_credits_for_model,
-)
+from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -34,10 +34,15 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 
 logger = structlog.get_logger(__name__)
 
-# Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
-# limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
-# free-tier org.
-MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
+
+class BillingSyncPending(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "billing_sync_pending"
+    default_detail = "Your organization's billing details are still loading. Try again in a minute."
+
+
+# How long one requested billing sync covers an org before another read may request it again.
+BILLING_SYNC_REQUEST_TTL_SECONDS = 600
 
 
 def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
@@ -98,12 +103,15 @@ class QuotaState:
     credits_used: int
     period_start: datetime
     period_end: datetime
-    # Display-only: the slice of `credit_limit` that never bills; see FREE_TIER_MONTHLY_CREDITS.
-    free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
+    # The org's free credits this period: the slice of `credit_limit` that never bills, and the free-only scanners' cap.
+    # Billing's figure on org states (None when every credit is free); a scanner's own budget has none, hence the zero.
+    free_monthly_credits: int | None = 0
     # Posted to the receipt ledger; deletes cannot refund it.
     credits_settled: int = 0
     # Held by in-flight observations; released without a receipt on failure.
     credits_reserved: int = 0
+    # Billing has not synced this org yet, so it has no credits until the requested sync lands.
+    awaiting_billing_sync: bool = False
 
     @property
     def remaining(self) -> int | None:
@@ -308,12 +316,11 @@ class ScannerBudget(QuotaState):
         return self.other_ceiling_settled_blocked or replace(self, credits_used=self.credits_settled).blocked
 
     @property
-    def settled_block_from_free_credits(self) -> bool:
-        """Whether the org's free credits, rather than the scanner's own limit, are the ceiling posted spend fills."""
-        if replace(self, credits_used=self.credits_settled).blocked:
-            return self.free_credits_bound
-        # The other ceiling of a free-only scanner is the own limit when this one is the free credits, and back.
-        return self.other_ceiling_settled_blocked and not self.free_credits_bound
+    def free_credits_filled_by_settled_spend(self) -> bool:
+        """Whether posted spend fills the org's free credits for this free-only scanner, whichever of its ceilings binds."""
+        if self.free_credits_bound:
+            return replace(self, credits_used=self.credits_settled).blocked
+        return self.other_ceiling_settled_blocked
 
 
 def _scanner_in_flight_credits(
@@ -537,28 +544,77 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> BackfillCom
     )
 
 
-def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int | None]:
-    """(synced, limit): whether billing has synced this product, and the credit limit it synced (None = uncapped)."""
+@frozen
+class BillingAllowance:
+    # None means billing synced no spend limit.
+    credit_limit: int | None
+    # None means the free tier has no upper bound, so every credit is free.
+    free_credits: int | None
+
+
+def _unsynced_allowance_from_env() -> BillingAllowance | None:
+    credits = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", optional=True, type_cast=int)
+    return None if credits is None else BillingAllowance(credit_limit=credits, free_credits=credits)
+
+
+# Set only where no billing service runs (local dev, self-hosted), since cloud waits for the sync instead.
+UNSYNCED_ALLOWANCE = _unsynced_allowance_from_env()
+
+
+def _billing_allowance(organization: Organization | None) -> BillingAllowance | None:
+    """The limit and free credits billing synced for this product, or None until it has synced both."""
     if organization is None or not organization.usage:
-        return False, None
+        return None
     usage = organization.usage.get(USAGE_KEY)
     # Billing syncs `{}` for products it doesn't know about; only a summary that carries a
     # `limit` key (even a null one) means billing actually manages this product.
-    if not usage or "limit" not in usage:
-        return False, None
+    if not isinstance(usage, dict) or "limit" not in usage:
+        return None
+    if "free_tier_units" not in usage:
+        return None
+    free_tier_units = usage["free_tier_units"]
+    if free_tier_units is not None and (
+        not isinstance(free_tier_units, int) or isinstance(free_tier_units, bool) or free_tier_units < 0
+    ):
+        logger.warning(
+            "replay_vision.malformed_billing_free_tier_units",
+            organization_id=str(organization.id),
+            free_tier_units=repr(free_tier_units),
+        )
+        return None
     limit = usage.get("limit")
     if limit is None:
-        return True, None
+        return BillingAllowance(credit_limit=None, free_credits=free_tier_units)
     if isinstance(limit, (int, float)) and not isinstance(limit, bool):
         if limit < 0:
             # A negative limit would read as permanently over; clamp to a hard block instead.
             logger.warning(
                 "replay_vision.negative_billing_limit", organization_id=str(organization.id), limit=repr(limit)
             )
-        return True, max(0, int(limit))
-    # A malformed limit must fail toward the env cap, never toward uncapped.
+        return BillingAllowance(credit_limit=max(0, int(limit)), free_credits=free_tier_units)
+    # A malformed limit must read as unsynced, never as uncapped.
     logger.warning("replay_vision.malformed_billing_limit", organization_id=str(organization.id), limit=repr(limit))
-    return False, None
+    return None
+
+
+def _request_billing_sync(organization_id: UUID) -> None:
+    """Ask billing to sync this org, at most once per TTL, so a blocked unsynced org unblocks within seconds."""
+    if not is_cloud():
+        return
+    # posthog.tasks imports the usage report, which imports this module.
+    from posthog.tasks.sync_billing import sync_from_billing  # noqa: PLC0415
+
+    key = f"replay_vision:billing_sync_requested:{organization_id}"
+    try:
+        if cache.add(key, True, BILLING_SYNC_REQUEST_TTL_SECONDS):
+            try:
+                sync_from_billing.delay(str(organization_id))
+            except Exception:
+                # Free the slot so the next read retries the enqueue instead of waiting out the TTL.
+                cache.delete(key)
+                raise
+    except Exception:
+        logger.exception("replay_vision.billing_sync_request_failed", organization_id=str(organization_id))
 
 
 def _monthly_rate_to_period_credits(monthly_credits: float, period_end: datetime, now: datetime) -> int:
@@ -671,18 +727,31 @@ class OrgCreditCap:
 
     period: BillingPeriod
     credit_limit: int | None
+    # None means the free tier has no upper bound, so every credit is free.
+    free_credits: int | None
+    # Billing has not synced this org yet, so it has no credits until the requested sync lands.
+    awaiting_billing_sync: bool = False
 
 
-def _org_credit_limit(organization: Organization | None, organization_id: UUID) -> int | None:
-    synced, credit_limit = _billing_synced_limit(organization)
-    if not synced:
-        credit_limit = MONTHLY_CREDIT_QUOTA
+def _org_allowance(organization: Organization | None, organization_id: UUID) -> tuple[BillingAllowance, bool]:
+    """(allowance, awaiting_billing_sync): what billing synced, or nothing until it has, unless configured otherwise."""
+    allowance = _billing_allowance(organization)
+    awaiting_billing_sync = False
+    if allowance is None:
+        if UNSYNCED_ALLOWANCE is not None:
+            allowance = UNSYNCED_ALLOWANCE
+        else:
+            allowance = BillingAllowance(credit_limit=0, free_credits=0)
+            awaiting_billing_sync = True
+            if organization is not None:
+                _request_billing_sync(organization_id)
     # The tighter of billing's limit and the override, so a config mistake can only reduce credits;
     # this is how an internal org on an unlimited plan still gets a spend ceiling.
     override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
     if override is not None:
-        credit_limit = override if credit_limit is None else min(credit_limit, override)
-    return credit_limit
+        limit = allowance.credit_limit
+        allowance = replace(allowance, credit_limit=override if limit is None else min(limit, override))
+    return allowance, awaiting_billing_sync
 
 
 def org_credit_cap(organization_id: UUID) -> OrgCreditCap:
@@ -693,9 +762,12 @@ def org_credit_cap(organization_id: UUID) -> OrgCreditCap:
 
 def org_credit_cap_for(organization: Organization | None, organization_id: UUID) -> OrgCreditCap:
     """`org_credit_cap` for a caller that already loaded the org's `usage`."""
+    allowance, awaiting_billing_sync = _org_allowance(organization, organization_id)
     return OrgCreditCap(
         period=_current_period_bounds(organization, datetime.now(UTC)),
-        credit_limit=_org_credit_limit(organization, organization_id),
+        credit_limit=allowance.credit_limit,
+        free_credits=allowance.free_credits,
+        awaiting_billing_sync=awaiting_billing_sync,
     )
 
 
@@ -730,16 +802,43 @@ def quota_state_for_cap(organization_id: UUID, cap: OrgCreditCap) -> QuotaState:
         credits_used=consumed + reserved,
         period_start=period.start,
         period_end=period.end,
+        free_monthly_credits=cap.free_credits,
         credits_settled=consumed,
         credits_reserved=reserved,
+        awaiting_billing_sync=cap.awaiting_billing_sync,
     )
 
 
-def free_credits_ceiling(cap: OrgCreditCap) -> int:
+def _tighter_limit(a: int | None, b: int | None) -> int | None:
+    """The lower of two limits, where None means unlimited."""
+    limits = [limit for limit in (a, b) if limit is not None]
+    return min(limits) if limits else None
+
+
+def free_credits_ceiling(cap: OrgCreditCap) -> int | None:
     """The most a free-only scanner lets the org spend this period: the free credits, or less if billing caps lower."""
-    if cap.credit_limit is None:
-        return FREE_TIER_MONTHLY_CREDITS
-    return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
+    return _tighter_limit(cap.credit_limit, cap.free_credits)
+
+
+FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
+
+
+def free_credits_used_up(
+    organization_id: UUID, cap: OrgCreditCap | None = None, credits_per_observation: int = 1
+) -> bool:
+    """Whether a free-only scanner would stop before its first scan: one more observation won't fit the free credits.
+
+    Matches `ScannerBudget.blocked`, so the API never turns on a scanner the next sweep turns straight back off.
+    Raises `BillingSyncPending` while the org's free credits aren't known, rather than calling them used up.
+    """
+    cap = cap or org_credit_cap(organization_id)
+    if cap.awaiting_billing_sync:
+        raise BillingSyncPending()
+    ceiling = free_credits_ceiling(cap)
+    if ceiling is None:
+        return False
+    credits_used = quota_state_for_cap(organization_id, cap).credits_used
+    return credits_used + max(credits_per_observation, 1) > ceiling
 
 
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:
@@ -749,9 +848,7 @@ def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> Scanne
 
 def _free_credits_budget_from_state(state: QuotaState) -> ScannerBudget:
     return ScannerBudget(
-        credit_limit=FREE_TIER_MONTHLY_CREDITS
-        if state.credit_limit is None
-        else min(state.credit_limit, FREE_TIER_MONTHLY_CREDITS),
+        credit_limit=_tighter_limit(state.credit_limit, state.free_monthly_credits),
         credits_used=state.credits_used,
         period_start=state.period_start,
         period_end=state.period_end,
@@ -776,6 +873,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         free_monthly_credits=state.free_monthly_credits,
         credits_settled=state.credits_settled,
         credits_reserved=state.credits_reserved,
+        awaiting_billing_sync=state.awaiting_billing_sync,
         projected_monthly_credits=projection.total,
         scanners_monthly_credits=projection.scanners_monthly_credits,
         backfills_committed_credits=projection.backfills_committed_credits,

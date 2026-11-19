@@ -3,12 +3,20 @@ the workflow's fields from before and after the write."""
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Final, Optional, cast
+from typing import Any, Final, Literal, Optional, cast
 from uuid import UUID
 
 from django.db import models, transaction
 
-from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
+from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    ChangeAction,
+    Detail,
+    changes_between,
+    log_activity,
+)
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowActor, WorkflowSchedule
@@ -89,6 +97,38 @@ def log_workflow_schedule_activity(
     except Exception:
         # A failed audit write must not fail the change it describes.
         pass
+
+
+# `ActivityDetailEncoder` serializes a context through `__dict__`, which a slotted class leaves empty.
+@frozen(slots=False)
+class WorkflowBatchRunContext(ActivityContextBase):
+    batch_job_id: str
+    filters: dict[str, Any]
+
+
+def log_workflow_batch_run_activity(
+    *,
+    actor: WorkflowActor,
+    workflow_id: UUID,
+    name: Optional[str],
+    activity: Literal["batch_run_started", "batch_run_stopped"],
+    batch_job_id: UUID,
+    filters: dict[str, Any],
+) -> None:
+    """Log who started or stopped a batch run, with the audience filters the run sends to."""
+    log_activity(
+        organization_id=actor.organization_id,
+        team_id=actor.team_id,
+        user=actor.user,
+        was_impersonated=actor.was_impersonated,
+        item_id=str(workflow_id),
+        scope=_SCOPE,
+        activity=activity,
+        detail=Detail(
+            name=name or _SCOPE,
+            context=WorkflowBatchRunContext(batch_job_id=str(batch_job_id), filters=filters),
+        ),
+    )
 
 
 def _schedule_timing(schedule: Optional[WorkflowSchedule]) -> Optional[dict[str, str]]:

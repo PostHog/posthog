@@ -18,7 +18,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
@@ -1524,5 +1524,9 @@ class TestDashboardRunWidgets(APIBaseTest):
             and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
         ]
         self.assertEqual(len(completed_calls), 1)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.FAILURE)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")
+        completed_properties = completed_calls[0].kwargs["properties"]
+        self.assertEqual(completed_properties["outcome"], SloOutcome.FAILURE)
+        self.assertEqual(completed_properties["widget_type"], "error_tracking_list")
+        self.assertEqual(completed_properties["error_type"], "Exception")
+        self.assertEqual(completed_properties["error_message"], "boom")
+        self.assertIn("error_origin", completed_properties)

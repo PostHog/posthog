@@ -26,6 +26,7 @@ import {
 } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PersonsManagerService } from '../managers/persons-manager.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { MessageAssetsService } from './message-assets.service'
 import {
     NormalizedPushError,
@@ -274,6 +275,7 @@ export class PushNotificationService {
         private fetchUtils: PushNotificationFetchUtils,
         private valkey: RedisV2,
         private personsManager: PersonsManagerService,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'reportPushSent'>,
         private messageAssetsService?: MessageAssetsService
     ) {}
 
@@ -497,6 +499,9 @@ export class PushNotificationService {
         // Terminal outcome: emit the per-notification business metrics once, and label the ops failure
         // metric by platform + reason for every channel that failed for good.
         pushMetric('push_sent', successCount)
+        if (successCount > 0 && !isTest && 'hogFlow' in invocation) {
+            void this.workflowsActivationReporter.reportPushSent(invocation.teamId, invocation.functionId)
+        }
         pushMetric('push_skipped', skippedCount)
         pushMetric('push_failed', errorCount)
 

@@ -121,6 +121,17 @@ export function inboxSetupDefaultScouts(
     })
 }
 
+const MAX_SETUP_SCOUTS = 5
+
+export interface InboxSetupScoutLimit {
+    limit: number
+    reason: string
+}
+
+export function inboxSetupScoutLimit(): InboxSetupScoutLimit {
+    return { limit: MAX_SETUP_SCOUTS, reason: 'Select up to five scouts' }
+}
+
 export function inboxSetupScoutChoices(
     suggestions: ScoutSuggestionItemApi[],
     selected: ScoutSuggestionItemApi[]

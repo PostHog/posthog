@@ -1,10 +1,12 @@
 import itertools
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import PropertyMock, patch
 
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
@@ -17,7 +19,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
@@ -515,6 +517,12 @@ class TestCheckMatchesCurrentRules(BaseTest):
                 {Action.VIEW, Action.EDIT, Action.CREATE, Action.SHARE, Action.MANAGE_ACCESS},
             ),
             (
+                "effective_admin",
+                OrganizationMembership.Level.MEMBER,
+                {Action.VIEW, Action.EDIT, Action.CREATE, Action.SHARE, Action.MANAGE_ACCESS},
+                OrganizationMembership.Level.ADMIN,
+            ),
+            (
                 "owner",
                 OrganizationMembership.Level.OWNER,
                 {
@@ -530,14 +538,25 @@ class TestCheckMatchesCurrentRules(BaseTest):
         ]
     )
     def test_organization_permissions_follow_the_membership_level(
-        self, _name: str, org_level: OrganizationMembership.Level, expected: set[Action]
+        self,
+        _name: str,
+        org_level: OrganizationMembership.Level,
+        expected: set[Action],
+        effective_level: OrganizationMembership.Level | None = None,
     ) -> None:
         self.organization_membership.level = org_level
         self.organization_membership.save()
 
-        allowed = authorization.permissions(
-            resource=resource_for_object(self.organization), subject=Subject(user_id=self.user.id)
-        )
+        with (
+            patch.object(
+                OrganizationMembership, "effective_level", new_callable=PropertyMock, return_value=effective_level
+            )
+            if effective_level is not None
+            else nullcontext()
+        ):
+            allowed = authorization.permissions(
+                resource=resource_for_object(self.organization), subject=Subject(user_id=self.user.id)
+            )
 
         assert allowed == expected
 
@@ -553,13 +572,25 @@ class TestCheckMatchesCurrentRules(BaseTest):
             type_resource = Resource(type=resource_type, project_id=self.team.id)
             assert authorization.check(resource=type_resource, action=Action.VIEW, subject=subject) is False
 
-    def test_role_check_needs_the_role_in_that_organization(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+    @parameterized.expand([("assigned_admin", False), ("effective_admin", True)])
+    def test_role_check_needs_the_role_in_that_organization(self, _name: str, effective_admin: bool) -> None:
+        self.organization_membership.level = (
+            OrganizationMembership.Level.MEMBER if effective_admin else OrganizationMembership.Level.ADMIN
+        )
         self.organization_membership.save()
         other_organization = Organization.objects.create(name="Other")
         subject = Subject(user_id=self.user.id)
         role_id = create_role(organization_id=self.organization.id, name="Engineers")
         foreign_role_id = create_role(organization_id=other_organization.id, name="Engineers")
+        if effective_admin:
+            self.enterContext(
+                patch.object(
+                    OrganizationMembership,
+                    "effective_level",
+                    new_callable=PropertyMock,
+                    return_value=OrganizationMembership.Level.ADMIN,
+                )
+            )
 
         own, foreign = (
             authorization.check(

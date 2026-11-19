@@ -138,12 +138,14 @@ class MetricQueryClause:
     metric_type: MetricType | None = None
     # Applied to each series before `aggregation` combines them.
     range_function: MetricRangeFunction | None = None
+    # Apdex threshold T for the derived apdex metric; None uses its default.
+    apdex_threshold_ms: float | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.is_raw and self.group_by:
             raise ValueError("group_by needs an aggregation; without one every series stays separate")
         if self.range_function is not None and self.aggregation.is_counter_function:
-            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
+            raise ValueError(f"range_function cannot combine with the {self.aggregation} aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -151,6 +153,8 @@ class MetricQueryClause:
                 raise ValueError("quantile must be in (0, 1)")
         if not self.name:
             raise ValueError("clause name must be non-empty")
+        if self.apdex_threshold_ms is not None and not self.apdex_threshold_ms > 0:
+            raise ValueError("apdex threshold must be a positive number of milliseconds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +192,14 @@ class MetricQueryRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricInstantWindow:
+    """The range an instant builder query reads: its value is the bucket that ends at `date_to`."""
+
+    date_from: dt.datetime
+    date_to: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
 class MetricPoint:
     """One bucketed datapoint. `time` is the bucket start, ISO 8601.
     `value` is None when the bucket's aggregate isn't representable (e.g.
@@ -215,6 +227,9 @@ class MetricSeries:
     # Bucket upper edges a histogram quantile was estimated from, merged over every
     # point. The estimate can be anywhere between two edges. None for other aggregations.
     histogram_bounds: tuple[float, ...] | None = None
+    # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
+    # with different buckets were combined. None for other aggregations.
+    histogram_layout_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +268,8 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+    # Start of the trailing bucket that was still filling: plotted in `series`, left out of the stats.
+    partial_bucket_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

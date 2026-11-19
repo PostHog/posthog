@@ -1,16 +1,26 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { evaluationReportLogic } from '../evaluationReportLogic'
+import { reportText } from '../create/evaluationSummary'
+import { REPORT_RUN_PARAM, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
+import { draftFromReport, evaluationReportLogic } from '../evaluationReportLogic'
+import { evaluationReportRunsLogic } from '../evaluationReportRunsLogic'
+import { evaluationReportTracking } from '../evaluationReportTracking'
 import type { EvaluationReportRun } from '../types'
-import { EvaluationReportViewer, summarizeEvaluationReportResults } from './EvaluationReportViewer'
+import { DeliveryTargetsConfig } from './DeliveryTargetsConfig'
+import { ReportDeliveryTag } from './ReportDeliveryTag'
+import { reportDestinationsText } from './reportDestinationsText'
+import { headlineChange, reportHeadline } from './reportHeadline'
+import { ReportResultBar } from './ReportResultBar'
 
 interface EvaluationReportsTabProps {
     evaluationId: string
@@ -20,15 +30,25 @@ interface EvaluationReportsTabProps {
     onConfigureClick: () => void
 }
 
-const STATUS_STYLES: Record<
-    EvaluationReportRun['delivery_status'],
-    { label: string; type: 'success' | 'warning' | 'danger' | 'muted' }
-> = {
-    delivered: { label: 'Delivered', type: 'success' },
-    generated: { label: 'Generated', type: 'success' },
-    pending: { label: 'Pending', type: 'muted' },
-    partial_failure: { label: 'Partial failure', type: 'warning' },
-    failed: { label: 'Failed', type: 'danger' },
+function HeadlineCell({ run }: { run: EvaluationReportRun }): JSX.Element {
+    const headline = reportHeadline(run)
+    if (!headline) {
+        return <span className="text-secondary">–</span>
+    }
+    const change = headlineChange(headline)
+    return (
+        <div className="flex w-36 flex-col gap-1.5">
+            <span className="tabular-nums whitespace-nowrap">
+                <span className="font-semibold">{`${headline.value.toFixed(1)}%`}</span>
+                {change && (
+                    <span className={cn('ml-1.5 text-xs font-medium', change.className)}>
+                        {`${change.change > 0 ? '▲' : '▼'} ${Math.abs(change.change).toFixed(1)}pp`}
+                    </span>
+                )}
+            </span>
+            <ReportResultBar segments={headline.segments} />
+        </div>
+    )
 }
 
 export function EvaluationReportsTab({
@@ -38,8 +58,60 @@ export function EvaluationReportsTab({
     onConfigureClick,
 }: EvaluationReportsTabProps): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
-    const { reportRuns, reportRunsLoading, reportsLoading, activeReport, generateResultLoading } = useValues(logic)
-    const { generateReport, loadReportRuns } = useActions(logic)
+    const runsLogic = evaluationReportRunsLogic({ evaluationId })
+    const {
+        reportsLoading,
+        reportsLoadFailed,
+        activeReport,
+        configDraft,
+        shownDestinations,
+        editingDestinations,
+        destinationsError,
+    } = useValues(logic)
+    const {
+        reportRuns,
+        reportRunsLoading,
+        reportRunsLoadFailed,
+        hasOlderReportRuns,
+        isWritingReport: isWriting,
+    } = useValues(runsLogic)
+    const { generateReport, loadReportRuns, loadOlderReportRuns } = useActions(runsLogic)
+    const {
+        loadReports,
+        saveDestinations,
+        setDraftEmailValue,
+        setDraftSlackIntegrationId,
+        setDraftSlackChannelValue,
+        addDraftDestination,
+        removeDraftDestination,
+        setEditingDestinations,
+        resetDestinationsDraft,
+    } = useActions(logic)
+    const { openRunId } = useValues(evaluationReportDrawerLogic({ evaluationId }))
+    const { openRun } = useActions(evaluationReportDrawerLogic({ evaluationId }))
+
+    const tracked = useRef(false)
+    useEffect(() => {
+        if (!tracked.current && activeReport && !reportRunsLoading) {
+            tracked.current = true
+            evaluationReportTracking.tabViewed({
+                report_count: reportRuns.length,
+                has_destination: activeReport.delivery_targets.length > 0,
+                enabled: activeReport.enabled,
+            })
+        }
+    }, [activeReport, reportRunsLoading, reportRuns.length])
+
+    if (reportsLoadFailed) {
+        return (
+            <div className="max-w-6xl flex items-center gap-2 rounded border p-4 text-sm">
+                <span>Couldn't load the reports.</span>
+                <LemonButton size="small" type="secondary" onClick={() => loadReports()}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
 
     // No schedule configured at all → CTA pointing to the Configuration tab.
     // Avoids hiding the Reports tab entirely so it stays discoverable.
@@ -60,117 +132,187 @@ export function EvaluationReportsTab({
         )
     }
 
+    const savedDraft = activeReport ? draftFromReport(activeReport) : null
+
     return (
-        <div className="max-w-6xl">
-            <div className="flex flex-wrap items-start justify-between gap-6 mb-4">
-                <p className="min-w-0 flex-1 basis-64 text-muted text-sm m-0">
-                    History of AI-generated reports for this evaluation. Click a row to expand the full report. Schedule
-                    and delivery targets are configured in the <Link onClick={onConfigureClick}>Configuration tab</Link>
-                    .
-                </p>
-                {activeReport && (
-                    <div className="flex shrink-0 items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => loadReportRuns(activeReport.id)}
-                            loading={reportRunsLoading}
-                        >
-                            Refresh
-                        </LemonButton>
+        <div className="@container max-w-6xl flex flex-col gap-4">
+            {activeReport && savedDraft && (
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                        <p className="m-0 min-w-0 flex-1 basis-64 text-sm text-secondary">
+                            {activeReport.enabled
+                                ? `Reports ${reportText({ ...savedDraft, cooldownMinutes: activeReport.cooldown_minutes })}`
+                                : 'Reports are off'}
+                            {' · '}
+                            {reportDestinationsText(activeReport.delivery_targets)}
+                            {!editingDestinations && (
+                                <>
+                                    {' · '}
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Evaluation}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={userAccessLevel}
+                                    >
+                                        <Link
+                                            onClick={() => setEditingDestinations(true)}
+                                            data-attr="llma-evaluation-report-edit-destinations"
+                                        >
+                                            Edit destinations
+                                        </Link>
+                                    </AccessControlAction>
+                                </>
+                            )}
+                        </p>
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={userAccessLevel}
                         >
                             <LemonButton
-                                type="primary"
+                                type="secondary"
                                 size="small"
                                 onClick={() => generateReport(activeReport.id)}
-                                loading={generateResultLoading}
+                                loading={isWriting}
                                 disabledReason={generationDisabledReason}
+                                data-attr="llma-evaluation-report-generate"
                             >
                                 Generate now
                             </LemonButton>
                         </AccessControlAction>
                     </div>
-                )}
-            </div>
-
-            <LemonTable
-                dataSource={reportRuns}
-                loading={reportRunsLoading}
-                rowKey="id"
-                columns={[
-                    {
-                        title: 'Generated',
-                        key: 'created_at',
-                        render: (_, run: EvaluationReportRun) => <TZLabel time={run.created_at} />,
-                    },
-                    {
-                        title: 'Title',
-                        key: 'title',
-                        render: (_, run: EvaluationReportRun) => (
-                            <span className="font-medium truncate block max-w-md" title={run.content?.title}>
-                                {run.content?.title || '–'}
-                            </span>
-                        ),
-                    },
-                    {
-                        title: 'Results',
-                        key: 'results',
-                        render: (_, run: EvaluationReportRun) => {
-                            if (run.content?.generation_status === 'metrics_unavailable') {
-                                return 'Metrics unavailable'
-                            }
-                            const metrics = run.content?.metrics ?? run.metadata
-                            return metrics ? summarizeEvaluationReportResults(metrics) : '–'
-                        },
-                    },
-                    {
-                        title: 'Runs',
-                        key: 'total_runs',
-                        render: (_, run: EvaluationReportRun) =>
-                            run.content?.metrics?.total_runs ?? run.metadata?.total_runs ?? '–',
-                    },
-                    {
-                        title: 'Status',
-                        key: 'delivery_status',
-                        render: (_, run: EvaluationReportRun) => {
-                            const info = STATUS_STYLES[run.delivery_status] || {
-                                label: run.delivery_status,
-                                type: 'default' as const,
-                            }
-                            return (
-                                <LemonTag type={info.type} size="small">
-                                    {info.label}
-                                </LemonTag>
-                            )
-                        },
-                    },
-                    {
-                        key: 'info',
-                        width: 0,
-                        render: (_, run: EvaluationReportRun) => (
-                            <Tooltip
-                                title={`Period: ${new Date(run.period_start).toLocaleString()} – ${new Date(run.period_end).toLocaleString()}`}
-                            >
-                                <IconInfo className="text-muted text-base" />
-                            </Tooltip>
-                        ),
-                    },
-                ]}
-                expandable={{
-                    noIndent: true,
-                    expandedRowRender: (run: EvaluationReportRun) => (
-                        <div className="p-4 bg-bg-light">
-                            <EvaluationReportViewer reportRun={run} compact />
+                    {editingDestinations && (
+                        <div className="@container/evaluation flex flex-col gap-3 rounded border p-3">
+                            <DeliveryTargetsConfig
+                                emailValue={configDraft.emailValue}
+                                onEmailChange={setDraftEmailValue}
+                                slackIntegrationId={configDraft.slackIntegrationId}
+                                onSlackIntegrationChange={setDraftSlackIntegrationId}
+                                slackChannelValue={configDraft.slackChannelValue}
+                                onSlackChannelChange={setDraftSlackChannelValue}
+                                shown={shownDestinations}
+                                onAdd={addDraftDestination}
+                                onRemove={removeDraftDestination}
+                            />
+                            <div className="flex gap-2">
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    loading={reportsLoading}
+                                    disabledReason={destinationsError ?? undefined}
+                                    onClick={() => saveDestinations()}
+                                    data-attr="llma-evaluation-report-save-destinations"
+                                >
+                                    Save destinations
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => resetDestinationsDraft(activeReport)}
+                                >
+                                    Cancel
+                                </LemonButton>
+                            </div>
                         </div>
-                    ),
-                }}
-                emptyState="No reports generated yet"
-                size="small"
-            />
+                    )}
+                    {isWriting && (
+                        <p className="m-0 text-sm text-secondary">Writing a new report. This can take a few minutes.</p>
+                    )}
+                </div>
+            )}
+
+            {reportRunsLoadFailed ? (
+                <div className="flex items-center gap-2 rounded border p-4 text-sm">
+                    <span>Couldn't load the reports.</span>
+                    {activeReport && (
+                        <LemonButton size="small" type="secondary" onClick={() => loadReportRuns(activeReport.id)}>
+                            Try again
+                        </LemonButton>
+                    )}
+                </div>
+            ) : (
+                <LemonTable
+                    dataSource={reportRuns}
+                    // Only an empty table shows the loading overlay, which blocks clicks while polling refreshes rows.
+                    loading={(reportsLoading || reportRunsLoading) && reportRuns.length === 0}
+                    rowKey="id"
+                    onRow={(run) => ({ onClick: () => openRun(run.id, 'reports_tab') })}
+                    rowClassName={(run) =>
+                        run.id === openRunId ? 'LemonTable__row--status-highlighted cursor-pointer' : 'cursor-pointer'
+                    }
+                    columns={[
+                        {
+                            title: 'Report',
+                            key: 'title',
+                            render: (_, run) => (
+                                <div className="flex flex-col min-w-0 py-1">
+                                    <TZLabel
+                                        time={run.period_end}
+                                        noStyles
+                                        className="text-xs text-secondary"
+                                        formatDate="MMM D"
+                                        formatTime="HH:mm"
+                                    />
+                                    <Link
+                                        className="font-medium truncate max-w-xl text-primary"
+                                        title={run.content?.title}
+                                        to={
+                                            combineUrl(router.values.location.pathname, {
+                                                ...router.values.searchParams,
+                                                [REPORT_RUN_PARAM]: run.id,
+                                            }).url
+                                        }
+                                        onClick={(event) => {
+                                            event.preventDefault()
+                                            event.stopPropagation()
+                                            openRun(run.id, 'reports_tab')
+                                        }}
+                                    >
+                                        {run.content?.title || 'Evaluation report'}
+                                    </Link>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Result',
+                            key: 'headline',
+                            render: (_, run) => <HeadlineCell run={run} />,
+                        },
+                        {
+                            title: 'Results',
+                            key: 'total_runs',
+                            align: 'right',
+                            className: 'hidden @min-[40rem]:table-cell',
+                            render: (_, run) => run.content?.metrics?.total_runs ?? run.metadata?.total_runs ?? '–',
+                        },
+                        {
+                            title: 'Delivery',
+                            key: 'delivery_status',
+                            className: 'hidden @min-[32.5rem]:table-cell',
+                            render: (_, run) => <ReportDeliveryTag run={run} />,
+                        },
+                    ]}
+                    emptyState={
+                        activeReport?.enabled && activeReport.frequency === 'every_n'
+                            ? `No report yet. The first one arrives after ${activeReport.trigger_threshold ?? 100} new results.`
+                            : 'No report yet.'
+                    }
+                    size="small"
+                />
+            )}
+
+            {hasOlderReportRuns && !reportRunsLoadFailed && (
+                <div className="flex justify-center">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadOlderReportRuns()}
+                        loading={reportRunsLoading}
+                        data-attr="llma-evaluation-report-show-older"
+                    >
+                        Show older reports
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }

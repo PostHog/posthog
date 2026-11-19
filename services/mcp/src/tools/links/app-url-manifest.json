@@ -229,11 +229,6 @@
         "params": [],
         "scope": "project"
     },
-    "analyticsProductHome": {
-        "template": "/analytics/product-analytics",
-        "params": [],
-        "scope": "project"
-    },
     "analyticsSpaces": {
         "template": "/analytics/collections",
         "params": [],
@@ -349,6 +344,16 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeLibraries": {
+        "template": "/business-knowledge/libraries",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibrary": {
+        "template": "/business-knowledge/libraries/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "businessKnowledgePlayground": {
         "template": "/business-knowledge/playground",
         "params": [],
@@ -362,6 +367,11 @@
     "businessKnowledgeSource": {
         "template": "/business-knowledge/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
         "scope": "project"
     },
     "canvas": {
@@ -534,6 +544,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsProductActivity": {
+        "template": "/customer_analytics/product-activity",
+        "params": [],
+        "scope": "project"
+    },
     "customerAnalyticsTasks": {
         "template": "/customer_analytics/tasks",
         "params": [],
@@ -601,6 +616,11 @@
     },
     "dataCatalogNewMetric": {
         "template": "/data-catalog/new-metric",
+        "params": [],
+        "scope": "project"
+    },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-danger-zone/data-deletion/new",
         "params": [],
         "scope": "project"
     },
@@ -979,6 +999,16 @@
         "params": [],
         "scope": "project"
     },
+    "inboxActivate": {
+        "template": "/inbox/activate",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivateWithoutGithub": {
+        "template": "/inbox/activate/without-github",
+        "params": [],
+        "scope": "project"
+    },
     "inboxFindings": {
         "template": "/inbox/scouts/findings",
         "params": [],
@@ -1181,6 +1211,11 @@
     },
     "logsSamplingNew": {
         "template": "/logs/drop-rules/new",
+        "params": [],
+        "scope": "project"
+    },
+    "logsSavedView": {
+        "template": "/logs",
         "params": [],
         "scope": "project"
     },
@@ -1484,6 +1519,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
+        "scope": "project"
+    },
     "releaseList": {
         "template": "/releases/list",
         "params": [],
@@ -1679,23 +1719,8 @@
         "params": [],
         "scope": "project"
     },
-    "stamphog": {
-        "template": "/stamphog",
-        "params": [],
-        "scope": "project"
-    },
     "stamphogCallback": {
         "template": "/stamphog/install/callback",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogDigests": {
-        "template": "/stamphog/digests",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogRuns": {
-        "template": "/stamphog/runs",
         "params": [],
         "scope": "project"
     },
@@ -1869,6 +1894,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "transactionalEmailLogEntry": {
         "template": "/transactional/log/{messageId}",
         "params": ["messageId"],
@@ -2009,18 +2039,13 @@
         "params": [],
         "scope": "project"
     },
-    "webAnalyticsBotAnalytics": {
-        "template": "/web/bots",
-        "params": [],
-        "scope": "project"
-    },
     "webAnalyticsContentAutopilot": {
-        "template": "/web/content-autopilot",
+        "template": "/web/ai-visibility",
         "params": [],
         "scope": "project"
     },
     "webAnalyticsContentAutopilotPrompt": {
-        "template": "/web/content-autopilot/prompts/{id}",
+        "template": "/web/ai-visibility/prompts/{id}",
         "params": ["id"],
         "scope": "project"
     },

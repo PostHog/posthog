@@ -11,22 +11,27 @@ from typing import Final, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from django.db import transaction
+from django.db import models, transaction
 
 from products.alerts_platform.backend.delivery.addresses import refused_destination
+from products.alerts_platform.backend.delivery.destinations import copies_of_live_hog_functions
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
+    AlertDestinationGroup,
     AlertDestinationValidationError,
     AlertEventKind,
+    DeletedSourceDestinations,
     DestinationType,
     NewAlertDestination,
+    SourceDestination,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
-INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
+INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY, DestinationType.INCIDENT_IO})
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -34,6 +39,7 @@ _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.TEAMS: ("webhook_url",),
     DestinationType.DISCORD: ("webhook_url",),
     DestinationType.PAGERDUTY: ("pagerduty_routing_key",),
+    DestinationType.INCIDENT_IO: ("incident_io_alert_source_config_id", "incident_io_secret"),
     DestinationType.EMAIL: ("email_addresses",),
     DestinationType.IN_APP: ("in_app_user_ids",),
 }
@@ -57,6 +63,8 @@ _FIELD_CHECKS: Final[dict[str, Callable[[object], bool]]] = {
     "slack_channel_id": _is_text,
     "webhook_url": _is_text,
     "pagerduty_routing_key": _is_text,
+    "incident_io_alert_source_config_id": _is_text,
+    "incident_io_secret": _is_text,
     "email_addresses": _is_list_of(_is_text),
     "email_user_ids": _is_list_of(_is_id),
     "in_app_user_ids": _is_list_of(_is_id),
@@ -67,9 +75,17 @@ _DISPLAY_ONLY_FIELDS: Final = frozenset({"slack_channel_name"})
 
 
 def create_alert_destinations(
-    *, team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]
+    *,
+    team_id: int,
+    configuration_id: UUID,
+    destinations: Sequence[NewAlertDestination],
+    hog_function_groups: Sequence[AlertDestinationGroup] = (),
 ) -> tuple[StoredAlertDestination, ...]:
-    """Adds the destinations to one configuration, all or none."""
+    """Adds the destinations to one configuration, all or none.
+
+    A destination that sends where one of the alert's `hog_function_groups` already sends is refused too,
+    unless it copies that group.
+    """
     for destination in destinations:
         _validate(destination)
     with transaction.atomic():
@@ -77,7 +93,7 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
-        _refuse_duplicates(team_id, configuration_id, destinations)
+        _refuse_duplicates(team_id, configuration.id, destinations, hog_function_groups)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
                 team_id=team_id,
@@ -87,6 +103,7 @@ def create_alert_destinations(
                 event_kinds=[kind.value for kind in destination.event_kinds],
                 enabled=destination.enabled,
                 legacy_hog_function_ids=list(destination.legacy_hog_function_ids),
+                keeps_legacy_webhook_body=destination.keeps_legacy_webhook_body,
             )
             for destination in destinations
         ]
@@ -102,16 +119,37 @@ def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[St
     )
 
 
-def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
-    """Deletes the named destinations of one configuration, and returns how many it deleted.
+def destination_types_by_configuration(
+    *, team_id: int, configuration_ids: Collection[UUID]
+) -> dict[UUID, tuple[str, ...]]:
+    """The types of each named configuration's enabled destinations, in one query. A configuration with
+    none is left out."""
+    types: dict[UUID, list[str]] = {}
+    for configuration_id, destination_type in (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id__in=configuration_ids, enabled=True)
+        .order_by("created_at", "id")
+        .values_list("configuration_id", "type")
+    ):
+        if destination_type not in types.setdefault(configuration_id, []):
+            types[configuration_id].append(destination_type)
+    return {configuration_id: tuple(found) for configuration_id, found in types.items()}
+
+
+def delete_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
+) -> dict[UUID, str]:
+    """Deletes the named destinations of one configuration, and returns the type of each one it deleted, by id.
 
     An id of another configuration is left alone, so a caller cannot reach past the alert it checked access to.
+    The rows are locked before the delete, so of two concurrent deletes only the first returns a row.
     """
-    deleted, _ = (
-        AlertDestination.objects.for_team(team_id)
-        .filter(configuration_id=configuration_id, id__in=destination_ids)
-        .delete()
-    )
+    with transaction.atomic():
+        named = AlertDestination.objects.for_team(team_id).filter(
+            configuration_id=configuration_id, id__in=destination_ids
+        )
+        deleted = dict(named.select_for_update().values_list("id", "type"))
+        named.filter(id__in=deleted).delete()
     return deleted
 
 
@@ -257,19 +295,333 @@ def _subscriber_rows(team_id: int, configuration_ids: Collection[UUID]) -> list[
     rows = AlertDestination.objects.for_team(team_id).filter(
         configuration_id__in=list(configuration_ids), type__in=[DestinationType.EMAIL, DestinationType.IN_APP]
     )
-    return [row for row in rows if row.type == DestinationType.IN_APP or "email_user_ids" in row.config]
+    return [row for row in rows if _names_subscribers(row)]
 
 
-def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:
-    """A second destination with the same address would send every message twice."""
+def _names_subscribers(row: AlertDestination) -> bool:
+    return row.type == DestinationType.IN_APP or (row.type == DestinationType.EMAIL and "email_user_ids" in row.config)
+
+
+def _refuse_duplicates(
+    team_id: int,
+    configuration_id: UUID,
+    destinations: Sequence[NewAlertDestination],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    except_id: UUID | None = None,
+) -> None:
+    """A second destination with the same address would send every message twice. `except_id` is the
+    row being rewritten, which does not count as a second one. A row that copies one of the groups is
+    checked through that group's live settings, since an edit to the HogFunctions leaves the row's stale."""
+    groups = [group for group in hog_function_groups if group.hog_function_ids]
+    grouped = {hog_function_id for group in groups for hog_function_id in group.hog_function_ids}
     seen = [
-        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+        _receiver(stored.data)
+        for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+        if stored.id != except_id and grouped.isdisjoint(stored.legacy_hog_function_ids)
     ]
     for destination in destinations:
         receiver = _receiver(destination.data)
-        if receiver in seen:
+        copied = set(destination.legacy_hog_function_ids)
+        if receiver in seen or any(
+            _receiver(group.data) == receiver and not copied.issuperset(group.hog_function_ids) for group in groups
+        ):
             raise AlertDestinationValidationError("This alert already sends to this destination.", field="config")
         seen.append(receiver)
+
+
+def record_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
+    keeps_legacy_webhook_body: bool = False,
+) -> StoredAlertDestination | None:
+    """Adds the row for a destination its source has just written as `hog_function_ids`, so the
+    destination outlives them. None when the platform has no alert under `public_id`. Delivery skips
+    the row while any of these HogFunctions exists, so the destination sends once."""
+    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
+    if configuration_id is None:
+        return None
+    (created,) = create_alert_destinations(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        destinations=(
+            NewAlertDestination(
+                data=_own_fields(data),
+                event_kinds=tuple(event_kinds),
+                enabled=enabled,
+                legacy_hog_function_ids=tuple(hog_function_ids),
+                keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+            ),
+        ),
+        hog_function_groups=hog_function_groups,
+    )
+    return created
+
+
+def list_source_destinations(
+    *, team_id: int, public_id: UUID, hog_function_groups: Sequence[AlertDestinationGroup]
+) -> tuple[SourceDestination, ...]:
+    """The destinations a person sees on the page of an alert whose source keeps HogFunctions: each
+    HogFunction group, with the row that copies it, then each row whose HogFunctions are gone.
+    Subscriber rows are left out, because the source shows its subscribers apart."""
+    groups = [group for group in hog_function_groups if group.hog_function_ids]
+    rows = [
+        _stored(row)
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id))
+        .order_by("created_at", "id")
+        if not _names_subscribers(row)
+    ]
+    row_by_hog_function_id = {
+        hog_function_id: row for row in reversed(rows) for hog_function_id in row.legacy_hog_function_ids
+    }
+    matched: set[UUID] = set()
+    listed: list[SourceDestination] = []
+    for group in groups:
+        row = next((row_by_hog_function_id[i] for i in group.hog_function_ids if i in row_by_hog_function_id), None)
+        if row is not None:
+            matched.add(row.id)
+        listed.append(
+            SourceDestination(
+                destination_id=row.id if row is not None else None,
+                hog_function_ids=group.hog_function_ids,
+                data=_with_labels(group.data, row.data) if row is not None else group.data,
+                enabled=group.fully_enabled,
+            )
+        )
+    listed.extend(
+        SourceDestination(
+            destination_id=row.id,
+            hog_function_ids=(),
+            data=row.data,
+            enabled=row.enabled,
+            retired_hog_function_ids=row.legacy_hog_function_ids,
+        )
+        for row in rows
+        if row.id not in matched
+    )
+    return tuple(listed)
+
+
+def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The alert's rows that no live HogFunction stands behind, so they would send nothing once its source
+    owns it again. Delivery's skip rule decides what counts as standing behind: any live HogFunction the
+    row copies, disabled ones included. Subscriber rows are left out, because the source sends to its
+    subscribers from its own record. Call it in a transaction: the rows stay locked until it ends, so a
+    destination deleted meanwhile waits for the rebuild and then takes its new HogFunctions with it."""
+    rows = [
+        row
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id))
+        .select_for_update(of=("self",))
+        .order_by("created_at", "id")
+        if not _names_subscribers(row)
+    ]
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: row.legacy_hog_function_ids for row in rows}
+    )
+    return tuple(_stored(row) for row in rows if row.id not in copies)
+
+
+def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """Makes the row copy these HogFunctions, so delivery skips it while they exist. The ids replace the
+    old ones, which name HogFunctions that are gone. Raises `AlertDestinationValidationError` when the row is
+    gone, because the HogFunctions would then send for a destination nobody has."""
+    linked = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(id=destination_id)
+        .update(legacy_hog_function_ids=list(hog_function_ids))
+    )
+    if not linked:
+        raise AlertDestinationValidationError("This destination was deleted.")
+
+
+def delete_source_destination_rows(
+    *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
+) -> DeletedSourceDestinations:
+    """Deletes the alert's rows named by id or that copy any of `hog_function_ids`. The HogFunctions it
+    returns are only those copied by rows named by id: a delete by HogFunction ids keeps to the group it
+    names, and a row that copies a group since split into two takes no other. Call it in a transaction."""
+    if not destination_ids and not hog_function_ids:
+        return DeletedSourceDestinations(row_types={}, copied_hog_function_ids=frozenset())
+    rows = AlertDestination.objects.for_team(team_id).filter(
+        models.Q(id__in=list(destination_ids)) | models.Q(legacy_hog_function_ids__overlap=list(hog_function_ids)),
+        configuration__in=_configurations_by_public_id(team_id, public_id),
+    )
+    named = set(destination_ids)
+    # Locked, so a delete that waits on a rollback's rebuild reads the HogFunctions it linked.
+    found = list(rows.select_for_update(of=("self",)).values_list("id", "type", "legacy_hog_function_ids"))
+    rows.delete()
+    return DeletedSourceDestinations(
+        row_types={row_id: row_type for row_id, row_type, _ in found},
+        copied_hog_function_ids=frozenset(
+            hog_function_id for row_id, _, copies in found if row_id in named for hog_function_id in copies
+        ),
+    )
+
+
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy, in the caller's transaction. A move between a row and HogFunctions
+    takes this lock before the HogFunctions', in the same order as a delete of the alert, so the two
+    cannot deadlock."""
+    list(_configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True))
+
+
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, whatever its last check said. An errored or
+    broken check leaves the firing, and the incident it opened, in place."""
+    return (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id), state=PlatformAlertState.FIRING)
+        .exists()
+    )
+
+
+def lock_source_destination_row(
+    *, team_id: int, public_id: UUID, destination_id: UUID
+) -> StoredAlertDestination | None:
+    """One of the alert's rows, locked until the caller's transaction ends, so a delete waits for the
+    HogFunctions the caller links to it. None for an id that is not the alert's."""
+    row = (
+        AlertDestination.objects.for_team(team_id)
+        .select_for_update()
+        .filter(id=destination_id, configuration__in=_configurations_by_public_id(team_id, public_id))
+        .first()
+    )
+    return _stored(row) if row is not None else None
+
+
+def restore_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    enabled: bool,
+    retired_hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+) -> StoredAlertDestination:
+    """Makes the row that copied a destination's HogFunctions, which the caller has just retired, send the
+    standard message instead, in the caller's transaction. A destination with no such row gets a new one.
+
+    The row keeps its id, which Terraform and the pages hold, and from now on copies none of the
+    HogFunctions: a HogFunction saved as deleted later deletes every row that copies it. Any other row
+    that copied them goes, because one row stands for the destination. Refused unless the platform
+    evaluates the alert, since only the platform sends rows."""
+    configuration_id = (
+        _configurations_by_public_id(team_id, public_id)
+        .filter(owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", flat=True)
+        .first()
+    )
+    if configuration_id is None:
+        raise AlertDestinationValidationError(
+            "PostHog alerts doesn't check this alert yet, so it can't send the standard message.", field="type"
+        )
+    retired = set(retired_hog_function_ids)
+    others = [group for group in hog_function_groups if retired.isdisjoint(group.hog_function_ids)]
+    restored = NewAlertDestination(data=_own_fields(data), event_kinds=tuple(event_kinds), enabled=enabled)
+    kept = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, legacy_hog_function_ids__overlap=list(retired))
+        .select_for_update()
+        .order_by("created_at", "id")
+        .first()
+    )
+    if kept is None:
+        delete_rows_copying(team_id=team_id, hog_function_ids=retired)
+        (created,) = create_alert_destinations(
+            team_id=team_id, configuration_id=configuration_id, destinations=(restored,), hog_function_groups=others
+        )
+        return created
+    AlertDestination.objects.for_team(team_id).filter(legacy_hog_function_ids__overlap=list(retired)).exclude(
+        id=kept.id
+    ).delete()
+    _validate(restored)
+    _refuse_duplicates(team_id, configuration_id, (restored,), others, except_id=kept.id)
+    kept.type = restored.data["type"]
+    kept.config = dict(restored.data)
+    kept.event_kinds = [kind.value for kind in restored.event_kinds]
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.enabled = restored.enabled
+    kept.legacy_hog_function_ids = []
+    kept.keeps_legacy_webhook_body = False
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.consecutive_failures = 0
+    kept.disabled_reason = None
+    kept.save()
+    return _stored(kept)
+
+
+def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
+    """Deletes every row that copies one of these HogFunctions, for HogFunctions deleted outside the alert's
+    own routes. Without it the row would stop being skipped and keep sending to the deleted destination."""
+    if not hog_function_ids:
+        return 0
+    deleted, _ = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(legacy_hog_function_ids__overlap=list(hog_function_ids))
+        .delete()
+    )
+    return deleted
+
+
+def copied_by_source_rows(*, team_id: int, public_id: UUID, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The ids among `hog_function_ids` that one of the alert's rows copies, whether or not the HogFunctions
+    still exist."""
+    if not hog_function_ids:
+        return frozenset()
+    wanted = set(hog_function_ids)
+    copies = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration__in=_configurations_by_public_id(team_id, public_id),
+            legacy_hog_function_ids__overlap=list(wanted),
+        )
+        .values_list("legacy_hog_function_ids", flat=True)
+    )
+    return frozenset(
+        hog_function_id for row_copies in copies for hog_function_id in row_copies if hog_function_id in wanted
+    )
+
+
+# The fields each type sends with. A field of another type, such as a PagerDuty default on a Slack
+# request, would be stored and then shown unredacted, because redaction reads the type's own fields.
+_FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id", "slack_channel_name"),
+    DestinationType.WEBHOOK: ("webhook_url", "webhook_headers"),
+    DestinationType.TEAMS: ("webhook_url",),
+    DestinationType.DISCORD: ("webhook_url",),
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+}
+
+
+def _own_fields(data: AlertDestinationData) -> AlertDestinationData:
+    fields = _FIELDS_BY_TYPE.get(DestinationType(data["type"]))
+    if fields is None:
+        return data
+    own = cast(AlertDestinationData, {key: value for key, value in data.items() if key in fields})
+    own["type"] = data["type"]
+    return own
+
+
+def _configurations_by_public_id(team_id: int, public_id: UUID) -> models.QuerySet[PlatformAlertConfiguration]:
+    return PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        PlatformAlertConfiguration.with_destination_alert_ids([public_id])
+    )
+
+
+def _with_labels(live: AlertDestinationData, copy: AlertDestinationData) -> AlertDestinationData:
+    """The HogFunctions' live settings, with the labels the row keeps and they do not, such as a Slack
+    channel's name. A HogFunction edited since the copy keeps none, because the label may be stale."""
+    if _receiver(live) != _receiver(copy):
+        return live
+    return cast(AlertDestinationData, {**copy, **live})
 
 
 def _receiver(data: AlertDestinationData) -> dict[str, object]:
@@ -317,17 +669,24 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
     redacted = cast(AlertDestinationData, {key: value for key, value in data.items() if key != "webhook_headers"})
     if (webhook_url := data.get("webhook_url")) is not None:
         redacted["webhook_url"] = _redact_url(webhook_url)
+    # Keep the tail a person needs to tell two credentials apart.
     if (routing_key := data.get("pagerduty_routing_key")) is not None:
-        # Keep the tail a person needs to tell two integration keys apart.
-        redacted["pagerduty_routing_key"] = f"••••{routing_key[-4:]}"
+        redacted["pagerduty_routing_key"] = _tail(routing_key)
+    if (secret := data.get("incident_io_secret")) is not None:
+        redacted["incident_io_secret"] = _tail(secret)
     return redacted
+
+
+def _tail(credential: str) -> str:
+    return f"••••{credential[-4:]}"
 
 
 def _redact_url(value: str) -> str:
     """Keep only the parts a person needs to tell two destinations apart. The path,
     query and userinfo carry the channel secret for every webhook-style provider."""
     try:
-        parsed = urlsplit(value)
+        # The sender's URL parser reads a backslash as a slash, so a path hidden behind one is still a path.
+        parsed = urlsplit(value.replace("\\", "/"))
         scheme, hostname, port = parsed.scheme, parsed.hostname, parsed.port
     except ValueError:
         return "<redacted>"
@@ -346,4 +705,5 @@ def _stored(row: AlertDestination) -> StoredAlertDestination:
         enabled=row.enabled,
         consecutive_failures=row.consecutive_failures,
         legacy_hog_function_ids=tuple(row.legacy_hog_function_ids),
+        keeps_legacy_webhook_body=row.keeps_legacy_webhook_body,
     )

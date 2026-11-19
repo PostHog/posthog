@@ -24,11 +24,13 @@ from posthog.hogql.escape_sql import backquote_clickhouse_identifier
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials, events_cluster_http_url
 from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.clickhouse.workload import Workload
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.security.outbound_proxy import internal_requests_session
+from posthog.sync import database_sync_to_async
 
 if typing.TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -354,9 +356,12 @@ class ClickHouseClient:
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
         password_file: str | None = None,
+        cluster: str | None = None,
         **kwargs,
     ):
         self.url = url
+        # Query status checks and KILL span this cluster, so it must be the cluster behind url.
+        self.cluster = cluster or settings.CLICKHOUSE_CLUSTER
         self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
@@ -851,7 +856,7 @@ class ClickHouseClient:
         try:
             results = await self.read_query_as_jsonl(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster},
                 query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
@@ -920,7 +925,7 @@ class ClickHouseClient:
         try:
             results = await self.read_query_as_jsonl(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster},
                 query_id=f"{query_id}-GET-WRITTEN-ROWS",
             )
         except ClickHouseError:
@@ -957,7 +962,7 @@ class ClickHouseClient:
         try:
             resp = await self.read_query(
                 query,
-                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_parameters={"query_id": query_id, "cluster_name": self.cluster},
                 query_id=f"{query_id}-CHECK-PROCESS-LIST",
             )
         except ClickHouseError as e:
@@ -976,7 +981,7 @@ class ClickHouseClient:
         Arguments:
             query_id: The ID of the query to cancel.
         """
-        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{query_id:String}}"
+        query = f"KILL QUERY ON CLUSTER '{self.cluster}' WHERE query_id = {{query_id:String}}"
 
         await self.execute_query(
             query,
@@ -1130,11 +1135,19 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
+    *,
+    team_id: typing.Optional[int] = None,
+    clickhouse_url: str | None = None,
+    workload: Workload = Workload.OFFLINE,
+    **kwargs,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
+
+    DEFAULT workload resolves to OFFLINE for this client. An explicit clickhouse_url
+    overrides the endpoint, but logs and metrics keep their workload's database and cluster.
+    All workloads authenticate with the same deployment's CLICKHOUSE_USER credentials.
 
     Usage:
 
@@ -1172,9 +1185,33 @@ async def get_client(
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
     http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
-    if clickhouse_url is None:
-        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    if workload == Workload.DEFAULT:
+        workload = Workload.OFFLINE
+
+    cluster = settings.CLICKHOUSE_CLUSTER
+    database = settings.CLICKHOUSE_DATABASE
+    if workload == Workload.LOGS:
+        protocol, port = ("https", 8443) if settings.CLICKHOUSE_LOGS_CLUSTER_SECURE else ("http", 8123)
+        url = f"{protocol}://{settings.CLICKHOUSE_LOGS_CLUSTER_HOST}:{port}/"
+        database = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+        cluster = settings.CLICKHOUSE_LOGS_CLUSTER
+    elif workload == Workload.METRICS:
+        protocol, port = ("https", 8443) if settings.CLICKHOUSE_METRICS_CLUSTER_SECURE else ("http", 8123)
+        url = f"{protocol}://{settings.CLICKHOUSE_METRICS_CLUSTER_HOST}:{port}/"
+        database = settings.CLICKHOUSE_METRICS_CLUSTER_DATABASE
+        cluster = settings.CLICKHOUSE_METRICS_CLUSTER
+    elif workload == Workload.ENDPOINTS:
+        protocol, port = ("https", 8443) if settings.CLICKHOUSE_SECURE else ("http", 8123)
+        url = f"{protocol}://{settings.CLICKHOUSE_ENDPOINTS_HOST}:{port}/"
     else:
+        url = settings.CLICKHOUSE_HTTP_URL if workload == Workload.ONLINE else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+        if clickhouse_url is None:
+            events_url = await database_sync_to_async(events_cluster_http_url)(workload, team_id)
+            if events_url:
+                url = events_url
+                cluster = settings.CLICKHOUSE_EVENTS_CLUSTER
+
+    if clickhouse_url is not None:
         url = clickhouse_url
 
     async with ClickHouseClient(
@@ -1182,7 +1219,8 @@ async def get_client(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         password_file=settings.CLICKHOUSE_PASSWORD_FILE,
-        database=settings.CLICKHOUSE_DATABASE,
+        database=database,
+        cluster=cluster,
         timeout=timeout,
         ssl=False,
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,

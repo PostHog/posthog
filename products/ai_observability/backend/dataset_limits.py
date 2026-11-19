@@ -1,10 +1,15 @@
+from django.db import models
+
+
+class DatasetConflictResponseResource(models.TextChoices):
+    DATASETS = "datasets"
+    DATASET_ITEMS = "dataset_items"
+    DATASET_ITEM_VERSIONS = "dataset_item_versions"
+    PROJECT_DATASET_ITEM_VERSIONS = "project_dataset_item_versions"
+
+
 MAX_DATASET_EXPORT_MEGABYTES = 250
 MAX_DATASET_EXPORT_BYTES = MAX_DATASET_EXPORT_MEGABYTES * 1_000_000
 
-MAX_ITEMS_PER_DATASET = 600
-
-# Reserve space for identifiers, provenance fields, JSON keys, and escaping in each JSONL row.
-MAX_DATASET_EXPORT_ROW_OVERHEAD_BYTES = 10_000
-MAX_DATASET_ITEM_PAYLOAD_BYTES = (
-    MAX_DATASET_EXPORT_BYTES // MAX_ITEMS_PER_DATASET - MAX_DATASET_EXPORT_ROW_OVERHEAD_BYTES
-)
+MAX_ITEMS_PER_DATASET = 2_000
+MAX_DATASET_ITEM_PAYLOAD_BYTES = 406_666

@@ -86,6 +86,8 @@ class RepoAdmin(admin.ModelAdmin):
         "repo_full_name",
         "created_at",
         "updated_at",
+        # The visual_review_baseline_ledger command changes it, because it checks that a ledger exists.
+        "baseline_mode",
         # signing_keys are secret material — never display in admin.
         "signing_keys_summary",
     )
@@ -96,6 +98,7 @@ class RepoAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "baseline_file_paths",
+                    "baseline_mode",
                     "enable_pr_comments",
                     "debt_digest_enabled",
                     "auto_quarantine_mode",

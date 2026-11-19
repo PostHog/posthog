@@ -22,6 +22,11 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.recalculation import (
+    metrics_recalculation_workflow_id,
+    request_recalculation,
+    start_metrics_recalculation_workflow,
+)
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     MIN_TOTAL_EXPOSURES,
@@ -136,14 +141,6 @@ def _start_scheduled_recalculation_sync(
             experiment_id=experiment_id, started=False, skip_reason=SKIP_START_WINDOW_ELAPSED
         )
 
-    # Deferred: recalculation.py imports temporal.recalculation_logic at module level, and this
-    # module is loaded from the temporal package's __init__, so a module-level import here closes
-    # a cycle back into a partially initialized module.
-    from products.experiments.backend.recalculation import (  # noqa: PLC0415 — breaks that cycle
-        request_recalculation,
-        start_metrics_recalculation_workflow,
-    )
-
     close_old_connections()
     # Re-check RUNNING, not just deleted: discovery ran before the exposure query, and an
     # experiment stopped in between should not get a scheduled run.
@@ -225,10 +222,6 @@ async def wait_for_scheduled_recalculation(recalculation_id: str) -> None:
 
     The run records its own outcome on its row, so a failed or cancelled run is not an error here.
     """
-    from products.experiments.backend.recalculation import (  # noqa: PLC0415 — breaks that cycle
-        metrics_recalculation_workflow_id,
-    )
-
     client = await async_connect()
     handle = client.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
     async with Heartbeater(factor=4):

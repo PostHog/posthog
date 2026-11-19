@@ -8,7 +8,7 @@ from django.core.management import call_command
 from posthog.models import Team
 
 from products.approvals.backend.models import ApprovalPolicy
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -27,7 +27,7 @@ class TestApprovalCoverageCommand(BaseTest):
         self._policy("feature_flag.enable", team=None)
         self._policy("experiment.launch", team=self.team)
         flag = FeatureFlag.objects.create(team=other_team, key="other-team-experiment", created_by=self.user)
-        Experiment.objects.create(team=other_team, name="Other team experiment", feature_flag=flag)
+        create_experiment(team_id=other_team.id, name="Other team experiment", feature_flag_id=flag.id)
 
         out = StringIO()
         call_command("approval_coverage", "--organization", str(self.organization.id), stdout=out)
@@ -39,7 +39,7 @@ class TestApprovalCoverageCommand(BaseTest):
         self._policy("feature_flag.update", team=None)
         self._policy("experiment.launch", team=None)
         flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment", feature_flag=flag)
+        create_experiment(team_id=self.team.id, name="Experiment", feature_flag_id=flag.id)
 
         out = StringIO()
         call_command("approval_coverage", "--organization", str(self.organization.id), stdout=out)

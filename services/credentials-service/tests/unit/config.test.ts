@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { isProductionEnv } from '@/db/role-guard'
 import { loadConfig, loadMigrateConfig } from '@/lib/config'
@@ -149,11 +149,16 @@ describe('loadConfig secret source', () => {
 
 describe('loadConfig database', () => {
     const DB_VARS = [
+        'CREDENTIALS_SERVICE_ENV',
         'CREDENTIALS_SERVICE_DATABASE_URL',
         'CREDENTIALS_SERVICE_DATABASE_POOL_SIZE',
         'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
     ]
     const URL = 'postgres://credentials:not-a-real-password@localhost:5432/credentials'
+
+    beforeEach(() => {
+        process.env.CREDENTIALS_SERVICE_ENV = 'local'
+    })
 
     afterEach(() => {
         for (const key of DB_VARS) {
@@ -203,11 +208,154 @@ describe('loadConfig database', () => {
     })
 })
 
+describe('loadConfig audit export requirement', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_ENV',
+        'CREDENTIALS_SERVICE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+    ]
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each(['dev', 'prod-us', 'prod-eu'])('requires audit export in %s when a database is configured', (env) => {
+        process.env.CREDENTIALS_SERVICE_ENV = env
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://example'
+        expect(() => loadConfig()).toThrow('audit export must be on wherever the integrations database is on')
+    })
+
+    it.each(['dev', 'prod-us', 'prod-eu'])('starts in %s with a database and audit export on', (env) => {
+        Object.assign(process.env, {
+            CREDENTIALS_SERVICE_ENV: env,
+            CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://example',
+            CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+            CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+            CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+        })
+        expect(loadConfig().auditExport).toBeDefined()
+    })
+
+    it('starts in prod-us without a database or audit export', () => {
+        process.env.CREDENTIALS_SERVICE_ENV = 'prod-us'
+        expect(loadConfig().database).toBeUndefined()
+    })
+
+    it('starts in local with a database and audit export off', () => {
+        process.env.CREDENTIALS_SERVICE_ENV = 'local'
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://example'
+        expect(loadConfig().auditExport).toBeUndefined()
+    })
+})
+
+describe('loadConfig audit', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY',
+        'HTTPS_PROXY',
+    ]
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it('leaves the export off when nothing is set', () => {
+        expect(loadConfig().auditExport).toBeUndefined()
+    })
+
+    it('turns the export on with a host and a key', () => {
+        process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED = 'true'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST = 'https://capture.example.com'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY = 'phc_fake'
+        expect(loadConfig().auditExport).toMatchObject({ host: 'https://capture.example.com', batchSize: 500 })
+    })
+
+    it.each([
+        ['no host or key', { CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true' }],
+        [
+            'a host that is not http',
+            {
+                CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'ftp://x',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+            },
+        ],
+    ])('fails the boot on %s', (_label, env) => {
+        Object.assign(process.env, env)
+        expect(() => loadConfig()).toThrow()
+    })
+})
+
+describe('loadConfig audit capture proxy', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY',
+        'HTTPS_PROXY',
+    ]
+    const BASE = {
+        CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+    }
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each([
+        [
+            'true with HTTPS_PROXY',
+            { VIA: 'true', PROXY: 'http://proxy.example.com:3128' },
+            'http://proxy.example.com:3128',
+        ],
+        ['unset with HTTPS_PROXY', { PROXY: 'http://proxy.example.com:3128' }, undefined],
+        ['false with HTTPS_PROXY', { VIA: 'false', PROXY: 'http://proxy.example.com:3128' }, undefined],
+        ['unset without HTTPS_PROXY', {}, undefined],
+    ])('sets proxyUrl for VIA_PROXY %s', (_label, { VIA, PROXY }: { VIA?: string; PROXY?: string }, expected) => {
+        Object.assign(process.env, BASE)
+        if (VIA) {
+            process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY = VIA
+        }
+        if (PROXY) {
+            process.env.HTTPS_PROXY = PROXY
+        }
+        expect(loadConfig().auditExport?.proxyUrl).toBe(expected)
+    })
+
+    it.each([
+        ['HTTPS_PROXY is missing', {}],
+        ['HTTPS_PROXY is not an http URL', { HTTPS_PROXY: 'not a url' }],
+        [
+            'the capture host is not https',
+            {
+                HTTPS_PROXY: 'http://proxy.example.com:3128',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'http://capture.local',
+            },
+        ],
+    ])('fails the boot with VIA_PROXY=true when %s', (_label, extra) => {
+        Object.assign(process.env, BASE, { CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY: 'true' }, extra)
+        expect(() => loadConfig()).toThrow()
+    })
+})
+
 describe('loadMigrateConfig', () => {
     const VARS = [
         'CREDENTIALS_SERVICE_DATABASE_URL',
         'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
         'CREDENTIALS_SERVICE_RUNTIME_ROLE',
+        'CREDENTIALS_SERVICE_PARTMAN_OPTIONAL',
     ]
 
     afterEach(() => {
@@ -221,7 +369,7 @@ describe('loadMigrateConfig', () => {
         [
             'only the runtime URL',
             { CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://runtime' },
-            { url: 'postgres://runtime', runtimeRole: '' },
+            { url: 'postgres://runtime', runtimeRole: '', partmanOptional: false },
         ],
         [
             'the migrate URL wins over the runtime URL',
@@ -230,7 +378,23 @@ describe('loadMigrateConfig', () => {
                 CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
                 CREDENTIALS_SERVICE_RUNTIME_ROLE: 'svc_runtime',
             },
-            { url: 'postgres://migrate', runtimeRole: 'svc_runtime' },
+            { url: 'postgres://migrate', runtimeRole: 'svc_runtime', partmanOptional: false },
+        ],
+        [
+            'partman is optional only when explicitly set to true',
+            {
+                CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
+                CREDENTIALS_SERVICE_PARTMAN_OPTIONAL: 'true',
+            },
+            { url: 'postgres://migrate', runtimeRole: '', partmanOptional: true },
+        ],
+        [
+            'other partman values keep it required',
+            {
+                CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
+                CREDENTIALS_SERVICE_PARTMAN_OPTIONAL: 'TRUE',
+            },
+            { url: 'postgres://migrate', runtimeRole: '', partmanOptional: false },
         ],
     ])('%s', (_label, env, expected) => {
         Object.assign(process.env, env)

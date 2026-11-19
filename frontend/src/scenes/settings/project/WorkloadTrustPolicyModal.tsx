@@ -105,46 +105,48 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                         label="Scopes"
                         help="Every token from this policy gets these scopes. Scopes that would let a token outlive itself aren't available."
                     >
-                        <div className="w-full">
-                            <LemonInput
-                                type="search"
-                                placeholder="Search scopes"
-                                value={scopeSearchTerm}
-                                onChange={setScopeSearchTerm}
-                                className="mb-2"
-                                size="small"
-                            />
-                            <div className="max-h-[40vh] overflow-y-auto deprecated-space-y-2">
-                                {scopeRows.length === 0 ? (
-                                    <div className="text-secondary text-sm py-2">No scopes match your search.</div>
-                                ) : (
-                                    scopeRows.map(({ key, label, disabledActions }) => (
-                                        <ScopeAccessRow
-                                            key={key}
-                                            row={{
-                                                key,
-                                                label,
-                                                value: scopeLevels[key] ?? 'none',
-                                                warning: riskyScopeWarning(
+                        {() => (
+                            <div className="w-full">
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search scopes"
+                                    value={scopeSearchTerm}
+                                    onChange={setScopeSearchTerm}
+                                    className="mb-2"
+                                    size="small"
+                                />
+                                <div className="max-h-[40vh] overflow-y-auto deprecated-space-y-2">
+                                    {scopeRows.length === 0 ? (
+                                        <div className="text-secondary text-sm py-2">No scopes match your search.</div>
+                                    ) : (
+                                        scopeRows.map(({ key, label, disabledActions }) => (
+                                            <ScopeAccessRow
+                                                key={key}
+                                                row={{
                                                     key,
-                                                    scopeLevels[key] ?? 'none',
-                                                    providers?.risky_scopes ?? {}
-                                                ),
-                                                disabledReasons: {
-                                                    read: disabledActions.includes('read')
-                                                        ? 'Not available for workload tokens'
-                                                        : undefined,
-                                                    write: disabledActions.includes('write')
-                                                        ? 'Not available for workload tokens'
-                                                        : undefined,
-                                                },
-                                            }}
-                                            onChange={setScopeLevel}
-                                        />
-                                    ))
-                                )}
+                                                    label,
+                                                    value: scopeLevels[key] ?? 'none',
+                                                    warning: riskyScopeWarning(
+                                                        key,
+                                                        scopeLevels[key] ?? 'none',
+                                                        providers?.risky_scopes ?? {}
+                                                    ),
+                                                    disabledReasons: {
+                                                        read: disabledActions.includes('read')
+                                                            ? 'Not available for workload tokens'
+                                                            : undefined,
+                                                        write: disabledActions.includes('write')
+                                                            ? 'Not available for workload tokens'
+                                                            : undefined,
+                                                    },
+                                                }}
+                                                onChange={setScopeLevel}
+                                            />
+                                        ))
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </LemonField>
                 </div>
             </LemonModal>

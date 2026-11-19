@@ -6,6 +6,7 @@
 
 use axum::http::{HeaderMap, Method};
 use bytes::Bytes;
+use metrics::counter;
 use tracing::{debug, Span};
 
 use crate::{
@@ -16,6 +17,8 @@ use crate::{
         is_likely_urlencoded_form, Base64Option, FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
 };
+
+const METRIC_FORM_BASE64_DECODED: &str = "capture_form_base64_decoded_total";
 
 /// Helper struct to hold extracted request metadata
 #[derive(Debug)]
@@ -134,10 +137,26 @@ pub fn extract_payload_bytes(
     let compression = extract_compression(&form, query_params, headers);
 
     // Get the actual payload bytes (either from form data or direct body)
-    let payload_bytes: Bytes = if form.data.is_some() {
-        Bytes::from(form.data.unwrap())
-    } else {
-        payload
+    // Older posthog-js beacons send `data=<base64>` as a form with `compression=base64`, which
+    // only the legacy paths unwrapped later, so decode it here for every route.
+    let payload_bytes: Bytes = match form.data {
+        Some(data)
+            if compression == Compression::Base64
+                && is_likely_base64(data.as_bytes(), Base64Option::Strict) =>
+        {
+            match decode_base64(data.as_bytes(), "form_data_base64") {
+                Ok(decoded) => {
+                    counter!(METRIC_FORM_BASE64_DECODED, "outcome" => "decoded").increment(1);
+                    Bytes::from(decoded)
+                }
+                Err(_) => {
+                    counter!(METRIC_FORM_BASE64_DECODED, "outcome" => "decode_failed").increment(1);
+                    Bytes::from(data)
+                }
+            }
+        }
+        Some(data) => Bytes::from(data),
+        None => payload,
     };
 
     Ok((payload_bytes, compression))
@@ -254,5 +273,80 @@ mod tests {
 
         let (_, compression) = result.unwrap();
         assert_eq!(compression, Compression::Gzip);
+    }
+
+    fn form_request(
+        body: String,
+        hint: Option<Compression>,
+    ) -> Result<(Bytes, Compression), CaptureError> {
+        let mut query_params = EventQuery {
+            compression: hint,
+            ..Default::default()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static(FORM_MIME_TYPE));
+        extract_payload_bytes(
+            &mut query_params,
+            &headers,
+            &Method::POST,
+            Bytes::from(body),
+        )
+    }
+
+    #[test]
+    fn test_extract_payload_bytes_decodes_hinted_form_base64() {
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let payloads: Vec<String> = (0..6)
+            .map(|n| {
+                format!(
+                    r#"{{"event":"beacon{}","properties":{{"q":"~~>>??ûÿ"}}}}"#,
+                    "x".repeat(n)
+                )
+            })
+            .collect();
+        let encoded: Vec<String> = payloads.iter().map(|p| engine.encode(p)).collect();
+        assert!(
+            encoded.iter().any(|e| e.contains('+')),
+            "inputs must cover '+'"
+        );
+        assert!(
+            encoded.iter().any(|e| e.contains('/')),
+            "inputs must cover '/'"
+        );
+        for pad in 0..3 {
+            assert!(
+                encoded
+                    .iter()
+                    .any(|e| e.len() - e.trim_end_matches('=').len() == pad),
+                "inputs must cover padding length {pad}"
+            );
+        }
+
+        for (json, b64) in payloads.iter().zip(&encoded) {
+            let escaped = serde_urlencoded::to_string([("data", b64.as_str())]).unwrap();
+            let raw_plus = format!("data={}", b64.replace('/', "%2F").replace('=', "%3D"));
+            for body in [escaped, raw_plus] {
+                let (payload, compression) =
+                    form_request(body.clone(), Some(Compression::Base64)).unwrap();
+                assert_eq!(compression, Compression::Base64);
+                assert_eq!(payload, Bytes::from(json.clone()), "body: {body}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_payload_bytes_leaves_unhinted_or_json_form_data() {
+        use base64::Engine;
+        let json = r#"{"event":"beacon"}"#;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(json);
+
+        let unhinted = serde_urlencoded::to_string([("data", b64.as_str())]).unwrap();
+        let (payload, _) = form_request(unhinted, None).unwrap();
+        assert_eq!(payload, Bytes::from(b64));
+
+        let json_form = serde_urlencoded::to_string([("data", json)]).unwrap();
+        let (payload, _) = form_request(json_form, Some(Compression::Base64)).unwrap();
+        assert_eq!(payload, Bytes::from(json));
     }
 }

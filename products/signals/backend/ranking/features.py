@@ -12,9 +12,14 @@ are the served contract: training (`products/signals/dags/inbox_ranking/training
 (the scoring sweep in this package) build features through the same `build_matrix`, so the model's
 `feature_names` match the serving matrix by construction. The sweep reads the vector at scoring
 time, and reads the latest priority judgment only for a model whose set declares the `priority`
-state column. `report_embeddings_priority_sources` adds the source products of the report's signals,
-and `report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Only
-experiment families train on these two, and the sweep cannot build them yet.
+state column. `report_embeddings_priority_sources` adds the source products of the report's signals.
+Training reads them as of the moment from the emission log, and the sweep reads the live ones at
+scoring time. Both turn a report's products into columns through the one `source_columns`.
+`report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Training
+reads them from the report-state snapshot, and the sweep reads them from `ReportFacts` at scoring time.
+Both turn them into columns through the one `report_fact_matrix`.
+`report_embeddings_priority_ml_features_scored_facts` has the same columns, and in training it reads
+the facts the sweep recorded when it scored the report, where they exist.
 
 The pair sets (`PairUserHistoryFeatureSet`) build one row per (report, user) for the pair-grain
 experiments: the priority set's columns, then the user's history and reviewer columns.
@@ -47,15 +52,21 @@ EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 EMBEDDING_DIMENSIONS = 1536
 # Position order, so `emb_i` is the vector's ith component in every matrix an embedding set builds.
 EMBEDDING_FEATURE_NAMES = tuple(f"emb_{index}" for index in range(EMBEDDING_DIMENSIONS))
+# The light form of the report-vector side input: True where the snapshot's vector has
+# `EMBEDDING_DIMENSIONS` values, in place of `EMBEDDING_COLUMN`. `buildable` can read it, so a step
+# that only selects rows does not hold the vectors. `build_matrix` needs the vectors themselves.
+HAS_VECTOR_COLUMN = "has_vector"
 
 # The report-state column that holds the report's latest priority judgment as of the moment, and
 # the levels a set encodes it with.
 PRIORITY_COLUMN = "priority"
 PRIORITY_LEVELS = ("P0", "P1", "P2", "P3", "P4")
 
-# The source products of a report's signals, under this key in `extras`: the metadata columns of the
-# dataset dag's `inbox_signal_embeddings` emission log, one row per signal emission, with the moment
-# the emission landed in `SIGNAL_INSERTED_AT_COLUMN`.
+# The source products of a report's signals, under this key in `extras`. As of a moment, it holds the
+# metadata columns of the dataset dag's `inbox_signal_embeddings` emission log, one row per signal
+# emission, with the moment the emission landed in `SIGNAL_INSERTED_AT_COLUMN`. At serving
+# (`as_of=None`), it holds `REPORT_LIVE_SOURCES_COLUMNS`: one row per live signal of a report at
+# scoring time.
 REPORT_SOURCES_EXTRA = "report_sources"
 SIGNAL_INSERTED_AT_COLUMN = "embedding_inserted_at"
 REPORT_SOURCES_COLUMNS = (
@@ -66,6 +77,12 @@ REPORT_SOURCES_COLUMNS = (
     "is_deleted",
     SIGNAL_INSERTED_AT_COLUMN,
 )
+REPORT_LIVE_SOURCES_COLUMNS = ("report_id", "source_product")
+# The report facts the scoring sweep recorded when it first scored each report, under this key in
+# `extras`: the rows of the dataset dag's `inbox_report_scored_facts`, one per report, known from
+# `SCORED_AT_COLUMN`. A report scored before recording began has no row.
+REPORT_SCORED_FACTS_EXTRA = "report_scored_facts"
+SCORED_AT_COLUMN = "scored_at"
 # A fixed vocabulary, so a new source product does not change the feature names. A product outside
 # it sets `source_other`.
 SOURCE_PRODUCTS = (
@@ -273,27 +290,37 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     def buildable(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
     ) -> pd.Series:
+        vectors = extras.get(self.extras_keys[0])
+        if vectors is not None and EMBEDDING_COLUMN not in vectors and HAS_VECTOR_COLUMN in vectors:
+            has_vector = vectors[HAS_VECTOR_COLUMN].reindex(rows.index, fill_value=False).astype(bool)
+            if as_of is None:
+                return has_vector
+            return has_vector & self._landed_by(vectors, rows.index, as_of)
         return self._is_vector(self._aligned_vectors(rows, extras, as_of))
 
     def _aligned_vectors(self, rows: pd.DataFrame, extras: Extras, as_of: datetime.datetime | None) -> pd.Series:
         """The vector per row of `rows`: a missing value where the snapshot holds none, and where it
-        holds one that landed after `as_of`.
-
-        A vector with no landing time is dropped rather than trusted, because the check cannot be
-        made for it.
-        """
+        holds one that landed after `as_of`."""
         vectors = extras.get(self.extras_keys[0])
         if vectors is None or EMBEDDING_COLUMN not in vectors:
             return pd.Series(None, index=rows.index, dtype=object)
         aligned = vectors[EMBEDDING_COLUMN].reindex(rows.index)
         if as_of is None:
             return aligned
+        return aligned.where(self._landed_by(vectors, rows.index, as_of))
+
+    def _landed_by(self, vectors: pd.DataFrame, index: pd.Index, as_of: datetime.datetime) -> pd.Series:
+        """True for each report of `index` whose vector landed at or before `as_of`.
+
+        A vector with no landing time is False rather than trusted, because the check cannot be
+        made for it.
+        """
         if EMBEDDING_INSERTED_AT_COLUMN not in vectors:
             raise ValueError(
                 f"the {self.extras_keys[0]} side input needs {EMBEDDING_INSERTED_AT_COLUMN} to be read as of a moment"
             )
-        landed = pd.to_datetime(vectors[EMBEDDING_INSERTED_AT_COLUMN].reindex(rows.index), utc=True)
-        return aligned.where(landed.notna() & (landed <= as_of))
+        landed = pd.to_datetime(vectors[EMBEDDING_INSERTED_AT_COLUMN].reindex(index), utc=True)
+        return landed.notna() & (landed <= as_of)
 
     @staticmethod
     def _is_vector(vectors: pd.Series) -> pd.Series:
@@ -332,20 +359,22 @@ class ReportEmbeddingsPriorityFeatureSet(ReportEmbeddingsFeatureSet):
 
 
 class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureSet):
-    """The priority set, then the source products of the report's signals as of the moment.
+    """The priority set, then the source products of the report's signals.
 
     One column per product in `SOURCE_PRODUCTS`, `source_other` for any other or a missing product,
     `source_count` for the number of distinct products, and `has_sources`. The signals come from the
-    `REPORT_SOURCES_EXTRA` side input, an emission log with one row per signal emission. A moment
-    reads only the emissions inserted at or before it, takes the latest emission per
-    (team_id, signal_id), and drops a signal whose latest emission is a retraction. A signal can
-    move to another report when it is regrouped, so the report comes from that latest emission.
+    `REPORT_SOURCES_EXTRA` side input. As of a moment, that is an emission log with one row per
+    signal emission: a moment reads only the emissions inserted at or before it, takes the latest
+    emission per (team_id, signal_id), and drops a signal whose latest emission is a retraction. A
+    signal can move to another report when it is regrouped, so the report comes from that latest
+    emission. At serving (`as_of=None`), the side input already holds the live signals at scoring
+    time. Both paths build the columns through `source_columns`.
 
     The impression labels also carry a `source_products` column, but it holds the value of the
     latest impression, so it can postdate the moment. This set never reads it.
 
-    A report with no live signal at the moment gets zero in every source column, `has_sources`
-    included. `buildable` is the parent's, so this set keeps the same rows as its baseline.
+    A report with no live signal gets zero in every source column, `has_sources` included.
+    `buildable` is the parent's, so this set keeps the same rows as its baseline.
     """
 
     schema_version = 1
@@ -358,32 +387,42 @@ class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureS
     def build_matrix(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
     ) -> pd.DataFrame:
-        if as_of is None:
-            raise ValueError(f"the {self.name} feature set reads its sources only as of a moment")
         matrix = super().build_matrix(rows, extras, as_of=as_of)
-        sources = self._sources_as_of(extras[self.extras_keys[1]], rows.index, as_of)
+        signals = extras[self.extras_keys[1]]
+        live = signals if as_of is None else self._live_as_of(signals, as_of)
+        sources = source_columns(live, rows.index)
         for column in SOURCES_GROUP_FEATURE_NAMES:
             matrix[column] = sources[column].to_numpy(dtype=np.float32)
         return matrix
 
     @staticmethod
-    def _sources_as_of(signals: pd.DataFrame, report_ids: pd.Index, as_of: datetime.datetime) -> pd.DataFrame:
+    def _live_as_of(signals: pd.DataFrame, as_of: datetime.datetime) -> pd.DataFrame:
         known = signals.loc[signals[SIGNAL_INSERTED_AT_COLUMN] <= as_of]
         latest = known.sort_values(SIGNAL_INSERTED_AT_COLUMN, kind="stable").drop_duplicates(
             ["team_id", "signal_id"], keep="last"
         )
-        live = latest.loc[~latest["is_deleted"].astype(bool) & latest["report_id"].isin(report_ids)]
-        product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
-        one_hot = (
-            pd.crosstab(live["report_id"], "source_" + product.astype(str))
-            .clip(upper=1)
-            .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
-        )
-        # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
-        distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
-        one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
-        one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
-        return one_hot
+        return latest.loc[~latest["is_deleted"].astype(bool)]
+
+
+def source_columns(live: pd.DataFrame, report_ids: pd.Index) -> pd.DataFrame:
+    """`SOURCES_GROUP_FEATURE_NAMES` for each of `report_ids`, from `live`: one row per live signal, with its
+    `report_id` and its `source_product` (null when the signal names none).
+
+    Training and serving both build the source columns here, so the vocabulary and the
+    `source_other` rule cannot differ between them.
+    """
+    live = live.loc[live["report_id"].isin(report_ids)]
+    product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
+    one_hot = (
+        pd.crosstab(live["report_id"], "source_" + product.astype(str))
+        .clip(upper=1)
+        .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
+    )
+    # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
+    distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
+    one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
+    one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
+    return one_hot
 
 
 def bucket_names(column: str, edges: Sequence[int]) -> tuple[str, ...]:
@@ -497,9 +536,9 @@ class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourc
     so every column here is 0 or 1: counts and lengths go into the buckets of their `*_EDGES`, the
     actionability judgment one column per level of `ACTIONABILITY_LEVELS`, `already_addressed` one
     column per value, and the creation time into a weekday and a 4-hour bucket in UTC. A missing
-    value gives zero in every column of its bucket set. The facts come from the row's own snapshot,
-    taken at the end of the day, while the sweep scores a report minutes after creation, so the
-    counts can have grown in between. The coarse buckets limit that.
+    value gives zero in every column of its bucket set. In training, the facts come from the row's
+    own snapshot, taken at the end of the day. The sweep reads them from `ReportFacts` when it scores a
+    report, minutes after creation, so the training counts can be higher. The coarse buckets limit that.
 
     The content columns and `already_addressed` are optional state columns: snapshots written before
     they were recorded lack them (`report_fact_matrix`). `total_weight`, `run_count`,
@@ -543,6 +582,71 @@ class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourc
         matrix = super().build_matrix(rows, extras, as_of=as_of)
         facts = pd.DataFrame(report_fact_matrix(rows), index=rows.index, columns=list(REPORT_FACT_FEATURE_NAMES))
         return pd.concat([matrix, facts], axis=1)
+
+
+class ReportEmbeddingsPriorityScoredFactsFeatureSet(ReportEmbeddingsPriorityMLFeaturesFeatureSet):
+    """The ML features set, trained on the report facts the scoring sweep saw where they exist.
+
+    The columns, bucket edges and groups are the parent's. Only the training read differs. As of a
+    moment, a report with a row in the `REPORT_SCORED_FACTS_EXTRA` side input known at that moment
+    takes every state column from that row, a null fact included, because that null is what the sweep
+    read and what a served model reads. A report without such a row keeps the values of its own state
+    row. A row is never dropped for lacking a scored-facts row.
+
+    At serving (`as_of=None`), the sweep fills the state rows from `ReportFacts` at scoring time, which
+    is the same read the scored facts record, so the set reads `rows` alone and the side input is not
+    passed.
+    """
+
+    schema_version = 1
+
+    def __init__(self, *, name: str, extras_key: str, sources_key: str, scored_facts_key: str) -> None:
+        super().__init__(name=name, extras_key=extras_key, sources_key=sources_key)
+        self.extras_keys = (extras_key, sources_key, scored_facts_key)
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        if as_of is not None:
+            rows = self.with_scored_facts(rows, extras, as_of)
+        return super().build_matrix(rows, extras, as_of=as_of)
+
+    def scored_rows(self, report_ids: pd.Index, extras: Extras, as_of: datetime.datetime) -> pd.DataFrame:
+        """The earliest scored-facts row of each of `report_ids` known at `as_of`, indexed by report_id.
+        A report without one is absent."""
+        facts = extras[self.extras_keys[2]]
+        known = facts.loc[(facts[SCORED_AT_COLUMN] <= as_of) & facts["report_id"].isin(report_ids)]
+        earliest = known.sort_values(SCORED_AT_COLUMN, kind="stable").drop_duplicates("report_id")
+        return earliest.set_index("report_id")
+
+    def with_scored_facts(self, rows: pd.DataFrame, extras: Extras, as_of: datetime.datetime) -> pd.DataFrame:
+        """`rows` with every state column taken from the report's scored-facts row known at `as_of`,
+        where it has one."""
+        scored = self.scored_rows(rows.index, extras, as_of)
+        has_row = rows.index.isin(scored.index)
+        if not has_row.any():
+            return rows
+        merged = rows.copy()
+        for column in self.state_columns:
+            own = _column(rows, column).astype(object).to_numpy()
+            from_scored = _column(scored, column).astype(object).reindex(rows.index).to_numpy()
+            merged[column] = pd.Series(np.where(has_row, from_scored, own), index=rows.index, dtype=object)
+        return merged
+
+
+def zero_feature_groups(matrix: pd.DataFrame, feature_set: FeatureSet, groups: Sequence[str]) -> pd.DataFrame:
+    """`matrix` with every column of each of the set's `late_feature_groups` named in `groups` at zero.
+
+    Training zeroes a late group on every row when too few training rows carry it, so its weights keep
+    their initial random values. A model that serves must read the same zeros, or those weights add
+    noise to its scores.
+    """
+    columns = [name for group in groups for name in feature_set.late_feature_groups[group]]
+    if not columns:
+        return matrix
+    masked = matrix.copy()
+    masked[columns] = 0.0
+    return masked
 
 
 class PairUserHistoryFeatureSet(FeatureSet):
@@ -616,6 +720,12 @@ REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET = ReportEmbeddingsPrioritySources
 REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET = ReportEmbeddingsPriorityMLFeaturesFeatureSet(
     name="report_embeddings_priority_ml_features", extras_key=REPORT_EMBEDDINGS_EXTRA, sources_key=REPORT_SOURCES_EXTRA
 )
+REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET = ReportEmbeddingsPriorityScoredFactsFeatureSet(
+    name="report_embeddings_priority_ml_features_scored_facts",
+    extras_key=REPORT_EMBEDDINGS_EXTRA,
+    sources_key=REPORT_SOURCES_EXTRA,
+    scored_facts_key=REPORT_SCORED_FACTS_EXTRA,
+)
 PAIR_BASE_FEATURE_SET = PairUserHistoryFeatureSet(
     name="pair_report_embeddings_priority",
     report_feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
@@ -635,6 +745,7 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
         REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
+        REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     }
 )
 

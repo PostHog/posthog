@@ -2,8 +2,8 @@
 
 The first answer only says that the work started. When the product reports the outcome, the
 receivers in ``receivers.py`` look up the follow-up and send the result there. The channel decides
-the address: a Slack command answers in its thread, and a pull request comment needs none, because
-the work posts its result on the pull request itself.
+the address: a Slack command answers in its thread. A pull request comment gets none: a review posts
+its result on the pull request itself, and a docs check from a comment ends without a message.
 
 The record lives in the cache with a time limit, so a lost record only loses the follow-up message.
 """
@@ -50,6 +50,10 @@ def review_key(project_id: int, repository: str, number: int, review_mode: str) 
     # A request can wait behind a running turn of the other mode, and the head can move while it
     # waits, so the mode names the turn and the head does not. Each project reviews on its own.
     return f"commands:follow_up:review:{project_id}:{repository.lower()}#{number}:{review_mode}"
+
+
+def docs_check_key(waiter_id: str) -> str:
+    return f"commands:follow_up:docs_check:{waiter_id}"
 
 
 def task_run_key(run_id: str) -> str:

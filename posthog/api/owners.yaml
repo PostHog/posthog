@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: ['/cli_catalog.py', '/test/test_cli_catalog.py']
+      owners: team-context-and-mcp
     - match: ['/cohort.py', '/test/test_cohort.py']
       owners: team-feature-flags
     - match: '/comments.py'

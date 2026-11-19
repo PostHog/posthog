@@ -11,10 +11,11 @@ import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 
 Sync your [Twelve Labs](https://www.twelvelabs.io) video understanding library into PostHog. This
-connector imports your indexes, the videos in each index, the video indexing tasks that track the
-upload and indexing lifecycle, the transcriptions of your video and audio assets, and the tags on
-your knowledge store video items, so you can analyze library growth, indexing throughput, indexing failures, and spoken content alongside the rest
-of your data.
+connector imports your assets, your indexes with the videos and indexed assets in each one, the video
+indexing tasks that track the upload and indexing lifecycle, your asynchronous analysis tasks, the
+transcriptions of your video and audio assets, and your knowledge stores with their items, item
+collections, and item tags. Use it to analyze library growth, indexing throughput, indexing and
+analysis failures, and spoken content alongside the rest of your data.
 
 ## Prerequisites
 
@@ -45,6 +46,14 @@ and speaker turns. Assets without a transcription are skipped.
 `knowledge_store_item_tags` holds the tags on the video items of your knowledge stores. Each row is
 one tag with its start and end time and its custom metadata. It makes one request per knowledge store
 and one per video item, syncs by full refresh, and is disabled by default.
+
+`assets`, `analyze_tasks`, and `knowledge_stores` sync by full refresh, because the Twelve Labs API
+has no time filter for them. A full refresh also picks up assets and analysis tasks that change
+status after they are created.
+
+`indexed_assets` makes one request per index. `knowledge_store_items` and
+`knowledge_store_item_collections` make one request per knowledge store. These tables sync by full
+refresh and are disabled by default.
 
 ## Configuration
 

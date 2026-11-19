@@ -198,6 +198,76 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-17: review rules come from the base commit, and repository hooks are off
+
+- **What.**
+  - The single-agent prompt (`prompt.jinja`, "Repository rules") makes the rule files (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, `SKILL.md`, every file under `.agents/` or `.claude/`, and the guides and skills they route to) apply as they are at the PR's merge base.
+    A change the PR makes to one is diff content to review, not a rule to follow.
+  - The prompt names the rule files the whole PR changes, also on a delta turn, and says that the checkout and any copy the agent loaded at session start hold the PR's versions.
+    It gives `git fetch --depth 1 origin <merge base>` and `git show <merge base>:'<path>'` to read the base version, the same commit-id-only command shape the prompt already uses for a left-out diff.
+  - Most of a repository's rules sit in guides and skills, so `.agents/`, `.claude/` and `SKILL.md` match by path, not only the four `AGENTS.md`-style names.
+    A rename lists the old path too, because renaming a rule file away removes it from the checkout.
+  - The listed paths go into an instruction sentence and a single-quoted `git show`, so a path with any character outside `[A-Za-z0-9._/-]` is counted and never repeated. The session is pointed at a commit-id-only `git diff` for its base text instead.
+  - `run_sandbox_review` and `start_sandbox_session` set `disable_repo_hooks` on every sandbox context, as Signals report research does.
+- **Why the base.** The sandbox checks out the PR head, so before this change a PR could edit the rules that judged it.
+  The merge base is the commit the diff is computed against, and its rule files are the ones the repository had already accepted.
+  Rule files the PR does not change are the same in the checkout and at the merge base, so the session reads only the changed ones with git.
+- **Why the prompt and not a restored checkout.** Restoring the base versions in the checkout before the first turn would also cover what each runtime loads at session start (`CLAUDE.md` for Claude, `AGENTS.md` for Codex).
+  It needs a step in the Tasks checkout, which ReviewHog does not own. `SessionFile` puts files in an attachments directory, not in the checkout, so it cannot replace them either.
+  The prompt names that loaded copy as the PR's version instead. Moving the restore into the Tasks checkout is the stronger follow-up.
+- **Amends the devex lens entry (2026-11-10, "Where the rules live").** The lens applied the removed lines of a guide its diff changed. It now applies the whole guide as it is at the merge base, which covers edits and additions too.
+  The removed-lines rule stays only as the fallback when no merge base is known.
+- **Runtimes.** `disable_repo_hooks` is read by the Claude adapter only (`packages/agent/.../claude/session/options.ts`): it passes `disableAllHooks` at flag level, and the session still loads the repository's `CLAUDE.md`.
+  The Codex adapter does not read it. It replaces the configured hooks with its own in a task sandbox and trusts only those by hash. Whether the Codex binary runs a hook from the checkout's own config is not visible in this repository.
+- **Cost.** A PR that adds or edits a rule does not have that rule applied to its own review. The rule applies from the first review after it merges.
+- **Not covered.** The Deep pipeline and validation prompts do not carry the rules section. The review still checks out the head branch by name (see "Sandbox checkout ref"), so the tree can be newer than the `head_sha` the review is pinned to; closing that needs the strict checkout recorded there as out of scope.
+
+### ✅ BUILT 2026-11-17 — devex lens: its own lane, ownership errors stay local, a matched control
+
+Three points from the #132203 review, settled before the flag goes on. The flag stays off.
+
+- **Own lane.** In the shared selection a devex must-fix took a cap slot and a budget slot, and a devex duplicate could raise a main finding to must-fix and move it out of the cap.
+  Now the devex findings dedup in a third call with the main and lens findings as anchors, raise only a devex survivor, and post up to `DEVEX_LENS_MAX_FINDINGS` (2) in a lane outside the turn cap and the finding budget.
+  A failed devex dedup empties the lane for that turn instead of retrying the activity, because the positional fallback ignores the anchors and could repost a main finding.
+  A routed turn posts the same other findings as an unrouted one, so the lens's effect is only its own lane.
+  Rejected: always posting devex findings. Only 5 of the 9 lens-only root causes on the pilot's second set were valid.
+- **Ownership errors.** `resolve_path_owners` caught only a missing root file and an unreachable repository. An `owners.yaml` that does not parse failed the whole fetch. `_devex_lens_files` now logs the error and returns no files.
+- **A matched control.** The fetch resolves the route on every Standard turn with separate sessions, flag on or off. The started event carries `devex_lens_routed` and `devex_lens_arm`, and the completed event reports the devex session's failure, timeout and duration as `flash_devex_*`, outside the lens counts.
+  The ownership files are cached, so the extra reads on flag-off turns are mostly cache hits.
+- **Arm means assignment.** `devex_lens_arm` is the flag on a routed PR. Delta turns run without the lens in both arms, so a comparison by arm stays intent-to-treat. `flash_devex_*` says whether the session ran.
+- **Known gap.** A turn that posts only devex findings still counts as a review round, so the round note can come one round earlier on a routed PR.
+- **Still open.** The 2026-11-10 entry's "before the flag goes on" (the plan's experiment and its bars), and the routed-lens table before a second lens.
+
+### ✅ BUILT 2026-11-13 — `code_review` identifier namespace (ReviewHog and Stamphog)
+
+Stamphog folds into PostHog Review, and neither product is released, so the rename is hard, with no aliases.
+Entries below this one keep the old names as history.
+
+- **API paths:** `review_hog/<x>` became `code_review/<x>`. Stamphog's `repo_configs`, `review_runs`, `pull_requests`, `digest_runs` and `routing_runs` became `code_review/approvals/{repositories,runs,pull_requests,digests,reviewer_routing}`. The digest endpoint and its MCP tool moved like the rest (`code_review/approvals/digests`, `code-review-approvals-digests-list`); the digest stays paused, not removed.
+- **MCP tools:** `review-hog-reviews-*` became `code-review-reviews-*`, and `stamphog-*` became `code-review-approvals-*`. Both products share the `PostHog Review` category and the `code_review` feature key.
+- **Scopes and access control:** `review_hog` became `code_review`, and `stamphog` became `code_review_approval`, for API scopes and for the access-control resource. `posthog/migrations/1440_rename_code_review_scopes.py` adds the new names next to the old ones in stored keys, grants, trust policies and access-control rows.
+- **Not in 1440: OAuth applications and access tokens.** The first version also rewrote those. The token table is large and most of its rows are expired. The migration blocked prod deploys on 2026-11-17 until #137370 took both tables out. `backfill_code_review_scopes` covers their usable rows. Every read path translates the old names, so running it is optional until the old names are dropped from storage.
+- **OAuth:** shipped desktop builds still request the old scope names, so `posthog/scopes/catalog.py::RENAMED_OAUTH_SCOPE_OBJECTS` translates them at `/authorize`, device authorization and refresh. Stored scopes are translated where they are read: `get_authenticator_scopes`, refresh narrowing and token introspection. Remove the map once those builds age out and no stored row holds an old name.
+- **Open:** the follow-up that drops the old names and the old access-control rows. Its shape (whether it touches token tables at all) waits on Julian.
+- **Kept:** the GitHub app and its `stamphog` label, `/stamp`, `.stamphog/` policy files, the webhook path, the `/stamphog/install/callback` route, internal code names, feature flag keys, analytics events, and stored enum values such as `stamphog_approved` and `reviewhog_clean`.
+
+### ✅ BUILT 2026-11-13 — changed lines in follow-up prompts, outcomes and author responses on the reviews API
+
+- **What.**
+  - On a follow-up turn that reviews the whole PR, every session's prompt lists the lines changed since the last reviewed head and the levels the `old_code` drop discards elsewhere (P2 and P3 on an automatic turn, P3 on a requested one).
+  - The reviews detail returns each finding's `issue_key` and its `outcome` (the `finding_outcome` artefact the merge sweep writes).
+  - The merge sweep also records what GitHub shows on the finding's comment, whichever signal decided the outcome: the tone of the reactions (`positive`, `negative`, `mixed`), the start of the first reply ReviewHog did not write, and whether the comment was outdated. They come from the comments and reactions the sweep already reads. The event carries the tone and the outdated flag, never the reply text.
+- **Why the prompt section.** An `old_code` drop happens only on a follow-up turn: the sessions saw the whole PR diff, but dedup keeps a finding below must-fix only near the lines changed since the last review.
+  `lens_priority.md` already limits the lenses to issues the PR causes, and `core.md` excludes bugs the PR did not introduce, so neither covers a PR-caused finding on lines an earlier turn already reviewed.
+  The prompt template is part of the single-agent fingerprint, so these turns form a new cohort.
+- **Why record the reply and the reaction tone.** `reacted` wins over `addressed`, so a 👍, a 👎, "Fixed in <sha>" and "Leaving this as is" all read as `reacted`. The tone and the reply separate an accepted finding from a rejected one with signals people already leave, without a new classifier.
+- **`resolution` and `latest_resolution` are not outcomes.** They describe the Resolve stage's runs, and they are null wherever no Resolve run queued threads, because `resolve_comments` is off by default.
+- **Rejected: a path gate on the performance lens.** A rule that ran the lens only on parts with hot-path or infrastructure files (queries, ClickHouse, migrations, caches, tasks, ingestion, CDP, warehouse syncs, Rust, Go, with UI files ignored) was replayed against recorded `reviewhog_finding_outcome` events for Standard reviews of this repository.
+  It would have skipped most performance-lens findings, must-fix findings among them, and the skipped findings drew replies, confirmed fixes and no response at the same rates as the kept ones.
+  The gate cut findings people engage with, not noise. The lens decision waits for the reaction tone, reply and outdated signals above to accumulate.
+- **Known gaps.** Outcomes need the project's GitHub data warehouse source to see merges, and a PR closed without merging gets no outcome.
+  Dropped findings carry no outcome. Replies are recorded, not classified as accepted or rejected.
+
 ### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, pilot failed three bars)
 
 - **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a file the devex team owns and `reviewhog-devex-lens` is on for the PR.
@@ -2505,7 +2575,7 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
     create `asyncio.Semaphore(N)` **fresh inside `@run`**, `async with` it around each `execute_activity`,
     `gather(*tasks, return_exceptions=True)`, then inspect with `isinstance(r, BaseException)`.
     `posthog/temporal/session_replay/session_summary/workflow.py:431-469`;
-    `posthog/temporal/experiments/workflows.py:60-88`; `posthog/temporal/data_modeling/workflows/execute_dag.py:272-377`.
+    `products/experiments/backend/temporal/timeseries/workflows.py:60-88`; `posthog/temporal/data_modeling/workflows/execute_dag.py:272-377`.
     Width = `MAX_CONCURRENT_SANDBOXES`, repurposed as the per-child fan-out width; the true global ceiling stays the
     `tasks-task-queue` worker's own concurrency (where the sandbox `ProcessTaskWorkflow`s execute).
   - **Child workflows:** the parent `await`s its three children (they return results it persists — **NOT**

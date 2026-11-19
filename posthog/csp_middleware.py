@@ -81,6 +81,12 @@ EMBEDDABLE_PATH_PREFIXES = (
 EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
 
 
+# The cloud hosts a local app signs in against. Keep in sync with `OAUTH_REGIONS` in
+# `frontend/src/lib/utils/oauthClient.ts`, which exchanges the code at the region's `/oauth/token/`
+# and then sends every API call to that host.
+CLOUD_OAUTH_REGION_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
+
+
 def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
@@ -100,6 +106,9 @@ def is_embeddable_document(path: str) -> bool:
 # The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
 # a response that the view did not build. No report shows how such a response behaves under an
 # enforced policy.
+# The auth page serves password login on both paths without a reload
+RADAR_SIGNALS_DOCUMENT_PATHS = frozenset({"/login", "/login/", "/signup", "/signup/"})
+
 REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
 
 
@@ -157,6 +166,23 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
             part = " ".join([name, *kept])
         narrowed.append(part)
     return narrowed
+
+
+def dev_connect_sources() -> list[str]:
+    """The `connect-src` sources that only a local or test run needs."""
+    sources = []
+    if settings.DEBUG or settings.TEST:
+        sources.append("ws://localhost:8234")
+    if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
+        # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
+        # click-to-source request goes to it, and the policy refuses that request without this source.
+        sources.append("http://localhost:5678")
+    if settings.DEBUG:
+        # "Sign in with PostHog cloud" runs only under DEBUG (see `login_required` in
+        # posthog/views.py), and its token request and API calls go to the cloud region from
+        # the browser. Cloud pages already admit these hosts through `https://*.posthog.com`.
+        sources.extend(CLOUD_OAUTH_REGION_HOSTS)
+    return sources
 
 
 def app_bundle_origin() -> str:
@@ -304,11 +330,7 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
-                # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
-                # click-to-source request goes to it, and the policy refuses that request without this source.
-                connect_debug_url += " http://localhost:5678"
+            connect_debug_url = " ".join(dev_connect_sources())
             object_storage_source = object_storage_upload_source()
             # The image exporter renders replay exports in the bare /exporter document, and a frame of
             # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
@@ -316,6 +338,11 @@ class CSPMiddleware:
             # can carry page code to the report endpoint, so no other document asks for one, and that
             # includes the shared page at /exporter/<token>.
             report_sample = " 'report-sample'" if request.path == "/exporter" else ""
+            # Only the auth documents run the WorkOS Radar signals script, which posts to the WorkOS
+            # API from our page. WorkOS serves the script itself, so no other document trusts it.
+            is_radar_document = request.path in RADAR_SIGNALS_DOCUMENT_PATHS
+            radar_script_src = " https://js.workos.com/radar/" if is_radar_document else ""
+            radar_connect_src = " https://api.workos.com" if is_radar_document else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
@@ -347,7 +374,7 @@ class CSPMiddleware:
                 # matched against the URL path alone, so the `?2` the library appends does not
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js{radar_script_src}",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -394,7 +421,7 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}{radar_connect_src}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

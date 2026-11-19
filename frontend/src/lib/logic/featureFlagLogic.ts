@@ -69,6 +69,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     if (posthogAiAccess !== undefined) {
         availableFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
     }
+    // The nav switch changes `today-rail-nav` locally, before the server re-evaluates `scene-menu-bar`.
+    if (availableFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        availableFlags[FEATURE_FLAGS.SCENE_MENU_BAR] = true
+    }
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {

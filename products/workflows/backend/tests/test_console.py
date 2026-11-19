@@ -3,12 +3,18 @@ import re
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib import admin
 from django.contrib.messages import get_messages
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.admin.console.panels import Tone
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team import Team
 
+from products.workflows.backend.console import EmailSendingPanel
 from products.workflows.backend.facade.api import get_email_sending_state, suspend_email_sending
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -55,6 +61,54 @@ class TestEmailSendingConsolePanel(BaseTest):
         detail = entries[0].detail or {}
         assert detail["context"] == {"reason": "staff_set"}
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
+
+    @parameterized.expand(
+        [
+            ("enabled", "ENABLED", "", ("Sending enabled", Tone.SUCCESS), None),
+            ("aws_paused", "DISABLED", "HIGH", ("Paused by AWS SES", Tone.DESTRUCTIVE), "HIGH"),
+            ("aws_reinstated", "REINSTATED", "LOW", ("Sending enabled", Tone.SUCCESS), None),
+        ]
+    )
+    def test_status_reports_an_aws_tenant_pause(
+        self,
+        _name: str,
+        tenant_status: str,
+        impact: str,
+        expected_status: tuple[str, Tone],
+        expected_impact: str | None,
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"ses_tenant_sending_status": tenant_status, "ses_tenant_reputation_impact": impact},
+        )
+
+        facts = {fact.label: fact for fact in EmailSendingPanel().facts(self.team)}
+
+        assert (facts["Status"].value, facts["Status"].tone) == expected_status
+        assert (facts["AWS reputation impact"].value if "AWS reputation impact" in facts else None) == expected_impact
+
+    @parameterized.expand(
+        [
+            ("enabled", False, "ENABLED", ["Sending enabled"], ["Suspended", "Paused by AWS SES"]),
+            ("aws_paused", False, "DISABLED", ["Paused by AWS SES"], ["Suspended", "Sending enabled"]),
+            ("both", True, "DISABLED", ["Suspended", "Paused by AWS SES"], ["Sending enabled"]),
+        ]
+    )
+    def test_team_admin_state_reports_an_aws_tenant_pause(
+        self, _name: str, staff_suspended: bool, tenant_status: str, shown: list[str], hidden: list[str]
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "ses_tenant_sending_status": tenant_status,
+                "email_sending_suspended_at": timezone.now() if staff_suspended else None,
+            },
+        )
+
+        content = str(TeamAdmin(Team, admin.site).email_sending_suspension_state(self.team))
+
+        assert all(text in content for text in shown)
+        assert not any(text in content for text in hidden)
 
     def test_set_tier_form_starts_from_the_current_tier_and_pin(self) -> None:
         TeamWorkflowsConfig.objects.update_or_create(

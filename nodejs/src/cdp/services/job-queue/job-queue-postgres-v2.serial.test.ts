@@ -109,15 +109,20 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     const otherTeamId = (): number => teamId + 1
 
-    async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port)) {
+    async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port), insertBatchSize = 1000) {
         const queue = new CyclotronJobQueuePostgresV2(10, {
             CYCLOTRON_NODE_DATABASE_URL: url,
             CYCLOTRON_SHARD_DEPTH_LIMIT: 1_000_000,
             CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
+            CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
             CDP_CYCLOTRON_BOUNDED_POLLS: false,
-            CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+            CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
+            CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
+            CDP_CYCLOTRON_RELEASE_WRITE_RETRY: false,
+            CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: insertBatchSize,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            CDP_SEALED_STATE_KEYS: '',
             ENCRYPTION_SALT_KEYS,
         })
         queues.push(queue)
@@ -186,7 +191,11 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         scheduledAt: inAnHour(),
     })
 
-    async function lateness(queue: string, wait: 'deferred' | 'scheduled'): Promise<{ count: number; sum: number }> {
+    async function lateness(
+        queue: string,
+        wait: 'deferred' | 'scheduled',
+        outcome: 'processed' | 'parked' = 'processed'
+    ): Promise<{ count: number; sum: number }> {
         const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
         const samples = metric ? (await metric.get()).values : []
         const series = (name: 'count' | 'sum'): number =>
@@ -195,7 +204,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                     'metricName' in sample &&
                     sample.metricName === `cdp_cyclotron_job_lateness_seconds_${name}` &&
                     sample.labels.queue === queue &&
-                    sample.labels.wait === wait
+                    sample.labels.wait === wait &&
+                    sample.labels.outcome === outcome
             )?.value ?? 0
         return { count: series('count'), sum: series('sum') }
     }
@@ -398,6 +408,23 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
     )
 
+    it('queues a one-insert batch whole or not at all, whatever the insert size', async () => {
+        const queue = await startQueue(undefined, 2)
+        const taken = await enqueue(queue)
+        const fresh = [uuidv7(), uuidv7(), uuidv7()]
+        const batch = [...fresh, taken].map((id) => ({
+            ...baseInvocation,
+            id,
+            teamId,
+            queue: queueName as CyclotronJobQueueKind,
+        }))
+
+        await expect(queue.queueInvocations(batch, { oneInsert: true })).rejects.toThrow()
+
+        const { rows } = await db.query('SELECT id FROM cyclotron_jobs WHERE id = ANY($1)', [fresh])
+        expect(rows).toEqual([])
+    })
+
     it('hands a job back with its deferral state, and counts its next dequeue as late from its first due time', async () => {
         const queue = await startQueue()
         const id = await enqueue(queue)
@@ -416,7 +443,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
         expect(again).toMatchObject({ id, queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } })
         expect(new Date((await jobRow(id)).scheduled)).toEqual(scheduledAt)
-        expect(await lateness(queueName, 'scheduled')).toMatchObject({ count: 1 })
+        await queue.queueInvocationResults([finished(again)])
+        expect(await lateness(queueName, 'scheduled', 'parked')).toMatchObject({ count: 1 })
         const late = await lateness(queueName, 'deferred')
         expect(late.count).toBe(1)
         expect(late.sum).toBeGreaterThanOrEqual(60)
@@ -691,4 +719,72 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(await leaseOf(id)).toBeGreaterThan(leaseBefore)
         }
     )
+
+    it('lets two consumers that share the queue stop it while a batch is still enqueuing jobs', async () => {
+        const applicationName = `shared-stop-${uuidv4()}`
+        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
+        url.searchParams.set('application_name', applicationName)
+        const queue = await startQueue(url.toString())
+        await enqueue(queue)
+
+        let batchStarted!: () => void
+        const batchInFlight = new Promise<void>((resolve) => (batchStarted = resolve))
+        let releaseBatch!: () => void
+        const batchReleased = new Promise<void>((resolve) => (releaseBatch = resolve))
+        let followUpId: string | undefined
+        let followUpError: unknown
+
+        await queue.startAsConsumer(queueName as CyclotronJobQueueKind, async (invocations) => {
+            if (invocations.length > 0) {
+                batchStarted()
+                await batchReleased
+                followUpId = await enqueue(queue, { queue: `${queueName}-follow-up` as CyclotronJobQueueKind }).catch(
+                    (error) => {
+                        followUpError = error
+                        return undefined
+                    }
+                )
+            }
+            return { backgroundTask: Promise.resolve() }
+        })
+        await batchInFlight
+
+        const stopLikeAWorkerConsumer = async (): Promise<void> => {
+            await queue.stopConsumer()
+            await queue.stopProducer()
+        }
+        const stops = Promise.all([stopLikeAWorkerConsumer(), stopLikeAWorkerConsumer()])
+        await new Promise((resolve) => setImmediate(resolve))
+        releaseBatch()
+        await stops
+
+        expect(followUpError).toBeUndefined()
+        expect(followUpId).toBeDefined()
+        expect(await jobRow(followUpId!)).toBeDefined()
+        await waitForExpect(async () => {
+            const { rows } = await admin.query<{ n: number }>(
+                'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+                [applicationName]
+            )
+            expect(rows[0].n).toBe(0)
+        })
+    })
+
+    it('lets two producers that share the queue stop it at once', async () => {
+        const applicationName = `shared-producer-stop-${uuidv4()}`
+        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
+        url.searchParams.set('application_name', applicationName)
+        const queue = await startQueue(url.toString())
+        await enqueue(queue)
+
+        await expect(Promise.all([queue.stopProducer(), queue.stopProducer()])).resolves.toBeDefined()
+
+        await waitForExpect(async () => {
+            const { rows } = await admin.query<{ n: number }>(
+                'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+                [applicationName]
+            )
+            expect(rows[0].n).toBe(0)
+        })
+    })
 })

@@ -54,6 +54,14 @@ aeo_citation_checks: PostgresTable = PostgresTable(
             name="engine", description="Answer engine: claude-web-search, openai-web-search, or exa-answer."
         ),
         "model": StringDatabaseField(name="model", description="Engine model that answered."),
+        "mode": StringDatabaseField(
+            name="mode",
+            description="How the engine answered: 'web_search' with its search tool, or 'no_search' from training data alone. No-search answers never cite, so filter mode = 'web_search' for citation rates.",
+        ),
+        "mode_config": StringJSONDatabaseField(
+            name="mode_config",
+            description="JSON object of settings the mode ran with, such as a locale. Empty when the mode used its defaults.",
+        ),
         "check_failed": BooleanDatabaseField(
             name="check_failed",
             description="The engine did not answer, so the row is not evidence that citations disappeared.",
@@ -61,6 +69,11 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "error": StringDatabaseField(name="error", nullable=True, description="Why the check failed, when it did."),
         "cited": BooleanDatabaseField(
             name="cited", description="A target-domain URL appears in the answer's citations."
+        ),
+        "names_brand": BooleanDatabaseField(
+            name="names_brand",
+            nullable=True,
+            description="The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
         ),
         "num_citations": IntegerDatabaseField(name="num_citations", description="How many URLs the answer cited."),
         "target_best_position": IntegerDatabaseField(

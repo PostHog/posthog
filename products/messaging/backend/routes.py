@@ -3,6 +3,12 @@ from django.urls import URLPattern, re_path
 from posthog.api.routing import RouterRegistry
 
 from products.messaging.backend.presentation.views.attachment_uploads import MessagingAttachmentsViewSet
+from products.messaging.backend.presentation.views.key_scoped import (
+    KeyScopedMessagingAttachmentsViewSet,
+    KeyScopedMessagingEmailsViewSet,
+    KeyScopedMessagingSendViewSet,
+    KeyScopedTopicPreferencesViewSet,
+)
 from products.messaging.backend.presentation.views.message_categories import MessageCategoryViewSet
 from products.messaging.backend.presentation.views.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
@@ -16,6 +22,7 @@ from products.messaging.backend.presentation.views.supabase_auth_emails import (
     SupabaseSendEmailHookView,
 )
 from products.messaging.backend.presentation.views.topic_preferences import TopicPreferencesViewSet
+from products.messaging.backend.presentation.views.transactional_code_emails import TransactionalCodeEmailViewSet
 from products.messaging.backend.presentation.views.transactional_email_log import TransactionalEmailLogViewSet
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
 
@@ -61,4 +68,14 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"transactional_email_log", TransactionalEmailLogViewSet, "project_transactional_email_log", ["team_id"]
+    )
+    routers.root.register(r"messaging/send", KeyScopedMessagingSendViewSet, "messaging_send")
+    routers.root.register(r"messaging/attachments", KeyScopedMessagingAttachmentsViewSet, "messaging_attachments")
+    routers.root.register(r"messaging/emails", KeyScopedMessagingEmailsViewSet, "messaging_emails")
+    routers.root.register(r"messaging/preferences", KeyScopedTopicPreferencesViewSet, "messaging_preferences")
+    routers.projects.register(
+        r"transactional_code_emails",
+        TransactionalCodeEmailViewSet,
+        "project_transactional_code_emails",
+        ["team_id"],
     )

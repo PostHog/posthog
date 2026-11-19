@@ -5,13 +5,10 @@ import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonTable,
 import { Button } from '@posthog/quill'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -29,7 +26,6 @@ const LIBRARY_CONTEXT = buildBIAgentContext()
 export const scene: SceneExport = { component: BIWorksheetsScene, logic: biWorksheetsLogic }
 
 export function BIWorksheetsScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { worksheets, worksheetsLoading, search, page, recent, createdBy, favorited, error } =
         useValues(biWorksheetsLogic)
     const { setSearch, setPage, setRecent, setCreatedBy, setFavorited, loadWorksheets } = useActions(biWorksheetsLogic)
@@ -38,13 +34,10 @@ export function BIWorksheetsScene(): JSX.Element {
     useSceneAgentPanel({
         sceneKey: 'business-intelligence',
         contextItems: LIBRARY_CONTEXT,
-        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        active: true,
         autoOpen: false,
         headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
     })
-    if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
-        return <NotFound object="page" />
-    }
     return (
         <SceneContent>
             <SceneTitleSection

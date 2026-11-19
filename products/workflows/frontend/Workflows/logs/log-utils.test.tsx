@@ -49,4 +49,30 @@ describe('renderWorkflowLogMessage', () => {
             expect(new URL(href, 'http://localhost').searchParams.get('event')).toBe(linkedName)
         }
     )
+
+    it.each([
+        [true, '/workflows/flow-1/workflow?node=action_email_1&mode=logs'],
+        [false, null],
+    ])('links an [Action:...] token to the workflow editor only when steps link: %s', (linkSteps, href) => {
+        const { container } = render(
+            renderWorkflowLogMessage(
+                {
+                    ...workflow,
+                    actions: [
+                        {
+                            id: 'action_email_1',
+                            name: 'Send email',
+                            type: 'function_email',
+                            config: {},
+                        } as HogFlow['actions'][number],
+                    ],
+                },
+                'Email bounced at [Action:action_email_1]',
+                { linkSteps }
+            )
+        )
+
+        expect(container.textContent).toContain('Send email')
+        expect(container.querySelector('a')?.getAttribute('href') ?? null).toBe(href)
+    })
 })

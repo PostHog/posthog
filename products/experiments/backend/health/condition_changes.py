@@ -26,6 +26,8 @@ from products.feature_flags.backend.facade.edits import (
     ConditionsChange,
     ReleaseCondition,
     ReleaseConditions,
+    SavedReleaseConditions,
+    group_type_index,
     moves_people,
     order_moves_people,
     pair_conditions,
@@ -142,7 +144,20 @@ def conditions_change_from_activity(
     pairs = pair_conditions(before, after)
     if _shape(before, after, pairs) is None and not _lowered_rollouts(before, after, pairs):
         return None
-    return ConditionsChange(changed_at=changed_at, before=before, after=after)
+    return ConditionsChange(
+        changed_at=changed_at,
+        before=before,
+        after=after,
+        before_filters=_saved(before_groups, before_aggregation),
+        after_filters=_saved(after_groups, after_aggregation),
+    )
+
+
+def _saved(groups: object, aggregation: object) -> SavedReleaseConditions | None:
+    # The flag page's diff reads the flag-level group type to name what a condition without its own matches.
+    if not isinstance(groups, list):
+        return None
+    return {"groups": groups, "aggregation_group_type_index": group_type_index(aggregation)}
 
 
 def conditions_shape(before: ReleaseConditions, after: ReleaseConditions) -> ConditionsChangeShape | None:

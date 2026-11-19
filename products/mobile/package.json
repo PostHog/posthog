@@ -16,6 +16,7 @@
         "test": "jest",
         "prebuild": "expo prebuild",
         "brand:generate": "node scripts/generate-brand-logos.mjs",
+        "map:generate": "node scripts/generate-world-map.mjs",
         "build:dev": "sh scripts/eas-build.sh --profile development --platform ios",
         "build:dev:android": "sh scripts/eas-build.sh --profile development --platform android",
         "build:preview": "sh scripts/eas-build.sh --profile preview --platform ios",

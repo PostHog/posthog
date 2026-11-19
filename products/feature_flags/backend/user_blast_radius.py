@@ -32,9 +32,9 @@ from posthog.ph_client import feature_enabled_or_false
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
 from products.feature_flags.backend.person_sampling import (
+    bounded_memory_settings,
     build_person_count_query,
     count_matching_persons,
-    count_settings,
     read_person_count,
 )
 
@@ -66,14 +66,10 @@ def use_blast_radius_query_v2(team: Team) -> bool:
 
 def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
     """
-    Person blast radius whose peak query memory does not grow with the size of the person table.
-
-    The exact counts dedup the person table with a hash GROUP BY that holds every matched
-    person in memory, and HogQL's default settings set no spill threshold, so on a large team
-    both counts cross the per-query memory limit and the caller gets an error instead of a
-    number. These counts read a sample of the persons and extrapolate, and fall back to an
-    exact count when the sample holds too few matches to extrapolate from. That fallback stays
-    bounded because count_settings overrides those defaults with in-order aggregation and a
+    Person blast radius that counts a sample of the persons and extrapolates, so the dedup
+    aggregation holds only the sampled persons and keeps the fast parallel hash aggregation.
+    It falls back to an exact count when the sample holds too few matches to extrapolate from.
+    That fallback stays memory-bounded because count_settings sets in-order aggregation and a
     spill threshold.
     """
     # One database build shared by both counts; each execute_hogql_query call would otherwise
@@ -249,7 +245,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
 
     if len(properties) == 0:
         # No filters means all persons are affected
-        total_users = team.count_persons_seen_so_far()
+        total_users = team.count_persons_seen_so_far(settings=bounded_memory_settings())
         return BlastRadiusResult(affected=total_users, total=total_users)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -268,7 +264,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
         estimate = _run_exact_person_count(team, prop_group, database, weight=None)
     # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
     total_count = int(round(estimate))
-    total_users = team.count_persons_seen_so_far(database=database)
+    total_users = team.count_persons_seen_so_far(database=database, settings=bounded_memory_settings())
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
@@ -283,9 +279,7 @@ def _run_exact_person_count(
         query=select_query,
         team=team,
         context=HogQLContext(team_id=team.pk, database=database),
-        # The weighted count groups by person, so it takes the settings that let that aggregation
-        # stream in id order and spill to disk. The plain count keeps its historical defaults.
-        settings=count_settings(None) if weight is not None else None,
+        settings=bounded_memory_settings(),
     )
     return read_person_count(response.results, weighted=weight is not None)[1]
 

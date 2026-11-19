@@ -2,19 +2,20 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     AlertNotificationUrlInput,
     PendingAlertNotificationDestinationView,
-    pagerDutyDestinationLabel,
     pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { destinationMessageAction } from 'products/alerts/frontend/components/destinationMessageAction'
+import type { AlertDestinationListItemApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
@@ -24,10 +25,13 @@ import {
     AlertNotificationType,
     PendingAlertNotification,
     getAlertNotificationAddDisabledReason,
-    listensOnEvent,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
-import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
+import {
+    ALERT_NOTIFICATION_TYPE_OPTIONS,
+    alertNotificationLogic,
+    destinationKey,
+} from '../logic/alertNotificationLogic'
 
 // Fetched directly rather than through slackIntegrationLogic's loader: that loader keeps a
 // single last-result slot per workspace, so multiple destination rows in the same workspace
@@ -50,50 +54,47 @@ function SlackDestinationChannel({ workspaceId, channelId }: { workspaceId: numb
     return <>{channelName ? `#${channelName}` : 'channel'}</>
 }
 
-interface SlackDestinationInputs {
-    slack_workspace?: { value: number }
-    channel?: { value: string }
+const DESTINATION_TYPE_LABELS: Record<AlertDestinationListItemApi['type'], string> = {
+    slack: 'Slack',
+    discord: 'Discord',
+    teams: 'Microsoft Teams',
+    webhook: 'Webhook',
+    pagerduty: 'PagerDuty',
+    incident_io: 'incident.io',
+    email: 'Email',
+    in_app: 'In-app',
 }
 
-function getHogFunctionDestination(
-    hogFunction: HogFunctionType,
+function getDestinationDetail(
+    destination: AlertDestinationListItemApi,
     slackIntegrations: IntegrationType[] | undefined
-): { type: string; detail: ReactNode } {
-    const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
-    const channelId = inputs?.channel?.value
-    if (channelId) {
+): ReactNode {
+    if (destination.type === 'slack' && destination.slack_channel_id) {
         // Destinations from before `slack_workspace` existed can only be safely attributed to a
         // workspace when exactly one is connected — with 2+, there's no way to know which one it
         // was created against, so guessing would risk showing the wrong workspace/channel.
         const workspaceId =
-            inputs?.slack_workspace?.value ?? (slackIntegrations?.length === 1 ? slackIntegrations[0].id : undefined)
+            destination.slack_workspace_id ?? (slackIntegrations?.length === 1 ? slackIntegrations[0].id : undefined)
         if (workspaceId === undefined) {
-            return { type: 'Slack', detail: null }
+            return null
         }
         const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
-        return {
-            type: 'Slack',
-            detail: (
-                <>
-                    {workspaceName ?? 'Unknown workspace'} ·{' '}
-                    <SlackDestinationChannel workspaceId={workspaceId} channelId={channelId} />
-                </>
-            ),
-        }
+        return (
+            <>
+                {workspaceName ?? 'Unknown workspace'} ·{' '}
+                {destination.slack_channel_name ? (
+                    `#${destination.slack_channel_name}`
+                ) : (
+                    <SlackDestinationChannel workspaceId={workspaceId} channelId={destination.slack_channel_id} />
+                )}
+            </>
+        )
     }
-    if (hogFunction.template_id === 'template-discord') {
-        const webhookUrl = hogFunction.inputs?.webhookUrl?.value
-        return { type: 'Discord', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
+    if (destination.type === 'pagerduty') {
+        // The API returns only the routing key's last four characters.
+        return [destination.pagerduty_routing_key, destination.pagerduty_severity].filter(Boolean).join(' · ')
     }
-    if (hogFunction.template_id === 'template-microsoft-teams') {
-        const webhookUrl = hogFunction.inputs?.webhookUrl?.value
-        return { type: 'Microsoft Teams', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
-    }
-    const urlValue = hogFunction.inputs?.url?.value
-    if (urlValue && typeof urlValue === 'string') {
-        return { type: 'Webhook', detail: urlValue }
-    }
-    return { type: hogFunction.name, detail: null }
+    return destination.webhook_url ?? null
 }
 
 function getPendingNotificationDestination(
@@ -152,8 +153,9 @@ interface InlineAlertNotificationsProps {
 export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: InlineAlertNotificationsProps): JSX.Element {
     const logic = alertNotificationLogic({ alertId })
     const {
-        existingHogFunctions,
-        existingHogFunctionsLoading,
+        destinations,
+        destinationsLoading,
+        changingMessageDestinationKeys,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
@@ -169,8 +171,9 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
     const {
         addPendingNotification,
         removePendingNotification,
-        deleteExistingHogFunction,
-        deleteExistingPagerDutyDestination,
+        deleteDestination,
+        customizeDestination,
+        resetDestinationMessage,
         setSelectedType,
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
@@ -180,6 +183,12 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         setPagerDutyRegion,
         loadIntegrations,
     } = useActions(logic)
+
+    const messageCustomization = useFeatureFlag('ALERTS_DESTINATION_CUSTOMIZATION')
+    // PagerDuty's insight messages cannot be edited, and only an alert PostHog alerts checks sends the standard message.
+    const offersMessageAction = (destination: AlertDestinationListItemApi): boolean =>
+        messageCustomization &&
+        (destination.message_customized ? pagerDutyAvailable : destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY)
 
     const selectedType =
         !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
@@ -236,63 +245,40 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         setWebhookUrl('')
     }
 
-    // One PagerDuty destination is a trigger function and a resolve function, shown and removed as one.
-    // The key holds what the backend groups on, apart from the secret routing key, whose tail is in the name.
-    const pagerDutyGroups = new Map<string, { label: string; incident: boolean; hogFunctions: HogFunctionType[] }>()
-    for (const hogFunction of existingHogFunctions) {
-        if (hogFunction.template_id === 'template-pagerduty') {
-            const label = pagerDutyDestinationLabel(hogFunction) ?? hogFunction.id
-            const incident = !listensOnEvent(hogFunction, INSIGHT_ALERT_FIRING_EVENT_ID)
-            const key = [label, incident, hogFunction.inputs?.severity?.value, hogFunction.inputs?.region?.value].join(
-                '|'
-            )
-            const group = pagerDutyGroups.get(key) ?? { label, incident, hogFunctions: [] }
-            group.hogFunctions.push(hogFunction)
-            pagerDutyGroups.set(key, group)
+    const existingDestinations: AlertNotificationDestinationView[] = destinations.map((destination) => {
+        const hogFunctionId = destination.hog_function_ids[0]
+        return {
+            key: destinationKey(destination),
+            title: DESTINATION_TYPE_LABELS[destination.type] ?? destination.type,
+            detail: getDestinationDetail(destination, slackIntegrations),
+            tags: [
+                destination.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY && !pagerDutyAvailable
+                    ? { label: 'Not paging', type: 'warning' }
+                    : {
+                          label: destination.enabled ? 'Active' : 'Paused',
+                          type: destination.enabled ? 'success' : 'default',
+                      },
+            ],
+            viewAction:
+                hogFunctionId && destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    ? {
+                          kind: 'icon',
+                          url: urls.hogFunction(hogFunctionId),
+                          tooltip: 'Open destination',
+                          targetBlank: true,
+                      }
+                    : undefined,
+            messageAction: offersMessageAction(destination)
+                ? destinationMessageAction({
+                      messageCustomized: destination.message_customized,
+                      loading: changingMessageDestinationKeys.has(destinationKey(destination)),
+                      onCustomize: () => customizeDestination(destination),
+                      onReset: () => resetDestinationMessage(destination),
+                  })
+                : undefined,
+            onDelete: () => deleteDestination(destination),
         }
-    }
-    const pagerDutyDestinations: AlertNotificationDestinationView[] = Array.from(pagerDutyGroups.entries()).map(
-        ([key, { label, incident, hogFunctions }]) => {
-            const enabled = hogFunctions.every((hogFunction) => hogFunction.enabled)
-            return {
-                key: `pagerduty:${key}`,
-                title: 'PagerDuty',
-                detail: label.replace(/^PagerDuty\s*/, ''),
-                // A legacy PagerDuty destination on the firing event pages from either stack.
-                tags: [
-                    incident && !pagerDutyAvailable
-                        ? { label: 'Not paging', type: 'warning' }
-                        : { label: enabled ? 'Active' : 'Paused', type: enabled ? 'success' : 'default' },
-                ],
-                onDelete: () => deleteExistingPagerDutyDestination(hogFunctions),
-            }
-        }
-    )
-
-    const otherDestinations: AlertNotificationDestinationView[] = existingHogFunctions
-        .filter((hogFunction) => hogFunction.template_id !== 'template-pagerduty')
-        .map((hogFunction) => {
-            const destination = getHogFunctionDestination(hogFunction, slackIntegrations)
-            return {
-                key: hogFunction.id,
-                title: destination.type,
-                detail: destination.detail,
-                tags: [
-                    {
-                        label: hogFunction.enabled ? 'Active' : 'Paused',
-                        type: hogFunction.enabled ? 'success' : 'default',
-                    },
-                ],
-                viewAction: {
-                    kind: 'icon',
-                    url: urls.hogFunction(hogFunction.id),
-                    tooltip: 'Open destination',
-                    targetBlank: true,
-                },
-                onDelete: () => deleteExistingHogFunction(hogFunction),
-            }
-        })
-    const existingDestinations = [...otherDestinations, ...pagerDutyDestinations]
+    })
 
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
@@ -309,7 +295,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
             <AlertNotificationDestinationEditor
                 destinations={{
                     showExisting: Boolean(alertId),
-                    existingLoading: existingHogFunctionsLoading,
+                    existingLoading: destinationsLoading,
                     existing: existingDestinations,
                     pending: pendingDestinations,
                 }}

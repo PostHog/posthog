@@ -77,7 +77,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Publisher-side AppLovin monetization: revenue, impressions and clicks earned by your apps, broken down by day, app, placement and geography.",
         "docs_url": _REPORT_DOCS_URL,
         "columns": {
-            **_APP_DIMENSIONS,
+            "day": _APP_DIMENSIONS["day"],
+            "package_name": _APP_DIMENSIONS["package_name"],
+            "store_id": _APP_DIMENSIONS["store_id"],
+            "platform": _APP_DIMENSIONS["platform"],
+            "country": _APP_DIMENSIONS["country"],
+            "device_type": _APP_DIMENSIONS["device_type"],
             "ad_type": "Ad type served: APPOPEN, GRAPHIC, MRAID, PLAY, REWARD or VIDEO.",
             "placement_type": "Placement type: APP_OPEN, BANNER, INTER, LEADER, MREC, NATIVE or REWARDED_INTER.",
             "size": "Ad size: BANNER, INTER, LEADER, MREC or NATIVE.",
@@ -90,7 +95,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "advertiser_report": {
-        "description": "Advertiser-side AppLovin campaign performance: spend, installs and attributed sales by day, campaign, traffic source app and geography.",
+        "description": "Advertiser-side AppLovin campaign performance: spend, installs and attributed sales by day, campaign, platform and geography.",
         "docs_url": _REPORT_DOCS_URL,
         "columns": {
             "day": _APP_DIMENSIONS["day"],
@@ -99,7 +104,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_type": "The campaign optimization type: CPP, CPE, ad ROAS, IAP ROAS or ROAS.",
             "campaign_ad_type": "ua for user acquisition, or rt for retargeting.",
             "campaign_package_name": "Package name or bundle ID of the promoted app.",
-            "app_id_external": "Hashed application ID of the source app, commonly called the site ID.",
             "platform": "Platform of the source application: android, fireos, ios or tvos.",
             "country": _APP_DIMENSIONS["country"],
             "device_type": _APP_DIMENSIONS["device_type"],
@@ -208,6 +212,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "countries": "ISO 3166-1 alpha-2 codes of the countries the creative set serves in.",
             "product_page": "iOS custom product page or Android store listing of the creative set.",
             "version": "Creative set version: V1 allows one asset per type, V2 allows several.",
+        },
+    },
+    "assets": {
+        "description": "Creative assets uploaded to the account: the images, videos and playable HTML files that creative sets use.",
+        "docs_url": _CAMPAIGN_MANAGEMENT_DOCS_URL,
+        "columns": {
+            "id": "ID of the asset. Creative sets reference assets by this ID.",
+            "name": "Name of the asset.",
+            "status": "Status of the asset: IN_REVIEW, REJECTED, ACTIVE or PAUSED.",
+            "asset_type": "Creative asset type: VID_LONG_P, VID_SHORT_P, HOSTED_HTML, IMG_BANNER or IMG_INTER_P.",
+            "resource_type": "Resource type of the asset: IMAGE, VIDEO or HTML.",
+            "asset_hash": "SHA1 hash of the asset file.",
+            "upload_time": "Time the asset was uploaded (UTC).",
+            "url": "URL of the uploaded asset.",
+            "violation_reasons": "Reasons for the rejection, for REJECTED assets.",
         },
     },
     "campaign_operation_logs": {

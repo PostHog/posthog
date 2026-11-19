@@ -15,6 +15,7 @@ import {
     DropdownMenuContent,
     DropdownMenuSeparator,
     Field,
+    FieldGroup,
     FieldLabel,
     FilterClearItem,
     FilterMenuTrigger,
@@ -137,28 +138,30 @@ export function NewReleaseDialog(): JSX.Element {
                         A release groups the feature flags, experiments and early access features that ship one change.
                     </DialogDescription>
                 </DialogHeader>
-                <DialogBody className="flex flex-col gap-3">
-                    <Field>
-                        <FieldLabel htmlFor="release-new-name">Name</FieldLabel>
-                        <Input
-                            id="release-new-name"
-                            autoFocus
-                            placeholder="Billing alerts"
-                            value={name}
-                            onChange={(event) => setName(event.target.value)}
-                            data-attr="release-new-name"
-                        />
-                    </Field>
-                    <Field>
-                        <FieldLabel htmlFor="release-new-description">Description</FieldLabel>
-                        <Textarea
-                            id="release-new-description"
-                            placeholder="What changes for the user?"
-                            value={description}
-                            onChange={(event) => setDescription(event.target.value)}
-                            data-attr="release-new-description"
-                        />
-                    </Field>
+                <DialogBody>
+                    <FieldGroup>
+                        <Field>
+                            <FieldLabel htmlFor="release-new-name">Name</FieldLabel>
+                            <Input
+                                id="release-new-name"
+                                autoFocus
+                                placeholder="Billing alerts"
+                                value={name}
+                                onChange={(event) => setName(event.target.value)}
+                                data-attr="release-new-name"
+                            />
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor="release-new-description">Description</FieldLabel>
+                            <Textarea
+                                id="release-new-description"
+                                placeholder="What changes for the user?"
+                                value={description}
+                                onChange={(event) => setDescription(event.target.value)}
+                                data-attr="release-new-description"
+                            />
+                        </Field>
+                    </FieldGroup>
                 </DialogBody>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setNewReleaseOpen(false)}>

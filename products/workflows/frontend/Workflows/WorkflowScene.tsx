@@ -54,6 +54,7 @@ import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -254,6 +255,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 {showsBuilder && <WorkflowEditorVisitTracker {...workflowProps} />}
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {isSavedWorkflow && <WorkflowViewOnlyBanner id={props.id!} />}
                 {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
                 {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
