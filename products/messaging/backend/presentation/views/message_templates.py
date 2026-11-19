@@ -1,5 +1,6 @@
 import re
 import time
+import codecs
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
@@ -31,11 +32,13 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ParseError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser, get_encoding
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
+from rest_framework.utils import json as drf_json
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
@@ -580,6 +583,9 @@ class ScheduledAtField(serializers.DateTimeField):
                 return values
             if values == [""]:
                 return ""
+        repeated = getattr(dictionary, "repeated", {}).get(self.field_name)
+        if repeated is not None:
+            return repeated
         return super().get_value(dictionary)
 
     def enforce_timezone(self, value: datetime) -> datetime:
@@ -604,6 +610,36 @@ class ScheduledAtField(serializers.DateTimeField):
             except OverflowError:
                 return datetime.max.replace(tzinfo=UTC)
         return scheduled_at
+
+
+class _JsonObject(dict):
+    repeated: dict[str, list[Any]]
+
+    @classmethod
+    def from_pairs(cls, pairs: list[tuple[str, Any]]) -> "_JsonObject":
+        obj = cls(pairs)
+        obj.repeated = {}
+        if len(obj) < len(pairs):
+            for key in {key for key, _ in pairs if key in obj}:
+                values = [value for pair_key, value in pairs if pair_key == key]
+                if len(values) > 1:
+                    obj.repeated[key] = values
+        return obj
+
+
+class SendBodyJSONParser(JSONParser):
+    # Python's JSON reader keeps only the last value of a repeated key, which can be an earlier send time than the
+    # one before it. This parser keeps every value, so ScheduledAtField can refuse the body.
+    def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None):
+        encoding = get_encoding(parser_context or {})
+        try:
+            decoded_stream = codecs.getreader(encoding)(stream)
+            parse_constant = drf_json.strict_constant if self.strict else None
+            return drf_json.load(
+                decoded_stream, parse_constant=parse_constant, object_pairs_hook=_JsonObject.from_pairs
+            )
+        except ValueError as exc:
+            raise ParseError(f"JSON parse error - {exc}")
 
 
 CODE_SEND_FIELDS = (
@@ -1163,10 +1199,11 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         attachments = request.validated_data.get("attachments") or []
         scheduled_at = request.validated_data.get("scheduled_at")
         _check_scheduled_at(self.team, scheduled_at)
-        usage_properties = {**usage_properties, **_scheduled_send_properties(scheduled_at)}
         outcome: dict[str, Any] = {"outcome": "error"}
+        scheduled_by_cdp = False
         try:
             queued = send(idempotency_key)
+            scheduled_by_cdp = queued.status == QueuedEmailStatus.SCHEDULED
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
             if queued.warnings:
                 outcome["warning_codes"] = [warning.code for warning in queued.warnings]
@@ -1189,7 +1226,8 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                self._report_transactional_email_send(request, {**usage_properties, **outcome})
+                schedule = _scheduled_send_properties(scheduled_at if scheduled_by_cdp else None)
+                self._report_transactional_email_send(request, {**usage_properties, **schedule, **outcome})
         if not queued.replayed:
             self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
         return Response(
@@ -1652,6 +1690,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
     transactional_email_route = "send_email"
+    parser_classes = [SendBodyJSONParser, FormParser, MultiPartParser]
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 

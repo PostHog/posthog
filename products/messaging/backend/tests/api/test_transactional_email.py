@@ -158,14 +158,25 @@ class TestTransactionalEmail(APIBaseTest):
         return {**flat, "template_id": str(self.template.id)}
 
     def _send_with_scheduled_at(
-        self, client: APIClient, route: str, scheduled_at: str | None, without: tuple[str, ...] = ()
+        self,
+        client: APIClient,
+        route: str,
+        scheduled_at: str | list[str] | None,
+        without: tuple[str, ...] = (),
+        key: str | None = None,
     ) -> Any:
+        headers = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
+        if isinstance(scheduled_at, list) and route in ("code", "send_email"):
+            body = self._code_send(scheduled_at=None) if route == "code" else self._flat(self.body)
+            members = [f"{json.dumps(k)}:{json.dumps(v)}" for k, v in body.items() if k != "scheduled_at"]
+            members += [f'"scheduled_at":{json.dumps(value)}' for value in scheduled_at]
+            return client.post(self.send_email_url, "{" + ",".join(members) + "}", content_type="application/json")
         if route in ("code", "code_form", "code_key_scoped"):
             body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
             url = "/api/messaging/send/email/" if route == "code_key_scoped" else self.send_email_url
-            return client.post(url, body, format="multipart" if route == "code_form" else "json")
+            return client.post(url, body, format="multipart" if route == "code_form" else "json", **headers)
         body = {k: v for k, v in self.body.items() if k not in without}
-        return self._send(client, route, {**body, "scheduled_at": scheduled_at})
+        return self._send(client, route, {**body, "scheduled_at": scheduled_at}, **headers)
 
     def _psak_client(
         self,
@@ -1303,31 +1314,51 @@ class TestTransactionalEmail(APIBaseTest):
         [event] = analytics.properties_of("transactional email api send")
         assert (event["scheduled"], event["scheduled_lead_bucket"]) == (lead_bucket is not None, lead_bucket)
 
+    @parameterized.expand(
+        [
+            ("without_a_time", {}),
+            ("with_a_time_that_passed_before_cdp_api_read_it", {"scheduled_at": "2026-11-20T08:00:00.500Z"}),
+        ]
+    )
     @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
-    def test_a_send_without_scheduled_at_reports_it_was_not_scheduled(self, mock_post, _flag, capture):
+    def test_a_send_cdp_api_queued_now_reports_it_was_not_scheduled(self, mock_post, _flag, capture, _name, fields):
         analytics = FakeAnalytics()
         capture.side_effect = analytics.capture
 
         with FakeCdpApi().serving(mock_post):
-            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+            answer = mock_post.side_effect
+
+            def answer_a_second_later(*args: Any, **kwargs: Any) -> Any:
+                with time_machine.travel("2026-11-20T08:00:01Z", tick=False):
+                    return answer(*args, **kwargs)
+
+            mock_post.side_effect = answer_a_second_later
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json().get("scheduled_at") is None
         [event] = analytics.properties_of("transactional email api send")
         assert (event["scheduled"], event["scheduled_lead_bucket"]) == (False, None)
 
-    def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(self, mock_post, _flag, _capture):
+    @parameterized.expand([("template_key", "code"), ("template_id", "send_email")])
+    def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(
+        self, mock_post, _flag, _capture, _name, route
+    ):
         psak = self._psak_client(["hog_flow:write"])
-        body = self._code_send(scheduled_at="2026-11-20T09:00:00Z")
 
         with FakeCdpApi().serving(mock_post) as cdp:
             with time_machine.travel("2026-11-20T08:00:00Z", tick=False):
-                first = psak.post(self.send_email_url, body, format="json", HTTP_IDEMPOTENCY_KEY="welcome-1")
+                first = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z", key="welcome-1")
             with time_machine.travel("2026-11-20T10:00:00Z", tick=False):
-                retry = psak.post(self.send_email_url, body, format="json", HTTP_IDEMPOTENCY_KEY="welcome-1")
+                retry = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z", key="welcome-1")
+                moved = self._send_with_scheduled_at(psak, route, "2026-11-20T11:00:00Z", key="welcome-1")
 
         assert (first.status_code, retry.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
         assert retry.json() == {**first.json(), "replayed": True}
         assert retry.json()["scheduled_at"] == "2026-11-20T09:00:00.000Z"
+        assert (moved.status_code, moved.json()["code"]) == (422, "idempotency_key_reused")
         assert len(cdp.queued) == 1
 
     @parameterized.expand(
@@ -1351,6 +1382,15 @@ class TestTransactionalEmail(APIBaseTest):
                 )
             ),
             ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),
+            *(
+                (
+                    f"{name}_a_later_time_then_one_that_passed",
+                    route,
+                    ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
+                    "repeated",
+                )
+                for name, route in (("template_id_json", "send_email"), ("template_key_json", "code"))
+            ),
             (
                 "template_key_form_a_later_time_then_one_that_passed",
                 "code_form",

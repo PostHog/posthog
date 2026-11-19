@@ -303,15 +303,23 @@ class FakeAnalytics:
 
 
 def _send_fingerprint(url: str, request: dict[str, Any]) -> str:
+    requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
     if "send" not in request:
-        return _json_dumps([url, request["to"], request.get("distinct_id"), request.get("variables")])
+        return _json_dumps(
+            [
+                url,
+                request["to"],
+                request.get("distinct_id"),
+                request.get("variables"),
+                _iso_milliseconds(requested_at) if requested_at else None,
+            ]
+        )
     sender = request["send"].get("from") or {}
     chosen = (
         {"email": sender.get("email"), "name": sender.get("name")}
         if sender.get("email") or sender.get("name")
         else None
     )
-    requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
     return _json_dumps(
         [
             url,
