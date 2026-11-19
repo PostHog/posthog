@@ -1,9 +1,6 @@
-import { useActions } from 'kea'
-
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { DEPENDENCY_KIND_LABEL, errorRateOf } from './dependencies'
-import { dependenciesLogic } from './dependenciesLogic'
 import type { DependencyEdgeApi } from './generated/api.schemas'
 import { formatMs, formatPercent } from './healthDisplay'
 
@@ -13,17 +10,23 @@ interface DependencyTableProps {
     loading: boolean
     emptyState: string
     dataAttr: string
+    serviceLink: (service: string) => { to: string } | { onClick: () => void }
 }
 
-export function DependencyTable({ title, edges, loading, emptyState, dataAttr }: DependencyTableProps): JSX.Element {
-    const { setDependencyService } = useActions(dependenciesLogic)
-
+export function DependencyTable({
+    title,
+    edges,
+    loading,
+    emptyState,
+    dataAttr,
+    serviceLink,
+}: DependencyTableProps): JSX.Element {
     const columns: LemonTableColumns<DependencyEdgeApi> = [
         {
             title: 'Caller',
             key: 'caller',
             render: (_, edge) => (
-                <Link onClick={() => setDependencyService(edge.caller)} data-attr="apm-dependency-caller">
+                <Link {...serviceLink(edge.caller)} data-attr="apm-dependency-caller">
                     {edge.caller}
                 </Link>
             ),
@@ -36,7 +39,7 @@ export function DependencyTable({ title, edges, loading, emptyState, dataAttr }:
                     {edge.inferred ? (
                         <span className="font-semibold">{edge.callee}</span>
                     ) : (
-                        <Link onClick={() => setDependencyService(edge.callee)} data-attr="apm-dependency-callee">
+                        <Link {...serviceLink(edge.callee)} data-attr="apm-dependency-callee">
                             {edge.callee}
                         </Link>
                     )}
