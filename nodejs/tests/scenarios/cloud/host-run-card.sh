@@ -59,6 +59,9 @@ finish() {
     local uploaded=true
     upload_evidence || uploaded=false
     mark 'done' "{\"exitCode\":$code,\"uploaded\":$uploaded,\"at\":\"$(now)\"}"
+    if [ -n "${live:-}" ]; then
+        wait "$live" 2>/dev/null || true
+    fi
 }
 
 stop() {
@@ -84,4 +87,3 @@ done
 wait "$card"
 code=$?
 kill -TERM "$live" 2>/dev/null || true
-wait "$live" 2>/dev/null || true

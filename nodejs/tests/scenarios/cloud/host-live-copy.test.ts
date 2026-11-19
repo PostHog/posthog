@@ -142,14 +142,16 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     const copied = (run: Run): string =>
         existsSync(object(run, 'live.jsonl')) ? readFileSync(object(run, 'live.jsonl'), 'utf8') : ''
 
-    function processesBesideTheRunner(run: Run): string[] {
-        const runner = readFileSync(path.join(run.dir, 'runner.pid'), 'utf8').trim()
+    function processesOf(run: Run): string[][] {
         return execFileSync('ps', ['-eo', 'pid=,ppid=,sid=,stat=,args='], { encoding: 'utf8' })
             .split('\n')
             .map((line) => line.trim().split(/\s+/))
             .filter(([, , sid, stat]) => sid === String(run.wrapper.pid) && !stat?.startsWith('Z'))
-            .filter(([pid, ppid]) => pid !== runner && ppid !== runner)
-            .map((fields) => fields.slice(4).join(' '))
+    }
+
+    function processesBesideTheRunner(run: Run): string[][] {
+        const runner = readFileSync(path.join(run.dir, 'runner.pid'), 'utf8').trim()
+        return processesOf(run).filter(([pid, ppid]) => pid !== runner && ppid !== runner)
     }
 
     function evidenceOf(run: Run): string[] {
@@ -245,7 +247,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
         await run.exited
 
-        expect(existsSync(object(run, 'host/done'))).toBe(true)
+        expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 0, uploaded: true })
         expect(existsSync(object(run, 'live.jsonl'))).toBe(false)
     })
 
@@ -279,13 +281,51 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         expect(existsSync(object(run, 'live.jsonl')) ? copied(run) : undefined).toBe(finalCopy)
     })
 
+    it('marks the run done without waiting for a final copy that hangs, and waits for it before it exits', async () => {
+        const run = start(
+            'run',
+            {
+                FAKE_HOLD: '1',
+                FAKE_CARD_EXIT: '1',
+                FAKE_LIVE_HANGS: 'every',
+                SCENARIO_LIVE_COPY_SECONDS: '600',
+                SCENARIO_LIVE_COPY_LIMIT_SECONDS: '60',
+            },
+            { runId: RUN_ID, content: `${START}\n` }
+        )
+        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+
+        release(run)
+        await until(() => existsSync(object(run, 'host/done')), 'the run to be marked done')
+        await until(
+            () => readFileSync(path.join(run.dir, 's3.hanging'), 'utf8').split('\n').filter(Boolean).length === 2,
+            'the final copy to hang'
+        )
+
+        expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 1, uploaded: true })
+        expect(run.wrapper.exitCode).toBeNull()
+    })
+
     it('leaves no process behind when the whole run is killed during a copy', async () => {
         const run = start('run', { FAKE_HOLD: '1', FAKE_LIVE_HANGS: 'first' }, { runId: RUN_ID, content: `${START}\n` })
         await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
 
         signalAll(run, 'SIGKILL')
 
-        await until(() => processesBesideTheRunner(run).length === 0, 'every process of the run to end')
+        await until(() => processesOf(run).length === 0, 'every process of the run to end')
+    })
+
+    it('leaves no process but the card behind once the wrapper is gone during a copy', async () => {
+        const run = start(
+            'run',
+            { FAKE_HOLD: '1', FAKE_LIVE_HANGS: 'first', SCENARIO_LIVE_COPY_LIMIT_SECONDS: '60' },
+            { runId: RUN_ID, content: `${START}\n` }
+        )
+        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+
+        run.wrapper.kill('SIGKILL')
+
+        await until(() => processesBesideTheRunner(run).length === 0, 'the copy loop and its upload to end')
     })
 
     it.each([

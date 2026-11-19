@@ -11,7 +11,7 @@ target=$2
 runner=$3
 wrapper=$4
 interval=${SCENARIO_LIVE_COPY_SECONDS:-5}
-limit=${SCENARIO_LIVE_COPY_LIMIT_SECONDS:-20}
+limit=${SCENARIO_LIVE_COPY_LIMIT_SECONDS:-10}
 copied=0
 
 say() { printf 'host-live-copy: %s\n' "$1" >&2; }
@@ -27,15 +27,24 @@ whole_lines_of_log() {
 }
 
 copy() {
-    local size status
-    [ -f "$log" ] || return 0
+    local size status upload stopped=
+    size=$(stat -c %s "$log" 2>/dev/null) && [ "$size" -gt "$copied" ] || return 0
     size=$(whole_lines_of_log) || {
         say "could not read the live log"
         return 0
     }
     [ "$size" -gt "$copied" ] || return 0
     timeout --foreground -k 2 "$limit" aws s3 cp --only-show-errors - "$target" <"$snapshot" >/dev/null 2>&1 &
-    wait $!
+    upload=$!
+    while kill -0 "$upload" 2>/dev/null; do
+        if [ -z "$stopped" ] && ! kill -0 "$wrapper" 2>/dev/null; then
+            kill -TERM "$upload" 2>/dev/null
+            stopped=1
+        fi
+        sleep 0.2 </dev/null >/dev/null 2>&1 &
+        wait $!
+    done
+    wait "$upload"
     status=$?
     if [ "$status" = 0 ]; then
         copied=$size
