@@ -8,7 +8,7 @@ from posthog.schema import AccountUsersQuery, ActorsQuery, ActorsQueryResponse, 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.person_group_membership import PersonGroupMembershipTable
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tags_context
 from posthog.hogql_queries.actor_strategies import person_email_property_keys
@@ -105,6 +105,19 @@ class AccountPersonsReader:
         MembershipTableReferences().visit(select)
         return select
 
+    def get_membership_query(self) -> ast.SelectQuery:
+        return self.parse_membership_query(
+            """
+            SELECT distinct_id, first_seen, last_seen
+            FROM posthog.person_group_membership
+            WHERE group_type_index = {group_type_index} AND group_key = {group_key}
+            """,
+            placeholders={
+                "group_type_index": ast.Constant(value=self.group_type_index),
+                "group_key": ast.Constant(value=self.group_key),
+            },
+        )
+
     def get_source_query(self) -> ast.SelectQuery:
         query = self.parse_membership_query(
             """
@@ -131,10 +144,39 @@ class AccountPersonsReader:
                 "group_key": ast.Constant(value=self.group_key),
             },
         )
-        assert isinstance(query, ast.SelectQuery)
         assert query.select_from is not None and query.select_from.next_join is not None
         query.select_from.next_join.join_type = "GLOBAL INNER JOIN"
         return query
+
+    def get_optimized_source_query(self, membership: ast.SelectQuery | ast.Field) -> ast.SelectQuery:
+        # GLOBAL IN sends the membership distinct IDs with the person_distinct_id2 query. A plain IN makes the
+        # remote replica read the membership table again on the aux cluster for each person_distinct_id2 read.
+        account_distinct_id = ast.CompareOperation(
+            op=ast.CompareOperationOp.GlobalIn,
+            left=ast.Field(chain=["distinct_id"]),
+            right=ast.SelectQuery(
+                select=[ast.Field(chain=["distinct_id"])],
+                select_from=ast.JoinExpr(table=clone_expr(membership)),
+            ),
+        )
+        return self.parse_membership_query(
+            """
+            SELECT pdi.person_id AS person_id,
+                groupUniqArray(101)(membership.distinct_id) AS distinct_ids,
+                min(membership.first_seen) AS account_first_seen,
+                max(membership.last_seen) AS account_last_seen
+            FROM {membership} AS membership
+            INNER JOIN (
+                SELECT argMax(person_id, version) AS person_id, distinct_id
+                FROM raw_person_distinct_ids
+                WHERE {account_distinct_id}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi ON membership.distinct_id = pdi.distinct_id
+            GROUP BY pdi.person_id
+            """,
+            placeholders={"membership": membership, "account_distinct_id": account_distinct_id},
+        )
 
     def get_display_name(self, restricted_properties: frozenset[str]) -> ast.Expr:
         property_keys = self.team.person_display_name_properties or ["email", "name", "username"]

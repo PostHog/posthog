@@ -1233,6 +1233,61 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert SignalReportTask.objects.filter(report=report, task=self.task).exists() is allowed
         assert mock_prompt.called is prompted
 
+    @parameterized.expand(
+        [
+            ("reply_in_converted_channel", "public_channel", {"channel_type": "group"}, None, "private_channel"),
+            (
+                "mention_in_converted_channel",
+                "public_channel",
+                {},
+                {"channel": {"is_private": True}},
+                "private_channel",
+            ),
+            (
+                "mention_with_failed_lookup",
+                "public_channel",
+                {},
+                SlackApiError("ratelimited", {"error": "ratelimited"}),
+                "unknown",
+            ),
+            ("mention_in_public_channel", "public_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+            ("channel_made_public", "private_channel", {}, {"channel": {"is_private": False}}, "public_channel"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_resumed_run_refreshes_the_conversation_type(
+        self,
+        _name,
+        stored_type,
+        event_fields,
+        conversations_info,
+        expected_type,
+        mock_slack_cls,
+        _mock_execute_workflow,
+    ):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        mapping = self._create_mapping()
+        mapping.conversation_type = stored_type
+        mapping.save()
+        mock_slack_instance = MagicMock()
+        if isinstance(conversations_info, Exception):
+            mock_slack_instance.client.conversations_info.side_effect = conversations_info
+        else:
+            mock_slack_instance.client.conversations_info.return_value = conversations_info
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        inputs = replace(inputs, event={**inputs.event, **event_fields})
+        assert forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
+        )
+
+        mapping.refresh_from_db()
+        assert mapping.conversation_type == expected_type
+        assert self.TaskRun.objects.filter(task=self.task).count() == 2
+
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_resumes_with_slack_attachment(self, mock_slack_cls, mock_execute_workflow) -> None:

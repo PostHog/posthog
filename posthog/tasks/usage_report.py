@@ -149,6 +149,8 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # Written by self-driving anomaly scoring, not sent by the customer.
     "$anomaly_score",
     "$anomaly_score_shadow",
+    # Written by Replay Vision once per observation, which is already billed in vision credits.
+    "$recording_observed",
 ]
 
 

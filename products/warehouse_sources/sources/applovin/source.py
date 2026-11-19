@@ -124,7 +124,7 @@ class AppLovinSource(ResumableSource[AppLovinSourceConfig, AppLovinResumeConfig]
 
 Find your **Report Key** in the AppLovin dashboard: click your account in the top right, then **Keys**.
 
-To sync campaigns, creative sets, and campaign operation logs, also add your **Campaign Management API key** (under **Keys**) and your **account ID** (under **Go to settings**, the number after your account name).
+To sync campaigns, creative sets, assets, and campaign operation logs, also add your **Campaign Management API key** (under **Keys**) and your **account ID** (under **Go to settings**, the number after your account name).
 
 AppLovin only serves the last 45 days of report data and the last 30 days of campaign operation logs, so anything older than that can't be backfilled.""",
             iconPath="/static/services/applovin.png",

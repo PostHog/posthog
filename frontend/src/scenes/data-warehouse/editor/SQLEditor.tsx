@@ -118,6 +118,8 @@ interface SQLEditorProps {
     hideFilters?: boolean
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
+    hideConnectionSelector?: boolean
+    captureQueryTelemetry?: boolean
     /** Adds an "Open in SQL editor" button to the query toolbar. */
     showOpenInSqlEditor?: boolean
     /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
@@ -150,6 +152,8 @@ export function SQLEditor({
     hideVariables,
     hideFilters,
     hideAiTools,
+    hideConnectionSelector,
+    captureQueryTelemetry,
     showOpenInSqlEditor,
     hostSync,
 }: SQLEditorProps): JSX.Element {
@@ -247,6 +251,7 @@ export function SQLEditor({
         editor,
         singleStatement,
         hideAgentHints,
+        captureQueryTelemetry,
     })
 
     const { sourceQuery, dataLogicKey, activeTab } = useValues(logic)
@@ -255,6 +260,7 @@ export function SQLEditor({
     sourceQueryRef.current = sourceQuery
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        captureQueryTelemetry,
         key: dataLogicKey,
         query: sourceQuery,
         dashboardId: undefined,
@@ -272,6 +278,7 @@ export function SQLEditor({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        captureQueryTelemetry,
         query: sourceQuery.source,
         key: dataLogicKey,
         cachedResults: undefined,
@@ -382,6 +389,8 @@ export function SQLEditor({
                                                                 hideVariables={hideVariables}
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
+                                                                hideConnectionSelector={hideConnectionSelector}
+                                                                captureQueryTelemetry={captureQueryTelemetry}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />
@@ -565,7 +574,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setEditingInsightDescription,
         discardChanges,
     } = useActions(sqlEditorLogic)
-    const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
+    const { editingMetricName, metricUpdating, viewUpdateInProgress } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -785,7 +794,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             size="small"
             onClick={() => discardChanges()}
             disabledReason={
-                insightLoading || updatingDataWarehouseSavedQuery
+                insightLoading || viewUpdateInProgress || updatingDataWarehouseSavedQuery
                     ? 'Wait for the current operation to finish'
                     : !hasEditorChanges
                       ? 'No changes to discard'
@@ -931,7 +940,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             }}
                                         >
                                             <span>
-                                                {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                                {viewUpdateInProgress
+                                                    ? 'Checking downstream views…'
+                                                    : isMaterializedView
+                                                      ? 'Update and re-materialize view'
+                                                      : 'Update view'}
                                             </span>
                                             {saveWarning}
                                         </LemonButton>

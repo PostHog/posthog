@@ -114,7 +114,6 @@ export enum Scene {
     Library = 'Library',
     AnalyticsList = 'AnalyticsList',
     AnalyticsSpaces = 'AnalyticsSpaces',
-    AnalyticsProductHome = 'AnalyticsProductHome',
     Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
@@ -189,9 +188,6 @@ export enum Scene {
     PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
-    Stamphog = 'Stamphog',
-    StamphogRuns = 'StamphogRuns',
-    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -447,11 +443,6 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
-
-    // Stamphog
-    [Scene.Stamphog]: AccessControlResourceType.CodeReviewApproval,
-    [Scene.StamphogRuns]: AccessControlResourceType.CodeReviewApproval,
-    [Scene.StamphogDigests]: AccessControlResourceType.CodeReviewApproval,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

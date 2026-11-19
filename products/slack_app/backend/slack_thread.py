@@ -795,7 +795,7 @@ class SlackThreadHandler:
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
         bot_authored: bool = False,
-    ) -> None:
+    ) -> bool:
         """Post the single per-run "PR opened" card.
 
         Used at every lifecycle moment a run surfaces a PR for the first
@@ -824,9 +824,9 @@ class SlackThreadHandler:
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
-        self.capture_reply_posted(
-            ReplyKind.PR_OPENED, delivered=self._delete_progress_and_post(header, blocks, task_url=task_url)
-        )
+        delivered = self._delete_progress_and_post(header, blocks, task_url=task_url)
+        self.capture_reply_posted(ReplyKind.PR_OPENED, delivered=delivered)
+        return delivered
 
     def post_pr_closed(
         self,
