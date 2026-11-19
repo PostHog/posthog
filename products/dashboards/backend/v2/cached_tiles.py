@@ -60,7 +60,7 @@ def read_cached_tiles(
     user: Any,
     dashboard: Dashboard,
     tile_ids: list[int],
-    restricted_insight_levels: Callable[[list[tuple[DashboardTile, Insight]]], dict[int, str]],
+    restricted_insight_levels: Callable[[list[DashboardTile]], dict[int, str]],
     insight_serializer: TileInsightSerializer,
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -73,7 +73,7 @@ def read_cached_tiles(
         for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
         if (insight := tile.insight) is not None and insight.query is not None
     }
-    restricted_levels = restricted_insight_levels(list(tiles_by_id.values()))
+    restricted_levels = restricted_insight_levels([tile for tile, _ in tiles_by_id.values()])
 
     # Shares work across tiles as a dashboard load does: one set of warehouse lookups while the keys are
     # built, and one write that records every tile's cache read.

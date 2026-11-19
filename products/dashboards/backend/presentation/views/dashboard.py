@@ -4456,7 +4456,9 @@ class DashboardsViewSet(
             user=request.user,
             dashboard=dashboard,
             tile_ids=tile_ids,
-            restricted_insight_levels=self._restricted_insight_levels,
+            restricted_insight_levels=lambda tiles: self._restricted_insight_levels(
+                [(tile, insight) for tile in tiles if (insight := tile.insight) is not None]
+            ),
             # Built once: a serializer per tile deep-copies every declared insight field each time.
             insight_serializer=CachedTileInsightResultSerializer(context=context),
             context=context,
