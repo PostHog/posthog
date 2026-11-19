@@ -1,5 +1,6 @@
+import math
 import time
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from django.conf import settings
@@ -9,7 +10,7 @@ import posthoganalytics
 from prometheus_client import Counter, Histogram
 from temporalio.exceptions import CancelledError
 
-from posthog.schema import TrendsQuery
+from posthog.schema import HogQLAlertEvaluation, HogQLQuery, NodeKind, TrendsQuery
 
 from posthog.caching.insight_result import InsightResult
 from posthog.dataclasses import frozen
@@ -22,16 +23,22 @@ from posthog.models.user import User
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import (
     ClosedSeriesValues,
+    ClosedSqlSeriesValues,
     SeriesValuesUnavailable,
     SeriesValuesVerification,
 )
-from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_series_values
+from products.product_analytics.backend.facade.queries import (
+    TrendsQueryRunner,
+    closed_series_values,
+    closed_sql_series_values,
+)
 
 logger = structlog.get_logger(__name__)
 
 SERIES_VALUES_PRECOMPUTE_FLAG = "alerts-series-values-precompute"
 SHADOW_COMPARISON_EVENT = "alert series values shadow compared"
 SHADOW_BUILD_BUDGET_SECONDS = 60
+SQL_RELATIVE_TOLERANCE = 1e-9
 
 AlertKind = Literal["threshold", "detector"]
 ShadowOutcome = Literal["match", "mismatch", "unavailable", "error"]
@@ -150,6 +157,97 @@ def compare_series_values_shadow(
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
     _record(alert, alert_kind, "trends", comparison, duration_seconds=time.monotonic() - started)
+
+
+def _bucket_instant(cell: Any) -> datetime:
+    if isinstance(cell, str):
+        cell = datetime.fromisoformat(cell)
+    if isinstance(cell, datetime):
+        return cell.astimezone(UTC) if cell.tzinfo else cell.replace(tzinfo=UTC)
+    if isinstance(cell, date):
+        return datetime(cell.year, cell.month, cell.day, tzinfo=UTC)
+    raise TypeError(f"Unsupported bucket value {type(cell).__name__}")
+
+
+def compare_closed_sql_values(
+    closed: ClosedSqlSeriesValues | SeriesValuesUnavailable,
+    rows: list,
+    column_names: list[str] | None,
+    value_column: str,
+) -> ShadowComparison:
+    if isinstance(closed, SeriesValuesUnavailable):
+        return ShadowComparison(outcome="unavailable", reason=closed.reason)
+    if not column_names or closed.bucket_column not in column_names or value_column not in column_names:
+        return ShadowComparison(outcome="unavailable", reason="result_columns", freshly_built=closed.freshly_built)
+    bucket_index = column_names.index(closed.bucket_column)
+    value_index = column_names.index(value_column)
+    live = {
+        _bucket_instant(row[bucket_index]): 0.0 if row[value_index] is None else float(row[value_index]) for row in rows
+    }
+    first, last = min(live), max(live)
+    buckets = {
+        bucket
+        for bucket in live.keys() | closed.values.keys()
+        if first < bucket <= last and bucket < closed.closed_before
+    }
+    if not buckets:
+        return ShadowComparison(
+            outcome="unavailable", reason="no_overlapping_buckets", freshly_built=closed.freshly_built
+        )
+    pairs = [(live.get(bucket, 0.0), closed.values.get(bucket, 0.0)) for bucket in buckets]
+    return ShadowComparison(
+        outcome="match" if all(math.isclose(a, b, rel_tol=SQL_RELATIVE_TOLERANCE) for a, b in pairs) else "mismatch",
+        buckets_compared=len(pairs),
+        max_abs_difference=max(abs(a - b) for a, b in pairs),
+        freshly_built=closed.freshly_built,
+    )
+
+
+def _sql_comparison(
+    alert: AlertConfiguration,
+    source: dict | None,
+    rows: list,
+    column_names: list[str] | None,
+    value_column: str | None,
+    evaluation: HogQLAlertEvaluation,
+) -> ShadowComparison:
+    if evaluation == HogQLAlertEvaluation.ANY_ROW:
+        return ShadowComparison(outcome="unavailable", reason="any_row_evaluation")
+    if not rows:
+        return ShadowComparison(outcome="unavailable", reason="no_live_result")
+    if source is None or value_column is None:
+        return ShadowComparison(outcome="unavailable", reason="value_column")
+    closed = closed_sql_series_values(
+        alert.team,
+        HogQLQuery.model_validate(source),
+        value_column=value_column,
+        run_inserts=True,
+        wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS,
+    )
+    return compare_closed_sql_values(closed, rows, column_names, value_column)
+
+
+def compare_sql_series_values_shadow(
+    alert: AlertConfiguration,
+    source: dict | None,
+    rows: list,
+    column_names: list[str] | None,
+    *,
+    value_column: str | None,
+    evaluation: HogQLAlertEvaluation,
+    alert_kind: AlertKind,
+) -> None:
+    started = time.monotonic()
+    try:
+        if not is_series_values_precompute_enabled(alert.team):
+            return
+        comparison = _sql_comparison(alert, source, rows, column_names, value_column, evaluation)
+    except _CANCELLATION:
+        raise
+    except Exception as err:
+        logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
+        comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
+    _record(alert, alert_kind, NodeKind.HOG_QL_QUERY.value, comparison, duration_seconds=time.monotonic() - started)
 
 
 def record_unsupported_insight_kind(alert: AlertConfiguration, insight_kind: str) -> None:

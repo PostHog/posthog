@@ -1,28 +1,36 @@
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from temporalio.exceptions import CancelledError
 
 from posthog.schema import TrendsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.models.team import Team
+from posthog.models.user import User
 
-from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
+from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight, run_extractor
 from products.alerts.backend.evaluation.series_values_shadow import (
     SHADOW_BUILD_BUDGET_SECONDS,
     SHADOW_COMPARISON_EVENT,
+    compare_closed_sql_values,
     compare_series_values_shadow,
 )
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.product_analytics.backend.facade.contracts import ClosedSqlSeriesValues
 from products.product_analytics.backend.facade.models import Insight
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -53,6 +61,32 @@ def _trends_query(interval: str) -> dict[str, Any]:
         "interval": interval,
         "dateRange": {"date_from": "-7d" if interval == "day" else "-24h"},
     }
+
+
+def _create_alert(
+    team: Team,
+    user: User,
+    query: dict[str, Any],
+    config: dict[str, Any],
+    detector: dict[str, Any] | None,
+    calculation_interval: str,
+) -> AlertConfiguration:
+    insight = Insight.objects.create(team=team, query=query)
+    return AlertConfiguration.objects.create(
+        team=team,
+        insight=insight,
+        created_by=user,
+        name="signups",
+        condition={"type": "absolute_value"},
+        config=config,
+        calculation_interval=calculation_interval,
+        detector_config=detector,
+        threshold=None
+        if detector
+        else Threshold.objects.create(
+            team=team, insight=insight, name="t", configuration={"type": "absolute", "bounds": {"upper": 100}}
+        ),
+    )
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -99,22 +133,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         detector: dict[str, Any] | None,
         calculation_interval: str,
     ) -> AlertConfiguration:
-        insight = Insight.objects.create(team=self.team, query=query)
-        return AlertConfiguration.objects.create(
-            team=self.team,
-            insight=insight,
-            created_by=self.user,
-            name="signups",
-            condition={"type": "absolute_value"},
-            config=config,
-            calculation_interval=calculation_interval,
-            detector_config=detector,
-            threshold=None
-            if detector
-            else Threshold.objects.create(
-                team=self.team, insight=insight, name="t", configuration={"type": "absolute", "bounds": {"upper": 100}}
-            ),
-        )
+        return _create_alert(self.team, self.user, query, config, detector, calculation_interval)
 
     def _enrolled(self) -> Any:
         return override_settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk])
@@ -275,44 +294,6 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert len(_shadow_events(capture)) == shadow_events
         assert (self._jobs() > 0) == bool(shadow_events)
 
-    @parameterized.expand(
-        [
-            ("enrolled_threshold", True, None, "threshold"),
-            ("enrolled_detector", True, _THRESHOLD_DETECTOR, "detector"),
-            ("unenrolled", False, None, None),
-        ]
-    )
-    def test_a_sql_alert_check_records_it_is_not_covered(
-        self, _name: str, enrolled: bool, detector: dict[str, Any] | None, alert_kind: str | None
-    ) -> None:
-        alert = self._sql_alert(detector=detector)
-        live = check_alert_for_insight(alert)
-
-        with (
-            patch(f"{_SHADOW}.posthoganalytics.feature_enabled", return_value=enrolled),
-            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
-        ):
-            checked = check_alert_for_insight(alert)
-
-        assert checked == live
-        assert [
-            {key: properties[key] for key in ("outcome", "reason", "insight_kind", "alert_kind", "alert_id")}
-            for properties in _shadow_events(capture)
-        ] == (
-            [
-                {
-                    "outcome": "unavailable",
-                    "reason": "unsupported_insight_kind",
-                    "insight_kind": "HogQLQuery",
-                    "alert_kind": alert_kind,
-                    "alert_id": str(alert.id),
-                }
-            ]
-            if enrolled
-            else []
-        )
-        assert self._jobs() == 0
-
     def test_a_cancelled_sql_alert_check_stops_while_recording(self) -> None:
         alert = self._sql_alert(detector=None)
 
@@ -326,3 +307,161 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             self.assertRaises(CancelledError),
         ):
             check_alert_for_insight(alert)
+
+
+_WINDOWED_SQL = (
+    "SELECT toStartOfDay(timestamp) AS day, count() AS value FROM events "
+    "WHERE timestamp >= now() - INTERVAL 7 DAY AND event = 'signed_up' GROUP BY day ORDER BY day"
+)
+_SQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestSeriesValuesShadowForSqlAlerts(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+        sync_execute("SYSTEM STOP TTL MERGES sharded_series_values_preaggregated")
+        self.addCleanup(sync_execute, "SYSTEM START TTL MERGES sharded_series_values_preaggregated")
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        for days_ago, hour in ((6, 5), (4, 7), (4, 8), (2, 20), (1, 1), (1, 23), (0, 0)):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="p1",
+                timestamp=today - timedelta(days=days_ago) + timedelta(hours=hour),
+            )
+        flush_persons_and_events()
+
+    def _sql_alert(self, sql: str, *, detector: dict[str, Any] | None) -> AlertConfiguration:
+        return _create_alert(self.team, self.user, {"kind": "HogQLQuery", "query": sql}, _SQL_CONFIG, detector, "daily")
+
+    def _jobs(self) -> int:
+        return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
+
+    @parameterized.expand(
+        [
+            ("threshold", _WINDOWED_SQL, None, True, ("match", None)),
+            ("detector", _WINDOWED_SQL, _THRESHOLD_DETECTOR, True, ("match", None)),
+            ("ineligible_query", _DAILY_SQL["query"], None, True, ("unavailable", "window")),
+            ("unenrolled", _WINDOWED_SQL, None, False, None),
+        ]
+    )
+    def test_an_enrolled_check_records_one_comparison_and_keeps_its_result(
+        self,
+        _name: str,
+        sql: str,
+        detector: dict[str, Any] | None,
+        enrolled: bool,
+        expected: tuple[str, str | None] | None,
+    ) -> None:
+        alert = self._sql_alert(sql, detector=detector)
+        live = check_alert_for_insight(alert)
+
+        with (
+            patch(f"{_SHADOW}.posthoganalytics.feature_enabled", return_value=enrolled),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            checked = check_alert_for_insight(alert)
+
+        events = _shadow_events(capture)
+        assert checked == live
+        assert [(properties["outcome"], properties["reason"]) for properties in events] == (
+            [expected] if expected else []
+        )
+        if expected == ("match", None):
+            [properties] = events
+            assert properties["buckets_compared"] >= 3
+            assert (properties["insight_kind"], properties["alert_kind"]) == (
+                "HogQLQuery",
+                "detector" if detector else "threshold",
+            )
+            assert properties["verified"] is False
+        assert (self._jobs() > 0) == (expected == ("match", None))
+
+    def test_a_user_facing_query_error_in_the_shadow_never_disables_the_alert(self) -> None:
+        alert = self._sql_alert(_WINDOWED_SQL, detector=None)
+        live = check_alert_for_insight(alert)
+
+        with (
+            self.settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            patch(f"{_SHADOW}.closed_sql_series_values", side_effect=ExposedHogQLError("bad column")),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            checked = check_alert_for_insight(alert)
+
+        alert.refresh_from_db()
+        [properties] = _shadow_events(capture)
+        assert checked == live
+        assert alert.enabled
+        assert (properties["outcome"], properties["reason"]) == ("error", "ExposedHogQLError")
+
+    @parameterized.expand(
+        [
+            ("trends", "TrendsQuery", []),
+            ("sql", "HogQLQuery", []),
+            ("funnels", "FunnelsQuery", [("unavailable", "unsupported_insight_kind", "FunnelsQuery")]),
+        ]
+    )
+    def test_only_kinds_without_their_own_comparison_record_unsupported(
+        self, _name: str, kind: str, expected: list[tuple[str, str, str]]
+    ) -> None:
+        alert = self._sql_alert(_WINDOWED_SQL, detector=None)
+        extractor = MagicMock()
+
+        with (
+            self.settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            run_extractor(extractor, alert, alert.insight, {"kind": kind}, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert [
+            (properties["outcome"], properties["reason"], properties["insight_kind"])
+            for properties in _shadow_events(capture)
+        ] == expected
+
+
+_TODAY = datetime(2024, 1, 15, tzinfo=UTC)
+
+
+def _day(day: int) -> datetime:
+    return datetime(2024, 1, day, tzinfo=UTC)
+
+
+class TestCompareClosedSqlValues(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "clipped_first_bucket_and_today_are_skipped",
+                [["2024-01-10T00:00:00Z", 1], [_day(11), 5], [date(2024, 1, 12), None], [_day(15), 9]],
+                {_day(10): 3.0, _day(11): 5.0},
+                ("match", 2, 0.0),
+            ),
+            (
+                "a_row_missing_on_one_side_is_a_mismatch",
+                [[_day(10), 1], [_day(11), 5], [_day(13), 2]],
+                {_day(11): 5.0, _day(12): 4.0, _day(13): 2.0},
+                ("mismatch", 3, 4.0),
+            ),
+            (
+                "buckets_after_the_last_live_row_are_skipped",
+                [[_day(14), 3], [_day(13), 2], [_day(12), 1]],
+                {_day(11): 8.0, _day(12): 1.0, _day(13): 2.0, _day(14): 3.0},
+                ("match", 2, 0.0),
+            ),
+            (
+                "float_noise_within_tolerance_matches",
+                [[_day(10), 1], [_day(11), 0.1 + 0.2]],
+                {_day(11): 0.3},
+                ("match", 1, abs(0.1 + 0.2 - 0.3)),
+            ),
+        ]
+    )
+    def test_compares_closed_buckets_after_the_first_live_row(
+        self, _name: str, rows: list, stored: dict[datetime, float], expected: tuple[str, int, float]
+    ) -> None:
+        closed = ClosedSqlSeriesValues(bucket_column="day", values=stored, closed_before=_TODAY)
+
+        comparison = compare_closed_sql_values(closed, rows, ["day", "value"], "value")
+
+        assert (comparison.outcome, comparison.buckets_compared, comparison.max_abs_difference) == expected

@@ -59,6 +59,8 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.METRICS_QUERY: MetricsExtractor(),
 }
 
+SHADOWED_KINDS = {NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY}
+
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared
 # evaluate_with_detector. Funnels stay threshold-only (no native time series to score). This is the
 # single source of truth for both detector paths — alert checks call extract(), read-only simulation
@@ -179,7 +181,7 @@ def run_extractor(
             raise
         raise AlertExtractionError(rule_violation_message(err)) from err
     kind = get_from_dict_or_attr(query, "kind")
-    if kind != NodeKind.TRENDS_QUERY:
+    if kind not in SHADOWED_KINDS:
         record_unsupported_insight_kind(alert, str(kind))
     return result
 
