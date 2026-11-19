@@ -254,15 +254,15 @@ const readAnchor = (html: string, base: number, element: Element, inComment: boo
     return { start, attributes, last, insertAt: selfClosing ? close - 1 : close }
 }
 
-// Collects the opening `<a>` tags a browser reads, in source order. Comment content is read as markup too, because
-// Outlook renders the links inside its `<!--[if mso]>` blocks. That read takes a `<!--` as text, so each character
-// is parsed at most twice however many comments a comment opens.
+type CommentNode = DefaultTreeAdapterMap['commentNode']
+
+// Collects the opening `<a>` tags a browser reads, and the comments to read after them.
 const scanAnchors = (
     html: string,
     root: Node,
     base: number,
     inComment: boolean,
-    bounds: ParseBounds,
+    comments: CommentNode[],
     anchors: Map<number, ScannedTag>
 ): void => {
     const pending: Node[] = [root]
@@ -270,7 +270,7 @@ const scanAnchors = (
         const node = pending.pop()!
         if (node.nodeName === '#comment') {
             if (!inComment) {
-                scanComment(html, node as DefaultTreeAdapterMap['commentNode'], bounds, anchors)
+                comments.push(node as CommentNode)
             }
             continue
         }
@@ -296,36 +296,44 @@ const scanAnchors = (
     }
 }
 
+type CommentMarkup = { start: number; content: string; conditional: boolean }
+
+// Comment content is read as markup too, because Outlook renders the links inside its `<!--[if mso]>` blocks. That
+// read takes a `<!--` as text, so each character is parsed at most twice however many comments a comment opens.
+const commentMarkup = (html: string, comment: CommentNode): CommentMarkup | null => {
+    const location = comment.sourceCodeLocation
+    if (!location || !html.startsWith(COMMENT_OPENING, location.startOffset)) {
+        return null
+    }
+    const raw = html.slice(location.startOffset, location.endOffset)
+    const start = location.startOffset + COMMENT_OPENING.length
+    const end = location.endOffset - (raw.endsWith('--!>') ? 4 : raw.endsWith('-->') ? 3 : 0)
+    if (end <= start) {
+        return null
+    }
+    const content = html.slice(start, end).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
+    return { start, content, conditional: CONDITIONAL_COMMENT.test(content) }
+}
+
 const scanComment = (
     html: string,
-    comment: DefaultTreeAdapterMap['commentNode'],
+    comment: CommentMarkup,
     bounds: ParseBounds,
     anchors: Map<number, ScannedTag>
 ): void => {
-    const location = comment.sourceCodeLocation
-    if (!location || !html.startsWith(COMMENT_OPENING, location.startOffset)) {
-        return
-    }
-    const raw = html.slice(location.startOffset, location.endOffset)
-    const contentStart = location.startOffset + COMMENT_OPENING.length
-    const contentEnd = location.endOffset - (raw.endsWith('--!>') ? 4 : raw.endsWith('-->') ? 3 : 0)
-    if (contentEnd <= contentStart) {
-        return
-    }
-    const content = html.slice(contentStart, contentEnd).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
     let fragment: DefaultTreeAdapterMap['documentFragment']
     try {
-        fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
+        fragment = parseFragment(comment.content, { ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
     } catch (error) {
         // No client shows a link in a plain comment, so one past the bounds is left as written rather than refusing
         // an email that renders fine. The elements it built still count, so a run of such comments cannot repeat
         // the work.
-        if (error instanceof EmailHtmlTooComplexError && !CONDITIONAL_COMMENT.test(content)) {
+        if (error instanceof EmailHtmlTooComplexError && !comment.conditional) {
             return
         }
         throw error
     }
-    scanAnchors(html, fragment, contentStart, true, bounds, anchors)
+    scanAnchors(html, fragment, comment.start, true, [], anchors)
 }
 
 type Scan = {
@@ -361,7 +369,16 @@ const scanHtml = (html: string): Scan => {
     const parser = new BodyEndParser({ ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
-    scanAnchors(html, parser.document, 0, false, bounds, anchors)
+    const comments: CommentNode[] = []
+    scanAnchors(html, parser.document, 0, false, comments, anchors)
+    const markups = comments
+        .map((comment) => commentMarkup(html, comment))
+        .filter((markup): markup is CommentMarkup => markup !== null)
+    // Outlook's comments are read before the plain ones, so a plain comment left unread past the budget cannot spend
+    // what they need.
+    for (const markup of [...markups.filter((m) => m.conditional), ...markups.filter((m) => !m.conditional)]) {
+        scanComment(html, markup, bounds, anchors)
+    }
     // Tree order is not source order: a link written inside a table moves before it.
     return { anchors: [...anchors.values()].sort((a, b) => a.start - b.start), bodyEnd: parser.bodyEnd }
 }

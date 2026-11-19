@@ -562,10 +562,12 @@ describe('EmailTrackingService', () => {
                 })
 
                 it('is sent when the tags are in a plain comment, whose links stay as written', () => {
+                    const outlook = '<!--[if mso]><a href="https://example.com/outlook">o</a><![endif]-->'
                     const hidden = '<a href="https://example.com/hidden">h</a>'
-                    const out = sesTrack(`<body><!--${openTags(300)}${blocks}${hidden}-->${link}</body>`)
+                    const out = sesTrack(`<body>${outlook}<!--${openTags(300)}${blocks}${hidden}-->${link}</body>`)
                     expect(out).toContain(`${hidden}-->`)
-                    expect(out).toContain('<a href="https://example.com/" ses:tags="phl:0">a</a>')
+                    expect(out).toContain('<a href="https://example.com/outlook" ses:tags="phl:0">o</a>')
+                    expect(out).toContain('<a href="https://example.com/" ses:tags="phl:1">a</a>')
                 })
             })
 
