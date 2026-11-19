@@ -847,6 +847,12 @@ def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID])
     return alert_destinations.standalone_destination_counts(team_id=team_id, public_ids=public_ids)
 
 
+def standalone_destination_types(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, frozenset[str]]:
+    """The types of the destinations `standalone_destination_counts` counts, by public id. A source adds
+    the types of its live HogFunction destinations. An alert with none is missing from the result."""
+    return alert_destinations.standalone_destination_types(team_id=team_id, public_ids=public_ids)
+
+
 def list_source_destinations(
     *, team_id: int, public_id: UUID, hog_function_groups: Sequence[AlertDestinationGroup]
 ) -> tuple[SourceDestination, ...]:

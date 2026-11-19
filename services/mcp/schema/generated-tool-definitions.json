@@ -11507,7 +11507,7 @@
         }
     },
     "logs-alerts-destinations-create": {
-        "description": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved. The returned id identifies the destination; pass it to logs-alerts-destinations-delete-create to remove it. When id is null, use hog_function_ids instead.",
+        "description": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. A PagerDuty destination opens an incident when the alert starts firing and resolves it when the firing ends, cooldown included. The returned id identifies the destination; pass it in destination_ids to logs-alerts-destinations-delete-create to remove it. When id is null, pass the returned hog_function_ids instead.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Attach alert destination",

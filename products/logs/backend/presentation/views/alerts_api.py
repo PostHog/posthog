@@ -38,6 +38,7 @@ from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
+    choose_delivery_path,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
     customize_source_destination,
@@ -60,6 +61,7 @@ from products.alerts_platform.backend.facade.api import (
     redact_destination_data as redact_platform_destination_data,
     reset_broken,
     runtime_by_public_id,
+    standalone_destination_types,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -74,6 +76,8 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCreateRefused,
     PlatformAlertHistory,
     PlatformAlertRuntime,
+    SourceKind,
+    StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
@@ -144,6 +148,7 @@ from products.logs.backend.facade.platform_ownership import (
 )
 from products.logs.backend.facade.queries import validate_nested_filter_groups
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.presentation.views.terraform_provider_gate import refuse_untrackable_terraform_create
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
@@ -302,6 +307,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
 
 
 _PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
+_ROW_DESTINATION_TYPES_CONTEXT_KEY: Final = "row_destination_types"
 _PLATFORM_HISTORY_CONTEXT_KEY: Final = "platform_history"
 _PLATFORM_CONTROL_CONTEXT_KEY: Final = "platform_control"
 
@@ -311,6 +317,14 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     if not owned:
         return {}
     return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
+
+
+def _row_destination_types_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, frozenset[str]]:
+    # Only the platform sends a destination row, so an alert the logs stack evaluates has none to show.
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    return standalone_destination_types(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
 class PlatformHistoryUnavailable(APIException):
@@ -426,6 +440,7 @@ class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
         # One platform read of each kind for the page, which the child serializer finds in the
         # shared context.
         self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
+        self.context[_ROW_DESTINATION_TYPES_CONTEXT_KEY] = _row_destination_types_of(alerts)
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
         self.context[_PLATFORM_HISTORY_CONTEXT_KEY] = _platform_history_of(alerts, window)
         self.context[_PLATFORM_CONTROL_CONTEXT_KEY] = _platform_control_of(alerts, window)
@@ -832,10 +847,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             alert_id=str(obj.id),
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         )
+        row_types_by_alert = self.context.get(_ROW_DESTINATION_TYPES_CONTEXT_KEY)
+        if row_types_by_alert is None:
+            row_types_by_alert = _row_destination_types_of([obj])
+        row_types = row_types_by_alert.get(obj.id, frozenset())
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
-            if destination_template_id(destination_type) in configured_template_ids
+            if destination_template_id(destination_type) in configured_template_ids or destination_type in row_types
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -1920,10 +1939,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertCreatedDestinationResponseSerializer},
         description=(
-            "Create a notification destination for this alert. One HogFunction is created per alert event kind "
-            "(firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed "
-            "kinds instead. They follow every start and end of a firing, cooldown included, so each incident it "
-            "opens is resolved."
+            "Create a notification destination for this alert. The returned `id` identifies the destination; "
+            "delete it by passing that `id` in `destination_ids`. The alerts platform sends the destination's "
+            "message itself, so `hog_function_ids` is empty until someone customizes the message. A PagerDuty "
+            "destination opens an incident when the alert starts firing and resolves it when the firing ends, "
+            "cooldown included. Terraform providers older than 1.0.32 get a 400 with code "
+            "`terraform_provider_upgrade_required` and nothing is created."
         ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
@@ -1935,17 +1956,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
-            try:
-                hog_function_ids = create_alert_destination_hog_functions(
-                    configs,
-                    team_id=alert.team_id,
-                    created_by_id=cast(User, request.user).id,
-                    alert_id=str(alert.id),
-                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                )
-                # The HogFunctions send while they exist. Rollback to the logs stack reads only them.
-                stored = record_source_destination(
+            refuse_untrackable_terraform_create(request.headers.get("user-agent") or "")
+
+            def record(
+                hog_function_ids: tuple[UUID, ...], *, keeps_legacy_webhook_body: bool = False
+            ) -> StoredAlertDestination | None:
+                return record_source_destination(
                     team_id=alert.team_id,
                     public_id=alert.id,
                     data=data,
@@ -1954,7 +1970,28 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     hog_function_groups=list_alert_destination_groups(
                         team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
                     ),
+                    keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+                    # A handback to the logs stack after `alert` was read would leave a row nothing sends.
+                    only_while_platform_owned=not hog_function_ids,
                 )
+
+            hog_function_ids: tuple[UUID, ...] = ()
+            try:
+                stored = (
+                    record((), keeps_legacy_webhook_body=self._stock_webhook_sends_legacy_body(alert, data))
+                    if alert.platform_owned
+                    else None
+                )
+                # Only the platform sends a row, so an alert the logs stack evaluates sends through HogFunctions.
+                if stored is None:
+                    hog_function_ids = create_alert_destination_hog_functions(
+                        build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data),
+                        team_id=alert.team_id,
+                        created_by_id=cast(User, request.user).id,
+                        alert_id=str(alert.id),
+                        allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                    )
+                    stored = record(hog_function_ids)
             except AlertDestinationValidationError as error:
                 raise as_drf_validation_error(error)
 
@@ -1968,6 +2005,23 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"id": stored.id if stored else None, "hog_function_ids": list(hog_function_ids)}
         )
         return Response(response.data, status=201)
+
+    @staticmethod
+    def _stock_webhook_sends_legacy_body(alert: LogsAlertConfiguration, data: AlertDestinationData) -> bool:
+        """Whether a stock webhook HogFunction on this alert would send the legacy body. It does while a
+        customized destination keeps the alert on the HogFunction path, and a row on a team the webhook
+        body flags moved off the legacy body would not, so the row keeps it as the conversion does."""
+        if data["type"] != DestinationType.WEBHOOK:
+            return False
+        return (
+            choose_delivery_path(
+                source=SourceKind.LOGS,
+                team_id=alert.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+            == DeliveryPath.HOG_FUNCTION
+        )
 
     @extend_schema(
         request=LogsAlertDeleteDestinationSerializer,

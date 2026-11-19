@@ -24,6 +24,7 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
+from products.logs.backend.test.hog_function_destinations import add_hog_function_destination
 
 SLACK = {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"}
 WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hook"}
@@ -54,11 +55,15 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
             {"name": name, "threshold_count": 10, "filters": {"severityLevels": ["error"]}},
             format="json",
         ).json()
-        created = self.client.post(f"{self.base_url}{alert['id']}/destinations/", SLACK, format="json")
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        hog_function_ids = self._add_hog_function_destination(alert["id"], SLACK)
         owner = PlatformAlertOwner.PLATFORM if platform_owned else PlatformAlertOwner.SOURCE
         LogsAlertConfiguration.objects.filter(id=alert["id"]).update(owner=owner)
-        return alert["id"], created.json()["hog_function_ids"]
+        return alert["id"], hog_function_ids
+
+    def _add_hog_function_destination(self, alert_id: str, payload: dict[str, Any]) -> list[str]:
+        return add_hog_function_destination(
+            team_id=self.team.id, user_id=self.user.id, alert_id=alert_id, payload=payload
+        )
 
     def _rows(self, alert_id: str) -> list[Any]:
         with team_scope(self.team.id):
@@ -140,8 +145,7 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         held_alert, slack_ids = self._alert_with_slack(name="Held by its Slack")
         native_alert, _ = self._alert_with_slack(name="Native")
         for alert_id in (held_alert, native_alert):
-            created = self.client.post(f"{self.base_url}{alert_id}/destinations/", WEBHOOK, format="json")
-            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            self._add_hog_function_destination(alert_id, WEBHOOK)
         edited = self.client.patch(
             f"/api/projects/{self.team.pk}/hog_functions/{slack_ids[0]}/",
             {"hog": "fetch('https://relay.example.com')"},

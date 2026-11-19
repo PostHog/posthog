@@ -139,16 +139,16 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             f"{self.base_url}{alert_id}/destinations/",
             {"type": "webhook", "webhook_url": "https://example.com/hook"},
             format="json",
+            headers={"User-Agent": "posthog/terraform-provider; version: 1.0.32"},
         )
         assert destination.status_code == status.HTTP_201_CREATED, destination.json()
-        hog_function_ids = destination.json()["hog_function_ids"]
+        destination_id = destination.json()["id"]
         seen.append(self._read(alert_id))
         seen.append(
-            sorted(
-                {
-                    (f.filters or {})["properties"][0]["value"] == alert_id
-                    for f in HogFunction.objects.filter(id__in=hog_function_ids)
-                }
+            (
+                [listed["id"] for listed in self.client.get(f"{self.base_url}{alert_id}/").json()["destinations"]]
+                == [destination_id],
+                destination.json()["hog_function_ids"],
             )
         )
 
@@ -157,7 +157,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         seen.append([alert["id"] for alert in listed.json()["results"]].count(alert_id))
 
         removed = self.client.post(
-            f"{self.base_url}{alert_id}/destinations/delete/", {"hog_function_ids": hog_function_ids}, format="json"
+            f"{self.base_url}{alert_id}/destinations/delete/", {"destination_ids": [destination_id]}, format="json"
         )
         assert removed.status_code == status.HTTP_204_NO_CONTENT
         seen.append(self._read(alert_id)["destinations"])
@@ -169,7 +169,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
 
         assert self.client.delete(f"{self.base_url}{alert_id}/").status_code == status.HTTP_204_NO_CONTENT
         seen.append(self.client.get(f"{self.base_url}{alert_id}/").status_code)
-        seen.append(HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count())
+        seen.append(HogFunction.objects.filter(team=self.team, deleted=False).count())
         return seen
 
     def test_an_object_level_deny_treats_both_kinds_of_alert_alike(self, *_: object) -> None:
@@ -263,7 +263,7 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
             "state": "snoozed",
             "destinations": [],
         }
-        assert without_row[3:7] == [{**without_row[2], "destinations": ["webhook"]}, [True], 1, []]
+        assert without_row[3:7] == [{**without_row[2], "destinations": ["webhook"]}, (True, []), 1, []]
         assert without_row[7][0] == status.HTTP_200_OK
         assert without_row[8][0] == status.HTTP_400_BAD_REQUEST
         assert without_row[9:] == [status.HTTP_404_NOT_FOUND, 0]
