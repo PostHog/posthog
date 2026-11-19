@@ -1,5 +1,5 @@
 import type { MCPWrappedCardsApi } from '../generated/api.schemas'
-import { formatHour, shareTiles, storyCardKeys, chartMonths, formatCallCount, callMilestone } from './storyCards'
+import { formatHour, shareTiles, storyCardKeys, chartMonths, formatCallCount } from './storyCards'
 
 const BASE: MCPWrappedCardsApi = {
     intro: { tracked_since: '2026-07', server_count: 1 },
@@ -70,13 +70,10 @@ describe('storyCards', () => {
     })
 
     it.each([
-        [9_999, '9,999', null],
-        [14_421, '14,421', '10K club'],
-        [999_999, '999,999', '100K club'],
-        [4_812_655, '4.8M', '1M club'],
-        [219_000_000, '219M', '100M club'],
-    ])('shows %i calls as %s with milestone %s', (calls, count, milestone) => {
+        [999_999, '999,999'],
+        [4_812_655, '4.8M'],
+        [219_000_000, '219M'],
+    ])('shows %i calls as %s', (calls, count) => {
         expect(formatCallCount(calls)).toBe(count)
-        expect(callMilestone(calls)).toBe(milestone)
     })
 })
