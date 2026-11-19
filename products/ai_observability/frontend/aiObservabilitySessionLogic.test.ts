@@ -52,6 +52,13 @@ describe('aiObservabilitySessionLogic', () => {
             expect(logic.values.sessionId).toBe(sessionIdWithColon)
         })
 
+        it('properly loads session scene when session ID contains a slash, a percent sign and unicode', async () => {
+            const sessionUrl = combineUrl(urls.aiObservabilitySession('a/b%c ü'))
+
+            router.actions.push(addProjectIdIfMissing(sessionUrl.url, MOCK_TEAM_ID))
+            await expectLogic(logic).toMatchValues({ sessionId: 'a/b%c ü' })
+        })
+
         it('properly loads session scene when session ID contains multiple colons', async () => {
             const sessionIdWithMultipleColons = 'namespace:session:12345:abcdef:xyz'
             const sessionUrl = combineUrl(urls.aiObservabilitySession(sessionIdWithMultipleColons))

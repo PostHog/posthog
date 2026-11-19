@@ -56,6 +56,8 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { SessionPageHost } from './redesign/sessions/SessionPageHost'
+import { sessionPageIdFromPath } from './redesign/sessions/sessionPagePath'
 import { SessionsListHost } from './redesign/sessions/SessionsListHost'
 import { ShellHost } from './redesign/shell/ShellHost'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
@@ -575,6 +577,7 @@ function TabBody({
 
 function AIObservabilitySceneContent(): JSX.Element {
     const { activeTab, featureFlags } = useValues(aiObservabilitySharedLogic)
+    const { location } = useValues(router)
 
     if (!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN]) {
         return <AIObservabilityTabbedContent />
@@ -582,9 +585,14 @@ function AIObservabilitySceneContent(): JSX.Element {
     if (activeTab === 'self-driving' && !featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING]) {
         return <NotFound object="page" />
     }
+    const sessionPageId = activeTab === 'sessions' ? sessionPageIdFromPath(location.pathname) : null
     return (
         <ShellHost>
-            <TabBody tab={activeTab} bodies={SHELL_TAB_BODIES} />
+            {sessionPageId !== null ? (
+                <SessionPageHost key={sessionPageId} sessionId={sessionPageId} />
+            ) : (
+                <TabBody tab={activeTab} bodies={SHELL_TAB_BODIES} />
+            )}
         </ShellHost>
     )
 }

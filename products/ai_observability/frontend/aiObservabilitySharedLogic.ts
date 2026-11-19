@@ -41,6 +41,8 @@ import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/pr
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 import { buildAiObservabilityStorageConfig } from './preferenceStorage'
+import { sessionPageLogic } from './redesign/sessions/sessionPageLogic'
+import { sessionPageIdFromPath } from './redesign/sessions/sessionPagePath'
 import { scorerFiltersFromSearchParams } from './scoreDefinitions/scoreDefinitionNavigation'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
@@ -150,7 +152,7 @@ const REDESIGNED_LIST_PATH = new RegExp(
 
 // Under the navigation flag the traces list, the sessions list and the session page keep their own filters, dates and
 // search in the URL, and two writers would fight over them.
-function redesignedListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
+export function redesignedListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
         !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
         REDESIGNED_LIST_PATH.test(removeProjectIdIfPresent(router.values.location.pathname))
@@ -290,6 +292,7 @@ export interface aiObservabilitySharedLogicMeta {
             },
             shouldFilterTestAccounts: boolean
         ) => (windowDays: number | null) => boolean
+        breadcrumbs: (arg: Breadcrumb[] | null) => Breadcrumb[]
     }
 }
 
@@ -570,8 +573,19 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         ],
 
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            () => [
+                // The session page shares this scene, and only its logic knows the session's title.
+                (state): Breadcrumb[] | null => {
+                    const sessionId = sessionPageIdFromPath(router.selectors.location(state).pathname)
+                    return sessionId
+                        ? (sessionPageLogic.findMounted({ sessionId })?.selectors.breadcrumbs(state) ?? null)
+                        : null
+                },
+            ],
+            (sessionPageBreadcrumbs: Breadcrumb[] | null): Breadcrumb[] => {
+                if (sessionPageBreadcrumbs) {
+                    return sessionPageBreadcrumbs
+                }
                 return [
                     {
                         key: 'llm_analytics',

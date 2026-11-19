@@ -13,6 +13,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { chunk } from 'lib/utils/arrays'
@@ -428,7 +429,21 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
             actions.loadConversationPage({ direction, params: { ...sessionPageParams(props), ...cursor } })
         }
 
+        // The drawer steps through the loaded turns only, so a turn open at either end brings in the page past it.
+        const loadPastOpenTurn = (): void => {
+            const openIndex = values.rows.findIndex((row) => row.traceId === values.openTraceId)
+            if (openIndex === -1) {
+                return
+            }
+            if (openIndex === values.rows.length - 1 && values.newerEdge === 'more') {
+                actions.loadNewer()
+            } else if (openIndex === 0 && values.olderEdge === 'more') {
+                actions.loadOlder()
+            }
+        }
+
         return {
+            [router.actionTypes.locationChanged]: loadPastOpenTurn,
             reload: () => loadPage('first', props.aroundTraceId ? { around: props.aroundTraceId } : {}),
             loadOlder: () => {
                 if (values.olderCursor && !values.pageLoading) {
@@ -441,6 +456,7 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
                 }
             },
             loadConversationPageSuccess: async ({ page, payload }) => {
+                loadPastOpenTurn()
                 const rowsWaitMs = Math.round(performance.now() - cache.pageRequestedAt)
                 const traceIds = page.items.map((item) => item.id)
                 const turnsRequestedAt = performance.now()

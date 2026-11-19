@@ -9,6 +9,7 @@ import { ConversationTurn, NodeSideContent } from '../types'
 import { conversationalSideMessages, sideHasContent } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
 import { IOSection } from './IOSection'
+import { scrollIntoNearest } from './scrollIntoNearest'
 import { ThreadBubble } from './ThreadBubble'
 import { TurnSideMissingNotice } from './TurnSideMissingNotice'
 import { TurnTiming } from './TurnTiming'
@@ -137,7 +138,8 @@ export function ThreadTurn({
     }
 
     return (
-        <div className={turnClassName}>
+        // A turn grows when its messages arrive, so the active turn is brought into view only once they are in
+        <div className={turnClassName} ref={isActive ? scrollIntoNearest : undefined}>
             {hiddenCount > 0 && !conversationOnly ? (
                 <LemonButton
                     size="xsmall"

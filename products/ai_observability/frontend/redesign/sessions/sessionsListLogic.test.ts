@@ -193,8 +193,15 @@ describe('sessionsListLogic', () => {
         expect(logic.values.openItem?.id ?? null).toEqual(openId)
         expect(sessionReads).toHaveLength(readCount)
         if (readCount) {
-            expect(sessionReads[0]).toEqual({ id: UNLISTED_SEGMENT, params: { timestamp: LINK_TIMESTAMP } })
+            expect(sessionReads[0]).toEqual({ id: UNLISTED_SEGMENT, params: { timestamp: '2026-08-01T10:00:00.000Z' } })
         }
+    })
+
+    it('opens a session whose link carries a malformed time without sending the time', async () => {
+        await mountAt(combineUrl(LIST_PATH, { session: UNLISTED_ID, timestamp: 'not-a-date' }).url)
+
+        expect(sessionReads).toEqual([{ id: UNLISTED_SEGMENT, params: {} }])
+        expect(logic.values.openSessionStatus).toEqual('ready')
     })
 
     it('keeps the open session open when a filter takes it off the list', async () => {

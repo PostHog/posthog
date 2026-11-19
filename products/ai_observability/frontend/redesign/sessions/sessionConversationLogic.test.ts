@@ -1,5 +1,8 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -194,6 +197,44 @@ describe('sessionConversationLogic', () => {
         expect(pageRequests[1]).toEqual({ ...FIRST_PAGE_PARAMS, before_cursor: 'cursor-before' })
         expect(readyTurns().map((turn) => turn.id)).toEqual(['trace-1', 'trace-2', 'trace-3', 'trace-4'])
         expect(logic.values).toMatchObject({ olderEdge: 'end', newerEdge: 'end' })
+    })
+
+    it.each([
+        ['last', 'trace-2', makeSessionTurnsPage([1, 2], { nextCursor: 'cursor-next' }), { cursor: 'cursor-next' }],
+        [
+            'first',
+            'trace-1',
+            makeSessionTurnsPage([1, 2], { previousCursor: 'cursor-before' }),
+            { before_cursor: 'cursor-before' },
+        ],
+    ])(
+        'the drawer on the %s loaded turn loads the page past it, so it can step on',
+        async (_edge, traceId, page, cursor) => {
+            answerPage = (params) =>
+                params.has('cursor') || params.has('before_cursor') ? [200, makeSessionTurnsPage([9])] : [200, page]
+            router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id }).url)
+            await mount()
+
+            router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id, trace: traceId }).url)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(pageRequests).toEqual([FIRST_PAGE_PARAMS, { ...FIRST_PAGE_PARAMS, ...cursor }])
+            expect(logic.values.rows.map((row) => row.traceId)).toContain('trace-9')
+        }
+    )
+
+    it('the drawer on a middle turn loads nothing more', async () => {
+        answerPage = () => [
+            200,
+            makeSessionTurnsPage([1, 2, 3], { nextCursor: 'cursor-next', previousCursor: 'cursor-before' }),
+        ]
+        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id }).url)
+        await mount()
+
+        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id, trace: 'trace-2' }).url)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(pageRequests).toEqual([FIRST_PAGE_PARAMS])
     })
 
     it('a failed turns read shows an error per turn, not an empty turn', async () => {

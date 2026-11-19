@@ -180,4 +180,24 @@ describe('ThreadTurn', () => {
         expect(queryByText('Checking the seat history.')).toBeNull()
         expect(getByText('Add two seats.')).toBeTruthy()
     })
+
+    test('the active turn scrolls into view once its messages are in', () => {
+        const scrolled: Element[] = []
+        jest.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+            scrolled.push(this)
+        })
+        const props = { onSelectMessage: () => {} }
+        const { getByText, rerender } = render(
+            <ThreadTurn {...props} turn={{ ...turn, pending: 'loading' }} isActive />
+        )
+        expect(scrolled).toEqual([])
+
+        rerender(<ThreadTurn {...props} turn={turn} isActive />)
+        expect(scrolled).toEqual([getByText('Add two seats.').closest('.ring-1')])
+
+        rerender(<ThreadTurn {...props} turn={turn} isActive conversationOnly />)
+        rerender(<ThreadTurn {...props} turn={turn} isActive={false} />)
+        expect(scrolled).toHaveLength(1)
+        jest.restoreAllMocks()
+    })
 })

@@ -16,8 +16,9 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { AIObservabilityGenerations, AIObservabilityScene } from './AIObservabilityScene'
+import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { aiObservabilityTracesList } from './generated/api'
-import { makeSessionListPage } from './redesign/sessions/testFixtures'
+import { makeSessionListItem, makeSessionListPage, sessionCellsMocks } from './redesign/sessions/testFixtures'
 import { traceDrawerLogic } from './redesign/trace/traceDrawerLogic'
 import { makeTraceListPage } from './redesign/traces/testFixtures'
 
@@ -35,6 +36,7 @@ jest.mock('./generated/api', () => {
 })
 
 const AVAILABILITY_URL = '/api/projects/:team_id/ai_observability/sessions/availability/'
+const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
 const GENERATIONS_PATH = urls.aiObservabilityGenerations()
 const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
 const FRAME_TABS = '[data-attr="ai-observability-tabs"]'
@@ -154,6 +156,31 @@ describe('AIObservabilityScene', () => {
             expect(activeFrameTabs(container)).toEqual(['ai-observability-tab-activity'])
             expect(activeScopes(container)).toEqual([scope])
             expect(container.querySelector(`[data-attr="${body}"]`)).not.toBeNull()
+        })
+
+        it('renders the session page on a session path, inside the frame on the sessions scope', async () => {
+            useMocks({
+                get: { [SESSION_URL]: () => [200, makeSessionListItem({ id: 'a/b' })] },
+                post: sessionCellsMocks(),
+            })
+            const container = renderScene({
+                sceneKey: 'aiObservabilitySessions',
+                url: combineUrl(urls.aiObservabilitySession('a/b'), { trace: 'trace-1' }).url,
+            })
+
+            // The older sessions view reads the same path, and must neither select the session nor drop the trace.
+            expect(router.values.searchParams).toEqual({ trace: 'trace-1' })
+            expect(activeFrameTabs(container)).toEqual(['ai-observability-tab-activity'])
+            expect(activeScopes(container)).toEqual(['ai-observability-scope-sessions'])
+            expect(container.querySelector('[data-attr="ai-observability-sessions-list"]')).toBeNull()
+            expect(container.querySelector('[data-attr="ai-observability-session-page"]')).not.toBeNull()
+            await waitFor(() =>
+                expect(aiObservabilitySharedLogic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual([
+                    'AI observability',
+                    'Sessions',
+                    'Why was I charged twice this month?',
+                ])
+            )
         })
 
         it('renders a page with no tab inside the frame with none active', () => {

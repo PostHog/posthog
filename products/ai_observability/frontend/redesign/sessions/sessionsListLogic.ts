@@ -11,7 +11,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
-import { aiObservabilitySessionsList, aiObservabilitySessionsRetrieve } from '../../generated/api'
+import { aiObservabilitySessionsList } from '../../generated/api'
 import type { AiObservabilitySessionsListParams, SessionListApi, SessionListItemApi } from '../../generated/api.schemas'
 import type { ListTableState } from '../lists/components/ListTable'
 import {
@@ -29,13 +29,12 @@ import {
     shownPageOf,
 } from '../lists/cursorPaging'
 import { ListFilters, ListFiltersLogicProps, listFiltersLogic } from '../lists/listFiltersLogic'
-import { readOrFailure } from '../shared/readOrFailure'
 import { SESSION_PARAM, SESSION_TIMESTAMP_PARAM } from '../shell/shellNavigation'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { RouterUrl, currentUrlWith, rawSearchParam } from '../trace/rawSearchParam'
 import { TRACE_DRAWER_PARAMS } from '../trace/traceDrawerRows'
-import { encodeTraceIdSegment } from '../trace/traceIdSegment'
 import type { LoadFailure } from '../trace/types'
+import { readSession } from './sessionLookup'
 import { sessionsTracking } from './sessionsTracking'
 
 export const SESSIONS_PAGE_SIZE = 50
@@ -381,13 +380,9 @@ export const sessionsListLogic = kea<sessionsListLogicType>([
             }
         },
         lookUpSession: async ({ sessionId }) => {
-            const timestamp = rawSearchParam(router.values.location.search, SESSION_TIMESTAMP_PARAM)
-            const result = await readOrFailure(
-                aiObservabilitySessionsRetrieve(
-                    String(ApiConfig.getCurrentProjectId()),
-                    encodeTraceIdSegment(sessionId),
-                    timestamp ? { timestamp } : undefined
-                )
+            const result = await readSession(
+                sessionId,
+                rawSearchParam(router.values.location.search, SESSION_TIMESTAMP_PARAM)
             )
             if ('failure' in result) {
                 actions.sessionLookUpFailed(sessionId, result.failure)
