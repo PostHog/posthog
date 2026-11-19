@@ -94,7 +94,9 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     filing_reason = serializers.ChoiceField(
         choices=FilingReason.choices,
         help_text=(
-            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason."
+            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason. "
+            "Use billing_question only when the ticket is about billing or usage, not for a billing question asked in "
+            "passing in a ticket about something else."
         ),
     )
     agent_name = serializers.RegexField(

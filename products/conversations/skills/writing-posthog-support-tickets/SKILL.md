@@ -106,7 +106,7 @@ When `posthog:posthog-support-draft-create` is in your tool list, draft the tick
 
 - Each part of the ticket is one field, without its heading: `request`, `details`, `already_checked` and `error`.
 - Set `filing_reason` to the first that fits. Only `billing_question` changes what happens. The others tell support why the ticket exists.
-  - `billing_question` when it asks about billing or usage, even alongside other questions, so the person can send it on any plan.
+  - `billing_question` when the ticket is about billing or usage, such as a charge, an invoice, a credit, or usage against a limit. It lets the person send the ticket on any plan, so don't use it for a billing question asked in passing in a ticket about something else, such as whether a limit could explain events that stopped arriving.
   - `user_disagrees_with_agent` when you answered what they asked and they think your answer is wrong.
   - `user_asked_for_support` when you answered what they asked and they still want a human to confirm or check it.
   - `needs_posthog_staff` when you had no answer, because only staff can do what they ask, or see the records that answer it, such as what the flag service returned.

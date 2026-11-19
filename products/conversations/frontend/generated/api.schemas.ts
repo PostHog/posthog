@@ -1376,7 +1376,7 @@ export interface PostHogSupportDraftCreateApi {
      * @maxLength 1500
      */
     error?: string
-    /** Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.
+    /** Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason. Use billing_question only when the ticket is about billing or usage, not for a billing question asked in passing in a ticket about something else.
      *
      * * `user_asked_for_support` - The person asked to contact PostHog support
      * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
