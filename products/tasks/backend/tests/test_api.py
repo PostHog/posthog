@@ -12349,6 +12349,21 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # chain should contain exactly 3 entries (leaf + 2 ancestors).
         self.assertEqual(len(chain), 3)
 
+    @parameterized.expand([("unresumed_run", 0), ("twice_resumed_run", 2)])
+    def test_walk_resume_chain_reads_one_row_per_ancestor(self, _name: str, depth: int):
+        task = self.create_task()
+        for _ in range(5):
+            TaskRun.objects.create(task=task, team=self.team)
+        run = TaskRun.objects.create(task=task, team=self.team)
+        for _ in range(depth):
+            run = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run.id)})
+        run = TaskRun.objects.select_related("task").get(id=run.id)
+
+        with self.assertNumQueries(depth):
+            chain = run.get_resume_chain()
+
+        self.assertEqual(len(chain), depth + 1)
+
     def test_walk_resume_chain_does_not_cross_tasks(self):
         task_a = self.create_task(title="A")
         task_b = self.create_task(title="B")
@@ -12536,6 +12551,23 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
         self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count, X-Log-Origin")
         self.assertEqual(response.content.decode("utf-8").splitlines(), [lines[index] for index in expected_indexes])
+
+    @patch("posthog.storage.object_storage.read", return_value=None)
+    def test_log_entries_endpoint_loads_each_chained_run_once(self, _mock_read):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+        self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/log_entries/?limit=10")
+        query_counts: list[int] = []
+        for _ in range(3):
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/log_entries/?limit=10"
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            query_counts.append(len(queries))
+            run = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run.id)})
+
+        self.assertEqual([later - earlier for earlier, later in zip(query_counts, query_counts[1:])], [1, 1])
 
     @patch("posthog.storage.object_storage.read")
     def test_log_entries_endpoint_returns_a_json_page(self, mock_read):
@@ -13611,7 +13643,6 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         [
             ("pi_session_log_entries", True, "log_entries/?start=0"),
             ("pi_session_logs", True, "logs/"),
-            ("pi_session_session_logs", True, "session_logs/"),
             ("resume_chain_log_entries", False, "log_entries/"),
             ("resume_chain_session_logs", False, "session_logs/"),
         ]

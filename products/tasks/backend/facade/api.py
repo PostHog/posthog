@@ -5703,9 +5703,11 @@ def report_task_analysis_activity(
     return append_analysis_activity(run=run, activity=activity)
 
 
-def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+def read_task_run_logs(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, reader: Callable[[object], bool] | None = None
+) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
-    logs = get_task_run_logs(run_id, task_id, team_id)
+    logs = get_task_run_logs(run_id, task_id, team_id, reader=reader)
     if logs is None:
         return None
     return read_task_run_log_content(logs)
@@ -5780,11 +5782,24 @@ def thread_view_of_log_content(log_content: str) -> str:
     return "\n".join(lines)
 
 
-def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+def _check_chain_context(chain: list[TaskRun], reader: Callable[[object], bool] | None) -> None:
+    if reader is None:
+        return
+    for ancestor in chain:
+        state = ancestor.state or {}
+        if "analytics_query_context" in state and not reader(state["analytics_query_context"]):
+            raise contracts.TaskRunContextUnreadable()
+
+
+def read_task_run_conversation_logs(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, reader: Callable[[object], bool] | None = None
+) -> str | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return _conversation_log_content(run, run.get_history_chain())
+    chain = run.get_history_chain()
+    _check_chain_context(chain, reader)
+    return _conversation_log_content(run, chain)
 
 
 def _conversation_log_content(run: TaskRun, chain: list[TaskRun]) -> str:
@@ -5870,6 +5885,7 @@ def read_task_run_conversation_log_slice(
     tail_bytes: int,
     before: int | None = None,
     start: int | None = None,
+    reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskRunLogSliceDTO | None:
     """Part of the conversation log, read from the run logs that overlap it.
 
@@ -5881,6 +5897,7 @@ def read_task_run_conversation_log_slice(
     if run is None:
         return None
     chain = run.get_history_chain()
+    _check_chain_context(chain, reader)
     if run.task.runtime == Task.Runtime.PI:
         return contracts.TaskRunLogSliceDTO(
             content=_conversation_log_content(run, chain), offset=0, count=0, sliced=False
@@ -5908,11 +5925,13 @@ def read_task_run_conversation_log_page(
     start: int,
     limit: int | None,
     log_filter: contracts.TaskRunLogFilter,
+    reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskRunLogPageDTO | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     chain = run.get_history_chain()
+    _check_chain_context(chain, reader)
     origin = str(chain[0].id)
     if run.task.runtime == Task.Runtime.PI:
         content = _marked_log_content(chain)
@@ -5924,12 +5943,16 @@ def read_task_run_conversation_log_page(
     return page_log_entries(log_entries(content), start=start, limit=limit, log_filter=log_filter, origin=origin)
 
 
-def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:
+def get_task_run_logs(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, reader: Callable[[object], bool] | None = None
+) -> list[TaskRunLog] | None:
     """Logs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return [ancestor.log for ancestor in run.get_resume_chain()]
+    chain = run.get_resume_chain()
+    _check_chain_context(chain, reader)
+    return [ancestor.log for ancestor in chain]
 
 
 def get_task_run_log_size(logs: list[TaskRunLog], *, strict: bool = False) -> int:

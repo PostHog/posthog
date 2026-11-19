@@ -1,8 +1,6 @@
 from collections.abc import Callable
 from uuid import UUID
 
-from django.db.models import QuerySet
-
 from products.signals.backend.facade.metric_access import metric_context_reader as analytics_context_reader
 from products.tasks.backend.access import (
     DesktopAccessDecision,
@@ -45,12 +43,7 @@ def is_sandbox_run_request(
 
 
 def may_read_task_run_context(
-    *,
-    team_id: int,
-    task_id: str,
-    run_id: str | None,
-    reader: Callable[[object], bool],
-    include_chain: bool = False,
+    *, team_id: int, task_id: str, run_id: str | None, reader: Callable[[object], bool]
 ) -> bool:
     runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id)
     if run_id is not None:
@@ -59,17 +52,11 @@ def may_read_task_run_context(
         except (ValueError, TypeError):
             return False
         runs = runs.filter(id=parsed_run_id)
-        if include_chain:
-            runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id, id__in=_log_chain_run_ids(runs))
     if run_id is None:
         runs = runs.filter(state__has_key="analytics_query_context")
     return all(
         reader(run.state["analytics_query_context"]) for run in runs if "analytics_query_context" in (run.state or {})
     )
-
-
-def _log_chain_run_ids(runs: QuerySet[TaskRun]) -> set[UUID]:
-    return {chained.id for run in runs.select_related("task") for chained in run.get_history_chain()}
 
 
 __all__ = [
