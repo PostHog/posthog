@@ -79,6 +79,19 @@ class TestSendGridHandlebars(SimpleTestCase):
         assert isinstance(nodes[0], _Block) and nodes[0].body == (_Text(text="BODY"),)
         assert nodes[1] == _Text(text="TAIL")
 
+    @parameterized.expand(
+        [
+            ("first_branch_inline", "{{#if a}}A{{else if b}}B{{else}}C\n{{/if}}\nTAIL", "\nTAIL"),
+            ("every_tag_on_its_own_line", "{{#if a}}\nA\n{{else if b}}\nB\n{{else}}\nC\n{{/if}}\nTAIL", "TAIL"),
+        ]
+    )
+    def test_an_else_if_chain_closes_alone_only_when_its_first_branch_ends_a_line(
+        self, _name: str, source: str, after: str
+    ) -> None:
+        nodes = _parse(source)
+
+        assert nodes[-1] == _Text(text=after)
+
     def test_a_string_turns_only_an_escaped_quote_into_a_quote(self) -> None:
         quoted = _parse_expression('eq x "say \\"hi\\""').params[1]
 
@@ -92,6 +105,7 @@ class TestSendGridHandlebars(SimpleTestCase):
             ("braces_in_a_name", "if a{%b"),
             ("closing_braces_in_a_name", "a}}b"),
             ("quote_in_a_block_name", 'each xs as |x"|'),
+            ("string_as_a_hash_key", 'each xs "x}}y"=3'),
         ]
     )
     def test_expressions_outside_the_grammar_are_refused(self, _name: str, body: str) -> None:

@@ -183,6 +183,17 @@ def _strip_whitespace(tags: list[_Tag]) -> list[_Tag]:
         if tag.kind in ("open", "close", "else", "comment")
         and _alone_on_line(i, texts.get(i - 1), texts.get(i + 1), len(tags))
     }
+    # The closing tag of an `{{else if}}` chain stands alone only when the first branch also ends its line.
+    chains: list[int | None] = []
+    for i, tag in enumerate(tags):
+        if tag.kind == "open":
+            chains.append(None)
+        elif tag.kind == "else" and tag.body and chains and chains[-1] is None:
+            chains[-1] = i
+        elif tag.kind == "close" and chains:
+            first_else = chains.pop()
+            if first_else is not None and not _starts_line(first_else, texts.get(first_else - 1)):
+                alone.discard(i)
     for i, tag in enumerate(tags):
         if tag.kind in ("text", "liquid"):
             continue
@@ -201,11 +212,14 @@ def _strip_whitespace(tags: list[_Tag]) -> list[_Tag]:
     return [_Tag(kind="text", source=texts[i]) if tag.kind == "text" else tag for i, tag in enumerate(tags)]
 
 
-def _alone_on_line(index: int, before: str | None, after: str | None, count: int) -> bool:
+def _starts_line(index: int, before: str | None) -> bool:
     if before is None:
-        starts_line = index == 0
-    else:
-        starts_line = not before[before.rfind("\n") + 1 :].strip(" \t") and ("\n" in before or index == 1)
+        return index == 0
+    return not before[before.rfind("\n") + 1 :].strip(" \t") and ("\n" in before or index == 1)
+
+
+def _alone_on_line(index: int, before: str | None, after: str | None, count: int) -> bool:
+    starts_line = _starts_line(index, before)
     if after is None:
         ends_line = index == count - 1
     else:
@@ -367,6 +381,9 @@ def _parse_expression(body: str) -> _Expression:
     position = 1
     while position < len(tokens):
         if position + 1 < len(tokens) and tokens[position + 1].kind == "equals":
+            # Handlebars only takes a name before `=`.
+            if tokens[position].kind != "path":
+                raise _Unconvertible(body)
             key = tokens[position].value
             value, position = _parse_param(tokens, position + 2)
             hash_args[key] = value
