@@ -166,6 +166,11 @@ def save_contact_lists(
     """
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, 0, create_people=create_people, send_events=True)
+    if result.status == "failed":
+        # The lists' contacts never became people, so the step fails rather than leave every list empty.
+        raise ImportStepError(
+            f"{everyone.cohort_name} couldn't be imported, so no list was filled. {' '.join(result.notes)}"
+        )
     # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
     carry_opt_outs(
         context.team_id,
@@ -187,16 +192,6 @@ def save_contact_lists(
     items = [_item(everyone, result, tuple(notes))]
     plans = [_plan(result, send_events=True)]
     for index, contact_list in enumerate(lists, start=1):
-        if result.status == "failed":
-            # The list's contacts never became people, so filling it would leave them out without saying so.
-            items.append(
-                ImportItem(
-                    label=contact_list.cohort_name,
-                    status="skipped",
-                    notes=(f"Not filled, because {everyone.cohort_name} couldn't be imported.",),
-                )
-            )
-            continue
         # A list waits on people the import above creates, so it can't have people that import left out.
         list_result = _import(context, contact_list, index, create_people=create_people, send_events=False)
         plans.append(_plan(list_result, send_events=False))

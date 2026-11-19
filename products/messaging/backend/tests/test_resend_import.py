@@ -36,6 +36,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportCredentialsInvalid,
     ImportProviderUnavailable,
     ImportStepBlocked,
+    ImportStepError,
 )
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
@@ -774,16 +775,21 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
         )
 
-        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people", "automations"]
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
         with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
-                runs.run_step(self.team.id, run.id, step, attempt=1)
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except ImportStepError:
+                    assert step == "contacts"
         run.refresh_from_db()
 
         assert self.people.imports == []
-        everyone, *segments = run.progress["contacts"]["items"]
-        assert everyone["status"] == "failed"
-        assert segments and all(item["status"] == "skipped" for item in segments)
+        assert run.progress["contacts"]["status"] != "completed"
+        assert "Resend contacts couldn't be imported" in run.progress["contacts"]["last_error"]
+        notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
+        assert notes and not any("added the segment's contacts" in note for note in notes)
 
     @parameterized.expand(
         [
