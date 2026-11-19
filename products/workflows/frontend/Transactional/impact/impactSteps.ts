@@ -26,7 +26,7 @@ export interface ImpactLift {
 }
 
 const LINK_TAGGING_OFF_DETAIL =
-    "PostHog follows a click into your product through a tag on the email's links. Link tagging is off for this project, so clicks aren't connected to the sessions they start. Conversions still count, because they go through the person on each send."
+    "PostHog follows a click into your product through a tag on the email's links. Connecting email clicks to sessions is off in this project's settings, so clicks aren't connected to the sessions they start. Conversions still count, because they go through the person on each send."
 
 const SESSIONS_NOT_MEASURED_DETAIL =
     "Link tagging connects clicks to the sessions they start, but this funnel doesn't count those sessions yet. Conversions still count, because they go through the person on each send."

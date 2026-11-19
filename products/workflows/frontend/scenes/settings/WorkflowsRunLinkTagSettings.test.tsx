@@ -5,6 +5,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -55,5 +56,19 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         await waitFor(() => expect(patchBodies).toHaveLength(1))
         expect(patchBodies[0]).toEqual({ workflows_config: { email_workflow_run_link_tag_enabled: saved } })
         await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
+    })
+
+    it('keeps the switch off for a member without project admin, whose save the project API would refuse', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+        render(<WorkflowsRunLinkTagSettings />)
+        const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
+
+        await userEvent.click(toggle)
+
+        expect(toggle).toBeDisabled()
+        expect(patchBodies).toEqual([])
     })
 })

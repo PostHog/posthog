@@ -2,16 +2,15 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
-
-import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
+import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 
 import { emailImpactLogic } from './emailImpactLogic'
 import { EmailImpactTab } from './EmailImpactTab'
@@ -87,13 +86,29 @@ describe('ImpactFunnelCard', () => {
 
     it('shows the setting saved on the settings page once the user is back on the Impact tab', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
+        const saveTeam = async ({ request }: { request: Request }): Promise<[number, TeamType]> => {
+            const { workflows_config } = (await request.json()) as Pick<TeamType, 'workflows_config'>
+            return [200, { ...teamWithLinkTagging(false), workflows_config }]
+        }
+        useMocks({ patch: { '/api/projects/:id/': saveTeam, '/api/environments/:id/': saveTeam } })
         answer = [200, IMPACT]
         renderCard()
         await screen.findByText('Needs link tagging')
+        cleanup()
 
-        teamLogic.actions.updateCurrentTeamSuccess(teamWithLinkTagging(true))
+        render(<WorkflowsRunLinkTagSettings />)
+        fireEvent.click(screen.getByLabelText('Connect tracked email clicks to sessions'))
+        await waitFor(() =>
+            expect(screen.getByLabelText('Connect tracked email clicks to sessions')).toHaveAttribute(
+                'aria-checked',
+                'true'
+            )
+        )
+        cleanup()
 
+        renderCard()
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+        expect(screen.queryByText('Needs link tagging')).not.toBeInTheDocument()
     })
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {

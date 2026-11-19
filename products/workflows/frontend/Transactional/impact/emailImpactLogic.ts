@@ -22,7 +22,6 @@ import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
-import { runLinkTaggingEnabled } from 'products/workflows/frontend/scenes/settings/runLinkTagging'
 
 import {
     ImpactFunnelState,
@@ -238,7 +237,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         linkTagging: [
             (s) => [s.currentTeam, s.alwaysSensitive],
             (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
-                alwaysSensitive ? 'sensitive-email' : runLinkTaggingEnabled(currentTeam) ? 'on' : 'off',
+                alwaysSensitive
+                    ? 'sensitive-email'
+                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                      ? 'on'
+                      : 'off',
         ],
         steps: [
             (s) => [s.impact, s.event, s.linkTagging],
