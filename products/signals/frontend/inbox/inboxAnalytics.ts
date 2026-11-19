@@ -185,6 +185,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
+ * `select_pull_request` is a pull request line chosen in the Status section of a report with several.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -214,6 +215,7 @@ export type InboxReportActionType =
     | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
+    | 'select_pull_request'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
