@@ -1591,6 +1591,37 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
+    it('ends a ramp that held every step but left a job unfinished with no sustained scale', async () => {
+        const ramp = [
+            { scale: 1, for: '1s' },
+            { scale: 2, for: '1s' },
+        ]
+
+        const result = await run('all, leaving one job running', [], undefined, {
+            ramp,
+            stopOnBreak: true,
+            driveFor: '2s',
+        })
+
+        expect({ status: result.status, statusReason: result.statusReason, ramp: result.ramp }).toEqual({
+            status: 'failed',
+            statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record',
+            ramp: {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: null,
+                    offeredPerSecond: null,
+                    by: 'convergence',
+                    kind: 'invariant',
+                    at: null,
+                    part: null,
+                },
+                reason: 'the run did not converge, and no step can be blamed for it',
+            },
+        })
+    }, 30_000)
+
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
         const refusingIntake = http.createServer((_request, response) => {
             response.writeHead(503).end()

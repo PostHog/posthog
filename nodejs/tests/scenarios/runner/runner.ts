@@ -579,13 +579,16 @@ export function createRunner(
                     halt: watch?.halt,
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
-                const stop = watch?.stopped()
                 const steps = drivenStepsOf(units.steps, driveStartedAt, card.drive.stopOnBreak === true)
                 const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
-                const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                const [convergence] = await Promise.all([
+                    judge.converge(durationMs(card.convergeWithin), signal),
+                    watch?.pending(),
+                ])
+                const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
                 probed = await probes.stop()
                 sampled = await sampler.stop()

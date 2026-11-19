@@ -54,6 +54,7 @@ export type RampWatch = {
     halt: AbortSignal
     stopped(): RampStop | undefined
     settled(): ReadonlyMap<number, readonly BarResult[]>
+    pending(): Promise<void>
 }
 
 const REFUSED_AT_INTAKE = 'refused_at_intake'
@@ -175,6 +176,7 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
     const settled = new Map<number, readonly BarResult[]>()
     const gate = live.gates[REFUSED_AT_INTAKE] ?? 0
     let stop: RampStop | undefined
+    const judging: Promise<void>[] = []
 
     const stopWith = (stopped: RampStop): void => {
         if (stop === undefined || stopped.index < stop.index) {
@@ -187,6 +189,9 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
         halt: halt.signal,
         stopped: () => stop,
         settled: () => settled,
+        pending: async () => {
+            await Promise.all(judging)
+        },
         record: (entry) => {
             if (stop !== undefined || !live.judgesRefusals || refusalsOf([entry]).length === 0) {
                 return
@@ -205,31 +210,37 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
                 })
             }
         },
-        gate: async (window, offered) => {
-            try {
-                await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), signal)
-                if (signal.aborted) {
-                    return
-                }
-                const { results, stop: stopped } = await judgeLive(live, window, offered())
-                if (signal.aborted) {
-                    return
-                }
-                if (results) {
-                    settled.set(window.index, results)
-                }
-                if (stopped) {
-                    stopWith({ index: window.index, ...stopped })
-                }
-            } catch (error) {
-                stopWith({
-                    index: window.index,
-                    end: 'harness_limit',
-                    reason: `the live judge failed at the ${window.scale}x step: ${messageOf(error)}`,
-                    broke: harness({ ...window, offeredUnits: offered() }, 'run_host'),
-                })
-            }
+        gate: (window, offered) => {
+            const judged = judgeGate(window, offered)
+            judging.push(judged)
+            return judged
         },
+    }
+
+    async function judgeGate(window: StepWindow, offered: () => number): Promise<void> {
+        try {
+            await pause(window.endedAt + SCRAPE_GAP_MS - Date.now(), signal)
+            if (signal.aborted) {
+                return
+            }
+            const { results, stop: stopped } = await judgeLive(live, window, offered())
+            if (signal.aborted) {
+                return
+            }
+            if (results) {
+                settled.set(window.index, results)
+            }
+            if (stopped) {
+                stopWith({ index: window.index, ...stopped })
+            }
+        } catch (error) {
+            stopWith({
+                index: window.index,
+                end: 'harness_limit',
+                reason: `the live judge failed at the ${window.scale}x step: ${messageOf(error)}`,
+                broke: harness({ ...window, offeredUnits: offered() }, 'run_host'),
+            })
+        }
     }
 }
 
@@ -252,7 +263,7 @@ const RANK = { generator: 0, bar: 1, gate: 2, invariant: 2, run_host: 3 } as con
 
 const rankOf = (broke: Broke): number => (broke.kind === 'harness' ? RANK[broke.by] : RANK[broke.kind])
 
-function candidatesOf({ steps, minOffered, stop, bars, invariants, gates, journal }: RampEvidence): {
+function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gates, journal }: RampEvidence): {
     placed: Candidate[]
     unplaced: Broke[]
 } {
@@ -263,9 +274,13 @@ function candidatesOf({ steps, minOffered, stop, bars, invariants, gates, journa
             placed.push({ index, rank: rankOf(broke), broke, reason })
         }
     }
+    const cutShort = (step: DrivenStep): boolean =>
+        stop !== undefined &&
+        step.index === steps.length - 1 &&
+        step.endedAt - step.startedAt < planned[step.index].toMs - planned[step.index].fromMs
     for (const step of steps) {
         const shortfall = shortfallOf(step, minOffered)
-        if (shortfall && !(stop && step.index === steps.length - 1)) {
+        if (shortfall && !cutShort(step)) {
             add(step.index, harness(step, 'generator'), shortfall)
         }
     }
