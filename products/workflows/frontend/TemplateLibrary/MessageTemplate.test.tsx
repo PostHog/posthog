@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -32,6 +34,18 @@ const PASSWORD_RESET_WITH_DRAFT = {
     draft_content: { email: { subject: 'Reset it', html: '<p>Reset</p>', text: 'Reset', design: {} } },
 }
 
+const IMPACT = {
+    sent: 10,
+    delivered: 9,
+    opened: 5,
+    clicked: 2,
+    not_clicked: 7,
+    untracked: 0,
+    window_days: 7,
+    after_click: null,
+    without_click: null,
+}
+
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
@@ -40,7 +54,11 @@ describe('MessageTemplate', () => {
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
-    const renderAs = async (workflowAccess: AccessControlLevel, templateName: string): Promise<void> => {
+    const renderAs = async (
+        workflowAccess: AccessControlLevel,
+        templateName: string,
+        { impact = false }: { impact?: boolean } = {}
+    ): Promise<void> => {
         window.POSTHOG_APP_CONTEXT = {
             ...priorAppContext,
             resource_access_control: {
@@ -48,14 +66,21 @@ describe('MessageTemplate', () => {
                 [AccessControlResourceType.Workflow]: workflowAccess,
             },
         } as AppContext
-        initKeaTests()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+        })
         featureFlagLogic.mount()
+        const flags = {
+            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT]: impact,
+        }
         featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API, FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS],
-            {
-                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
-                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
-            }
+            Object.entries(flags)
+                .filter(([, on]) => on)
+                .map(([flag]) => flag),
+            flags
         )
 
         render(
@@ -130,6 +155,31 @@ describe('MessageTemplate', () => {
             fireEvent.click(screen.getByText('API'))
             await waitFor(() => expect(screen.getByLabelText('Protect sensitive data')).toBeInTheDocument())
             expect(screen.getByLabelText('Protect sensitive data').hasAttribute('disabled')).toBe(writeDisabled)
+        }
+    )
+
+    it.each([
+        ['a sensitive template, whose links are never tagged', true, 'Not measured', undefined],
+        [
+            'any other template',
+            false,
+            'Needs link tagging',
+            expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/),
+        ],
+    ])(
+        "links the Impact tab's session step to the link tagging switch only for %s",
+        async (_, sensitive, label, href) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': { ...PASSWORD_RESET_WITH_DRAFT, sensitive },
+                    '/api/projects/:team_id/transactional_email_log/impact/': IMPACT,
+                },
+            })
+            await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name, { impact: true })
+
+            fireEvent.click(screen.getByText('Impact'))
+
+            expect((await screen.findByText(label)).closest('a')?.getAttribute('href')).toEqual(href)
         }
     )
 

@@ -190,7 +190,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
-                impact && !!transactionalHogFlowId && impactTab(transactionalHogFlowId, !!originalTemplate.sensitive),
+                impact &&
+                    !!transactionalHogFlowId &&
+                    impactTab(transactionalHogFlowId, { alwaysSensitive: !!originalTemplate.sensitive }),
                 ...(transactionalHogFlowId
                     ? [
                           {

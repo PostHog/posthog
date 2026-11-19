@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -41,6 +43,17 @@ describe('CodeEmailTabs', () => {
         get: {
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
             '/api/environments/:team_id/hog_flows/:id/': workflow,
+            '/api/projects/:team_id/transactional_email_log/impact/': {
+                sent: 10,
+                delivered: 9,
+                opened: 5,
+                clicked: 2,
+                not_clicked: 7,
+                untracked: 0,
+                window_days: 7,
+                after_click: null,
+                without_click: null,
+            },
             '/api/projects/:team_id/transactional_email_log/': ({ request }) => {
                 sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
                 return [200, { results: sends, has_more: false }]
@@ -80,7 +93,8 @@ describe('CodeEmailTabs', () => {
     const renderTabs = ({
         sendLinks = true,
         quillFilters = false,
-    }: { sendLinks?: boolean; quillFilters?: boolean } = {}): void => {
+        impact = false,
+    }: { sendLinks?: boolean; quillFilters?: boolean; impact?: boolean } = {}): void => {
         sendRequests = []
         sends = [
             {
@@ -90,11 +104,15 @@ describe('CodeEmailTabs', () => {
                 created_at: '2026-03-14T10:00:00Z',
             },
         ]
-        initKeaTests()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+        })
         featureFlagLogic.mount()
         const flags = {
             [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillFilters,
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT]: impact,
         }
         featureFlagLogic.actions.setFeatureFlags(
             Object.entries(flags)
@@ -262,6 +280,17 @@ describe('CodeEmailTabs', () => {
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
         expect(screen.queryByText('Run logs')).not.toBeInTheDocument()
         expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
+    })
+
+    it('links the Impact session step of a sensitive code email to the link tagging switch, since a send can turn sensitivity off', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ impact: true })
+
+        fireEvent.click(await screen.findByText('Impact'))
+
+        expect((await screen.findByText('Needs link tagging')).closest('a')?.getAttribute('href')).toMatch(
+            /\/settings\/environment-workflows#workflows-email-run-link-tag$/
+        )
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

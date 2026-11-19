@@ -80,7 +80,7 @@ const Template: StoryFn<{
         setReady(true)
     }, [loadCurrentTeamSuccess, setEvent, event, replay, linkTagging])
 
-    return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} sensitive={sensitive} /> : <></>
+    return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={sensitive} /> : <></>
 }
 
 export const WithConversionEvent = Template.bind({})

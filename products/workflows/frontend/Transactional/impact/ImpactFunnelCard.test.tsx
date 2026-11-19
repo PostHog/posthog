@@ -55,7 +55,7 @@ describe('ImpactFunnelCard', () => {
     const renderCard = (sensitive = false): void => {
         render(
             <Provider>
-                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1', sensitive }}>
+                <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1', alwaysSensitive: sensitive }}>
                     <ImpactFunnelCard />
                 </BindLogic>
                 <ToastContainer />

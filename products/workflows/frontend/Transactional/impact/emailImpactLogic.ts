@@ -25,7 +25,7 @@ import {
 
 export interface EmailImpactLogicProps {
     workflowId: string
-    sensitive?: boolean
+    alwaysSensitive?: boolean
 }
 
 export const IMPACT_DATE_RANGES = [
@@ -215,9 +215,9 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         linkTagging: [
-            (s) => [s.currentTeam, (_, props: EmailImpactLogicProps) => props.sensitive],
-            (currentTeam: TeamPublicType | TeamType | null, sensitive: boolean | undefined): LinkTagging =>
-                sensitive ? 'sensitive-email' : runLinkTaggingEnabled(currentTeam) ? 'on' : 'off',
+            (s) => [s.currentTeam, (_, props: EmailImpactLogicProps) => props.alwaysSensitive],
+            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean | undefined): LinkTagging =>
+                alwaysSensitive ? 'sensitive-email' : runLinkTaggingEnabled(currentTeam) ? 'on' : 'off',
         ],
         steps: [
             (s) => [s.impact, s.event, s.linkTagging],

@@ -4,7 +4,11 @@ import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 
 import { EmailImpactTab } from './EmailImpactTab'
 
-export function impactTab(workflowId: string, sensitive: boolean): LemonTab<'impact'> {
+// Only a template's own flag binds every send. A code email's flag is a default that each send can override.
+export function impactTab(
+    workflowId: string,
+    { alwaysSensitive = false }: { alwaysSensitive?: boolean } = {}
+): LemonTab<'impact'> {
     return {
         key: 'impact',
         label: (
@@ -15,6 +19,6 @@ export function impactTab(workflowId: string, sensitive: boolean): LemonTab<'imp
                 </LemonTag>
             </span>
         ),
-        content: <EmailImpactTab workflowId={workflowId} sensitive={sensitive} />,
+        content: <EmailImpactTab workflowId={workflowId} alwaysSensitive={alwaysSensitive} />,
     }
 }

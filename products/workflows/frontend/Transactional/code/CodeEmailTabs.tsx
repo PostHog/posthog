@@ -45,7 +45,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                 activeKey={!sendLinks && tab === 'sends' ? 'runs' : !impact && tab === 'impact' ? 'metrics' : tab}
                 onChange={setTab}
                 tabs={[
-                    impact && impactTab(codeEmail.hog_flow_id, codeEmail.sensitive),
+                    impact && impactTab(codeEmail.hog_flow_id),
                     {
                         key: 'metrics',
                         label: 'Metrics',
