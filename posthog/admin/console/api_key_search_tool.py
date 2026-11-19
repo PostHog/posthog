@@ -187,7 +187,7 @@ class ApiKeySearchTool(ConsoleTool):
     key = "api-key-search"
     title = "API key search"
     owner = DEV_EXPERIENCE
-    group = "Data"
+    group = "Access"
     description = "Finds who owns an API key or OAuth token, from the full key."
 
     def page(self, request: HttpRequest) -> Page:
