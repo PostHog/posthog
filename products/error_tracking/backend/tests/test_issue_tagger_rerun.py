@@ -231,6 +231,26 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
 
         assert stdout.getvalue() == f"Issue tags are off for team {self.team.id}, so nothing ran.\n"
 
+    @parameterized.expand([("dry_run_by_default", [], False), ("live_run", ["--live-run"], True)])
+    def test_the_command_writes_only_with_live_run(self, _name: str, flags: list[str], writes: bool) -> None:
+        issue = self._issue(days_ago=1)
+        self._exception(issue, {"plan": "paid"}, at=issue.created_at - timedelta(seconds=5))
+        flush_persons_and_events()
+        stdout = StringIO()
+
+        call_command(
+            "rerun_error_tracking_issue_taggers",
+            "--team-id",
+            str(self.team.id),
+            "--tagger",
+            "rule",
+            *flags,
+            stdout=stdout,
+        )
+
+        assert stdout.getvalue().startswith("Re-ran 1 of 1" if writes else "Dry run: 1 issues")
+        assert [key for _, key, *_ in self._labels()] == (["paid_plan"] if writes else [])
+
     def test_the_command_rejects_a_tag_that_no_selected_tagger_answers(self) -> None:
         with self.assertRaisesMessage(CommandError, "cause_in_trace"):
             call_command(
