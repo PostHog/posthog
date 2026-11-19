@@ -417,6 +417,21 @@ describe('workflowsLogic', () => {
             expect(writes).toEqual([])
         })
 
+        it.each([['archived'], ['active']] as const)(
+            'enables nothing when another tab set the draft row to %s',
+            async (storedStatus) => {
+                useListMocks(200, { deleted: 1 }, withEmail(storedStatus, 'function_email'))
+                showToasts()
+                await toggleFromList(withEmail('draft', 'function_email'))
+
+                expect(
+                    await toastShown('This workflow was edited somewhere else. Review it, then enable it again.')
+                ).toBe('warning-toast')
+                expect(writes).toEqual([])
+                expect(listQueries).toHaveLength(1)
+            }
+        )
+
         it('opens one dialog when Enable is chosen again while the check runs', async () => {
             const row = withEmail('draft', 'email_sandbox')
             useListMocks(200, { deleted: 1 }, row)

@@ -411,6 +411,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                                 )
                                 return values.workflows
                             }
+                            if (live.status !== workflow.status) {
+                                // Another tab enabled or archived it since the list loaded; enabling the stale row
+                                // would skip the restore an archived workflow needs.
+                                lemonToast.warning(
+                                    'This workflow was edited somewhere else. Review it, then enable it again.'
+                                )
+                                actions.loadWorkflows()
+                                return values.workflows
+                            }
                             if (isLiveOnSandboxSender({ ...live, status })) {
                                 confirmEnableOnSandboxSender(workflow.id, 'list', () =>
                                     actions.toggleWorkflowStatus(workflow, true, live.updated_at)

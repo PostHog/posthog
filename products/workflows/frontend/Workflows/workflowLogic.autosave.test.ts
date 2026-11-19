@@ -1503,9 +1503,10 @@ describe('workflowLogic auto-save', () => {
                     })
                 )
                 showToasts()
+                jest.mocked(LemonDialog.open).mockRestore()
 
                 await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
-                clickConfirm('Publish staged changes?')
+                await userEvent.click(await screen.findByText('Publish'))
                 logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
                 release()
                 await expectLogic(logic).toFinishAllListeners()
