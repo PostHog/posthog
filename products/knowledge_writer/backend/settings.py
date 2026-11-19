@@ -34,13 +34,20 @@ def docs_source() -> DocsSource | None:
 
 
 def docs_source_for(docs_repository: str) -> DocsSource:
-    sitemap_url = get_from_env("KNOWLEDGE_WRITER_DOCS_SITEMAP_URL", DEFAULT_DOCS_SITEMAP_URL)
-    sitemap_origin = "/".join(sitemap_url.split("/", 3)[:3])
     return DocsSource(
         docs_repository=docs_repository,
-        sitemap_url=sitemap_url,
-        docs_url_prefix=get_from_env("KNOWLEDGE_WRITER_DOCS_URL_PREFIX", f"{sitemap_origin}/docs/"),
+        sitemap_url=docs_sitemap_url(),
+        docs_url_prefix=docs_url_prefix(),
     )
+
+
+def docs_sitemap_url() -> str:
+    return get_from_env("KNOWLEDGE_WRITER_DOCS_SITEMAP_URL", DEFAULT_DOCS_SITEMAP_URL)
+
+
+def docs_url_prefix() -> str:
+    sitemap_origin = "/".join(docs_sitemap_url().split("/", 3)[:3])
+    return get_from_env("KNOWLEDGE_WRITER_DOCS_URL_PREFIX", f"{sitemap_origin}/docs/")
 
 
 def companion_files() -> tuple[tuple[str, str], ...]:
