@@ -139,11 +139,11 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     },
     'posthog-rs-ffi': {
         releases: 'https://github.com/PostHog/posthog-rs/releases?q=posthog-rs-ffi-v',
-        docs: 'https://github.com/PostHog/posthog-rs/tree/main/crates/posthog-rs-ffi#readme',
+        docs: 'https://posthog.com/docs/libraries/c-cpp',
     },
     'posthog-electron': {
         releases: 'https://github.com/PostHog/posthog-js/releases?q=%40posthog%2Felectron',
-        docs: 'https://github.com/PostHog/posthog-js/tree/main/packages/electron#readme',
+        docs: 'https://posthog.com/docs/libraries/electron',
     },
     'posthog-godot': {
         releases: 'https://github.com/PostHog/posthog-godot/releases',
