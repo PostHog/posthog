@@ -43,7 +43,7 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
-- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Homebrew, npm, pnpm and bun get a release after the manifest names it, so for those installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Package managers can take a while to pick up a release, so for Homebrew, npm, pnpm and bun installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
 ## Commands
 
@@ -469,7 +469,7 @@ Merging the release pull request runs the workflow again, which:
 5. Compiles every target, with the version and the release commit's date as the build date.
 6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
 7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
-8. Creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages. One release at a time does this step.
+8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binary this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 
