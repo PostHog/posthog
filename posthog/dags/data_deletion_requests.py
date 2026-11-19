@@ -624,11 +624,13 @@ def _refuse_property_removal_unsweepable(
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
-        if not target.property_presence_checkable:
-            return portable_event_removal_where(deletion_request)
-        return _property_removal_where(
-            deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
-        )
+        if target.property_presence_checkable:
+            return _property_removal_where(
+                deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
+            )
+        predicate, params = portable_event_removal_where(deletion_request)
+        ingested_before_marker = f"{target.inserted_at_column} < toDateTime64(%(inserted_at_max)s, 6, 'UTC')"
+        return f"{predicate} AND {ingested_before_marker}", {**params, "inserted_at_max": marker_str}
 
     _refuse_unsweepable(
         cluster,

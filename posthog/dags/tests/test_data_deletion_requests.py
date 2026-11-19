@@ -4076,12 +4076,26 @@ def test_native_property_removal_gate_checks_retained_copies(
         _refuse_property_removal_unsweepable(cluster, [unsweepable], request, marker, log=logging.getLogger(__name__))
 
 
-@pytest.mark.parametrize("properties,person_properties", [(["$ai_input"], []), ([], ["email"])])
+@pytest.mark.parametrize(
+    "properties,person_properties,marker_age,refuses",
+    [
+        (["$ai_input"], [], timedelta(0), True),
+        ([], ["email"], timedelta(0), True),
+        (["$ai_input"], [], timedelta(days=2), False),
+    ],
+    ids=["event_property", "person_property", "row_ingested_after_the_marker"],
+)
+@pytest.mark.django_db
 def test_property_removal_refuses_while_ai_events_holds_rows_in_its_window(
-    properties: list[str], person_properties: list[str]
+    cluster: ClickhouseCluster,
+    properties: list[str],
+    person_properties: list[str],
+    marker_age: timedelta,
+    refuses: bool,
 ) -> None:
     # ai_events has no person_properties or inserted_at, and keeps $ai_input in its own column, so the
     # presence predicate cannot run there.
+    now = datetime.now(UTC)
     bulk_create_ai_events(
         [
             {
@@ -4089,25 +4103,17 @@ def test_property_removal_refuses_while_ai_events_holds_rows_in_its_window(
                 "distinct_id": "d",
                 "team_id": TEAM_ID,
                 "properties": {"$ai_input": "prompt"},
-                "timestamp": datetime.now() - timedelta(days=1),
+                "timestamp": now - timedelta(days=1),
             }
         ]
     )
+    marker = (now - marker_age).strftime("%Y-%m-%d %H:%M:%S.%f")
     request = _property_removal_ctx(
         events=["$ai_generation"], properties=properties, person_properties=person_properties
     )
 
-    def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
-        result: Future[list[tuple[object, ...]]] = Future()
-        result.set_result(sync_execute(query.query, query.parameters))
-        return result
-
-    cluster = Mock(spec=ClickhouseCluster)
-    cluster.any_host_by_role.side_effect = execute_query
-    with pytest.raises(dagster.Failure, match="cannot be deleted"):
-        _refuse_property_removal_unsweepable(
-            cluster, [AI_EVENTS], request, "2026-01-01 00:00:00.000000", log=logging.getLogger(__name__)
-        )
+    with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
+        _refuse_property_removal_unsweepable(cluster, [AI_EVENTS], request, marker, log=logging.getLogger(__name__))
 
 
 @pytest.mark.parametrize(

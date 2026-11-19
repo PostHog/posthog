@@ -252,19 +252,16 @@ FLAG_EVALUATIONS = DeletionTarget(
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
-# AI observability events with their raw prompts and completions, which the events copy does not
-# keep. Ingestion writes every row here and to events with the same uuid, so the event and queued-uuid
-# sweeps reach it through the events uuids, and it queues none of its own. The two tables shard on
-# different keys and live on different clusters, so a row and its events copy are never on the same
-# shard, and copied_from stays unset. It has no person_properties and no ingestion-time column of its
-# own: _timestamp is the Kafka produce time, which ingestion stamps.
+# Holds the raw prompts and completions that ingestion strips from the events copy of each AI event.
 AI_EVENTS = DeletionTarget(
     data_table=AI_EVENTS_DATA_TABLE,
     read_table=AI_EVENTS_TABLE,
     optional=True,
     cluster_setting="CLICKHOUSE_AI_EVENTS_CLUSTER",
     node_role=NodeRole.AI_EVENTS,
+    # Ingestion writes each row here and to events under the same uuid.
     queue_uuid_candidates=False,
+    # Kafka produce time, which ingestion stamps; the table has no inserted_at.
     inserted_at_column="_timestamp",
     # HEAVY_AI_PROPERTIES live in their own columns.
     property_presence_checkable=False,
