@@ -1,6 +1,8 @@
 import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
 
 import {
+    MSK_CDP_INTAKE_PRODUCER,
+    MSK_CDP_INTAKE_PRODUCER_CONFIG_MAP,
     WAREHOUSE_PRODUCER,
     WAREHOUSE_PRODUCER_CONFIG_MAP,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
@@ -22,11 +24,17 @@ import {
  *   job queue's own producer.
  * - `WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER` — the same cluster, for the intake topics.
  * - `WAREHOUSE_PRODUCER` — dedicated cluster for warehouse source webhooks.
+ * - `MSK_CDP_INTAKE_PRODUCER` — the intake topics on the CDP intake MSK cluster. It connects in the background, so a
+ *   pod boots while that cluster is down, and without its brokers it opens the WarpStream intake producer's config.
  */
-export function createCdpProducerRegistry(kafkaClientRack: string | undefined) {
+export function createCdpProducerRegistry(kafkaClientRack: string | undefined, mskIntakeBrokers: string) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)
         .register(WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP)
         .register(WARPSTREAM_CYCLOTRON_PRODUCER, WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP)
         .register(WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER, WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP)
         .register(WAREHOUSE_PRODUCER, WAREHOUSE_PRODUCER_CONFIG_MAP)
+        .registerLazy(
+            MSK_CDP_INTAKE_PRODUCER,
+            mskIntakeBrokers ? MSK_CDP_INTAKE_PRODUCER_CONFIG_MAP : WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP
+        )
 }

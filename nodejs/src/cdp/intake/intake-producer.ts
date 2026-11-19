@@ -6,36 +6,46 @@ import { logger } from '~/common/utils/logger'
 
 import { CdpConfig } from '../config'
 import {
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
     CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
     CdpIntakeRunOutput,
 } from '../outputs/outputs'
+import { KafkaMskCdpIntakeProducerEnvConfig } from '../outputs/producers'
 import { encodeJob } from '../services/cyclotron-v2/job-codec'
 import { CyclotronJobInvocation } from '../types'
 import { RunKind, encodeIntakeMessage } from './message'
 
 export type IntakeMode = 'off' | 'shadow' | 'async'
+export type IntakeCluster = 'warpstream' | 'msk'
 export type IntakeOutput = CdpIntakeRunOutput
 export type IntakeProduceOutcome = 'acked' | 'unacked' | 'too_large' | 'invalid'
 
 // A route answers once the broker acks, or after this long without one.
 export const INTAKE_ACK_DEADLINE_MS = 3_000
 
-const OUTPUT_OF: Record<RunKind, IntakeOutput> = {
-    'transactional-email': CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    'workflow-webhook': CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+const OUTPUT_OF: Record<IntakeCluster, Record<RunKind, IntakeOutput>> = {
+    warpstream: {
+        'transactional-email': CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
+        'workflow-webhook': CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+    },
+    msk: {
+        'transactional-email': CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+        'workflow-webhook': CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+    },
 }
 
 const launchesCounter = new Counter({
     name: 'cdp_intake_launches_total',
     help: 'Runs the routes produced to an intake topic, by kind, mode and outcome: acked by the broker, unacked (refused, or no ack before the deadline), too_large for the topic, or invalid for the cyclotron row.',
-    labelNames: ['kind', 'mode', 'outcome'] as const,
+    labelNames: ['kind', 'mode', 'outcome', 'cluster'] as const,
 })
 
 const ackMs = new Histogram({
     name: 'cdp_intake_ack_ms',
-    help: "Milliseconds from producing an accepted run to an intake topic to the broker's ack, by kind.",
-    labelNames: ['kind'] as const,
+    help: "Milliseconds from producing an accepted run to an intake topic to the broker's ack, by kind and cluster.",
+    labelNames: ['kind', 'cluster'] as const,
     buckets: [5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 3_000],
 })
 
@@ -45,6 +55,18 @@ export const intakeModeOf = (
     const isAsync = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_ASYNC_TEAMS, true)
     const isShadow = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_SHADOW_TEAMS, true)
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
+}
+
+export const intakeClusterOf = (
+    config: Pick<CdpConfig, 'CDP_INTAKE_MSK_TEAMS'> &
+        Pick<KafkaMskCdpIntakeProducerEnvConfig, 'KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST'>
+): ((teamId: number) => IntakeCluster) => {
+    // Without MSK brokers the MSK producer opens WarpStream's config, so the list must not route there.
+    const onMsk = buildIntegerMatcher(
+        config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST ? config.CDP_INTAKE_MSK_TEAMS : '',
+        true
+    )
+    return (teamId) => (onMsk(teamId) ? 'msk' : 'warpstream')
 }
 
 // A produce outlives its ack deadline. A caller that bounds its work in flight passes a settlement to its produces and,
@@ -80,7 +102,8 @@ export class IntakeProducer {
         private outputs: IngestionOutputs<IntakeOutput>,
         private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS,
         // Encrypts a transactional send's content before it reaches the topic, as the job queues do.
-        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation
+        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation,
+        private clusterOf: (teamId: number) => IntakeCluster = () => 'warpstream'
     ) {}
 
     async produce(
@@ -88,6 +111,7 @@ export class IntakeProducer {
         mode: IntakeMode,
         settlement?: PublishSettlement
     ): Promise<IntakeProduceOutcome> {
+        const cluster = this.clusterOf(invocation.teamId)
         const encoded = encodeIntakeMessage({
             kind,
             fingerprint,
@@ -96,19 +120,20 @@ export class IntakeProducer {
             job: { ...encodeJob(this.seal(invocation)), id: invocation.id },
         })
         if (encoded.status !== 'encoded') {
-            launchesCounter.labels({ kind, mode, outcome: encoded.status }).inc()
+            launchesCounter.labels({ kind, mode, outcome: encoded.status, cluster }).inc()
             return encoded.status
         }
         const startedAt = performance.now()
         try {
-            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message), settlement)
-            ackMs.labels({ kind }).observe(performance.now() - startedAt)
-            launchesCounter.labels({ kind, mode, outcome: 'acked' }).inc()
+            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[cluster][kind], encoded.message), settlement)
+            ackMs.labels({ kind, cluster }).observe(performance.now() - startedAt)
+            launchesCounter.labels({ kind, mode, outcome: 'acked', cluster }).inc()
             return 'acked'
         } catch (error) {
-            launchesCounter.labels({ kind, mode, outcome: 'unacked' }).inc()
+            launchesCounter.labels({ kind, mode, outcome: 'unacked', cluster }).inc()
             logger.warn('[CdpIntake] An intake produce got no ack', {
                 kind,
+                cluster,
                 team_id: invocation.teamId,
                 run_id: invocation.id,
                 error: error instanceof Error ? error.message : String(error),
