@@ -560,6 +560,82 @@ async fn a_build_under_a_newer_config_stops_every_reader_of_an_older_one() {
     assert!(!f.follower.is_following(2));
 }
 
+/// One person with a record in two partitions, as after a partition-count change: an
+/// older version where the old layout kept them, a newer one where the new layout does.
+/// The first fetches fail, so a build that fetches first is still warming when the next
+/// one arrives.
+async fn moved_person_with_a_slow_first_warm() -> MockCluster<'static, DefaultProducerContext> {
+    let (cluster, producer) = create_mock_kafka().await;
+    for (partition, version) in [(0, 1), (1, 2)] {
+        let person = Person {
+            version,
+            ..make_person(1, 7)
+        };
+        produce_person_to_partition(&producer, partition, &person).await;
+    }
+    cluster.request_errors(
+        RDKafkaApiKey::Fetch,
+        &[RDKafkaRespErr::RD_KAFKA_RESP_ERR__TRANSPORT; 4],
+    );
+    cluster
+}
+
+#[tokio::test]
+async fn a_build_under_a_newer_config_builds_nothing_while_an_older_one_is_in_flight() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    // The older build has a record to fetch and its first fetches fail, so it is still
+    // warming when the newer one arrives. The newer one's partition is empty, so nothing
+    // but the rule holds it back.
+    cluster.request_errors(
+        RDKafkaApiKey::Fetch,
+        &[RDKafkaRespErr::RD_KAFKA_RESP_ERR__TRANSPORT; 4],
+    );
+    let f = following("overlap", &cluster, FOLLOW);
+    let next = ChangelogConfig {
+        epoch: f.config.epoch + 1,
+        ..f.config.clone()
+    };
+
+    // Polled in this order, so the older build is admitted and warming first.
+    let (newer_built_meanwhile, newer) = tokio::join!(
+        async {
+            let overtaken = f.follower.follow(0, &f.config).await;
+            assert!(overtaken.is_err());
+            f.cache.has_partition(1)
+        },
+        f.follower.follow(1, &next)
+    );
+
+    assert!(!newer_built_meanwhile);
+    newer.expect("the newer build");
+    assert!(f.follower.is_following(1) && !f.follower.is_following(0));
+    assert!(f.dirty_index.get(&person_key(1)).is_none());
+}
+
+#[tokio::test]
+async fn a_handler_rebuilds_a_partition_a_config_change_overtook() {
+    let cluster = moved_person_with_a_slow_first_warm().await;
+    let f = following("overtaken", &cluster, FOLLOW);
+    let changelog = LiveChangelog::new(f.config.clone());
+    let handler = FollowerHandler::new(Arc::clone(&f.follower), changelog.clone());
+    let next = ChangelogConfig {
+        epoch: f.config.epoch + 1,
+        ..f.config.clone()
+    };
+
+    // The first warm starts under the old config and is overtaken while it fetches.
+    let (overtaken, newer) = tokio::join!(handler.warm_partition(0), async {
+        changelog.adopt(&next);
+        handler.warm_partition(1).await
+    });
+
+    overtaken.expect("rebuilt under the newer config, not failed");
+    newer.expect("the newer build");
+    assert!(f.follower.is_following(0) && f.follower.is_following(1));
+    assert!(!handler.verify_serving(0).await.expect("verify"));
+}
+
 #[tokio::test]
 async fn a_partition_that_cannot_be_confirmed_current_fails_its_warm() {
     let (cluster, _producer) = create_mock_kafka().await;
