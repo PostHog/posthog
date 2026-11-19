@@ -707,11 +707,14 @@ def _rendered_follow_up(messages: list[SlackThreadMessage], text: str) -> str:
                 "",
                 [
                     SlackThreadMessage(user="theo", user_id="U_THEO", text="the export looks off", ts="1.000"),
-                    SlackThreadMessage(user="mira", user_id="U_MIRA", text="please check the totals", ts="2.000"),
+                    SlackThreadMessage(
+                        user="mira (on call)", user_id="U_MIRA", text="please check the totals", ts="2.000"
+                    ),
                     SlackThreadMessage(user="theo", user_id="U_THEO", text="thanks, looking too", ts="3.000"),
                 ],
                 "2.000",
                 mentioner_slack_user_id="U_MIRA",
+                mentioner_display_name="mira (on call)",
             ),
             "please check the totals",
             [

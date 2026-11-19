@@ -24,7 +24,7 @@ def _mentioner(header: str) -> str:
     start = header.lower().find(_MENTIONER_ROLE)
     if start < 0:
         return ""
-    return header[start + len(_MENTIONER_ROLE) :].split("\n")[0].split(" (")[0]
+    return header[start + len(_MENTIONER_ROLE) :].split("\n")[0].rsplit(" (", 1)[0]
 
 
 def _thread_messages(block: str) -> tuple[str, list[ThreadMessage]]:
