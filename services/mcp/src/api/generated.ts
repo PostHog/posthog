@@ -94337,9 +94337,9 @@ export namespace Schemas {
          * Revision returned by the latest read of this item, result, or payload.
          * @minimum 0
          */
-      revision?: number;
+      revision: number;
       /** Top-level fields to update. Omitted fields keep their current values. */
-      payload?: OfflineExperimentItemPayloadInput;
+      payload: OfflineExperimentItemPayloadInput;
     }
 
     export interface PatchedOfflineItemUpdate {
@@ -94347,7 +94347,7 @@ export namespace Schemas {
          * Revision returned by the latest read of this item, result, or payload.
          * @minimum 0
          */
-      revision?: number;
+      revision: number;
       /**
          * Case identifier.
          * @maxLength 255
@@ -94379,9 +94379,9 @@ export namespace Schemas {
          * Revision returned by the latest read of this item, result, or payload.
          * @minimum 0
          */
-      revision?: number;
+      revision: number;
       /** Top-level fields to update. Omitted fields keep their current values. */
-      payload?: OfflineEvaluationResultPayloadInput;
+      payload: OfflineEvaluationResultPayloadInput;
     }
 
     export interface PatchedOfflineResultUpdate {
@@ -94389,7 +94389,7 @@ export namespace Schemas {
          * Revision returned by the latest read of this item, result, or payload.
          * @minimum 0
          */
-      revision?: number;
+      revision: number;
       /** Execution status for this reported result.
        *
        * * `ok` - OK

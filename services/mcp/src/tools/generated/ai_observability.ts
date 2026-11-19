@@ -1851,12 +1851,9 @@ const LlmaOfflineExperimentItemPayloadUpdateSchema = () => {
         orvalSchemas.AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody()
     const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams =
         orvalSchemas.AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams()
-    return AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams.omit({ project_id: true })
-        .extend(AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape)
-        .extend({
-            revision: AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape['revision'].nonoptional(),
-            payload: AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape['payload'].nonoptional(),
-        })
+    return AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape
+    )
 }
 
 const llmaOfflineExperimentItemPayloadUpdate = (): ToolBase<
@@ -1935,9 +1932,9 @@ const LlmaOfflineExperimentItemUpdateSchema = () => {
         orvalSchemas.AiObservabilityOfflineExperimentsItemsPartialUpdateBody()
     const AiObservabilityOfflineExperimentsItemsPartialUpdateParams =
         orvalSchemas.AiObservabilityOfflineExperimentsItemsPartialUpdateParams()
-    return AiObservabilityOfflineExperimentsItemsPartialUpdateParams.omit({ project_id: true })
-        .extend(AiObservabilityOfflineExperimentsItemsPartialUpdateBody.shape)
-        .extend({ revision: AiObservabilityOfflineExperimentsItemsPartialUpdateBody.shape['revision'].nonoptional() })
+    return AiObservabilityOfflineExperimentsItemsPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsItemsPartialUpdateBody.shape
+    )
 }
 
 const llmaOfflineExperimentItemUpdate = (): ToolBase<
@@ -2094,12 +2091,9 @@ const LlmaOfflineExperimentResultPayloadUpdateSchema = () => {
         orvalSchemas.AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody()
     const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams =
         orvalSchemas.AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams()
-    return AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams.omit({ project_id: true })
-        .extend(AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape)
-        .extend({
-            revision: AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape['revision'].nonoptional(),
-            payload: AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape['payload'].nonoptional(),
-        })
+    return AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape
+    )
 }
 
 const llmaOfflineExperimentResultPayloadUpdate = (): ToolBase<
@@ -2134,9 +2128,9 @@ const LlmaOfflineExperimentResultUpdateSchema = () => {
         orvalSchemas.AiObservabilityOfflineExperimentsResultsPartialUpdateBody()
     const AiObservabilityOfflineExperimentsResultsPartialUpdateParams =
         orvalSchemas.AiObservabilityOfflineExperimentsResultsPartialUpdateParams()
-    return AiObservabilityOfflineExperimentsResultsPartialUpdateParams.omit({ project_id: true })
-        .extend(AiObservabilityOfflineExperimentsResultsPartialUpdateBody.shape)
-        .extend({ revision: AiObservabilityOfflineExperimentsResultsPartialUpdateBody.shape['revision'].nonoptional() })
+    return AiObservabilityOfflineExperimentsResultsPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsResultsPartialUpdateBody.shape
+    )
 }
 
 const llmaOfflineExperimentResultUpdate = (): ToolBase<

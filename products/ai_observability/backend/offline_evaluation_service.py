@@ -407,7 +407,9 @@ class OfflineResultBuilder:
             )
         row.input_result_ids = [source.id for source in source_rows]
         row.receipt_requires_read = any(source.original_status is not None for source in source_rows)
-        row.score_updated_at = min(source.score_updated_at or source.accepted_at for source in source_rows)
+        row.score_updated_at = min(
+            source.score_updated_at or source.evaluated_at or source.accepted_at for source in source_rows
+        )
         return row
 
 
@@ -545,6 +547,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             **fields,
             team_id=self.team_id,
             experiment=experiment,
+            revision=experiment.next_item_revision,
             submission_fingerprint=fingerprint,
             accepted_at=accepted_at,
             payload_state=PayloadState.AVAILABLE if submission.payload is not None else PayloadState.NOT_PROVIDED,

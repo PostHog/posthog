@@ -193,6 +193,9 @@ def _delete_resource(experiment: OfflineExperiment, owner: Owner, affected: Quer
         experiment.closed_result_count = counts.accepted_result_count
         experiment.save(update_fields=["closed_item_count", "closed_result_count"])
     if isinstance(owner, OfflineExperimentItem):
+        if experiment.status == OfflineExperiment.Status.UPLOADING and owner.revision >= experiment.next_item_revision:
+            experiment.next_item_revision = owner.revision + 1
+            experiment.save(update_fields=["next_item_revision"])
         owner.delete()
     else:
         affected.delete()

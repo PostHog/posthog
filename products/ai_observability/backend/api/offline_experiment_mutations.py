@@ -1,7 +1,8 @@
 from collections.abc import Mapping
 from functools import partial
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -31,6 +32,10 @@ from products.ai_observability.backend.facade import api as aio
 from products.ai_observability.backend.logic.offline_evaluations.mutations import Target
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult
 from products.ai_observability.backend.offline_evaluation_types import JSONValue
+
+if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
 
 MUTATION_ERRORS = {**READ_ERROR_RESPONSES, 409: READ_ERROR_RESPONSES[400]}
 MUTATION_ACTIONS = frozenset(
@@ -62,6 +67,16 @@ class OfflineUpdateSerializer(OfflineRevisionSerializer):
             if not data.keys() - {"revision"}:
                 raise serializers.ValidationError("Supply at least one field to update.")
         return super().to_internal_value(data)
+
+
+class OfflineUpdateSchema(OpenApiSerializerExtension):
+    target_class = OfflineUpdateSerializer
+    match_subclasses = True
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        schema["required"] = sorted(name for name, field in self.target.fields.items() if field.required)
+        return schema
 
 
 class OfflineItemUpdateSerializer(OfflineUpdateSerializer):

@@ -117,7 +117,9 @@ export function OfflineItemInspector({
                                         {item?.content_updated_at &&
                                             Date.parse(item.content_updated_at) >
                                                 Date.parse(
-                                                    selectedResult.score_updated_at ?? selectedResult.accepted_at
+                                                    selectedResult.score_updated_at ??
+                                                        selectedResult.evaluated_at ??
+                                                        selectedResult.accepted_at
                                                 ) && (
                                                 <LemonBanner type="warning">
                                                     The item’s input, output, or expected output changed after this

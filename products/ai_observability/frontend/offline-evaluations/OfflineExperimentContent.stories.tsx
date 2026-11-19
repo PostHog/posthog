@@ -222,11 +222,11 @@ export const UpdatedItem: Story = {
             get: {
                 '/api/projects/:team/ai_observability/offline_experiments/:id/': {
                     ...detailExperiment,
-                    updated_at: '2026-09-28T11:00:00Z',
+                    updated_at: '2026-09-27T14:34:00Z',
                 },
                 '/api/projects/:team/ai_observability/offline_experiments/:id/items/:itemId/': {
                     ...detailItems[0],
-                    content_updated_at: '2026-09-28T11:00:00Z',
+                    content_updated_at: '2026-09-27T14:34:00Z',
                 },
             },
         }),

@@ -40,6 +40,7 @@ class OfflineExperiment(Taggable):
     updated_at = models.DateTimeField(null=True, blank=True)
     closed_item_count = models.BigIntegerField(null=True, blank=True)
     closed_result_count = models.BigIntegerField(null=True, blank=True)
+    next_item_revision = models.BigIntegerField(default=0, db_default=0)
     expected_item_count = models.PositiveBigIntegerField(null=True, blank=True)
     expected_result_count = models.PositiveBigIntegerField(null=True, blank=True)
     submission_fingerprint = models.CharField(max_length=64)

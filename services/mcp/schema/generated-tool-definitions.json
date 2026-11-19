@@ -10829,7 +10829,7 @@
             "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/payload/"
         ],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -10864,7 +10864,7 @@
             "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/"
         ],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -10929,7 +10929,7 @@
             "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/payload/"
         ],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -10947,7 +10947,7 @@
             "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/"
         ],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

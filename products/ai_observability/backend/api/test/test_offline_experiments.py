@@ -183,6 +183,24 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1, 1]
         )
 
+    def test_recreated_item_rejects_mutations_for_the_deleted_item(self) -> None:
+        exp_id, item_id, _, body = self._mutable_run()
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        first_revision = self.client.get(item_url).data["revision"]
+        edit = self.client.patch(item_url, {"revision": first_revision, "trial": "second"})
+        self.assertEqual(edit.status_code, 200)
+        delete_url = f"{item_url}?revision={edit.data['revision']}"
+        self.assertEqual(self.client.delete(delete_url).status_code, 204)
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 200)
+
+        self.assertEqual(self.client.delete(delete_url).status_code, 409)
+        self.assertEqual(self.client.patch(item_url, {"revision": first_revision, "trial": "old"}).status_code, 409)
+        replacement = self.client.get(item_url).data
+        self.assertIsNone(replacement["trial"])
+        self.assertEqual(
+            self.client.patch(item_url, {"revision": replacement["revision"], "trial": "new"}).status_code, 200
+        )
+
     def test_payload_update_uses_original_deadline_and_cannot_restore_deleted_data(self) -> None:
         exp_id, item_id, result_id, body = self._mutable_run()
         url = self._endpoint(exp_id, f"items/{item_id}/payload")
@@ -387,6 +405,8 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             {"item_id": item_id, "scorer_version_id": source["scorer_version_id"], "status": "ok", "value": value}
             for source, value in zip(inputs, [0.9, True, ["good"]])
         )
+        evaluated_at = "2026-01-01T10:00:00Z"
+        results[-1]["evaluated_at"] = evaluated_at
         body = {"items": [{"id": item_id}], "results": results}
         upload_url = self._endpoint(str(experiment["id"]), "upload")
         if input_delivery != "same_upload":
@@ -454,6 +474,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(set(derived), set(composites))
         for version_id, value in zip(composites, [0.9, True, ["accept"], None]):
             self.assertEqual(derived[version_id]["value"], value)
+            self.assertEqual(derived[version_id]["score_updated_at"], evaluated_at)
             self.assertEqual(set(derived[version_id]["input_result_ids"]), source_ids)
             self.assertEqual(len(derived[version_id]["scorer"]["composition"]["inputs"]), 3)
         summaries = self.client.get(self._endpoint(str(experiment["id"]), "scorer_summaries"))
@@ -1005,6 +1026,19 @@ class TestOfflineExperimentValidationErrors(SimpleTestCase):
 
 
 class TestOfflineExperimentActionSchemas(SimpleTestCase):
+    def test_patch_requires_revision_and_payload_for_payload_routes(self) -> None:
+        router = SimpleRouter()
+        router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")
+        schema = SchemaGenerator(patterns=router.urls).get_schema(request=None, public=True)
+        for resource in ["items/{item_id}", "results/{result_id}"]:
+            for suffix, required in [("", ["revision"]), ("/payload", ["payload", "revision"])]:
+                path = f"/offline_experiments/{{id}}/{resource}{suffix}/"
+                with self.subTest(path=path):
+                    body = schema["paths"][path]["patch"]["requestBody"]
+                    self.assertTrue(body["required"])
+                    ref = body["content"]["application/json"]["schema"]["$ref"]
+                    self.assertCountEqual(schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["required"], required)
+
     def test_read_pages_are_object_envelopes_instead_of_arrays_of_pages(self) -> None:
         router = SimpleRouter()
         router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")

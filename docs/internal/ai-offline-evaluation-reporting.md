@@ -557,10 +557,11 @@ A successful PATCH returns the new revision. A successful DELETE returns HTTP 20
 For example, PATCH a reported result with `{"revision": 0, "status": "ok", "value": false}`.
 For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission preserves a field, while JSON null sets it to null.
 An item and its payload share a revision, as do a result and its payload.
+Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
 
 These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
 Enable `ai-observability-offline-evaluation-mutations` for a project after all ingestion servers in its region support original upload receipts after edits.
-MCP exposes the four updates. Deletes are available only through the direct API.
+MCP marks all four updates as destructive because they can overwrite stored data. The CLI requires `--confirm` for these updates. Deletes are available only through the direct API.
 An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
 Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
 
@@ -568,6 +569,7 @@ The 30-day window starts at the owner's original acceptance time, even if its fi
 An edit cannot extend the deadline or restore a deleted or expired payload.
 Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
 Changing an item's input, output, or expected output leaves its reported scores in place. The inspector identifies scores that predate the change.
+It compares the item edit time with the score's latest edit, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
 
 Current summaries and scorer history reflect updates and deletes. Closed experiments retain their closure time and the counts acknowledged at closure.
 Completion of an uploading experiment checks the items and results still present. Updates, recomputation, and deletion do not change billed usage.

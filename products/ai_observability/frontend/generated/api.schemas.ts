@@ -1065,7 +1065,7 @@ export interface PatchedOfflineItemUpdateApi {
      * Revision returned by the latest read of this item, result, or payload.
      * @minimum 0
      */
-    revision?: number
+    revision: number
     /**
      * Case identifier.
      * @maxLength 255
@@ -1170,9 +1170,9 @@ export interface PatchedOfflineItemPayloadUpdateApi {
      * Revision returned by the latest read of this item, result, or payload.
      * @minimum 0
      */
-    revision?: number
+    revision: number
     /** Top-level fields to update. Omitted fields keep their current values. */
-    payload?: OfflineExperimentItemPayloadInputApi
+    payload: OfflineExperimentItemPayloadInputApi
 }
 
 export interface OfflineResultReadApi {
@@ -1271,7 +1271,7 @@ export interface PatchedOfflineResultUpdateApi {
      * Revision returned by the latest read of this item, result, or payload.
      * @minimum 0
      */
-    revision?: number
+    revision: number
     /** Execution status for this reported result.
      *
      * * `ok` - OK
@@ -1336,9 +1336,9 @@ export interface PatchedOfflineResultPayloadUpdateApi {
      * Revision returned by the latest read of this item, result, or payload.
      * @minimum 0
      */
-    revision?: number
+    revision: number
     /** Top-level fields to update. Omitted fields keep their current values. */
-    payload?: OfflineEvaluationResultPayloadInputApi
+    payload: OfflineEvaluationResultPayloadInputApi
 }
 
 export interface OfflineStatusCountsApi {

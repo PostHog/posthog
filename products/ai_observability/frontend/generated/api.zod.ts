@@ -155,7 +155,6 @@ export const AiObservabilityOfflineExperimentsItemsPartialUpdateBody = /* @__PUR
     revision: zod
         .number()
         .min(aiObservabilityOfflineExperimentsItemsPartialUpdateBodyRevisionMin)
-        .optional()
         .describe('Revision returned by the latest read of this item, result, or payload.'),
     case_key: zod
         .string()
@@ -185,7 +184,6 @@ export const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody = /*
     revision: zod
         .number()
         .min(aiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBodyRevisionMin)
-        .optional()
         .describe('Revision returned by the latest read of this item, result, or payload.'),
     payload: zod
         .object({
@@ -221,7 +219,6 @@ export const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody = /*
                 .optional(),
             metadata: zod.record(zod.string(), zod.unknown()).nullish(),
         })
-        .optional()
         .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 
@@ -235,7 +232,6 @@ export const AiObservabilityOfflineExperimentsResultsPartialUpdateBody = /* @__P
     revision: zod
         .number()
         .min(aiObservabilityOfflineExperimentsResultsPartialUpdateBodyRevisionMin)
-        .optional()
         .describe('Revision returned by the latest read of this item, result, or payload.'),
     status: zod
         .enum(['ok', 'error', 'skipped', 'not_applicable'])
@@ -268,7 +264,6 @@ export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = 
     revision: zod
         .number()
         .min(aiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBodyRevisionMin)
-        .optional()
         .describe('Revision returned by the latest read of this item, result, or payload.'),
     payload: zod
         .object({
@@ -276,7 +271,6 @@ export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = 
             error_message: zod.string().nullish(),
             metadata: zod.record(zod.string(), zod.unknown()).nullish(),
         })
-        .optional()
         .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 

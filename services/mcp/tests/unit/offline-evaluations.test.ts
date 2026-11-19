@@ -37,9 +37,11 @@ async function getTool(context: Context, name: string): Promise<Tool> {
 
 describe('offline evaluation MCP tools', () => {
     it.each(['item', 'result', 'item-payload', 'result-payload'])(
-        'exposes updates and omits deletes for %s',
-        (target) => {
-            expect(GENERATED_TOOLS).toHaveProperty(`llma-offline-experiment-${target}-update`)
+        'marks updates as destructive and omits deletes for %s',
+        async (target) => {
+            const { context } = createContext({})
+            const tool = await getTool(context, `llma-offline-experiment-${target}-update`)
+            expect(tool.annotations.destructiveHint).toBe(true)
             expect(GENERATED_TOOLS).not.toHaveProperty(`llma-offline-experiment-${target}-delete`)
         }
     )

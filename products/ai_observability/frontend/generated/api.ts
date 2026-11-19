@@ -508,7 +508,7 @@ export const aiObservabilityOfflineExperimentsItemsPartialUpdate = async (
     projectId: string,
     id: string,
     itemId: string,
-    patchedOfflineItemUpdateApi?: PatchedOfflineItemUpdateApi,
+    patchedOfflineItemUpdateApi: PatchedOfflineItemUpdateApi,
     options?: RequestInit
 ): Promise<OfflineRevisionApi> => {
     return apiMutator<OfflineRevisionApi>(
@@ -591,7 +591,7 @@ export const aiObservabilityOfflineExperimentsItemsPayloadPartialUpdate = async 
     projectId: string,
     id: string,
     itemId: string,
-    patchedOfflineItemPayloadUpdateApi?: PatchedOfflineItemPayloadUpdateApi,
+    patchedOfflineItemPayloadUpdateApi: PatchedOfflineItemPayloadUpdateApi,
     options?: RequestInit
 ): Promise<OfflineRevisionApi> => {
     return apiMutator<OfflineRevisionApi>(
@@ -723,7 +723,7 @@ export const aiObservabilityOfflineExperimentsResultsPartialUpdate = async (
     projectId: string,
     id: string,
     resultId: string,
-    patchedOfflineResultUpdateApi?: PatchedOfflineResultUpdateApi,
+    patchedOfflineResultUpdateApi: PatchedOfflineResultUpdateApi,
     options?: RequestInit
 ): Promise<OfflineRevisionApi> => {
     return apiMutator<OfflineRevisionApi>(
@@ -806,7 +806,7 @@ export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdate = asyn
     projectId: string,
     id: string,
     resultId: string,
-    patchedOfflineResultPayloadUpdateApi?: PatchedOfflineResultPayloadUpdateApi,
+    patchedOfflineResultPayloadUpdateApi: PatchedOfflineResultPayloadUpdateApi,
     options?: RequestInit
 ): Promise<OfflineRevisionApi> => {
     return apiMutator<OfflineRevisionApi>(

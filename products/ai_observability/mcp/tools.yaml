@@ -1104,15 +1104,10 @@ tools:
             - evaluation:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update offline experiment item payload
         description: Update fields in an item's payload within 30 days of its original acceptance.
-        param_overrides:
-            revision:
-                required: true
-            payload:
-                required: true
         feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-item-result-list:
         operation: ai_observability_offline_experiments_items_results_list
@@ -1146,13 +1141,10 @@ tools:
             - evaluation:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update offline experiment item
         description: Edit an offline item's case, trial, model, or trace reference.
-        param_overrides:
-            revision:
-                required: true
         feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-list:
         operation: ai_observability_offline_experiments_list
@@ -1256,15 +1248,10 @@ tools:
             - llm_analytics:read
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update offline experiment result payload
         description: Update fields in a result's payload within 30 days of its original acceptance.
-        param_overrides:
-            revision:
-                required: true
-            payload:
-                required: true
         feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-result-update:
         operation: ai_observability_offline_experiments_results_partial_update
@@ -1274,13 +1261,10 @@ tools:
             - llm_analytics:read
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update offline experiment result
         description: Update a reported score. The server recalculates its existing composite results.
-        param_overrides:
-            revision:
-                required: true
         feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-scorer-summary-list:
         operation: ai_observability_offline_experiments_scorer_summaries_list
