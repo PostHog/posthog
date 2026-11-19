@@ -822,7 +822,11 @@ class _Recommender:
                     text="Open the campaign settings, go to Bidding, and raise the target CPA or lower the target "
                     "ROAS. Then save."
                 ),
-                Step(text="Open its asset groups and add assets to the ones with Poor or Average ad strength."),
+                Step(
+                    text="Open Asset groups and add assets to the ones with Poor or Average ad strength.",
+                    url=ADS_ASSET_GROUPS_URL,
+                    linkText="Asset groups",
+                ),
             ),
         )
 
@@ -1231,7 +1235,12 @@ class _Recommender:
                         campaign.name if campaign else None,
                         fallback="In Google Ads, open Campaigns and pick your Performance Max campaign.",
                     ),
-                    Step(text="Open the asset group and add this search theme.", copyValue=query.query),
+                    Step(
+                        text="Open Asset groups, pick the one closest to this search, and add the search as a search theme.",
+                        copyValue=query.query,
+                        url=ADS_ASSET_GROUPS_URL,
+                        linkText="Asset groups",
+                    ),
                 )
             recommendations.append(
                 self._recommendation(
