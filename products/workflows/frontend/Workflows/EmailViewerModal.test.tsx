@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { EmailViewerModal } from './EmailViewerModal'
+import { EmailViewerChip, EmailViewerModal } from './EmailViewerModal'
 
 describe('EmailViewerModal', () => {
     beforeEach(() => {
@@ -20,10 +20,17 @@ describe('EmailViewerModal', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_ACTIVITY], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_ACTIVITY]: true,
-        })
+        setActivityFlag(true)
     })
+
+    const setActivityFlag = (enabled: boolean): void => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_ACTIVITY], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_ACTIVITY]: enabled,
+        })
+    }
+
+    const selectedTab = (): string | null | undefined =>
+        document.querySelector('[role="tab"][aria-selected="true"]')?.textContent
 
     afterEach(() => cleanup())
 
@@ -46,5 +53,32 @@ describe('EmailViewerModal', () => {
         fireEvent.click(emailTab)
 
         expect(screen.getByTitle('Rendered email')).toBe(email)
+    })
+
+    it.each([
+        { link: 'View email', tab: 'Email' },
+        { link: 'View activity', tab: 'Activity' },
+    ])('opens the viewer on the $tab tab from $link', ({ link, tab }) => {
+        render(
+            <Provider>
+                <EmailViewerChip workflowId="flow-1" invocationId="run-1" actionId="welcome" />
+            </Provider>
+        )
+
+        fireEvent.click(screen.getByText(link))
+
+        expect(selectedTab()).toBe(tab)
+    })
+
+    it('leaves out the activity link while the flag is off', () => {
+        setActivityFlag(false)
+        render(
+            <Provider>
+                <EmailViewerChip workflowId="flow-1" invocationId="run-1" actionId="welcome" />
+            </Provider>
+        )
+
+        expect(screen.getByText('View email')).toBeInTheDocument()
+        expect(screen.queryByText('View activity')).not.toBeInTheDocument()
     })
 })
