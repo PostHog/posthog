@@ -28,6 +28,7 @@ The current partial hour is excluded, which adds up to an hour of detection lag 
 Any one row firing is enough; both volume gates must pass before the rate counts.
 Every number is a `WORKFLOW_EMAIL_AUTO_PAUSE_*` or `WORKFLOW_EMAIL_WARN_*` setting in `posthog/settings/ses.py` with an env override.
 Warnings repeat at most once per `WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS` (default 7) per workflow.
+A warning goes out only while the rate its reason leads with, the project's for a project warning, is under the pause rate; otherwise the detector tries the next signal.
 Batch job metrics count toward their parent workflow, and discovery gates sum at the team level so a breach split across many small batch jobs still surfaces.
 
 Feedback arrives hours or days after the send it belongs to.

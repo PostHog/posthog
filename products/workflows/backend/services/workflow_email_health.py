@@ -348,7 +348,7 @@ def _project_breach(
     ):
         return None
     events = _events_for_signal(counts, threshold.signal)
-    if not _crosses(events=events, sent=counts.sent, earlier_sent=earlier_sent, rate=threshold.rate):
+    if events == 0 or not _crosses(events=events, sent=counts.sent, earlier_sent=earlier_sent, rate=threshold.rate):
         return None
     return PauseDecision(
         team_id=flow.team_id,
@@ -375,6 +375,7 @@ def _first_breach(
     judged: JudgedCounts,
     project: JudgedCounts,
     thresholds: list[DetectorThreshold],
+    below_pause_rate: bool = False,
 ) -> PauseDecision | None:
     for threshold in thresholds:
         decision = _breach(
@@ -384,7 +385,7 @@ def _first_breach(
             earlier_sent=judged.earlier_sent,
             threshold=threshold,
         )
-        if decision is not None:
+        if decision is not None and (not below_pause_rate or _below_pause_rate(decision)):
             return decision
     for threshold in (threshold for threshold in thresholds if threshold.signal == "bounce"):
         decision = _project_breach(
@@ -396,35 +397,26 @@ def _first_breach(
             project_earlier_sent=project.earlier_sent,
             threshold=threshold,
         )
-        if decision is not None:
+        if decision is not None and (not below_pause_rate or _below_pause_rate(decision)):
             return decision
     return None
 
 
-def _project_counts(
-    *,
-    team_id: int,
-    judged: dict[str, tuple[HogFlow, JudgedCounts]],
-    earlier_by_flow: dict[str, EmailSendingCounts],
-    flows_by_id: dict[str, HogFlow],
-) -> JudgedCounts:
+def _below_pause_rate(warning: PauseDecision) -> bool:
+    shown_rate = warning.project.rate if warning.project is not None else warning.rate
+    return shown_rate < _pause_rate_for(warning.threshold)
+
+
+def _project_counts(judged: dict[str, tuple[HogFlow, JudgedCounts]]) -> JudgedCounts:
     exempt = settings.WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS
     counted = [counts for flow_id, (_, counts) in judged.items() if flow_id not in exempt]
-    earlier_only_sent = sum(
-        counts.sent
-        for flow_id, counts in earlier_by_flow.items()
-        if flow_id not in judged
-        and flow_id not in exempt
-        and flow_id in flows_by_id
-        and flows_by_id[flow_id].team_id == team_id
-    )
     return JudgedCounts(
         counts=EmailSendingCounts(
             sent=sum(item.counts.sent for item in counted),
             bounced_hard=sum(item.counts.bounced_hard for item in counted),
             complained=sum(item.counts.complained for item in counted),
         ),
-        earlier_sent=sum(item.earlier_sent for item in counted) + earlier_only_sent,
+        earlier_sent=sum(item.earlier_sent for item in counted),
     )
 
 
@@ -506,9 +498,7 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                 judged[flow_id] = (flow, JudgedCounts(counts=effective_counts, earlier_sent=earlier_sent))
             # Workflows paused by an earlier sweep are out of scope, so the feedback that paused one
             # cannot pause its siblings again.
-            project = _project_counts(
-                team_id=team_id, judged=judged, earlier_by_flow=earlier_by_flow, flows_by_id=flows_by_id
-            )
+            project = _project_counts(judged)
             for flow_id, (flow, flow_counts) in judged.items():
                 # One pause per workflow per sweep. The first breach is the one reported, and the
                 # windows are walked shortest first so the reason names the tightest signal.
@@ -537,8 +527,9 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     judged=flow_counts,
                     project=project,
                     thresholds=warn_group,
+                    below_pause_rate=True,
                 )
-                if warning is not None and warning.rate < _pause_rate_for(warning.threshold):
+                if warning is not None:
                     warnings_by_flow[flow_id] = warning
     # A pause found in a longer window outranks a warning found in a shorter one, so the warning
     # list is settled only after every window ran.
