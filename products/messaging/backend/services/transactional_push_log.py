@@ -213,9 +213,9 @@ def list_transactional_pushes(
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    unsent = [row[0] for row in rows if row[2] != PushSendStatus.SENT.value]
     sent = [row[0] for row in rows if row[2] == PushSendStatus.SENT.value]
-    messages = _step_messages(team_id, workflow_ids, unsent, period.start)
+    # A sent push can still have lost a device, for example one whose app was uninstalled.
+    messages = _step_messages(team_id, workflow_ids, [row[0] for row in rows], period.start)
     titles = _titles(team_id, workflow_ids, sent, period.start)
 
     entries = []

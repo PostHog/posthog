@@ -97,7 +97,13 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
         return run_id
 
     def test_lists_each_send_with_its_outcome(self, _flag):
-        sent = self._run(4, "alice", "succeeded", title="Your order shipped")
+        sent = self._run(
+            4,
+            "alice",
+            "succeeded",
+            title="Your order shipped",
+            logs=[("warn", "[Action:transactional_push] FCM: The device is no longer reachable.")],
+        )
         not_sent = self._run(
             3,
             "bob",
@@ -141,7 +147,7 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
                 ["No active FCM device token found for distinct_id: bob"],
                 "Order shipped",
             ),
-            (sent, "sent", "alice", "Your order shipped", [], "Order shipped"),
+            (sent, "sent", "alice", "Your order shipped", ["FCM: The device is no longer reachable."], "Order shipped"),
         ]
 
         filtered = self.client.get(f"/api/projects/{self.team.id}/transactional_push_log/?status=not_sent")

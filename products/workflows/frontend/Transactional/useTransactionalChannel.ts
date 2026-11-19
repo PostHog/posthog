@@ -21,12 +21,17 @@ export function useTransactionalChannel(): {
     channel: TransactionalChannel
     setChannel: (channel: TransactionalChannel) => void
 } {
-    const { sendablePushTemplates } = useValues(transactionalTemplatesLogic)
+    const { sendablePushTemplates, transactionalTemplatesLoading } = useValues(transactionalTemplatesLogic)
     const { searchParams, location, hashParams } = useValues(router)
     const { replace } = useActions(router)
 
-    const hasPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API') && sendablePushTemplates.length > 0
-    const channel: TransactionalChannel = hasPush && searchParams[CHANNEL_PARAM] === 'push' ? 'push' : 'email'
+    const pushEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
+    const hasPush = pushEnabled && sendablePushTemplates.length > 0
+    // A reload of a push link stays on push while the templates load, instead of showing the email log first.
+    const channel: TransactionalChannel =
+        searchParams[CHANNEL_PARAM] === 'push' && (hasPush || (pushEnabled && transactionalTemplatesLoading))
+            ? 'push'
+            : 'email'
 
     const setChannel = (next: TransactionalChannel): void => {
         const params = { ...searchParams }
