@@ -7,7 +7,7 @@ from products.slack_app.backend.logic.onboarding.actions import (
     button,
     skip_button,
 )
-from products.slack_app.backend.logic.onboarding.checks import has_enabled_source
+from products.slack_app.backend.logic.onboarding.checks import enabled_source_keys, has_enabled_source
 from products.slack_app.backend.logic.onboarding.step import (
     OnboardingContext,
     OnboardingStep,
@@ -27,6 +27,7 @@ class SourcesStep(OnboardingStep):
     title = "Signals to watch"
     done_text = "Watching your signals"
     action_ids = frozenset({SOURCES_ACTION_ID})
+    completed_by_continue = True
 
     def applies(self, ctx: OnboardingContext) -> bool:
         # Turning sources on is recorded for a PostHog user, so it needs a linked account with access to the project.
@@ -34,6 +35,9 @@ class SourcesStep(OnboardingStep):
 
     def is_done(self, ctx: OnboardingContext) -> bool:
         return has_enabled_source(ctx.integration.team_id)
+
+    def completed_properties(self, ctx: OnboardingContext) -> dict[str, object]:
+        return {"sources": enabled_source_keys(ctx.integration.team_id)}
 
     def render(self, ctx: OnboardingContext) -> list[dict]:
         return [

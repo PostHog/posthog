@@ -102,6 +102,10 @@ class OnboardingStep:
     skippable: bool = True
     # The buttons that ``apply_action`` handles. Skip and Continue are the same for each step.
     action_ids: frozenset[str] = frozenset()
+    # True when no single click finishes the step, because the person connects in the browser or ticks several
+    # boxes. Continue on a done step then records the completion. A step whose click in ``apply_action`` finishes it
+    # records the completion there, so it leaves this off to avoid a second event.
+    completed_by_continue: bool = False
 
     def applies(self, ctx: OnboardingContext) -> bool:
         return True
@@ -121,7 +125,12 @@ class OnboardingStep:
     def apply_action(self, ctx: OnboardingContext, action_id: str, value: dict[str, Any]) -> StepClick:
         raise NotImplementedError
 
-    def record_completed(self, ctx: OnboardingContext, *, choice: str | None = None, model: str | None = None) -> None:
+    def completed_properties(self, ctx: OnboardingContext) -> dict[str, object]:
+        return {}
+
+    def record_completed(
+        self, ctx: OnboardingContext, *, choice: str | None = None, model: str | None = None, **properties: object
+    ) -> None:
         capture_slack_event(
             ctx.integration,
             STEP_COMPLETED_EVENT,
@@ -129,4 +138,5 @@ class OnboardingStep:
             step=self.key,
             choice=choice,
             model=model,
+            **properties,
         )
