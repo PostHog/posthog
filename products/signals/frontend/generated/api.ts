@@ -3370,7 +3370,7 @@ export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRemember = async (
