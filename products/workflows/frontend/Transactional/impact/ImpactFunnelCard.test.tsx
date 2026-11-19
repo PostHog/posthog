@@ -2,21 +2,18 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
-
-import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
-import { LINK_TAGGING_SAVED_KEY } from 'products/workflows/frontend/scenes/settings/linkTaggingAcrossTabs'
 import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 
-import { emailImpactLogic } from './emailImpactLogic'
+import { LINK_TAGGING_REFRESH_MS, emailImpactLogic } from './emailImpactLogic'
 import { EmailImpactTab } from './EmailImpactTab'
 import { ImpactFunnelCard } from './ImpactFunnelCard'
 
@@ -46,10 +43,28 @@ const useStoredTeam = (team: TeamType): void => {
     useMocks({ get: { [PROJECT_URL]: team } })
 }
 
+let pageHidden = false
+
+const setPageHidden = (hidden: boolean): void => {
+    pageHidden = hidden
+    act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+    })
+}
+
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
 
+    beforeAll(() => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => pageHidden })
+    })
+
+    afterAll(() => {
+        delete (document as { hidden?: boolean }).hidden
+    })
+
     beforeEach(() => {
+        pageHidden = false
         localStorage.clear()
         useMocks({
             get: {
@@ -63,7 +78,10 @@ describe('ImpactFunnelCard', () => {
         initKeaTests()
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+    })
 
     const renderCard = (sensitive = false): void => {
         render(
@@ -95,8 +113,8 @@ describe('ImpactFunnelCard', () => {
         }
     )
 
-    it('opens the setting in a new tab and shows what the user saves there without waiting for focus', async () => {
-        initKeaTests(true, teamWithLinkTagging(true))
+    it('opens the setting in a new tab and shows what the user saved there once this tab is shown again', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
         let stored = teamWithLinkTagging(false)
         const saveTeam = async ({ request }: { request: Request }): Promise<[number, TeamType]> => {
             const { workflows_config } = (await request.json()) as Pick<TeamType, 'workflows_config'>
@@ -113,47 +131,44 @@ describe('ImpactFunnelCard', () => {
         expect(link?.getAttribute('href')).toMatch(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         expect(link?.getAttribute('target')).toBe('_blank')
 
-        teamLogic.actions.loadCurrentTeamSuccess(stored)
+        setPageHidden(true)
         render(<WorkflowsRunLinkTagSettings />)
         fireEvent.click(screen.getByLabelText('Connect tracked email clicks to sessions'))
-        await waitFor(() => expect(localStorage.getItem(LINK_TAGGING_SAVED_KEY)).not.toBeNull())
-        expect(stored.workflows_config).toEqual({
-            capture_workflows_engagement_events: true,
-            email_workflow_run_link_tag_enabled: true,
-        })
+        await waitFor(() => expect(stored.workflows_config?.email_workflow_run_link_tag_enabled).toBe(true))
+        expect(stored.workflows_config?.capture_workflows_engagement_events).toBe(true)
         expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
 
-        window.dispatchEvent(
-            new StorageEvent('storage', {
-                key: LINK_TAGGING_SAVED_KEY,
-                newValue: localStorage.getItem(LINK_TAGGING_SAVED_KEY),
-            })
-        )
+        setPageHidden(false)
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
     })
 
-    it('reads the stored setting when the tab opens and again on each focus', async () => {
+    it('keeps the stored setting through a failed read on show, and reads it again on a timer', async () => {
+        jest.useFakeTimers()
         initKeaTests(true, teamWithLinkTagging(true))
-        let stored = teamWithLinkTagging(false)
-        useMocks({ get: { [PROJECT_URL]: () => [200, stored] } })
+        let stored: [number, unknown] = [200, teamWithLinkTagging(false)]
+        useMocks({ get: { [PROJECT_URL]: () => stored } })
         answer = [200, IMPACT]
         renderCard()
         expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
 
-        stored = teamWithLinkTagging(true)
-        fireEvent(window, new Event('focus'))
-        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+        stored = [500, { detail: 'Server error' }]
+        setPageHidden(true)
+        setPageHidden(false)
+        const logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        expect(logic.values.storedLinkTaggingLoading).toBe(true)
+        await waitFor(() => expect(logic.values.storedLinkTaggingLoading).toBe(false))
+        expect(screen.getByText('Needs link tagging')).toBeInTheDocument()
 
-        stored = teamWithLinkTagging(false)
-        fireEvent(window, new Event('focus'))
-        expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
+        stored = [200, teamWithLinkTagging(true)]
+        act(() => {
+            jest.advanceTimersByTime(LINK_TAGGING_REFRESH_MS)
+        })
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
     })
 
-    it.each([
-        ['answers', [200, teamWithLinkTagging(false)]],
-        ['fails', [500, { detail: 'Server error' }]],
-    ])('keeps the newest setting when an older read %s last', async (_, slowAnswer) => {
+    it('keeps the newest setting when an older read answers last', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
         let reads = 0
         let releaseSlowRead = (): void => {}
@@ -166,7 +181,7 @@ describe('ImpactFunnelCard', () => {
                     if (reads === 2) {
                         slowReadStarted()
                         await new Promise<void>((resolve) => (releaseSlowRead = resolve))
-                        return slowAnswer
+                        return [200, teamWithLinkTagging(false)]
                     }
                     return [200, teamWithLinkTagging(reads > 2)]
                 },
@@ -175,9 +190,11 @@ describe('ImpactFunnelCard', () => {
         answer = [200, IMPACT]
         renderCard()
         expect(await screen.findByText('Needs link tagging')).toBeInTheDocument()
-        fireEvent(window, new Event('focus'))
+        setPageHidden(true)
+        setPageHidden(false)
         await slowReadHeld
-        fireEvent(window, new Event('focus'))
+        setPageHidden(true)
+        setPageHidden(false)
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
 
         releaseSlowRead()

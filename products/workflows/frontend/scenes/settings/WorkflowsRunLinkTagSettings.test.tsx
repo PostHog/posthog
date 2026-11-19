@@ -11,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { LINK_TAGGING_SAVED_KEY } from './linkTaggingAcrossTabs'
 import { WorkflowsRunLinkTagSettings } from './WorkflowsRunLinkTagSettings'
 
 describe('<WorkflowsRunLinkTagSettings />', () => {
@@ -19,7 +18,6 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
 
     beforeEach(() => {
         patchBodies = []
-        localStorage.clear()
         useMocks({
             patch: {
                 '/api/environments/:team_id/': async ({ request }) => {
@@ -35,53 +33,29 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
 
     afterEach(() => {
         cleanup()
-        jest.restoreAllMocks()
     })
 
     it.each([
         { stored: undefined, shownOn: true, saved: false },
         { stored: false, shownOn: false, saved: true },
-    ])(
-        'stored $stored shows on=$shownOn, and a click sends only $saved and tells other tabs once it is saved',
-        async ({ stored, shownOn, saved }) => {
-            teamLogic.actions.loadCurrentTeamSuccess({
-                ...MOCK_DEFAULT_TEAM,
-                workflows_config: {
-                    capture_workflows_engagement_events: true,
-                    email_utm_tags_enabled: true,
-                    ...(stored === undefined ? {} : { email_workflow_run_link_tag_enabled: stored }),
-                },
-            })
-            render(<WorkflowsRunLinkTagSettings />)
-            const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
-            expect(toggle).toHaveAttribute('aria-checked', String(shownOn))
-
-            expect(localStorage.getItem(LINK_TAGGING_SAVED_KEY)).toBeNull()
-
-            await userEvent.click(toggle)
-
-            await waitFor(() => expect(patchBodies).toHaveLength(1))
-            expect(patchBodies[0]).toEqual({ workflows_config: { email_workflow_run_link_tag_enabled: saved } })
-            await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
-            expect(localStorage.getItem(LINK_TAGGING_SAVED_KEY)).not.toBeNull()
-        }
-    )
-
-    it('saves the switch when the browser refuses to store the signal for other tabs', async () => {
-        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-            throw new DOMException('Storage is full', 'QuotaExceededError')
-        })
+    ])('stored $stored shows on=$shownOn, and a click sends only $saved', async ({ stored, shownOn, saved }) => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+            workflows_config: {
+                capture_workflows_engagement_events: true,
+                email_utm_tags_enabled: true,
+                ...(stored === undefined ? {} : { email_workflow_run_link_tag_enabled: stored }),
+            },
         })
         render(<WorkflowsRunLinkTagSettings />)
         const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
+        expect(toggle).toHaveAttribute('aria-checked', String(shownOn))
 
         await userEvent.click(toggle)
 
-        await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
-        expect(patchBodies).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
+        await waitFor(() => expect(patchBodies).toHaveLength(1))
+        expect(patchBodies[0]).toEqual({ workflows_config: { email_workflow_run_link_tag_enabled: saved } })
+        await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
     })
 
     it('keeps the switch off for a member without project admin, whose save the project API would refuse', async () => {

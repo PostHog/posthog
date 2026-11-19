@@ -1,13 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { announceLinkTaggingSaved } from './linkTaggingAcrossTabs'
 
 export function WorkflowsRunLinkTagSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -18,16 +15,6 @@ export function WorkflowsRunLinkTagSettings(): JSX.Element {
     })
 
     const enabled = currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true
-
-    // teamLogic replaces the team only after the save commits, so a change of a loaded value means a saved change.
-    const loadedEnabled = currentTeam ? enabled : undefined
-    const previousEnabled = useRef(loadedEnabled)
-    useEffect(() => {
-        if (previousEnabled.current !== undefined && previousEnabled.current !== loadedEnabled) {
-            announceLinkTaggingSaved()
-        }
-        previousEnabled.current = loadedEnabled
-    }, [loadedEnabled])
 
     return (
         <LemonSwitch

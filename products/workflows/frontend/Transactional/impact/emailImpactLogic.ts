@@ -24,7 +24,6 @@ import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
-import { onLinkTaggingSavedInAnotherTab } from 'products/workflows/frontend/scenes/settings/linkTaggingAcrossTabs'
 
 import {
     ImpactFunnelState,
@@ -172,6 +171,8 @@ const runningQueries = new Map<string, Promise<unknown>>()
 // A response that never arrives would otherwise hold the tab on its loading state until a page reload.
 // After this limit the tab runs its query beside the unanswered one.
 export const RUNNING_QUERY_WAIT_LIMIT_MS = 60_000
+
+export const LINK_TAGGING_REFRESH_MS = 30_000
 
 async function settledOrTimedOut(query: Promise<unknown>, ms: number): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -343,24 +344,14 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     }),
     afterMount(({ actions, cache }) => {
         actions.loadImpact()
-        // The link tagging setting can change in another tab, including the one this tab's settings link opens,
-        // so read it again on mount, whenever this tab gets focus back, and when another tab saves it. The save
-        // signal covers a user who comes back before the save commits. The read stays out of teamLogic, because
-        // a slow response there would replace a newer shared team.
-        actions.loadStoredLinkTagging()
-        cache.disposables.add(
-            () => {
-                const onFocus = (): void => actions.loadStoredLinkTagging()
-                window.addEventListener('focus', onFocus)
-                return () => window.removeEventListener('focus', onFocus)
-            },
-            'reloadLinkTaggingOnFocus',
-            { pauseOnPageHidden: false }
-        )
-        cache.disposables.add(
-            () => onLinkTaggingSavedInAnotherTab(() => actions.loadStoredLinkTagging()),
-            'reloadLinkTaggingOnSave',
-            { pauseOnPageHidden: false }
-        )
+        // The link tagging setting can change in another tab, including the one this tab's settings link opens.
+        // kea-disposables runs this setup on mount and again each time the page is shown, so the step reads the
+        // setting then. The timer catches a save that committed after that read, or a read that failed. The read
+        // stays out of teamLogic, because a slow response there would replace a newer shared team.
+        cache.disposables.add(() => {
+            actions.loadStoredLinkTagging()
+            const timer = window.setInterval(() => actions.loadStoredLinkTagging(), LINK_TAGGING_REFRESH_MS)
+            return () => window.clearInterval(timer)
+        }, 'refreshLinkTagging')
     }),
 ])
