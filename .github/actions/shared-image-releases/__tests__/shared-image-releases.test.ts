@@ -15,8 +15,10 @@ describe('shared-image publication bindings and fingerprints', () => {
     const channels = policy.images['posthog-cloud'].channels
     const bindings = bindChannels(policy, 'posthog-cloud')['posthog-cloud']
     expect(Object.keys(bindings).sort()).toEqual(Object.keys(channels).sort())
+    const base = policy.filters.sharedWorkerBase
     for (const [name, channel] of Object.entries(channels)) {
       expect(bindings[name]).toEqual({repository: channel.repository})
+      expect({[channel.filter]: policy.filters[channel.filter].slice(0, base.length)}).toEqual({[channel.filter]: base})
     }
 
     const workflow = yaml.load(readFileSync(path.join(repositoryRoot, '.github/workflows/container-images-cd.yml'), 'utf8')) as

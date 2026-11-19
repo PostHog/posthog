@@ -5,6 +5,7 @@ filters:
     # code goes in its own filter, after the alias.
     sharedWorkerBase: &sharedWorkerBase
         - Dockerfile
+        - .dockerignore
         - pyproject.toml
         - uv.lock
         - manage.py
@@ -89,11 +90,30 @@ filters:
         - posthog/exceptions_capture.py
         - posthog/schema_enums.py
         - posthog/dataclasses.py
-        - 'posthog/scopes/**'
+        - posthog/scopes/__init__.py
+        - posthog/scopes/exposure.py
+        - posthog/scopes/catalog.py
+        - posthog/scopes/ceilings.py
+        - posthog/scopes/checks.py
+        - posthog/scopes/oauth.py
         - posthog/security/postgres_hosts.py
-        - 'posthog/kafka_client/**'
+        - posthog/kafka_client/profiles.py
+        - posthog/kafka_client/topics.py
+        - posthog/kafka_client/routing.py
+        - posthog/kafka_client/client.py
+        - posthog/kafka_client/helper.py
         - posthog/redis.py
-        - 'posthog/storage/**'
+        - posthog/storage/team_access_cache_signal_handlers.py
+        - posthog/storage/gateway_credential_signal_handlers.py
+        - posthog/storage/gateway_credential_cache.py
+        - posthog/storage/team_llm_gateway_policy_signal_handlers.py
+        - posthog/storage/team_llm_gateway_policy_cache.py
+        - posthog/storage/team_metadata_signal_handlers.py
+        - posthog/storage/team_metadata_cache.py
+        - posthog/storage/hypercache_manager.py
+        - posthog/storage/hypercache.py
+        - posthog/storage/cache_expiry_manager.py
+        - posthog/storage/object_storage.py
         - 'posthog/personhog_client/**'
         - 'packages/personhog-proto/**'
         - posthog/clickhouse/client/connection.py
@@ -110,10 +130,12 @@ filters:
         - common/migration_utils/__init__.py
         - 'posthog/clickhouse/migrations/**'
         - posthog/management/commands/migrate_clickhouse.py
+        - posthog/clickhouse/client/__init__.py
+        - posthog/clickhouse/client/execute.py
         - posthog/clickhouse/client/migration_tools.py
         - posthog/clickhouse/cluster.py
     # Not on sharedWorkerBase: the legacy data warehouse worker's deploy trigger reads
-    # this filter, not a channel, and it deliberately lists less than the base.
+    # this filter, not a channel, and it lists its own rows.
     dataWarehouse:
         # posthog/hogql* covers hogql and hogql_queries, which the shell gate
         # this replaces matched as one prefix.
@@ -144,6 +166,7 @@ filters:
         - 'products/data_modeling/backend/**'
         - 'posthog/llm/**'
         - 'products/data_warehouse/backend/**'
+        - 'posthog/kafka_client/**'
         - 'common/hogvm/**'
         - posthog/schema.py
     experimentsRecalculationActivity:
@@ -174,6 +197,7 @@ filters:
         - 'products/event_definitions/backend/logic/__init__.py'
         - 'products/event_definitions/backend/logic/placeholder.py'
         - 'posthog/temporal/oauth.py'
+        - 'posthog/scopes/**'
         - 'products/security/backend/facade/**'
         - 'products/security/backend/logic/**'
         - 'products/security/backend/metrics.py'
@@ -266,6 +290,7 @@ filters:
         - products/data_modeling/backend/logic/saved_query_reads.py
         - products/endpoints/backend/facade/models.py
         - products/endpoints/backend/models.py
+        - 'posthog/scopes/**'
         - 'products/event_definitions/backend/models/**'
         - products/event_definitions/backend/property_type.py
         - 'products/data_modeling/backend/models/**'
@@ -352,6 +377,7 @@ filters:
         - posthog/tasks/usage_report.py
         - products/error_tracking/backend/facade/api.py
         - 'posthog/usage_ingestion/**'
+        - 'posthog/kafka_client/**'
         - posthog/credentials.py
         - 'posthog/credentials_service/**'
         - posthog/jwt.py
@@ -391,12 +417,14 @@ filters:
         - posthog/caching/__init__.py
         - posthog/caching/ai_gateway_redis_cache.py
         - posthog/caching/tasks_redis_cache.py
+        - 'posthog/storage/**'
         - 'posthog/egress/**'
         - 'posthog/integrations/**'
         - 'posthog/credentials_service/**'
         - 'posthog/security/**'
         - posthog/helpers/encrypted_fields.py
         - posthog/helpers/email_utils.py
+        - 'posthog/kafka_client/**'
         - 'posthog/clickhouse/**'
         - posthog/management/commands/__init__.py
         - ee/__init__.py
@@ -653,6 +681,7 @@ filters:
         - 'posthog/api/services/**'
         - 'posthog/schema_migrations/**'
         - 'posthog/temporal/exports/**'
+        - 'posthog/storage/**'
         - 'ee/billing/**'
         - 'ee/models/*'
         - posthog/templates/email/alert_platform_notification.html
@@ -669,6 +698,7 @@ filters:
         - posthog/helpers/email_utils.py
         - posthog/helpers/markdown_safety.py
         - posthog/helpers/tiktoken_encoding.py
+        - 'posthog/kafka_client/**'
         - 'posthog/query_scan/**'
         - 'posthog/slo/**'
         - posthog/api/embedding_worker.py
@@ -802,6 +832,7 @@ filters:
         - posthog/caching/ai_gateway_redis_cache.py
         - posthog/caching/tasks_redis_cache.py
         - posthog/caching/cache_version.py
+        - 'posthog/storage/**'
         - 'ee/billing/**'
         - 'ee/models/*'
         - posthog/templates/email/alert_platform_notification.html
@@ -818,6 +849,7 @@ filters:
         - posthog/helpers/email_utils.py
         - posthog/helpers/markdown_safety.py
         - posthog/helpers/tiktoken_encoding.py
+        - 'posthog/kafka_client/**'
         - products/error_tracking/backend/indexed_embedding.py
         - posthog/taxonomy/taxonomy.py
         - 'posthog/hogql*/**'

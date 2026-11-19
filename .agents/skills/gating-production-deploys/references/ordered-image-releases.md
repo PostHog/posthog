@@ -70,19 +70,19 @@ filters:
 - `start_temporal_worker` and what it executes for every queue, including the `ready()` hooks, the system checks and the feature flag definition poll;
 - the values the start reads for every queue: the product `facade/temporal.py` declarations and the metric, interceptor and internal log modules they name;
 - the models and the clients every worker builds or uses: Kafka, Redis, storage, ClickHouse and the person client with its protobuf package;
-- what the deploy's two migration checks, `migrate --check` and `migrate_clickhouse --check`, load from the worker's image: the Django and ClickHouse migration directories, both commands and the modules they import. Do not narrow these rows.
+- what the deploy's two migration checks, `migrate --check` and `migrate_clickhouse --check`, load from the worker's image: the Django and ClickHouse migration directories, both commands, and the modules the checks load when they run, such as the migration helpers and the ClickHouse client package. Do not narrow these rows.
 
-Code that only some workers run goes in those workers' own rows. A row lives in the base or in a filter's own rows, never in both. An own row does not repeat a base row or name a file that a base wildcard already matches. The base has no `!` rows: an exclude vetoes a path in every filter that uses the alias, wherever the row sits. `dataWarehouse` does not use the base, because the legacy data warehouse worker's deploy trigger reads it and no channel binds it.
+Code that only some workers run goes in those workers' own rows. A row lives in the base or in a filter's own rows, never in both. An own row does not repeat a base row or name a file that a base wildcard already matches. An own wildcard may also match base rows: keep it, because removing it narrows the filter. The base has no `!` rows: an exclude vetoes a path in every filter that uses the alias, wherever the row sits. `dataWarehouse` does not use the base, because the legacy data warehouse worker's deploy trigger reads it and no channel binds it.
 
 Find a worker's own rows from its task queue:
 
 1. List the workflows and activities registered for the queue: its `QueueBinding` entries in the products' `facade/temporal.py` declarations, and its entry in `_task_queue_specs` in `posthog/management/commands/start_temporal_worker.py`.
 2. Add the modules those workflows and activities call.
-3. Add the code that the worker's tests execute.
+3. Add the production modules that the worker's tests exercise, not the test files themselves.
 
-Stop at code that every worker runs, because the base lists it, and at code the worker does not run.
+Stop at code the base lists and at code the worker does not run. The base lists what every worker runs at start. It does not list every module a worker loads.
 
-The table shows the waits on 2026-11-19. It covers the 20,622 first-parent commits on `master` in the previous 90 days. For each commit that no row matches, the wait is the committer time from that commit to the next commit that a row matches.
+The table shows the waits on 2026-11-19. It covers the 20,638 first-parent commits on `master` in the previous 90 days. For each commit that no row matches, the wait is the committer time from that commit to the next commit that a row matches.
 
 | Filter                              | Commits that match | Median wait | 90th percentile | 99th percentile | Longest wait |
 | ----------------------------------- | -----------------: | ----------: | --------------: | --------------: | -----------: |
@@ -92,12 +92,12 @@ The table shows the waits on 2026-11-19. It covers the 20,622 first-parent commi
 | `wizardWorker`                      |              18.4% |      13 min |           1.4 h |          13.2 h |       37.9 h |
 | `genericWorker`                     |              19.9% |      12 min |           1.4 h |          12.0 h |       33.1 h |
 | `alertsPlatformSharedOrchestration` |              17.3% |      15 min |           1.5 h |          13.1 h |       32.8 h |
-| `alertsPlatformEvaluation`          |              40.4% |       6 min |          52 min |           6.3 h |       21.0 h |
+| `alertsPlatformEvaluation`          |              40.5% |       6 min |          52 min |           6.3 h |       21.0 h |
 | `alertsPlatformDelivery`            |              25.3% |       9 min |           1.1 h |           7.8 h |       27.3 h |
 
-When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force publishes the current build when no row matches, under the same identity, history and destination rules as any publication (see [Selective publication](#selective-publication)). The dispatch also reruns the full CD workflow for the current `master` HEAD (see [Bootstrap and activation](#bootstrap-and-activation)). No scheduled job forces a publication.
+When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force publishes the current build when no row matches, under the same identity, history and destination rules as any publication (see [Selective publication](#selective-publication)). A force dispatch runs the CD workflow under its manual-dispatch conditions, which skip the image boot check, so a successful force is not evidence that the image passed that check. No scheduled job forces a publication.
 
-A changed filter changes its policy fingerprint, so the next `master` build publishes that channel once even when no changed file matches. A change to `sharedWorkerBase` changes every filter that uses the alias, so each of their channels publishes once. Never edit the `bootstrapPolicyDigest` of a seeded channel: the publisher blocks a channel whose `bootstrapPolicyDigest` differs from the value in its history. A new channel still needs its one reviewed seed (see [Bootstrap and activation](#bootstrap-and-activation)).
+A changed filter changes its policy fingerprint, which qualifies each seeded channel that uses the filter on its next eligible build, even when no changed file matches. A change to `sharedWorkerBase` changes every filter that uses the alias, so it qualifies all their channels. A build is eligible when the publication job runs, which needs a successful build on the default branch with deploys enabled and publication not paused. The publisher can still block a qualified channel, for example on its frontier or on image identity, and the publication job continues on error. Confirm publication from the channel results of that run (`shared-image-releases/results.json`), not from a green build. Never edit the `bootstrapPolicyDigest` of a seeded channel: the publisher blocks a channel whose `bootstrapPolicyDigest` differs from the value in its history. A new channel still needs its one reviewed seed (see [Bootstrap and activation](#bootstrap-and-activation)).
 
 ## Interval and fingerprint APIs
 
