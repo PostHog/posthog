@@ -6,6 +6,7 @@ import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals, PersonType } from '~/types'
 
+import type { HogFlowInvocationApi } from '../../../../generated/api.schemas'
 import { workflowLogic } from '../../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
@@ -491,7 +492,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             ],
         ])('records the test email events when %s', async (_, step, mocked, response, expected) => {
             const events: { event: string; properties: unknown }[] = []
-            const submitted: Record<string, any>[] = []
+            const submitted: HogFlowInvocationApi[] = []
             jest.mocked(posthog.capture).mockImplementation((event, properties) => {
                 events.push({ event, properties })
                 return undefined
@@ -500,7 +501,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
                 post: {
                     '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
-                        submitted.push((await request.json()) as Record<string, any>)
+                        submitted.push((await request.json()) as HogFlowInvocationApi)
                         return [200, response]
                     },
                 },

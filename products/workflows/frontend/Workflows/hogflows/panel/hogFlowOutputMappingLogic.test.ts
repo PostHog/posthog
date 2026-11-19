@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { HogFlowInvocationApi } from '../../../generated/api.schemas'
 import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction, HogFlowActionNode } from '../types'
@@ -618,11 +619,11 @@ describe('hogFlowOutputMappingLogic', () => {
                     config: { inputs: {} },
                 } as HogFlowAction
                 const node = { ...makeActionNode('email'), data: email }
-                const submitted: Record<string, any>[] = []
+                const submitted: HogFlowInvocationApi[] = []
                 useMocks({
                     post: {
                         '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
-                            submitted.push((await request.json()) as Record<string, any>)
+                            submitted.push((await request.json()) as HogFlowInvocationApi)
                             return [
                                 200,
                                 {
@@ -648,10 +649,9 @@ describe('hogFlowOutputMappingLogic', () => {
                 expect(submitted.map((body) => [body.current_action_id, body.mock_async_functions])).toEqual([
                     ['email', false],
                 ])
-                expect(capture).toHaveBeenCalledWith('workflows test email sent', {
-                    step_type: 'function_email',
-                    sender_kind: 'own_domain',
-                })
+                expect(capture.mock.calls.filter(([event]) => event === 'workflows test email sent')).toEqual([
+                    ['workflows test email sent', { step_type: 'function_email', sender_kind: 'own_domain' }],
+                ])
             })
         })
     })

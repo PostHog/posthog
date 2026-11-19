@@ -51,8 +51,7 @@ class WorkflowEmailSandboxViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(operation_id="workflow_email_sandbox_status", responses={200: WorkflowEmailSandboxStatusSerializer})
     @action(detail=False, methods=["get"])
     def status(self, request: Request, **kwargs: Any) -> Response:
-        sender_status = sandbox_sender_status(self.team, self._user(), report_exposure=True)
-        return Response(WorkflowEmailSandboxStatusSerializer(sender_status).data)
+        return Response(WorkflowEmailSandboxStatusSerializer(sandbox_sender_status(self.team, self._user())).data)
 
     @extend_schema(
         operation_id="workflow_email_sandbox_provision",
