@@ -1390,6 +1390,7 @@ describe('cloud controller', () => {
             writer_class: 'db.r8g.2xlarge',
             reader_acu_min: 1,
             reader_acu_max: 32,
+            reader_acu_idle_max: 2.5,
             reader_monitoring_interval_seconds: 60,
             host_class: 'm7i.8xlarge',
             engine_version: '16.4',
@@ -1456,6 +1457,7 @@ describe('cloud controller', () => {
             ...p,
             readerMonitoringIntervalSeconds: 5,
         }))
+        const lowerIdleLimit = await fingerprintOf((p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax: 2 } }))
 
         expect(first).toMatch(/^[0-9a-f]{64}$/)
         expect(repriced).toBe(first)
@@ -1463,6 +1465,18 @@ describe('cloud controller', () => {
         expect(monitoredEverySecond).not.toBe(first)
         expect(monitoredEveryFiveSeconds).not.toBe(monitoredEverySecond)
         expect(monitoredEveryFiveSecondsAgain).toBe(monitoredEveryFiveSeconds)
+        expect(lowerIdleLimit).not.toBe(first)
+    })
+
+    it('keeps the fingerprint of a profile without an idle limit', async () => {
+        const { controller } = prepare({
+            profile: ({ readerAcu: { idleMax: _, ...readerAcu }, ...p }) => ({ ...p, readerAcu }),
+            env: api.credentials,
+        })
+
+        await main(['run', profilePath(), 'cyclotron-scale'], controller)
+
+        expect(published().fingerprint).toBe('2065d69326248cfa85df8346e4b82628228fe78b97b2e9fcacf8edfdcc65aa94')
     })
 
     it.each<[string, (fake: FakeCloud) => void, (volumeId: string) => unknown]>([
