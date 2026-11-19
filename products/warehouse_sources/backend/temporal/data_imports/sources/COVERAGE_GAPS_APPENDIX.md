@@ -5861,9 +5861,9 @@ Diffed against: <https://developer.helpscout.com/mailbox-api/>
 - [x] `Teams (GET /v2/teams)` — identify support teams that receive conversations and compare team workloads (high)
 - [x] `Inbox custom fields (GET /v2/mailboxes/{mailboxId}/fields)` — resolve conversation field IDs and dropdown option IDs to names and labels (high)
 - [x] `Happiness Ratings Report (GET /v2/reports/happiness/ratings)` — measure customer satisfaction and connect ratings to support conversations and agents (high)
-- [ ] `Team members (GET /v2/teams/{teamId}/members)` — join agents to teams for staffing, workload, and performance comparisons (medium)
-- [ ] `Productivity Overall Report (GET /v2/reports/productivity)` — compare response times, resolution times, and support productivity with the vendor's reported metrics (medium)
-- [ ] `User Conversation History (GET /v2/reports/user/conversation-history)` — measure each agent's participation in conversations beyond the current assigned agent (medium)
+- [x] `Team members (GET /v2/teams/{teamId}/members)` — join agents to teams for staffing, workload, and performance comparisons (medium). Added as `team_members` (fan-out over `teams`).
+- [ ] `Productivity Overall Report (GET /v2/reports/productivity)` — compare response times, resolution times, and support productivity with the vendor's reported metrics (medium). Skipped: returns one aggregate snapshot per date window (averages and range buckets), not rows; the per-conversation data comes from the drilldown reports.
+- [x] `User Conversation History (GET /v2/reports/user/conversation-history)` — measure each agent's participation in conversations beyond the current assigned agent (medium). Added as `user_conversation_history` (fan-out over `users`).
 
 Note: Compared the official endpoint index and individual request examples with the static catalog, including conversation threads. Reports require Plus or Pro plans and date windows. Team members and custom fields need parent fan-out; auth, attachments, and webhook configuration are excluded.
 

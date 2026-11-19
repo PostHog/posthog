@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
@@ -13,6 +14,7 @@ from products.warehouse_sources.sources.helpscout.settings import (
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     ClientConfig,
+    Endpoint,
     JSONResponsePaginator,
     PageNumberPaginator,
     Resource,
@@ -218,6 +220,21 @@ def _top_level_resource(
     )
 
 
+def _drop_repeated_rows(key_fields: list[str]) -> Callable[[dict[str, Any]], bool]:
+    # Repeats arrive next to each other because the report is sorted on the conversation
+    # number, so only the previous key needs to be kept.
+    previous: list[tuple[Any, ...]] = []
+
+    def _keep(row: dict[str, Any]) -> bool:
+        key = tuple(row.get(field) for field in key_fields)
+        if previous and previous[0] == key:
+            return False
+        previous[:] = [key]
+        return True
+
+    return _keep
+
+
 def _fanout_resource(
     client_config: ClientConfig,
     config: HelpScoutEndpointConfig,
@@ -228,17 +245,36 @@ def _fanout_resource(
     assert config.fanout is not None
     parent_config = HELP_SCOUT_ENDPOINTS[config.fanout.parent_name]
 
+    report_end = _format_since(datetime.now(UTC))
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.fanout_state:
             initial_paginator_state = resume.fanout_state
+            if resume.report_end:
+                report_end = resume.report_end
+
+    child_params: dict[str, Any] = dict(config.params)
+    child_endpoint_extra: Endpoint
+    if config.is_report:
+        child_params.update({"start": _REPORT_WINDOW_START, "end": report_end})
+        child_endpoint_extra = {
+            "paginator": PageNumberPaginator(base_page=1, total_path="pages"),
+            "data_selector": config.embedded_key,
+        }
+    else:
+        child_endpoint_extra = {
+            "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
+            "data_selector": f"_embedded.{config.embedded_key}",
+        }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state is not None:
-            resumable_source_manager.save_state(HelpScoutResumeConfig(fanout_state=state))
+            resumable_source_manager.save_state(
+                HelpScoutResumeConfig(fanout_state=state, report_end=report_end if config.is_report else "")
+            )
 
-    return cast(
+    resource = cast(
         Resource,
         build_dependent_resource(
             endpoint_configs=HELP_SCOUT_ENDPOINTS,
@@ -257,12 +293,13 @@ def _fanout_resource(
                 "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
                 "data_selector": f"_embedded.{parent_config.embedded_key}",
             },
-            child_endpoint_extra={
-                "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
-                "data_selector": f"_embedded.{config.embedded_key}",
-            },
+            child_endpoint_extra=child_endpoint_extra,
+            child_params_extra=child_params or None,
         ),
     )
+    if config.is_report:
+        resource = resource.add_filter(_drop_repeated_rows(config.primary_key))
+    return resource
 
 
 def helpscout_source(
