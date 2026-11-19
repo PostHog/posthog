@@ -1,5 +1,6 @@
 const BODY_OPEN_TAG = /<body\b[^>]*>/i
 const OPEN_TAG = /<([a-z][a-z0-9]*)\b[^<>]*>/gi
+const CLOSE_TAG = /<\/[a-z][a-z0-9]*\s*>/gi
 const HIDDEN_STYLE = /display\s*:\s*none/i
 const ENTITY = /&(#x[0-9a-f]+|#\d+|[a-z]+);/gi
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
@@ -19,23 +20,61 @@ const visibleText = (text: string): string =>
         .replace(/[\s ]+/g, ' ')
         .trim()
 
+// Markup inside a comment, including an Outlook-only `<!--[if mso]>` branch, never renders in the
+// clients that read the preview, so it cannot act as the preheader. An indexOf walk rather than a
+// regex, because a body full of unclosed `<!--` would make a lazy-quantifier regex rescan to the end
+// for each one.
+const stripComments = (html: string): string => {
+    let start = html.indexOf('<!--')
+    if (start === -1) {
+        return html
+    }
+    let out = ''
+    let pos = 0
+    while (start !== -1) {
+        out += html.slice(pos, start)
+        const end = html.indexOf('-->', start + 4)
+        if (end === -1) {
+            // An unclosed comment hides everything after it.
+            return out
+        }
+        pos = end + 3
+        start = html.indexOf('<!--', pos)
+    }
+    return out + html.slice(pos)
+}
+
 // The editor can bake the preview text into the template as a hidden element already, so adding the
-// step's own copy as well makes inboxes show the preview twice.
+// step's own copy as well makes inboxes show the preview twice. Only a hidden element that comes
+// before any other body text acts as the preview, so a copy further down does not count.
 const hasHiddenPreheader = (html: string, preheader: string): boolean => {
     const wanted = visibleText(preheader)
+    const stripped = stripComments(html)
+    const bodyOpen = BODY_OPEN_TAG.exec(stripped)
+    const body = bodyOpen ? stripped.slice(bodyOpen.index + bodyOpen[0].length) : stripped
     let lowerCased: string | undefined
-    for (const openTag of html.matchAll(OPEN_TAG)) {
+    let textFrom = 0
+    for (const openTag of body.matchAll(OPEN_TAG)) {
+        if (visibleText(body.slice(textFrom, openTag.index).replace(CLOSE_TAG, '')) !== '') {
+            return false
+        }
+        const contentStart = openTag.index + openTag[0].length
+        textFrom = contentStart
         if (!HIDDEN_STYLE.test(openTag[0])) {
             continue
         }
-        const contentStart = openTag.index + openTag[0].length
-        lowerCased ??= html.toLowerCase()
-        const contentEnd = lowerCased.indexOf(`</${openTag[1].toLowerCase()}`, contentStart)
+        // A matching element's content holds no markup, so its closing tag can only be the next tag.
+        // Checking just that position keeps the scan linear however many hidden tags the html holds,
+        // instead of rescanning the rest of the email for each one and stalling the worker.
+        const contentEnd = body.indexOf('<', contentStart)
         if (contentEnd === -1) {
             continue
         }
-        const content = html.slice(contentStart, contentEnd)
-        if (!content.includes('<') && visibleText(content) === wanted) {
+        lowerCased ??= body.toLowerCase()
+        if (!lowerCased.startsWith(`</${openTag[1].toLowerCase()}`, contentEnd)) {
+            continue
+        }
+        if (visibleText(body.slice(contentStart, contentEnd)) === wanted) {
             return true
         }
     }

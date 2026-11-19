@@ -25,6 +25,16 @@ describe('maybeAddPreheaderToEmail', () => {
             '<BODY><DIV STYLE="display : none">Preview</DIV><p>Hi</p></BODY>',
             'Preview',
         ],
+        [
+            'a hidden element preceded only by markup without text',
+            `<body><div class="spacer"></div><table><tr><td style="${HIDDEN_STYLE}">Preview</td></tr></table><p>Hi</p></body>`,
+            'Preview',
+        ],
+        [
+            'a hidden element revealed to non-outlook clients by a conditional comment',
+            `<body><!--[if !mso]><!--><div style="${HIDDEN_STYLE}">Preview</div><!--<![endif]--><p>Hi</p></body>`,
+            'Preview',
+        ],
     ])('leaves the html alone when it already has the preheader in %s', (_case, html, preheader) => {
         expect(maybeAddPreheaderToEmail(html, preheader)).toBe(html)
     })
@@ -45,6 +55,21 @@ describe('maybeAddPreheaderToEmail', () => {
             'hidden markup that matches a preheader written as escaped markup',
             `<body><div style="${HIDDEN_STYLE}"><b>Preview</b></div></body>`,
             '&lt;b&gt;Preview&lt;/b&gt;',
+        ],
+        [
+            'the preheader in a hidden element commented out',
+            `<body><!-- <div style="${HIDDEN_STYLE}">Preview</div> --><p>Hi</p></body>`,
+            'Preview',
+        ],
+        [
+            'the preheader in a hidden element only outlook renders',
+            `<body><!--[if mso]><div style="${HIDDEN_STYLE}">Preview</div><![endif]--><p>Hi</p></body>`,
+            'Preview',
+        ],
+        [
+            'a hidden copy of the preheader after visible body text',
+            `<body><p>Body first</p><div style="${HIDDEN_STYLE}">Preview</div></body>`,
+            'Preview',
         ],
     ])('still adds the preheader when the html has %s', (_case, html, preheader) => {
         const result = maybeAddPreheaderToEmail(html, preheader)
