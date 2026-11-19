@@ -38,7 +38,9 @@ describe('ThreadTurn', () => {
 
     test.each([
         ['as plain text', 'Why did my invoice go up?', 'Why did my invoice go up?'],
-        ['as the fields of a JSON string', '{"question": "Why did my invoice go up?"}', 'question'],
+        ['as its fields', { question: 'Why did my invoice go up?' }, 'question'],
+        ['as the text it is when the text holds JSON', '{"question": "Why?"}', '{"question": "Why?"}'],
+        ['as nothing captured when it is an empty list', [], 'Nothing captured.'],
     ])('shows a side the server returned as json in its place, %s', (_name, value, shownText) => {
         const { getByText } = render(
             <ThreadTurn
@@ -55,13 +57,13 @@ describe('ThreadTurn', () => {
 
     const jsonTurn: ConversationTurn = {
         ...turn,
-        input: { kind: 'json', value: '{"filters": {"types": ["invoice"]}}' },
+        input: { kind: 'json', value: { filters: { types: ['invoice'] } } },
     }
 
     test.each([
         ['cuts a bubble taller than the window', turn, window.innerHeight + 1, null, 1],
         ['shows a bubble that holds the search query in full', turn, window.innerHeight + 1, 'seats', 0],
-        ['cuts a JSON field taller than half the window', jsonTurn, window.innerHeight / 2 + 1, null, 1],
+        ['cuts a JSON side once however deep it nests', jsonTurn, window.innerHeight + 1, null, 2],
     ])('%s', (_name, shownTurn, contentHeight, highlightQuery, readMoreCount) => {
         const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(contentHeight)
         try {
