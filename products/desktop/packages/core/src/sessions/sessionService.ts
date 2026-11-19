@@ -375,7 +375,6 @@ export interface SessionTrpc {
     /** Optional: only the Electron host exposes the tail read. Core feature-
      * detects and falls back to a full read when it's absent. */
     readLocalLogsTail?: TrpcQuery;
-    fetchS3Logs: TrpcQuery;
     writeLocalLogs: TrpcMutation;
   };
 }
@@ -1939,8 +1938,8 @@ export class SessionService {
   constructor(private readonly d: SessionServiceDeps) {
     this.cloudRunIdleTracker = new CloudRunIdleTracker();
     this.cloudLogGapReconciler = new CloudLogGapReconciler({
-      fetchLogs: (logUrl, taskRunId, minEntryCount) =>
-        this.fetchSessionLogs(logUrl, taskRunId, { minEntryCount }),
+      fetchLogs: (taskId, taskRunId, minEntryCount) =>
+        this.fetchSessionLogs(taskId, taskRunId, { minEntryCount }),
       getSession: (taskRunId) => {
         const session = d.store.getSessions()[taskRunId];
         if (!session) return undefined;
@@ -2085,7 +2084,7 @@ export class SessionService {
         if (!this.d.getIsOnline()) {
           this.d.log.info("Skipping connection attempt - offline", { taskId });
           const { rawEntries } = await this.fetchSessionLogs(
-            logUrl,
+            taskId,
             existingRunId,
           );
           const events = convertStoredEntriesToEvents(rawEntries);
@@ -2103,7 +2102,7 @@ export class SessionService {
         // session once everything below resolves.
         const [workspaceResult, logResult] = await Promise.all([
           this.d.trpc.workspace.verify.query({ taskId }),
-          this.fetchSessionLogs(logUrl, existingRunId),
+          this.fetchSessionLogs(taskId, existingRunId),
           this.paintTailFirst(existingRunId, taskId, taskTitle, logUrl),
         ]);
 
@@ -2173,14 +2172,14 @@ export class SessionService {
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
       const session = createBaseSession(taskRunId, taskId, taskTitle);
       this.stampRunConfig(session, params);
-      if (latestRun?.log_url) {
+      if (latestRun) {
         try {
           const { rawEntries } = await this.fetchSessionLogs(
-            latestRun.log_url,
+            taskId,
             latestRun.id,
           );
           session.events = convertStoredEntriesToEvents(rawEntries);
-          session.logUrl = latestRun.log_url;
+          session.logUrl = latestRun.log_url || undefined;
         } catch {
           // Ignore log fetch errors
         }
@@ -2273,7 +2272,7 @@ export class SessionService {
     },
   ): Promise<boolean> {
     const { rawEntries, sessionId, adapter } =
-      prefetchedLogs ?? (await this.fetchSessionLogs(logUrl, taskRunId));
+      prefetchedLogs ?? (await this.fetchSessionLogs(taskId, taskRunId));
     const events = convertStoredEntriesToEvents(rawEntries);
 
     const storedAdapter = this.d.adapterStore.getAdapter(taskRunId);
@@ -2832,11 +2831,8 @@ export class SessionService {
     // the replay is already in the local run log, so load it for the UI.
     if (importedSessionId) {
       try {
-        const { rawEntries } = await this.fetchSessionLogs(
-          undefined,
-          taskRun.id,
-        );
-        session.events = convertStoredEntriesToEvents(rawEntries);
+        const local = await this.readLocalSessionLogs(taskRun.id);
+        session.events = convertStoredEntriesToEvents(local?.rawEntries ?? []);
       } catch {
         this.d.log.warn(
           "Failed to load replayed history for imported session",
@@ -2890,13 +2886,13 @@ export class SessionService {
     taskId: string;
     taskRunId: string;
     taskTitle: string;
-    logUrl: string;
+    logUrl?: string;
   }): Promise<void> {
     const { taskId, taskRunId, taskTitle, logUrl } = params;
     const existing = this.d.store.getSessionByTaskId(taskId);
     if (existing && existing.events.length > 0) return;
 
-    const { rawEntries } = await this.fetchSessionLogs(logUrl, taskRunId);
+    const { rawEntries } = await this.fetchSessionLogs(taskId, taskRunId);
     const events = convertStoredEntriesToEvents(rawEntries);
     const session = createBaseSession(taskRunId, taskId, taskTitle);
     session.events = events;
@@ -3126,7 +3122,7 @@ export class SessionService {
           );
         } else {
           const { rawEntries, totalLineCount } = await this.fetchSessionLogs(
-            session.logUrl,
+            taskId,
             taskRunId,
           );
           const fresh = this.d.store.getSessionByTaskId(taskId);
@@ -6529,7 +6525,7 @@ export class SessionService {
       return true;
     }
     const { rawEntries } = await this.fetchSessionLogs(
-      session.logUrl,
+      session.taskId,
       session.taskRunId,
     );
     return convertStoredEntriesToEvents(rawEntries).some(isConversationEvent);
@@ -6584,7 +6580,7 @@ export class SessionService {
     }
     const auth = authStatus.auth;
 
-    const prefetchedLogs = await this.fetchSessionLogs(logUrl, taskRunId);
+    const prefetchedLogs = await this.fetchSessionLogs(taskId, taskRunId);
 
     // Determine sessionId: undefined = use from logs, null = strip (fresh), string = use as-is
     const sessionId =
@@ -7783,7 +7779,7 @@ export class SessionService {
           );
           const overlap = suffixPrefixOverlap(ancestorKeys, currentKeys);
           const persistedLeafEntries = currentRunEntries.slice(overlap);
-          const leafLogs = await this.fetchSessionLogs(logUrl, taskRunId);
+          const leafLogs = await this.fetchSessionLogs(taskId, taskRunId);
           const leafKeys = new Set(
             persistedLeafEntries.map((entry) => JSON.stringify(entry)),
           );
@@ -7817,10 +7813,10 @@ export class SessionService {
         rawEntries = window.entries;
         liveStreamLineCount = window.chainTotal;
         // A terminal run whose persisted chain comes back empty can still
-        // have a complete S3 session log (persistence raced teardown); fall
+        // have a complete run log (persistence raced teardown); fall
         // back to it rather than hydrating an empty final transcript.
-        if (rawEntries.length === 0 && logUrl) {
-          const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
+        if (rawEntries.length === 0) {
+          const parsed = await this.fetchSessionLogs(taskId, taskRunId);
           if (parsed.rawEntries.length > 0) {
             transcriptWindow = null;
             rawEntries = parsed.rawEntries;
@@ -7832,10 +7828,10 @@ export class SessionService {
     } else {
       // The local cache read is free and offline-safe, so it keeps priority;
       // a cache miss fetches only the newest window of the persisted chain
-      // instead of the whole log file. The full S3 read survives as the
+      // instead of the whole log file. The full run log read survives as the
       // fallback for old servers and auth that is still restoring.
-      const local = await this.fetchSessionLogs(undefined, taskRunId);
-      if (local.rawEntries.length > 0) {
+      const local = await this.readLocalSessionLogs(taskRunId);
+      if (local?.rawEntries.length) {
         rawEntries = local.rawEntries;
         liveStreamLineCount = local.totalLineCount;
       } else {
@@ -7849,7 +7845,7 @@ export class SessionService {
               taskRunId,
             )
           : null;
-        // An empty persisted chain can trail an S3 log that already has
+        // An empty persisted chain can trail a run log that already has
         // entries (persistence lag), so only a non-empty window short-circuits
         // the full read.
         if (window && window.entries.length > 0) {
@@ -7865,7 +7861,7 @@ export class SessionService {
             );
           }
         } else {
-          const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
+          const parsed = await this.fetchSessionLogs(taskId, taskRunId);
           rawEntries = parsed.rawEntries;
           liveStreamLineCount = parsed.totalLineCount;
         }
@@ -8713,13 +8709,13 @@ export class SessionService {
     session: ReconcileSessionState | undefined,
   ): void {
     if (session && session.eventCount > 0) return;
-    if (!task.latest_run?.id || !task.latest_run?.log_url) return;
+    if (!task.latest_run?.id) return;
 
     this.loadLogsOnly({
       taskId: task.id,
       taskRunId: task.latest_run.id,
       taskTitle: task.title || task.description || "Task",
-      logUrl: task.latest_run.log_url,
+      logUrl: task.latest_run.log_url || undefined,
     });
   }
 
@@ -9404,7 +9400,7 @@ export class SessionService {
     taskRunId: string,
     taskId: string,
     taskTitle: string,
-    logUrl: string,
+    logUrl: string | undefined,
   ): Promise<void> {
     const tailQuery = this.d.trpc.logs.readLocalLogsTail;
     if (!tailQuery) return;
@@ -9463,9 +9459,28 @@ export class SessionService {
     return { content };
   }
 
+  private async readLocalSessionLogs(
+    taskRunId: string,
+  ): Promise<ParsedSessionLogs | undefined> {
+    try {
+      const { content, originalLineCount } =
+        await this.readLocalLogsPreferCollapsed(taskRunId);
+      if (!content?.trim()) return undefined;
+      const parsed = this.parseLogContent(content);
+      // Collapsed content has fewer lines than the file, so keep the
+      // server's original line count for resume/gap tracking.
+      return originalLineCount === undefined
+        ? parsed
+        : { ...parsed, totalLineCount: originalLineCount };
+    } catch {
+      this.d.log.warn("Failed to read local logs", { taskRunId });
+      return undefined;
+    }
+  }
+
   private async fetchSessionLogs(
-    logUrl: string | undefined,
-    taskRunId?: string,
+    taskId: string,
+    taskRunId: string,
     options: { minEntryCount?: number } = {},
   ): Promise<ParsedSessionLogs> {
     const empty: ParsedSessionLogs = {
@@ -9473,48 +9488,29 @@ export class SessionService {
       totalLineCount: 0,
       parseFailureCount: 0,
     };
-    if (!logUrl && !taskRunId) return empty;
-    let localResult: ParsedSessionLogs | undefined;
-
-    if (taskRunId) {
-      try {
-        const { content, originalLineCount } =
-          await this.readLocalLogsPreferCollapsed(taskRunId);
-        if (content?.trim()) {
-          const parsed = this.parseLogContent(content);
-          // Collapsed content has fewer lines than the file, so keep the
-          // server's original line count for resume/gap tracking.
-          localResult =
-            originalLineCount === undefined
-              ? parsed
-              : { ...parsed, totalLineCount: originalLineCount };
-          if (
-            !options.minEntryCount ||
-            localResult.totalLineCount >= options.minEntryCount
-          ) {
-            return localResult;
-          }
-        }
-      } catch {
-        this.d.log.warn("Failed to read local logs, falling back to S3", {
-          taskRunId,
-        });
+    const localResult = await this.readLocalSessionLogs(taskRunId);
+    if (localResult) {
+      if (localResult.totalLineCount >= (options.minEntryCount ?? 0)) {
+        return localResult;
       }
     }
 
-    if (!logUrl) return localResult ?? empty;
-
     try {
-      const content = await this.d.trpc.logs.fetchS3Logs.query({ logUrl });
-      if (!content?.trim()) return localResult ?? empty;
+      const authStatus = await this.awaitAuthCredentialsSettled();
+      if (authStatus.kind !== "ready") return localResult ?? empty;
+      const content: string = await authStatus.auth.client.getTaskRunLog(
+        taskId,
+        taskRunId,
+      );
+      if (!content.trim()) return localResult ?? empty;
 
       const result = this.parseLogContent(content);
 
-      if (taskRunId && result.rawEntries.length > 0) {
+      if (result.rawEntries.length > 0) {
         this.d.trpc.logs.writeLocalLogs
           .mutate({ taskRunId, content })
           .catch((err: unknown) => {
-            this.d.log.warn("Failed to cache S3 logs locally", {
+            this.d.log.warn("Failed to cache run logs locally", {
               taskRunId,
               err,
             });

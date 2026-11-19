@@ -23,7 +23,6 @@ function line(text: string): string {
 function makeService(readTail?: unknown) {
   const logs: Record<string, unknown> = {
     readLocalLogs: { query: vi.fn().mockResolvedValue(null) },
-    fetchS3Logs: { query: vi.fn().mockResolvedValue(null) },
     writeLocalLogs: { mutate: vi.fn() },
   };
   if (readTail !== undefined) logs.readLocalLogsTail = { query: readTail };

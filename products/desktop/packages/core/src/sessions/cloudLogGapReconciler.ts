@@ -29,7 +29,7 @@ export interface CloudLogGapReconcilerLogger {
  */
 export interface CloudLogGapReconcilerDeps {
   fetchLogs(
-    logUrl: string | undefined,
+    taskId: string,
     taskRunId: string,
     minEntryCount: number,
   ): Promise<CloudLogGapFetchResult>;
@@ -126,7 +126,7 @@ export class CloudLogGapReconciler {
     } = request;
 
     let { rawEntries, totalLineCount, parseFailureCount } =
-      await this.deps.fetchLogs(logUrl, taskRunId, expectedCount);
+      await this.deps.fetchLogs(taskId, taskRunId, expectedCount);
 
     const missingLineCount = expectedCount - totalLineCount;
     const streamedTail = this.buildStreamedTail(

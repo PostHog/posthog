@@ -32,7 +32,6 @@ const mockTrpcWorkspace = vi.hoisted(() => ({
 }));
 
 const mockTrpcLogs = vi.hoisted(() => ({
-  fetchS3Logs: { query: vi.fn() },
   readLocalLogs: { query: vi.fn() },
   writeLocalLogs: { mutate: vi.fn() },
 }));
@@ -135,6 +134,7 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   startGithubUserIntegrationConnect: vi.fn(),
   getTaskRunSessionLogsResult: vi.fn(),
   getTaskRunSessionLogsPage: vi.fn(),
+  getTaskRunLog: vi.fn(),
 }));
 
 type MockAuthenticatedClient = typeof mockAuthenticatedClient;
@@ -2114,7 +2114,7 @@ describe("SessionService", () => {
         "run-123",
         { firstPromptForRunId: "run-123" },
       );
-      expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
+      expect(mockAuthenticatedClient.getTaskRunLog).not.toHaveBeenCalled();
       // The run's prompt sits behind the window, not missing; a pinned
       // placeholder would double it once older pages load.
       expect(
@@ -2188,7 +2188,7 @@ describe("SessionService", () => {
           processedLineCount: 5000,
         }),
       );
-      expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
+      expect(mockAuthenticatedClient.getTaskRunLog).not.toHaveBeenCalled();
     });
 
     it("keeps paged-in older history when a windowed snapshot overlaps the transcript", () => {
@@ -2507,7 +2507,7 @@ describe("SessionService", () => {
       );
     });
 
-    it("falls back to the run log URL when terminal chain hydration is empty", async () => {
+    it("falls back to the run log when terminal chain hydration is empty", async () => {
       const service = getSessionService();
       const session = createMockSession({
         taskId: "task-123",
@@ -2521,7 +2521,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           type: "notification",
           timestamp: "2024-01-01T00:00:00Z",
@@ -2551,7 +2551,7 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
+        undefined,
         undefined,
         "claude",
         undefined,
@@ -2561,9 +2561,10 @@ describe("SessionService", () => {
       );
 
       await vi.waitFor(() => {
-        expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledWith({
-          logUrl: "https://example.com/logs/run-123",
-        });
+        expect(mockAuthenticatedClient.getTaskRunLog).toHaveBeenCalledWith(
+          "task-123",
+          "run-123",
+        );
       });
       await vi.waitFor(() => {
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -2596,7 +2597,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       service.watchCloudTask(
         "task-123",
@@ -2728,7 +2729,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       const entry = (text: string) => ({
         timestamp: "2026-07-15T10:00:00+00:00",
         notification: {
@@ -2933,7 +2934,7 @@ describe("SessionService", () => {
         return hydratedSession;
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           type: "notification",
           timestamp: "2024-01-01T00:00:00Z",
@@ -2984,7 +2985,7 @@ describe("SessionService", () => {
         hydratedSession,
       );
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const inFlightPrompt = {
@@ -3038,7 +3039,7 @@ describe("SessionService", () => {
         "run-123": { ...hydratedSession, currentPromptId: 42 },
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const promptRequest = {
@@ -3106,7 +3107,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
         {
@@ -3249,7 +3250,7 @@ describe("SessionService", () => {
       });
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3405,7 +3406,7 @@ describe("SessionService", () => {
         "run-123": sessionWithQueue,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
 
       service.watchCloudTask(
         "task-123",
@@ -3529,7 +3530,7 @@ describe("SessionService", () => {
       });
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockRejectedValue(
         new Error("transient backend failure"),
@@ -3598,7 +3599,7 @@ describe("SessionService", () => {
         .mockReturnValue(connectedSession);
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3680,7 +3681,7 @@ describe("SessionService", () => {
       );
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3791,7 +3792,7 @@ describe("SessionService", () => {
       );
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3887,7 +3888,7 @@ describe("SessionService", () => {
       );
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate
         .mockRejectedValueOnce(new Error("transient backend failure"))
@@ -4311,7 +4312,7 @@ describe("SessionService", () => {
         "run-123": { ...hydratedSession, currentPromptId: 42 },
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const promptRequest = {
@@ -4476,7 +4477,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         Array.from({ length: 5 }, () => storedLine).join("\n"),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         Array.from({ length: 14 }, () => storedLine).join("\n"),
       );
 
@@ -4509,9 +4510,10 @@ describe("SessionService", () => {
       });
 
       await vi.waitFor(() => {
-        expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledWith({
-          logUrl: "https://logs.example.com/run-123",
-        });
+        expect(mockAuthenticatedClient.getTaskRunLog).toHaveBeenCalledWith(
+          "task-123",
+          "run-123",
+        );
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
           "run-123",
           expect.objectContaining({
@@ -4565,7 +4567,7 @@ describe("SessionService", () => {
             }),
         )
         .mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockImplementation((entries) =>
         entries.map((entry, index) => ({
           type: "acp_message",
@@ -4652,7 +4654,7 @@ describe("SessionService", () => {
         "run-123": existingSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(logContent);
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(logContent);
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(logContent);
       service.watchCloudTask(
         "task-123",
         "run-123",
@@ -4716,7 +4718,9 @@ describe("SessionService", () => {
           newEntries: [newEntry],
         });
         await vi.waitFor(() => {
-          expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledTimes(pass);
+          expect(mockAuthenticatedClient.getTaskRunLog).toHaveBeenCalledTimes(
+            pass,
+          );
         });
         expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
           "run-123",
@@ -4756,7 +4760,7 @@ describe("SessionService", () => {
         "run-123": hydratedSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const runStartedEvent = {
@@ -4813,7 +4817,7 @@ describe("SessionService", () => {
         "run-123": hydratedSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const runStartedEvent = {
@@ -4870,7 +4874,7 @@ describe("SessionService", () => {
         "run-123": connectedSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const runStartedEvent = {
@@ -4921,7 +4925,7 @@ describe("SessionService", () => {
       });
       // Empty history — fetchSessionLogs returns no entries.
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       service.watchCloudTask(
@@ -4965,7 +4969,7 @@ describe("SessionService", () => {
         "run-123": freshSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           jsonrpc: "2.0",
           method: "_posthog/run_started",
@@ -5166,7 +5170,7 @@ describe("SessionService", () => {
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       // Non-empty history: a prior session/prompt exists.
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           type: "request",
           timestamp: "2024-01-01T00:00:00Z",
@@ -5303,7 +5307,7 @@ describe("SessionService", () => {
         mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
           JSON.stringify(leafEntries[0]),
         );
-        mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+        mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
         mockConvertStoredEntriesToEvents.mockReturnValueOnce([
           priorPrompt,
           resumePrompt,
@@ -5498,7 +5502,7 @@ describe("SessionService", () => {
           truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
         ancestorPrompt,
         persistedAncestorMessage,
@@ -5606,7 +5610,7 @@ describe("SessionService", () => {
           truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
         ancestorPrompt,
         ancestorCompletion,
@@ -5736,7 +5740,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(leafEntry),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents
         .mockReturnValueOnce([ancestorEvent, leafEvent])
         .mockReturnValueOnce([liveEvent]);
@@ -5956,7 +5960,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(cEntry),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents
         .mockReturnValueOnce([aEvent, bEvent, cEvent])
         .mockReturnValueOnce([liveCEvent]);
@@ -6186,7 +6190,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(leafEntry),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       watch();
       await vi.waitFor(() => {
@@ -10602,10 +10606,10 @@ describe("SessionService", () => {
         unsubscribe: vi.fn(),
       });
       mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
-      // Both the local cache and S3 reads come back empty (e.g. unreadable
+      // Both the local cache and run log reads come back empty (e.g. unreadable
       // log after an agent crash) — the repaint must not blank the transcript.
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       await service.clearSessionError("task-123", "/repo");
 
@@ -10633,7 +10637,7 @@ describe("SessionService", () => {
       });
       mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       await service.clearSessionError("task-123", "/repo");
 

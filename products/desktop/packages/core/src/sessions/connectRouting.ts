@@ -2,7 +2,7 @@ import type { SessionStatus } from "@posthog/shared";
 
 export type LocalConnectRoute =
   | { kind: "no-auth" }
-  | { kind: "resume-existing"; taskRunId: string; logUrl: string }
+  | { kind: "resume-existing"; taskRunId: string; logUrl?: string }
   | { kind: "create-new" };
 
 export function routeLocalConnect(input: {
@@ -13,11 +13,11 @@ export function routeLocalConnect(input: {
   if (!input.hasAuth) {
     return { kind: "no-auth" };
   }
-  if (input.latestRunId && input.latestRunLogUrl) {
+  if (input.latestRunId) {
     return {
       kind: "resume-existing",
       taskRunId: input.latestRunId,
-      logUrl: input.latestRunLogUrl,
+      logUrl: input.latestRunLogUrl || undefined,
     };
   }
   return { kind: "create-new" };

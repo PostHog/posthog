@@ -207,6 +207,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
     TaskRunLogsQuerySerializer,
+    TaskRunLogsScope,
     TaskRunLogsView,
     TaskRunPostHogReferencesRequestSerializer,
     TaskRunPostHogReferencesResponseSerializer,
@@ -3666,7 +3667,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the latest turns first, add before to page back through older turns, or add start to read every "
             "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
             "with different origins do not match. A Pi run returns its full log without the X-Log headers. Pass "
-            "view=thread to drop the duplicate tool response copy that a rendered conversation does not use."
+            "view=thread to drop the duplicate tool response copy that a rendered conversation does not use. Pass "
+            "scope=run to read only this run's own log."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3685,9 +3687,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         with timer("mark_watched"):
             tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
         log_slice = None
+        include_history = query["scope"] == TaskRunLogsScope.CHAIN
         with timer("s3_read"):
             if "tail_bytes" not in query:
-                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
+                log_content = tasks_facade.read_task_run_conversation_logs(
+                    pk, task_id, self.team_id, include_history=include_history
+                )
             else:
                 log_slice = tasks_facade.read_task_run_conversation_log_slice(
                     pk,
@@ -3696,6 +3701,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     tail_bytes=query["tail_bytes"],
                     before=query.get("before"),
                     start=query.get("start"),
+                    include_history=include_history,
                 )
                 log_content = log_slice.content if log_slice else None
         if log_content is None:

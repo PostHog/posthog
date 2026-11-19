@@ -1,7 +1,6 @@
 export const LOGS_SERVICE = Symbol.for("posthog.workspace.logsService");
 
 export interface ILogsService {
-  fetchS3Logs(logUrl: string): Promise<string | null>;
   readLocalLogs(taskRunId: string): Promise<string | null>;
   /**
    * Like `readLocalLogs`, but collapses superseded `tool_call_update` snapshots

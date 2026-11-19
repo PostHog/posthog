@@ -12372,6 +12372,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     '{"notification":{"method":"_posthog/legacy_event","params":{"source":"ancestor"}}}',
                     '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}',
                 ],
+                "logs/",
             ),
             (
                 "unchained_returns_only_own_log",
@@ -12379,6 +12380,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 {},
                 '{"hello":"world"}\n',
                 ['{"hello":"world"}'],
+                "logs/",
             ),
             (
                 "skips_missing_ancestor_logs",
@@ -12386,6 +12388,15 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 {"a": None},
                 '{"only":"b"}\n',
                 ['{"only":"b"}'],
+                "logs/",
+            ),
+            (
+                "run_scope_returns_only_own_log",
+                True,
+                {"a": '{"source":"ancestor"}\n'},
+                '{"source":"own"}\n',
+                ['{"source":"own"}'],
+                "log_entries?scope=run",
             ),
         ]
     )
@@ -12397,6 +12408,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         ancestor_logs: dict[str, str | None],
         own_log: str,
         expected_lines: list[str],
+        path: str,
         mock_read,
     ):
         task = self.create_task()
@@ -12413,7 +12425,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         mock_read.side_effect = fake_read
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/{path}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
 

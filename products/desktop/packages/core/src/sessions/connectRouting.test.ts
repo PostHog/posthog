@@ -36,9 +36,11 @@ describe("routeLocalConnect", () => {
     });
   });
 
-  it("routes to create-new when run id exists but log url is missing", () => {
+  it("routes to resume-existing when run id exists but log url is missing", () => {
     expect(routeLocalConnect({ hasAuth: true, latestRunId: "run-1" })).toEqual({
-      kind: "create-new",
+      kind: "resume-existing",
+      taskRunId: "run-1",
+      logUrl: undefined,
     });
   });
 

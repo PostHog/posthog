@@ -1988,6 +1988,34 @@ describe("PostHogAPIClient", () => {
     );
   });
 
+  it("reads only the run's own log through the log entries endpoint", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response('{"line":1}\n'));
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+
+    await expect(client.getTaskRunLog("task-123", "run-123")).resolves.toBe(
+      '{"line":1}\n',
+    );
+    const [{ url }] = fetch.mock.calls[0] as [{ url: URL }];
+    expect(url.pathname).toBe(
+      "/api/projects/123/tasks/task-123/runs/run-123/log_entries/",
+    );
+    expect(url.searchParams.get("scope")).toBe("run");
+  });
+
   it("presigns a task run artifact for preview", async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
