@@ -1206,10 +1206,9 @@ class TestReserveUnits(BaseTest):
             throttles: list[_SendThrottle] = [_PSAKThrottleForTest(), _PSAKTeamThrottleForTest()]
             with self.assertRaises(exceptions.Throttled):
                 rate_limit.reserve_units(throttles, self._request(), self.view, 2)
-            team_cache = Mock(spec=["get", "set"])
-            team_cache.get.side_effect = RedisError("down")
+            unreachable = RedisCache("redis://127.0.0.1:1/0", {})
 
-            with patch.object(_PSAKTeamThrottleForTest, "cache", team_cache):
+            with patch.object(_PSAKTeamThrottleForTest, "cache", unreachable):
                 with self.assertRaises(exceptions.Throttled) as refusal:
                     rate_limit.reserve_units(throttles, self._request(), self.view, 4)
 
