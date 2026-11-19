@@ -5,6 +5,8 @@ import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.models.event.util import bulk_create_events
 
 from products.ai_observability.backend.logic.traces.events_fallback import fallback_window
@@ -157,6 +159,37 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
 
         assert facts.last_seen == at(7)
         assert facts.first_seen == at(0)
+
+    @parameterized.expand(
+        [
+            (
+                "a later event of the first trace",
+                [
+                    {**root("t-1", 0, "s1"), "distinct_id": ""},
+                    {**generation("t-1", 1, "s1"), "distinct_id": "user-a"},
+                    {**generation("t-2", 2, "s1"), "distinct_id": "user-b"},
+                ],
+                "user-a",
+            ),
+            (
+                "a later trace",
+                [
+                    {**generation("t-1", 0, "s1"), "distinct_id": ""},
+                    {**generation("t-2", 1, "s1"), "distinct_id": "user-b"},
+                ],
+                "user-b",
+            ),
+        ]
+    )
+    def test_an_empty_distinct_id_gives_way_to(self, _name: str, events: list[dict], expected: str) -> None:
+        seed(self.team, events)
+
+        assert self._facts("s1")["s1"].distinct_id == expected
+
+    def test_first_trace_ties_break_by_trace_id(self) -> None:
+        seed(self.team, [generation(trace_id, 0, "s1") for trace_id in ("t-c", "t-b", "t-a", "t-d")])
+
+        assert self._facts("s1")["s1"].first_trace_id == "t-a"
 
     def test_missing_session_without_fallback_window_is_absent(self) -> None:
         self._seed_events_only([generation("t-old", 0, "s-old")])

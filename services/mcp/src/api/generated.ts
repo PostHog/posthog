@@ -135609,7 +135609,7 @@ export namespace Schemas {
      */
     filter_test_accounts?: boolean | null;
     /**
-     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * Lists only sessions with a trace whose events belong to the group with this key. Send it with group_type_index.
      * @minLength 1
      */
     group_key?: string;
@@ -135626,15 +135626,15 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Lists only traces whose events belong to the person with this UUID.
+     * Lists only sessions with a trace whose events belong to the person with this UUID.
      */
     person_id?: string;
     /**
-     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     * Up to 50 property filters as a JSON-encoded list. A session is listed when one of its traces has an event that matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
      */
     properties?: string;
     /**
-     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * Text to look for in the inputs and outputs of the generations and embeddings of the session's traces, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
      * @maxLength 1000
      */
     search?: string;

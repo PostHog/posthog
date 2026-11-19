@@ -80,7 +80,7 @@ _EVENTS_LAYOUT = _Layout(
     source=EVENTS_COLUMNS,
     session_id=ast.Field(chain=["properties", "$ai_session_id"]),
     tokens={
-        name: ast.Call(name="toInt", args=[ast.Field(chain=["properties", prop])])
+        name: ast.Call(name="toFloat", args=[ast.Field(chain=["properties", prop])])
         for name, (_, prop) in _TOKEN_PROPERTIES.items()
     },
 )
@@ -158,7 +158,7 @@ def _per_trace(deduped: ast.SelectQuery, session_ids: Sequence[str]) -> ast.Sele
             sumIf(output_tokens, {billed}) AS trace_output_tokens,
             sumIf(cache_read_tokens, {billed}) AS trace_cache_read_tokens,
             sumIf(cache_write_tokens, {billed}) AS trace_cache_write_tokens,
-            argMinIf(distinct_id, timestamp, {is_trace_event}) AS trace_distinct_id
+            argMinIf(distinct_id, timestamp, {is_trace_event} AND distinct_id != '') AS trace_distinct_id
         FROM {deduped}
         GROUP BY trace_id
         HAVING countIf({is_trace_event}) > 0
@@ -201,8 +201,8 @@ def _facts_query(layout: _Layout, where: ast.Expr, session_ids: Sequence[str]) -
             sum(trace_cache_write_tokens) AS cache_write_tokens,
             sum(trace_latency_s) * 1000 AS wait_ms,
             countIf(trace_has_error) AS errored_turns,
-            argMin(trace_distinct_id, trace_start) AS distinct_id,
-            argMin(trace_id, trace_start) AS first_trace_id
+            argMinIf(trace_distinct_id, (trace_start, trace_id), trace_distinct_id != '') AS distinct_id,
+            argMin(trace_id, (trace_start, trace_id)) AS first_trace_id
         FROM {per_trace}
         GROUP BY trace_session
         """,

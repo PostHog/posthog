@@ -16,8 +16,12 @@ from posthog.helpers.impersonation import is_impersonated
 from ...facade import api, contracts
 from .list_filters import (
     ListFilterQuerySerializer,
+    group_scope_field,
     page_limit_field,
+    person_scope_field,
+    property_filters_field,
     require_query_scope_for_filters,
+    search_field,
     selection_filters,
 )
 from .property_filters import QUERY_SCOPE
@@ -33,6 +37,12 @@ SESSION_ID_PARAMETER = OpenApiParameter(
 
 
 class SessionListQuerySerializer(ListFilterQuerySerializer):
+    properties = property_filters_field(
+        "A session is listed when one of its traces has an event that matches every filter."
+    )
+    search = search_field("the generations and embeddings of the session's traces")
+    person_id = person_scope_field("sessions with a trace whose events")
+    group_key = group_scope_field("sessions with a trace whose events")
     limit = page_limit_field("sessions", default=api.SESSION_LIST_DEFAULT_LIMIT, maximum=api.SESSION_LIST_MAX_LIMIT)
 
 

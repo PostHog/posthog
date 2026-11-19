@@ -20,8 +20,43 @@ def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.In
     )
 
 
+def property_filters_field(listed_when: str) -> PropertyFiltersField:
+    return PropertyFiltersField(
+        required=False,
+        help_text=f"Up to {api.MAX_PROPERTY_FILTERS} property filters as a JSON-encoded list. {listed_when} Supported "
+        "types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and "
+        f"data_warehouse_person_property, which need the {QUERY_SCOPE} scope.",
+    )
+
+
+def search_field(searched: str) -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text=f"Text to look for in the inputs and outputs of {searched}, ignoring case. Leading and trailing "
+        "spaces are ignored, and a blank value searches nothing.",
+    )
+
+
+def person_scope_field(listed: str) -> serializers.UUIDField:
+    return serializers.UUIDField(
+        required=False,
+        help_text=f"Lists only {listed} belong to the person with this UUID.",
+    )
+
+
+def group_scope_field(listed: str) -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        help_text=f"Lists only {listed} belong to the group with this key. Send it with group_type_index.",
+    )
+
+
 class ListFilterQuerySerializer(serializers.Serializer):
-    """The filter and paging params that the traces list and the sessions list share. Each list adds its own `limit`."""
+    """The filter and paging params that the traces list and the sessions list share. Each list adds the params whose
+    help names what it lists, `properties`, `search`, `person_id`, `group_key` and `limit`, through the field functions
+    above."""
 
     date_from = serializers.CharField(
         required=False,
@@ -33,34 +68,12 @@ class ListFilterQuerySerializer(serializers.Serializer):
         help_text="End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time "
         "includes that whole day. Defaults to now.",
     )
-    properties = PropertyFiltersField(
-        required=False,
-        help_text=f"Up to {api.MAX_PROPERTY_FILTERS} property filters as a JSON-encoded list. A trace is listed when one "
-        "of its events matches every filter. Supported types are event, event_metadata, person, session, group, "
-        "cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the "
-        f"{QUERY_SCOPE} scope.",
-    )
     filter_test_accounts = serializers.BooleanField(
         required=False,
         allow_null=True,
         default=None,
         help_text="Whether to leave out events from the project's test accounts. Defaults to the project's own "
         "setting for filtering test accounts.",
-    )
-    search = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=1000,
-        help_text="Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring "
-        "case. Leading and trailing spaces are ignored, and a blank value searches nothing.",
-    )
-    person_id = serializers.UUIDField(
-        required=False,
-        help_text="Lists only traces whose events belong to the person with this UUID.",
-    )
-    group_key = serializers.CharField(
-        required=False,
-        help_text="Lists only traces whose events belong to the group with this key. Send it with group_type_index.",
     )
     group_type_index = serializers.IntegerField(
         required=False,

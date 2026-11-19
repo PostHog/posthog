@@ -14,8 +14,12 @@ from posthog.helpers.impersonation import is_impersonated
 from ...facade import api, contracts
 from .list_filters import (
     ListFilterQuerySerializer,
+    group_scope_field,
     page_limit_field,
+    person_scope_field,
+    property_filters_field,
     require_query_scope_for_filters,
+    search_field,
     selection_filters,
 )
 from .property_filters import QUERY_SCOPE
@@ -62,6 +66,10 @@ CONFLICTING_PAGE_POSITIONS_MESSAGE = "Send only one of cursor, before_cursor and
 
 
 class TraceListQuerySerializer(ListFilterQuerySerializer):
+    properties = property_filters_field("A trace is listed when one of its events matches every filter.")
+    search = search_field("the trace's generations and embeddings")
+    person_id = person_scope_field("traces whose events")
+    group_key = group_scope_field("traces whose events")
     view = serializers.ChoiceField(
         choices=api.QUICK_FILTERS,
         required=False,
