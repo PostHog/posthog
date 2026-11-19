@@ -2,14 +2,13 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MCPWrappedToolCallsCardApi } from '../../generated/api.schemas'
-import { callMilestone, chartMonths, formatCallCount, formatCompact, formatMonth } from '../storyCards'
+import { chartMonths, formatCallCount, formatCompact, formatMonth } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
 export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): JSX.Element {
     const months = chartMonths(card.months)
     const busiest = Math.max(...months.map((month) => month.calls))
     const busiestMonth = months.find((month) => month.calls === busiest)
-    const milestone = callMilestone(card.total_calls)
     return (
         <WrappedCard cardKey="tool_calls" kicker="Agents called your tools">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
@@ -20,14 +19,6 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                     {formatCallCount(card.total_calls)}
                 </span>
                 <span className="text-2xl font-semibold">times</span>
-                {milestone && (
-                    <span
-                        className="MCPWrapped__sticker absolute -top-7 right-0 rounded-md bg-warning px-2 py-1 font-mono text-xs font-bold uppercase text-black"
-                        title="The largest round number your total passed"
-                    >
-                        {milestone}
-                    </span>
-                )}
             </div>
             {busiestMonth && (
                 <p className="MCPWrapped__rise m-0 text-base">
