@@ -2,6 +2,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.facade.contracts import (
     ApprovalRevertOutcome,
     AuthorshipRevertOutcome,
@@ -15,7 +17,14 @@ from products.engineering_analytics.backend.logic.views.reviews import APPROVED_
 
 REVERTED_PULL_REQUEST_LIMIT = 200
 
-CohortRow = tuple[str, str, int, int]
+
+@frozen
+class _CohortCount:
+    authorship: str
+    approval: str
+    merged_pr_count: int
+    reverted_pr_count: int
+
 
 _APPROVED_BEFORE_MERGE = f"r.state = '{APPROVED_STATE}' AND r.submitted_at <= pr.merged_at"
 
@@ -89,17 +98,14 @@ def _share(part: int, whole: int) -> float | None:
     return part / whole if whole else None
 
 
-def _cohort_totals(cohorts: list[CohortRow], *, column: int, value: str) -> tuple[int, int]:
-    rows = [row for row in cohorts if row[column] == value]
-    return sum(row[2] for row in rows), sum(row[3] for row in rows)
-
-
 def fold_cohorts(
-    cohorts: list[CohortRow], *, reviews_available: bool
+    cohorts: list[_CohortCount], *, reviews_available: bool
 ) -> tuple[list[AuthorshipRevertOutcome], list[ApprovalRevertOutcome]]:
     by_authorship = []
     for authorship in PullRequestAuthorship:
-        merged, reverted = _cohort_totals(cohorts, column=0, value=authorship.value)
+        rows = [cohort for cohort in cohorts if cohort.authorship == authorship.value]
+        merged = sum(cohort.merged_pr_count for cohort in rows)
+        reverted = sum(cohort.reverted_pr_count for cohort in rows)
         by_authorship.append(
             AuthorshipRevertOutcome(
                 authorship=authorship,
@@ -110,7 +116,9 @@ def fold_cohorts(
         )
     by_approval = []
     for approval in PullRequestApproval if reviews_available else ():
-        merged, reverted = _cohort_totals(cohorts, column=1, value=approval.value)
+        rows = [cohort for cohort in cohorts if cohort.approval == approval.value]
+        merged = sum(cohort.merged_pr_count for cohort in rows)
+        reverted = sum(cohort.reverted_pr_count for cohort in rows)
         by_approval.append(
             ApprovalRevertOutcome(
                 approval=approval,
@@ -145,10 +153,15 @@ def query_revert_outcomes(
         placeholders=placeholders,
     )
     cohorts = [
-        (str(authorship), str(approval), int(merged or 0), int(reverted or 0))
+        _CohortCount(
+            authorship=str(authorship),
+            approval=str(approval),
+            merged_pr_count=int(merged or 0),
+            reverted_pr_count=int(reverted or 0),
+        )
         for authorship, approval, merged, reverted in cohort_response.results or []
     ]
-    merged_pr_count = sum(merged for _, _, merged, _ in cohorts)
+    merged_pr_count = sum(cohort.merged_pr_count for cohort in cohorts)
     if not curated.pull_requests_have_body:
         return RevertOutcomes(
             merged_pr_count=merged_pr_count,
@@ -168,7 +181,7 @@ def query_revert_outcomes(
         placeholders=placeholders,
     )
     reverted_rows = reverted_response.results or []
-    reverted_pr_count = sum(reverted for _, _, _, reverted in cohorts)
+    reverted_pr_count = sum(cohort.reverted_pr_count for cohort in cohorts)
     by_authorship, by_approval = fold_cohorts(cohorts, reviews_available=reviews is not None)
     return RevertOutcomes(
         merged_pr_count=merged_pr_count,
