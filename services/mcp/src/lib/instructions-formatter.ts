@@ -41,6 +41,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import PRIVACY_QUESTIONS from '@/templates/sections/privacy-questions.md'
 import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
@@ -327,6 +328,7 @@ export class InstructionsFormatter {
                 ...envContextSections(ctx),
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
+                PRIVACY_QUESTIONS,
                 EXAMPLES,
             ],
             ctx,
@@ -335,7 +337,7 @@ export class InstructionsFormatter {
     }
 
     /** Build the compact `instructions` payload for single-exec clients. Everything
-     *  but the tool-domain index lives on the exec tool's
+     *  but the tool-domain index and the short privacy-questions pointer lives on the exec tool's
      *  `command` parameter description (`buildExecCommandReference`), because this
      *  payload is hard-capped at {@link MCP_INSTRUCTIONS_CHAR_BUDGET} by Claude Code
      *  and the command description is not.
@@ -348,7 +350,7 @@ export class InstructionsFormatter {
      *  overshoots, because `formatPrompt` trims the trailing separator the real payload
      *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        const sections = [COMPACT_INSTRUCTIONS]
+        const sections = [COMPACT_INSTRUCTIONS, PRIVACY_QUESTIONS]
         const rendered = this.compose(sections, ctx, { compact: true })
         const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
         if (overflow <= 0) {
