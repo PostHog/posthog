@@ -49718,7 +49718,8 @@
             "body": null,
             "injectBody": {},
             "softDelete": null,
-            "transformBody": false
+            "transformBody": false,
+            "responseType": "text"
         },
         "response": {
             "list": false,

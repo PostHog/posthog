@@ -1190,6 +1190,7 @@ function buildCatalogTool(args: {
             injectBody: args.injectBody,
             softDelete: args.isSoftDelete ? args.softDeleteField : null,
             transformBody: args.transformsBody,
+            ...(config.response_format ? { responseType: config.response_format } : {}),
         },
         response: {
             list: !!config.list,
@@ -1385,6 +1386,9 @@ function generateToolCode(
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
+    if (config.response_format) {
+        handlerBody += `            responseType: '${config.response_format}',\n`
+    }
     if (isSoftDelete) {
         handlerBody += `            body: { ${softDeleteField}: true },\n`
     } else if (transformsBody) {

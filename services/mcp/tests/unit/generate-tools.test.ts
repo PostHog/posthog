@@ -1596,6 +1596,16 @@ describe('ToolConfigSchema validation', () => {
             extra: { enabled: false, disabled_reason: 'Superseded by things-list' },
             valid: true,
         },
+        {
+            name: 'accepts a text response shaped by hooks',
+            extra: { response_format: 'text', hooks: 'a/b' },
+            valid: true,
+        },
+        {
+            name: 'rejects a text response with a response filter',
+            extra: { response_format: 'text', response: { include: ['id'] } },
+            valid: false,
+        },
     ])('$name', ({ extra, valid }) => {
         const result = ToolConfigSchema.safeParse({ operation: 'things_list', enabled: true, ...extra })
         expect(result.success).toBe(valid)

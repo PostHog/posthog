@@ -800,6 +800,7 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<ReturnType<typeof TasksRunsSes
             const result = await context.api.request<unknown>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/log_entries/`,
+                responseType: 'text',
                 query: {
                     after: params.after,
                     event_types: params.event_types,

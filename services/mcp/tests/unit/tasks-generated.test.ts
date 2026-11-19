@@ -67,6 +67,7 @@ describe('Generated task tools', () => {
 
     it.each([
         { page: 'an empty page', body: '', entries: [] },
+        { page: 'a page of one empty entry', body: '{}\n', entries: [{}] },
         { page: 'a page of one entry', body: '{"type":"a"}\n', entries: [{ type: 'a' }] },
         { page: 'a page of entries', body: '{"type":"a"}\n{"type":"b"}\n', entries: [{ type: 'a' }, { type: 'b' }] },
         {

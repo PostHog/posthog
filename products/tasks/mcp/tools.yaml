@@ -525,6 +525,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        response_format: text
         title: Get task run session logs
         description: >
             Fetch session log events emitted by the agent for a specific run, in log order. A resumed run starts with

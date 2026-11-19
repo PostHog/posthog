@@ -352,6 +352,7 @@ export function catalogTool(entry: CatalogEntry): ToolBase<ZodObjectAny> {
             path,
             ...(requestBody !== undefined ? { body: requestBody } : {}),
             ...(query !== undefined ? { query } : {}),
+            ...(request.responseType ? { responseType: request.responseType } : {}),
         })
         return shapeResponse(entry, context, params, result)
     }

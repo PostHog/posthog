@@ -1,4 +1,3 @@
-import { isRecord } from '@/lib/plain-object'
 import type { ToolHooks } from '@/tools/tool-hooks'
 
 function parseLogEntry(line: string): unknown {
@@ -9,17 +8,14 @@ function parseLogEntry(line: string): unknown {
     }
 }
 
-function logEntries(result: unknown): unknown[] {
-    if (typeof result === 'string') {
-        return result
-            .split('\n')
-            .filter((line) => line.trim() !== '')
-            .map(parseLogEntry)
+function logEntries(body: unknown): unknown[] {
+    if (typeof body !== 'string') {
+        throw new Error('Expected the run log page as JSONL text.')
     }
-    if (isRecord(result) && Object.keys(result).length === 0) {
-        return []
-    }
-    return [result]
+    return body
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map(parseLogEntry)
 }
 
 export default {

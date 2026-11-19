@@ -53,6 +53,7 @@ export const CatalogHttpToolSchema = z
                 injectBody: z.record(z.string(), z.unknown()),
                 softDelete: z.string().nullable(),
                 transformBody: z.boolean(),
+                responseType: z.literal('text').optional(),
             })
             .strict(),
         response: z
