@@ -17,7 +17,7 @@ class TypeScriptSDK(models.TextChoices):
 
 class TypeScriptGenerator(EventDefinitionGenerator):
     def generator_version(self) -> str:
-        return "1.1.1"
+        return "1.1.0"
 
     def language_name(self) -> str:
         return "TypeScript"
