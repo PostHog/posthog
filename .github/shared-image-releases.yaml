@@ -1,13 +1,17 @@
 version: 1
 filters:
     # Code every Temporal worker runs or reads, whatever its queue: build inputs, settings,
-    # the start command, models, shared clients and both migration checks. A worker's own
-    # code goes in its own filter, after the alias.
+    # the start command, models, shared clients, the migration directories and both migration
+    # commands. A worker's own code goes in its own filter, after the alias.
     sharedWorkerBase: &sharedWorkerBase
         - Dockerfile
         - .dockerignore
         - pyproject.toml
         - uv.lock
+        - tools/hogli/pyproject.toml
+        - packages/owners-yaml/pyproject.toml
+        - 'packages/owners-yaml/owners_yaml/**'
+        - packages/owners-yaml/LICENSE
         - manage.py
         - bin/temporal-django-worker
         - 'posthog/settings/**'
