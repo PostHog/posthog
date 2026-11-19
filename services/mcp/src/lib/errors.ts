@@ -785,7 +785,7 @@ export function handleToolError(
         }
 
         try {
-            getPostHogClient().captureException(permissionError, distinctId, properties)
+            getPostHogClient().captureException(permissionError, { distinctId, properties })
         } catch {
             // Never let observability break the request.
         }
@@ -820,7 +820,7 @@ export function handleToolError(
     }
 
     try {
-        getPostHogClient().captureException(mcpError, distinctId, properties)
+        getPostHogClient().captureException(mcpError, { distinctId, properties })
     } catch {
         // Never let observability break the request.
     }

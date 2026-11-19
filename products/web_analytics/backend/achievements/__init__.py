@@ -1,6 +1,5 @@
 from products.web_analytics.backend.achievements.definitions import (
     TRACKS,
-    AchievementScope,
     Stage,
     TrackDefinition,
     TrackKey,
@@ -9,7 +8,6 @@ from products.web_analytics.backend.achievements.definitions import (
 
 __all__ = [
     "TRACKS",
-    "AchievementScope",
     "Stage",
     "TrackDefinition",
     "TrackKey",

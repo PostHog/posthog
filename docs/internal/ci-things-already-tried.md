@@ -287,6 +287,50 @@ To go after those minutes, reduce how often the verdict is `full` — the `MAX_C
 
 _Also asked as:_ skip product tests on a full run, narrow the product matrix, why do all products run when I only changed core
 
+### Treat comment-only or formatting-only edits as unchanged for reuse
+
+**Verdict: rejected** · Nov 2026 · measured, not built
+
+The paths-filter action reuses an earlier passing result when the files its filters match have the same blob SHA on the previous head and the new head.
+See "Reusing an earlier passing result" in `.github/actions/paths-filter/README.md`.
+The proposal was to compare a normalized form instead, with an AST or token normalizer for Python and TypeScript, so that a push that only changes comments or formatting also reuses.
+
+The measurement replayed the push history of 120 recently merged same-repository PRs against the real path filters.
+With the action's rules modelled, byte-identical inputs reuse on these shares of the later pushes where the suite ran:
+
+| Suite      | Reused             |
+| ---------- | ------------------ |
+| Backend    | 15%                |
+| Frontend   | 29%                |
+| Storybook  | 24%                |
+| Playwright | 26%                |
+| Rust       | 33% (of 18 pushes) |
+| Node.js    | 28% (of 40 pushes) |
+
+These are counts of pushes, not job-minutes.
+
+A normalizer adds at most 1.6% of later pushes for backend, and under 1% for frontend and Storybook.
+The risk surface is larger than that.
+Some comments change behavior: type-checker and linter directives, and `# noqa` or `@ts-expect-error` lines.
+Some schema is generated from JSDoc.
+Some tests read line numbers, so a formatting change can change their result.
+
+_Also asked as:_ ignore whitespace changes in CI, skip CI for comment-only changes, normalize the diff before reuse, AST diff for path filters
+
+### Compare against the last green head instead of the previous head for reuse
+
+**Verdict: rejected** · Nov 2026 · measured, not built
+
+Reuse compares the new head with the immediately previous head (`github.event.before`).
+When the previous head was not green, the suite runs, even if an older head was green with identical inputs.
+The proposal was to search back to the last green head.
+
+On the same replay of 120 PRs it adds 13 reused pushes on top of 255 across the six suites.
+About one in eight pushes whose previous head was not green has any earlier green head with identical inputs.
+It needs the PR's head history, which the `synchronize` event does not carry, and extra API calls on every miss.
+
+_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push
+
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
 **Verdict: landed** · Jul 2026 to Sep 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886), landed by [#89057](https://github.com/PostHog/posthog/pull/89057); the hard exit below landed by [#104782](https://github.com/PostHog/posthog/pull/104782)
@@ -517,6 +561,9 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The HogQL parser npm version check uses a shallow sparse checkout and reads changed paths through the pull request API.
+Its package version check reads `package.json` and the npm registry, so neither step needs source history.
+Rust parser wheel builds retain the entire `rust/` workspace so Cargo can resolve every member, plus the root `.gitignore` so Cargo can list source distribution files in a blobless checkout.
 The parser npm workflow's WASM build needs only `common/hogql_parser/` and `.github/actions/setup-emsdk/`; its CMake build downloads the ANTLR runtime separately.
 The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
 Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
@@ -526,6 +573,8 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
 Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
+Its lint checkout must include shared fixtures outside `rust/` because `clippy --all-targets` compiles tests that embed those files.
+Map those fixtures in the Rust path filter and crate determinator rules too, so fixture-only changes run the compatibility tests.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.

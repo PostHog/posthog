@@ -1,1 +1,1 @@
-0386_remove_surfacing_score_from_session_replay_ingestion
+0390_drop_cohort_membership_pipeline

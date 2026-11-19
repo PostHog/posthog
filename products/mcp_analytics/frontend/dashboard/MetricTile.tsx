@@ -17,6 +17,7 @@ import { formatBucketLabel } from 'lib/utils/timeBuckets'
 
 import { IntervalType } from '~/types'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
 import { CardError } from './Card'
 import { SKELETON_COLOR, SKELETON_TRACK_COLOR } from './ChartSkeleton'
 
@@ -26,6 +27,9 @@ export interface MetricTileProps {
     formatValue: (n: number) => string
     theme: ChartTheme
     loading: boolean
+    // Whether `value` holds loaded data rather than a fallback. A loading tile without one shows a skeleton;
+    // with one it keeps the value and fades it while the refresh is in flight.
+    hasValue: boolean
     failed?: boolean
     onRetry?: () => void
     data?: number[]
@@ -53,6 +57,7 @@ export function MetricTile({
     formatValue,
     theme,
     loading,
+    hasValue,
     failed = false,
     onRetry,
     data,
@@ -68,12 +73,13 @@ export function MetricTile({
     sparklineDashedFromIndex,
     className,
 }: MetricTileProps): JSX.Element {
+    const showSkeleton = loading && !hasValue
     const hasSparkline = data != null && data.length > 0
-    const flush = sparklineHeight != null || (!loading && !failed && hasSparkline)
+    const flush = sparklineHeight != null || (!showSkeleton && !failed && hasSparkline)
     // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.
     const formatLabel = useMemo(() => (label: string) => formatBucketLabel(label, interval), [interval])
     return (
-        <Card size="sm" flush={flush} className={cn('flex-1', className)}>
+        <Card size="sm" flush={flush} className={cn('flex-1', className)} aria-busy={loading}>
             {failed ? (
                 <div className="grid flex-1 px-3">
                     <div className="invisible col-start-1 row-start-1" aria-hidden>
@@ -90,7 +96,7 @@ export function MetricTile({
                         </div>
                     </div>
                 </div>
-            ) : loading ? (
+            ) : showSkeleton ? (
                 <div className="px-3">
                     <MetricTileSkeleton
                         label={label}
@@ -100,7 +106,7 @@ export function MetricTile({
                 </div>
             ) : (
                 <Metric
-                    className="px-3 text-primary"
+                    className={cn('px-3 text-primary', dimWhileLoading(loading))}
                     value={value}
                     data={hasSparkline ? data : undefined}
                     labels={hasSparkline ? labels : undefined}

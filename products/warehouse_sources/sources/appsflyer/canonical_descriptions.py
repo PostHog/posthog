@@ -1,7 +1,8 @@
 """Canonical, documentation-sourced descriptions for AppsFlyer Pull API reports and columns.
 
-Sourced from the official AppsFlyer references for the aggregate Pull API, the raw-data Pull API
-and the Master API; each entry below links the page it came from.
+Sourced from the official AppsFlyer references for the aggregate Pull API, the raw-data Pull API,
+the Master API and the SKAN aggregated performance report API; each entry below links the page it
+came from.
 Keyed by the report names in `settings.py` `APPSFLYER_ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced AppsFlyer table. Column names are the CSV headers normalized to
 snake_case (see `_normalize_header`); columns absent here fall back to LLM enrichment.
@@ -103,6 +104,50 @@ _AD_REVENUE_COLUMNS = {
 }
 
 
+# Postback reports carry the raw event columns plus the delivery details of the copy sent to a partner.
+_POSTBACK_COLUMNS = {
+    **_RAW_COLUMNS,
+    "postback_url": "URL the postback was sent to, with its macros filled in.",
+    "postback_method": "HTTP method the postback was sent with.",
+    "postback_http_response_code": "HTTP status the partner answered the postback with. 200 means the partner received it.",
+    "postback_error_message": "Error returned when the postback failed.",
+}
+
+# SKAN performance report columns (CSV headers normalized to snake_case). In-app event columns are
+# named after the app's own events, so they are not listed.
+_SKAN_COLUMNS = {
+    "date": "Install date, which AppsFlyer derives from the postback arrival time and the measurement window.",
+    "media_source_pid": "Media source (ad network) the SKAN postback came from (pid).",
+    "campaign_c": "Campaign name (c).",
+    "campaign_id": "Campaign identifier from the ad network.",
+    "site_id": "Publisher or site identifier.",
+    "adset": "Ad set name.",
+    "adset_id": "Ad set identifier.",
+    "ad": "Ad name.",
+    "ad_id": "Ad identifier.",
+    "country": "Country of the installs.",
+    "af_attribution_flag": "Whether AppsFlyer also attributed the install outside SKAN, used to avoid double counting.",
+    "postback_sequence_index": "SKAN 4 postback window: 0, 1 or 2. Always 0 for SKAN 3.",
+    "creative": "Creative reported by the ad network (SKAN 4 only).",
+    "channel": "Channel within the media source (SKAN 4 only).",
+    "impressions": "Number of ad impressions.",
+    "clicks": "Number of ad clicks.",
+    "ctr": "Click-through rate (clicks divided by impressions).",
+    "installs": "Number of installs SKAdNetwork reported.",
+    "click_through_installs": "Installs that followed a click (fidelity type 1).",
+    "view_through_installs": "Installs that followed an ad view (fidelity type 0).",
+    "null_conversion_value_rate": "Share of postbacks that arrived without a conversion value.",
+    "conversion_rate": "Share of installs that converted.",
+    "converted_users": "Number of users who performed a measured conversion.",
+    "converted_users_installs": "Converted users divided by installs.",
+    "total_revenue": "Total revenue decoded from the conversion values, in USD.",
+    "total_cost": "Total ad spend, in USD.",
+    "roi": "Return on investment (revenue relative to cost).",
+    "arpu": "Average revenue per user.",
+    "average_ecpi": "Average effective cost per install.",
+}
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "daily_report": {
         "description": "Daily aggregate performance per media source and campaign — installs, clicks, cost, and revenue by date.",
@@ -185,6 +230,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Ad monetization revenue per user attributed to retargeting campaigns, aggregated by monetization network, ad unit and placement.",
         "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-ad-revenue-raw-retarget-v5",
         "columns": _AD_REVENUE_COLUMNS,
+    },
+    "reinstalls": {
+        "description": "One row per reinstall attributed to a media source: a user who uninstalled the app, engaged with a campaign and installed it again in the re-attribution window.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-reinstalls-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "reinstalls_organic": {
+        "description": "One row per organic reinstall: a user who uninstalled the app and installed it again without a campaign.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-reinstalls-organic-v5",
+        "columns": _RAW_COLUMNS,
+    },
+    "install_postbacks": {
+        "description": "Copies of the install postbacks AppsFlyer sent to ad networks, with the delivery result. Use it to reconcile AppsFlyer against network dashboards.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-postbacks-v5",
+        "columns": _POSTBACK_COLUMNS,
+    },
+    "in_app_event_postbacks": {
+        "description": "Copies of the in-app event postbacks AppsFlyer sent to ad networks, with the delivery result.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-in-app-events-postbacks-v5",
+        "columns": _POSTBACK_COLUMNS,
+    },
+    "retargeting_install_postbacks": {
+        "description": "Copies of the retargeting conversion postbacks AppsFlyer sent to ad networks, with the delivery result.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-retarget-install-postbacks-v5",
+        "columns": _POSTBACK_COLUMNS,
+    },
+    "retargeting_in_app_event_postbacks": {
+        "description": "Copies of the retargeting in-app event postbacks AppsFlyer sent to ad networks, with the delivery result.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/get_app-id-retarget-in-app-events-postbacks-v5",
+        "columns": _POSTBACK_COLUMNS,
+    },
+    "skan_performance_report": {
+        "description": "Daily SKAdNetwork (SKAN) performance for iOS apps per media source, campaign, ad and country, from Apple's SKAN postbacks enriched by AppsFlyer.",
+        "docs_url": "https://dev.appsflyer.com/hc/reference/skan-agg-performance-report-api-get",
+        "columns": _SKAN_COLUMNS,
     },
     "master_report": {
         "description": "Master API LTV report: install-day cohorts broken down by agency, media source, campaign and country, with the generic lifetime-value KPIs.",

@@ -2,11 +2,18 @@
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { type JsonValue, evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
+import {
+    type JsonValue,
+    evaluateCondition,
+    evaluateTemplate,
+    evaluateValue,
+    planFunctions,
+} from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -91,6 +98,7 @@ const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
 const depotBackend = suite(DEPOT_BACKEND, backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const deltalite = suite('build-deltalite.yml')
+const agentEgress = suite('ci-agent-egress.yml')
 const PINNED_WORKFLOWS = [DEPOT_BACKEND, 'ci-frontend.yml']
 
 interface ReleaseWorkflow {
@@ -184,6 +192,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'test-selection-verdict',
             ],
         }
@@ -229,12 +238,21 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
             skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
         }
+    ),
+    depotBackend(
+        { name: 'ready PR with Trunk uploads', vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { runs: ['trunk-ownership-map', 'turbo-tests', 'django'] }
+    ),
+    depotBackend(
+        { name: 'master push with Trunk uploads', github: push(), vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { skipped: ['trunk-ownership-map'] }
     ),
     depotBackend(
         { name: 'merge queue', github: mergeQueue() },
@@ -306,6 +324,7 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
                 'backend-coverage-report',
             ],
@@ -404,6 +423,51 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
+    ...[pullRequest(), pullRequest({ fork: true })].map((github, index) =>
+        agentEgress(
+            { name: index ? 'fork PR' : 'ready PR', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images'], skipped: ['publish'] }
+        )
+    ),
+    ...[push(), workflowDispatch()].map((github, index) =>
+        agentEgress(
+            { name: index ? 'master dispatch' : 'master push', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images', 'publish'] }
+        )
+    ),
+    agentEgress(
+        { name: 'branch dispatch', github: workflowDispatch('feat/example'), vars: { CD_DEPLOY_ENABLED: 'true' } },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        { name: 'publishing disabled', github: push(), vars: { CD_DEPLOY_ENABLED: 'false' } },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'publication paused',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true', ORDERED_IMAGE_ALIAS_PAUSED: 'true' },
+        },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'foreign repository',
+            github: { ...push(), repository_owner: 'octocat' },
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+        },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'failed image smoke check',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+            steps: { images: { 'Check runtime startup, relay transport and enrollment': { outcome: 'failure' } } },
+        },
+        { results: { images: 'failure', publish: 'skipped' } }
+    ),
     deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
     deltalite(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
@@ -580,6 +644,28 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     ]),
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+    ...[
+        { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
+        {
+            name: 'draft PR labeled run-ci-backend',
+            github: pullRequest({ draft: true, labels: ['run-ci-backend'] }),
+            runs: true,
+        },
+        { name: 'unlabeled ready PR', github: pullRequest(), runs: false },
+        { name: 'merge queue labeled run-ci-backend', github: mergeQueue({ labels: ['run-ci-backend'] }), runs: false },
+        { name: 'master push', github: push(), runs: false },
+        { name: 'hourly schedule', github: schedule(), runs: false },
+    ].map(({ name, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'django_tests',
+        step: 'full-run-label-token',
+        scenario: {
+            name,
+            github,
+            steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors },
+        },
+        runs,
+    })),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -633,21 +719,23 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
-        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
-        ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],
-        ['missing filter output', pullRequest(), '', '', '', 2, 'success', true],
-        ['missing unmatched output', pullRequest(), 'false', '', '2', 2, 'success', true],
-        ['newline input with rename', pullRequest(), 'false', 'true', '3', 3, 'success', true],
-        ['newline rename source', pullRequest(), 'false', 'true', '2', 2, 'success', true],
-        ['newline rename destination', pullRequest(), 'false', 'true', '2', 2, 'success', true],
-        ['incomplete file list', pullRequest(), 'false', 'false', '1', 2, 'success', true],
-        ['API file cap', pullRequest(), 'false', 'false', '3000', 3000, 'success', true],
-        ['failed detector', pullRequest(), '', '', '', 2, 'failure', true],
-        ['merge queue', mergeQueue(), 'true', 'false', '2', 2, 'success', false],
+        ['MCP-only PR', pullRequest(), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'true', 'false', 'false', '2', 2, 'success', false, true],
+        ['Rust CLI change', pullRequest(), 'true', 'true', 'false', '2', 2, 'success', true, true],
+        ['Rust-only PR', pullRequest(), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['Rust-only fork PR', pullRequest({ fork: true }), 'false', 'true', 'false', '2', 2, 'success', true, false],
+        ['missing filter output', pullRequest(), 'false', '', '', '', 2, 'success', true, true],
+        ['missing unmatched output', pullRequest(), 'false', 'false', '', '2', 2, 'success', true, true],
+        ['newline input with rename', pullRequest(), 'false', 'false', 'true', '3', 3, 'success', true, true],
+        ['newline rename source', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['newline rename destination', pullRequest(), 'false', 'false', 'true', '2', 2, 'success', true, true],
+        ['incomplete file list', pullRequest(), 'false', 'false', 'false', '1', 2, 'success', true, true],
+        ['API file cap', pullRequest(), 'false', 'false', 'false', '3000', 3000, 'success', true, true],
+        ['failed detector', pullRequest(), 'false', '', '', '', 2, 'failure', true, true],
+        ['merge queue', mergeQueue(), 'true', 'true', 'false', '2', 2, 'success', false, false],
     ] as const)(
-        'CLI Rust checks retain coverage (%s)',
-        (name, github, rust, unmatched, count, changedFiles, outcome, runs) => {
+        'CLI checks retain coverage (%s)',
+        (name, github, apiBundle, rust, unmatched, count, changedFiles, outcome, runs, bundleRuns) => {
             const event = github.event as Record<string, JsonValue>
             const plan = planWorkflow(workflow('ci-cli.yml'), {
                 name,
@@ -659,14 +747,19 @@ describe('CI workflow run plans', () => {
                     },
                 },
                 steps: {
-                    changes: { filter: { outcome, outputs: { rust, unmatched_paths: unmatched, all_count: count } } },
+                    changes: {
+                        filter: {
+                            outcome,
+                            outputs: { rust, api_bundle: apiBundle, unmatched_paths: unmatched, all_count: count },
+                        },
+                    },
                 },
             })
             expect(plan.errors).toEqual([])
             for (const job of ['tests', 'clippy', 'format']) {
                 expect(runningJobs(plan).includes(job)).toBe(runs)
             }
-            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(name !== 'merge queue')
+            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(bundleRuns)
         }
     )
 
@@ -1093,28 +1186,38 @@ describe('CI workflow run plans', () => {
         expect(cleanup?.runs ?? false).toBe(runs)
     })
 
-    it.each([
-        { result: 'success', exitCode: 0 },
-        { result: 'failure', exitCode: 1 },
-        { result: 'cancelled', exitCode: 1 },
-    ])('mobile gate reports an API-only typecheck $result', ({ result, exitCode }) => {
-        const script = evaluateValue(
-            workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
-            {
-                needs: {
-                    changes: { result: 'success', outputs: { mobile: 'false', api_types: 'true' } },
-                    check: { result },
+    describe.each([
+        { name: 'API-only typecheck', output: 'api_types', job: 'check' },
+        { name: 'replay bundle verification', output: 'replay_bundle', job: 'replay_bundle' },
+    ])('mobile gate for $name', ({ output, job }) => {
+        it.each([
+            { result: 'success', exitCode: 0 },
+            { result: 'failure', exitCode: 1 },
+            { result: 'cancelled', exitCode: 1 },
+        ])('reports $result', ({ result, exitCode }) => {
+            const script = evaluateValue(
+                workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
+                {
+                    needs: {
+                        changes: {
+                            result: 'success',
+                            outputs: { mobile: 'false', api_types: 'false', replay_bundle: 'false', [output]: 'true' },
+                        },
+                        check: { result: 'skipped' },
+                        replay_bundle: { result: 'skipped' },
+                        [job]: { result },
+                    },
                 },
-            },
-            planFunctions({
-                dependenciesSucceeded: result === 'success',
-                dependenciesFailed: result === 'failure',
-                cancelled: false,
-            })
-        )
-        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
-        expect(gate.error).toBeUndefined()
-        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+                planFunctions({
+                    dependenciesSucceeded: result === 'success',
+                    dependenciesFailed: result === 'failure',
+                    cancelled: false,
+                })
+            )
+            const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+            expect(gate.error).toBeUndefined()
+            expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+        })
     })
 
     it.each([
@@ -1211,15 +1314,69 @@ describe('CI workflow run plans', () => {
         }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
     })
 
+    const fullDjangoLegs = ['Core', 'Core poe', 'Temporal', 'compat', 'json-targets']
     it.each([
-        ['23 */3 * * *', true],
-        ['23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
-    ])('the events_json leg follows the scheduled trigger %s', (cron, runs) => {
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDjangoLegs, 1],
+        [
+            'off-hour schedule',
+            { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
+            ['Core'],
+            0,
+        ],
+        ['schedule without a cron string', { ...schedule(), event: {} }, fullDjangoLegs, 1],
+        ['manual dispatch', workflowDispatch(), fullDjangoLegs, 1],
+        ['merge queue', mergeQueue(), ['Core', 'Temporal', 'compat', 'json-targets'], 1],
+    ] as const)('the core-only scheduled scope on %s', (_name, github, djangoLegs, productJobs) => {
         const depot = workflow(DEPOT_BACKEND)
-        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
-        const github = { ...schedule(), event: { schedule: cron } }
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
+        const context = {
+            github,
+            needs: {
+                changes: { outputs: { legacy: 'true' } },
+                get_clickhouse_versions: {
+                    outputs: {
+                        oldest_supported_image: 'clickhouse/clickhouse-server:old',
+                        compat_matrix: '[{"clickhouse-server-image":"clickhouse/clickhouse-server:compat"}]',
+                    },
+                },
+                'turbo-discover': { outputs: { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' } },
+            },
+        }
+        const buildInclude = (job: string): Record<string, JsonValue>[] => {
+            const step = depot.jobs[job]?.steps?.find((candidate) => candidate.id === 'build')
+            const env = Object.fromEntries(
+                Object.entries({ CORE_ONLY_RUN: depot.env?.CORE_ONLY_RUN, ...step?.env }).map(([name, value]) => [
+                    name,
+                    evaluateTemplate(value, context, functions),
+                ])
+            )
+            const dir = mkdtempSync(path.join(tmpdir(), 'matrix-'))
+            try {
+                const output = path.join(dir, 'output')
+                const result = spawnSync(
+                    'bash',
+                    ['--noprofile', '--norc', '-eo', 'pipefail', '-c', String(step?.run)],
+                    {
+                        env: { PATH: process.env.PATH, ...env, GITHUB_OUTPUT: output },
+                        encoding: 'utf8',
+                    }
+                )
+                expect(result.status, result.stderr || result.stdout).toBe(0)
+                return JSON.parse(/^include=(.*)$/m.exec(readFileSync(output, 'utf8'))![1]!)
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
+        }
+        const legName = (entry: Record<string, JsonValue>): string =>
+            entry.compat
+                ? 'compat'
+                : entry['json-targets']
+                  ? 'json-targets'
+                  : `${entry.segment}${entry['person-on-events'] ? ' poe' : ''}`
+        expect({
+            djangoLegs: [...new Set(buildInclude('build_django_matrix').map(legName))],
+            productJobs: buildInclude('build-product-test-matrix').length,
+        }).toEqual({ djangoLegs, productJobs })
     })
 
     it.each([
@@ -1357,6 +1514,25 @@ describe('CI workflow run plans', () => {
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
         const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
         expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
+    })
+
+    it('agent egress serializes publication by commit and cancels only superseded PR runs', () => {
+        const concurrency = workflow('ci-agent-egress.yml').concurrency
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown =>
+            evaluateValue(concurrency?.group, { github }, functions)
+        const otherCommit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+        expect(groupFor(push())).toBe(groupFor(workflowDispatch()))
+        expect(groupFor(push())).not.toBe(groupFor({ ...push(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).toBe(groupFor({ ...pullRequest(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).not.toBe(groupFor(pullRequest({ headRef: 'feat/other' })))
+        expect(groupFor(pullRequest({ fork: true, headRef: String(push().sha) }))).not.toBe(groupFor(push()))
+        for (const github of [push(), workflowDispatch(), pullRequest()]) {
+            expect(evaluateValue(concurrency?.['cancel-in-progress'], { github }, functions)).toBe(
+                github.event_name === 'pull_request'
+            )
+        }
     })
 
     it.each([

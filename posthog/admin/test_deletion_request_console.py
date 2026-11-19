@@ -27,6 +27,7 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
 )
+from posthog.models.user import User
 from posthog.tasks.data_deletion_stats import refresh_deletion_stats_task
 from posthog.test.waiting import wait_until
 
@@ -79,10 +80,12 @@ class TestDeletionRequestConsole(BaseTest):
     def test_record_page_shows_the_request_and_django_admin_links_to_it(self) -> None:
         obj = self._request(status=RequestStatus.FAILED, attempt_count=2, last_dagster_run_id="run-1")
 
-        response = self.client.get(self._url(obj))
+        with override_settings(DAGSTER_DOMAIN="dagster.example.com"):
+            response = self.client.get(self._url(obj))
 
         assert response.status_code == 200
         content = response.content.decode()
+        assert 'href="https://dagster.example.com/runs/run-1"' in content
         for title in (
             "Overview",
             "ClickHouse stats",
@@ -323,6 +326,62 @@ class TestDeletionRequestConsole(BaseTest):
         counted.assert_not_called()
         obj.refresh_from_db()
         assert obj.status == status
+
+    @parameterized.expand([("clickhouse_team", True), ("other_staff", False)])
+    def test_requests_list_links_pending_requests_to_approval_for_the_clickhouse_team(
+        self, _name: str, member: bool
+    ) -> None:
+        pending = self._request(status=RequestStatus.PENDING)
+        self._request(status=RequestStatus.DRAFT)
+        self._request(status=RequestStatus.PENDING, team_id=self.team.pk + 1000)
+        if not member:
+            self.user.groups.clear()
+
+        response = self.client.get(
+            "/admin/console/tools/deletion-requests/", {"status": "pending", "team_id": str(self.team.pk)}
+        )
+
+        assert response.status_code == 200
+        soup = BeautifulSoup(response.content, "html.parser")
+        request_links = {
+            a["href"] for a in soup.find_all("a", href=True) if "/admin/console/deletion-requests/" in a["href"]
+        }
+        approve_url = f"{self._url(pending)}workflow/approve/"
+        expected = {self._url(pending), approve_url} if member else {self._url(pending)}
+        assert request_links == expected
+
+    @parameterized.expand([("staff", {True}), ("not-staff", {False, None})])
+    def test_requests_list_filters_by_whether_staff_created_the_request(
+        self, created_by: str, expected: set[bool | None]
+    ) -> None:
+        requests = {
+            created_by_staff: self._request(created_by_staff=created_by_staff)
+            for created_by_staff in (True, False, None)
+        }
+
+        response = self.client.get("/admin/console/tools/deletion-requests/", {"created_by": created_by})
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        listed = {
+            a["href"]
+            for a in soup.find_all("a", href=True)
+            if a["href"].startswith("/admin/console/deletion-requests/")
+        }
+        assert listed == {self._url(requests[created_by_staff]) for created_by_staff in expected}
+
+    def test_requests_list_names_the_active_clickhouse_team_staff(self) -> None:
+        clickhouse_team = Group.objects.get(name="ClickHouse Team")
+        teammate = User.objects.create(email="teammate@example.com", first_name="Teammate", is_staff=True)
+        teammate.groups.add(clickhouse_team)
+        departed = User.objects.create(email="departed@example.com", is_staff=True, is_active=False)
+        departed.groups.add(clickhouse_team)
+        User.objects.create(email="support@example.com", is_staff=True)
+
+        response = self.client.get("/admin/console/tools/deletion-requests/")
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        emails = {cell.get_text(strip=True) for cell in soup.find_all("td") if "@" in cell.get_text()}
+        assert emails == {self.user.email, "teammate@example.com"}
 
     def test_retry_requeues_a_failed_request_with_its_original_approval(self) -> None:
         approved_at = timezone.now() - timedelta(hours=2)

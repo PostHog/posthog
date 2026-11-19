@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -21,7 +20,6 @@ const meta: Meta<typeof OfflineExperimentContent> = {
     parameters: {
         mockDate: '2026-09-28T12:00:00Z',
         pageUrl: urls.aiObservabilityOfflineEvaluationExperiment(detailExperiment.id),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
         mswDecorator({

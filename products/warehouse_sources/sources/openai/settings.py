@@ -65,8 +65,9 @@ class OpenAIEndpointConfig:
     fan_out_extra_path_fields: dict[str, str] = field(default_factory=dict)
     # Extra static query params merged into every request (e.g. include_archived on projects).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Platform resources (models, batches, stored completions, evals) reject Admin API keys, so
-    # they authenticate with the optional project API key instead.
+    extra_headers: dict[str, str] = field(default_factory=dict)
+    # Platform resources (models, batches, stored completions, evals, fine-tuning, vector stores)
+    # reject Admin API keys, so they authenticate with the optional project API key instead.
     requires_project_key: bool = False
     should_sync_default: bool = True
 
@@ -208,6 +209,16 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
         fan_out_parent="projects",
         fan_out_parent_key="project_id",
     ),
+    # Project group memberships carry no `id`; the group id is unique within a project.
+    "project_groups": OpenAIEndpointConfig(
+        name="project_groups",
+        path="/v1/organization/projects/{project_id}/groups",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["project_id", "group_id"],
+        partition_key="created_at",
+        fan_out_parent="projects",
+        fan_out_parent_key="project_id",
+    ),
     "groups": OpenAIEndpointConfig(
         name="groups",
         path="/v1/organization/groups",
@@ -313,6 +324,61 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
         fan_out_parent_key="run_id",
         fan_out_extra_path_fields={"eval_id": "eval_id"},
         extra_params={"order": "asc"},
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    # One request per stored completion, so it is off by default like every platform table.
+    "chat_completion_messages": OpenAIEndpointConfig(
+        name="chat_completion_messages",
+        path="/v1/chat/completions/{completion_id}/messages",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["completion_id", "id"],
+        fan_out_parent="chat_completions",
+        fan_out_parent_key="completion_id",
+        extra_params={"order": "asc"},
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "fine_tuning_jobs": OpenAIEndpointConfig(
+        name="fine_tuning_jobs",
+        path="/v1/fine_tuning/jobs",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+        partition_key="created_at",
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "fine_tuning_job_events": OpenAIEndpointConfig(
+        name="fine_tuning_job_events",
+        path="/v1/fine_tuning/jobs/{fine_tuning_job_id}/events",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["fine_tuning_job_id", "id"],
+        partition_key="created_at",
+        fan_out_parent="fine_tuning_jobs",
+        fan_out_parent_key="fine_tuning_job_id",
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "fine_tuning_job_checkpoints": OpenAIEndpointConfig(
+        name="fine_tuning_job_checkpoints",
+        path="/v1/fine_tuning/jobs/{fine_tuning_job_id}/checkpoints",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["fine_tuning_job_id", "id"],
+        partition_key="created_at",
+        fan_out_parent="fine_tuning_jobs",
+        fan_out_parent_key="fine_tuning_job_id",
+        requires_project_key=True,
+        should_sync_default=False,
+    ),
+    "vector_stores": OpenAIEndpointConfig(
+        name="vector_stores",
+        path="/v1/vector_stores",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["id"],
+        partition_key="created_at",
+        extra_params={"order": "asc"},
+        # The official SDKs still send this header on every vector store request.
+        extra_headers={"OpenAI-Beta": "assistants=v2"},
         requires_project_key=True,
         should_sync_default=False,
     ),
