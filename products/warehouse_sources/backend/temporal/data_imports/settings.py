@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     cdc_extract_activity,
@@ -52,7 +52,7 @@ WORKFLOWS = [
     PostImportWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     create_external_data_job_model_activity,
     update_external_data_job_model,
     import_data_activity_sync,

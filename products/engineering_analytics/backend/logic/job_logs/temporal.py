@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchDepotJobLogWorkflow,
@@ -13,7 +13,7 @@ from products.engineering_analytics.backend.logic.job_logs.coordinator import (
 )
 
 WORKFLOWS = [GithubJobLogsCoordinatorWorkflow, FetchGithubJobLogWorkflow, FetchDepotJobLogWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     discover_failed_jobs_activity,
     discover_failed_depot_attempts_activity,
     fetch_and_emit_job_log_activity,

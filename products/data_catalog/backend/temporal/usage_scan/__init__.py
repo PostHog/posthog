@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from .activities import (
     collect_metric_runs,
@@ -14,7 +14,7 @@ from .activities import (
 from .workflows import DataCatalogUsageScanWorkflow, DataCatalogUsageScheduleWorkflow
 
 WORKFLOWS = [DataCatalogUsageScanWorkflow, DataCatalogUsageScheduleWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     list_teams_due,
     create_snapshot,
     collect_metric_runs,

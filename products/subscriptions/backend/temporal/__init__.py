@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.subscriptions.backend.temporal.activities import (
     advance_next_delivery_date,
@@ -27,7 +27,7 @@ WORKFLOWS = [
     ProcessAISubscriptionWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     fetch_due_subscriptions_activity,
     validate_subscription_for_delivery,
     create_export_assets,

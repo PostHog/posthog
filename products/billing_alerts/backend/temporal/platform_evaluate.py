@@ -5,12 +5,12 @@ stays a plain function a test can call without Temporal.
 """
 
 import datetime as dt
-from collections.abc import Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
@@ -75,4 +75,4 @@ class BillingAlertPlatformEvaluateWorkflow(PostHogWorkflow):
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [BillingAlertPlatformEvaluateWorkflow]
-PLATFORM_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [evaluate_billing_alerts_activity]
+PLATFORM_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [evaluate_billing_alerts_activity]

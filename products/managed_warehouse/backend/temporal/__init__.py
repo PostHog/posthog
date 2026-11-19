@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.managed_warehouse.backend.temporal.compaction_workflow import (
     DucklakeCompactionWorkflow,
@@ -48,7 +48,7 @@ WORKFLOWS = [
     DuckLakeRegisterDataImportsWorkflow,
     ManagedWarehouseViewTranslationWorkflow,
 ]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     reconcile_trino_model_aliases_activity,
     cleanup_data_imports_staging_activity,
     cleanup_data_modeling_staging_activity,

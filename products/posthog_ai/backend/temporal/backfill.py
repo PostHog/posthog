@@ -7,7 +7,6 @@ from the last cursor the loop logged.
 """
 
 import asyncio
-from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
 
@@ -18,6 +17,7 @@ from temporalio.exceptions import is_cancelled_exception
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.temporal.activities import (
@@ -215,7 +215,7 @@ class ConversationBackfillWorkflow(PostHogWorkflow):
 
 
 WORKFLOWS = [ConversationBackfillWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     list_conversations_to_backfill_activity,
     mirror_conversation_to_task_activity,
 ]

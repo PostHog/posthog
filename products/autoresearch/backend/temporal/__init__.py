@@ -5,7 +5,7 @@ registers them on `settings.AUTORESEARCH_TASK_QUEUE`, which the
 temporal-worker-self-driving fleet polls.
 """
 
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from .workflows import (
     AutoresearchCoordinatorWorkflow,
@@ -30,7 +30,7 @@ WORKFLOWS = [
     AutoresearchValidationWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     activity_fail_cleanup_run,
     activity_fail_lost_inference_runs,
     activity_kickoff_training,

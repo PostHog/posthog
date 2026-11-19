@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import (
     HarmonicEnrichmentStatusPollWorkflow,
@@ -30,7 +30,7 @@ WORKFLOWS = [
     WizardStampRescoreWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     enrich_signup_organization_activity,
     select_reenrichment_candidates_activity,
     reenrich_organization_activity,

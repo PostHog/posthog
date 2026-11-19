@@ -17,7 +17,6 @@ and idempotent.
 import json
 import time
 import dataclasses
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -30,6 +29,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError,
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyBackfillActivityInputs,
@@ -262,7 +262,7 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_BACKFILL_WORKFLOWS: list[type[PostHogWorkflow]] = [BackfillWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_BACKFILL_ACTIVITIES: list[Callable[..., object]] = [
+PERSON_PROPERTY_BACKFILL_ACTIVITIES: list[ActivityDefinition] = [
     backfill_warehouse_person_properties_activity,
     record_failed_person_property_backfill_runs_activity,
 ]

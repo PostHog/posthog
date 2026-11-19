@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from .effectiveness import (
     ACTIVITIES as EFFECTIVENESS_ACTIVITIES,
@@ -14,6 +14,6 @@ from .weekly_digest import (
 )
 
 WORKFLOWS = [*DIGEST_WORKFLOWS, *USAGE_SCAN_WORKFLOWS, *EFFECTIVENESS_WORKFLOWS]
-ACTIVITIES: list[Callable[..., object]] = [*DIGEST_ACTIVITIES, *USAGE_SCAN_ACTIVITIES, *EFFECTIVENESS_ACTIVITIES]
+ACTIVITIES: list[ActivityDefinition] = [*DIGEST_ACTIVITIES, *USAGE_SCAN_ACTIVITIES, *EFFECTIVENESS_ACTIVITIES]
 
 __all__ = ["ACTIVITIES", "WORKFLOWS"]

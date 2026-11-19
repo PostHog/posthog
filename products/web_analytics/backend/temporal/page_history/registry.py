@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.web_analytics.backend.temporal.page_history.activities import (
     claim_capture,
@@ -13,7 +13,7 @@ from products.web_analytics.backend.temporal.page_history.workflows import (
 )
 
 WORKFLOWS = [HeatmapPageHistoryCaptureWorkflow, HeatmapPageHistoryTickWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     claim_capture,
     render_capture,
     finish_capture,

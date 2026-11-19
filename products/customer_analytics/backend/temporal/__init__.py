@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.customer_analytics.backend.temporal.account_track_rules import (
     AccountTrackRuleCoordinatorWorkflow,
@@ -63,7 +63,7 @@ WORKFLOWS = [
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
 ]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     backfill_membership_batch_activity,
     fail_membership_backfill_activity,
     sync_membership_page_activity,

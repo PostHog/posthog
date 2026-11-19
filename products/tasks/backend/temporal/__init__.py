@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from .agent_egress import AgentEgressProbeWorkflow
 from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
@@ -85,7 +85,7 @@ WORKFLOWS = [
     ActivateDevStackImageWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     prepare_agent_egress,
     renew_agent_egress,
     probe_agent_egress,

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportWorkflow,
@@ -77,7 +77,7 @@ WORKFLOWS = [
     FileDownloadBatchExportWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     backfill_schedule,
     create_batch_export_backfill_model,
     get_backfill_info,

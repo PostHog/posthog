@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.wizard.backend.temporal.activities.execution import execute_wizard
 from products.wizard.backend.temporal.activities.handoff import create_run_artifacts
@@ -9,7 +9,7 @@ from products.wizard.backend.temporal.workflows.execute_run import ExecuteWizard
 
 WORKFLOWS = [ExecuteWizardRunWorkflow]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     provision_worker,
     prepare_local_wizard,
     clone_repository,

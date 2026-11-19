@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.context_layer.backend.temporal.dreaming import (
     ContextLayerBootstrapDreamWorkflow,
@@ -8,4 +8,4 @@ from products.context_layer.backend.temporal.dreaming import (
 )
 
 WORKFLOWS = [ContextLayerDreamCoordinatorWorkflow, ContextLayerBootstrapDreamWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [fetch_dream_candidates, dispatch_dream_run]
+ACTIVITIES: list[ActivityDefinition] = [fetch_dream_candidates, dispatch_dream_run]

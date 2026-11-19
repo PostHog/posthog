@@ -6,7 +6,7 @@ stable import target: ``from products.stamphog.backend.temporal.registry import 
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.stamphog.backend.temporal.activities import (
     checkout_review_sandbox,
@@ -30,7 +30,7 @@ from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 
 WORKFLOWS = [StamphogReviewWorkflow]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     dismiss_stale_approvals,
     signal_review_started,
     reuse_withheld_verdict,

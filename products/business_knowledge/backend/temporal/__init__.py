@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from .coordinator import (
     BusinessKnowledgeIngestSourceWorkflow,
@@ -31,7 +31,7 @@ WORKFLOWS = [
     BusinessKnowledgeLearningWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     sweep_tombstoned_documents_activity,
     classify_pending_documents_activity,
     reconcile_embeddings_activity,

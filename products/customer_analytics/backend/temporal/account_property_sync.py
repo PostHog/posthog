@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import time
 import asyncio
-from collections.abc import Callable
 from typing import Literal
 
 from temporalio import activity, workflow
@@ -14,6 +13,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
     DEFAULT_ACCOUNT_PROPERTY_SOURCE_CONCURRENCY,
@@ -840,7 +840,7 @@ ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [
     SyncWarehouseAccountPropertiesWorkflow,
     SyncWarehouseAccountPropertiesFanoutWorkflow,
 ]
-ACCOUNT_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., object]] = [
+ACCOUNT_PROPERTY_SYNC_ACTIVITIES: list[ActivityDefinition] = [
     start_warehouse_account_property_runs_activity,
     finalize_warehouse_account_property_runs_activity,
     stage_warehouse_account_property_files_activity,

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.billing_alerts.backend.temporal.activities import (
     discover_due_billing_alerts_activity,
@@ -25,7 +25,7 @@ __all__ = [
     "WORKFLOWS",
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     discover_due_billing_alerts_activity,
     evaluate_billing_alert_batch_activity,
 ]

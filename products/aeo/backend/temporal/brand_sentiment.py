@@ -13,7 +13,7 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from django.conf import settings
@@ -30,6 +30,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.registration import ActivityDefinition
 from posthog.temporal.common.utils import close_db_connections
 
 from products.aeo.backend.brand import brand_regex
@@ -302,4 +303,4 @@ def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
 
 
 WORKFLOWS = [AEOBrandSentimentWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [classify_aeo_brand_sentiment]
+ACTIVITIES: list[ActivityDefinition] = [classify_aeo_brand_sentiment]

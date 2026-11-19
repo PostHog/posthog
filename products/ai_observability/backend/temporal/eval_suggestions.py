@@ -17,6 +17,7 @@ from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
@@ -229,7 +230,7 @@ class EvalSuggestionsCoordinatorWorkflow(PostHogWorkflow):
 
 
 WORKFLOWS = [EvalSuggestionsCoordinatorWorkflow, EvalSuggestionsTeamWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     plan_eval_suggestions_activity,
     start_eval_suggestions_run_activity,
     measure_eval_suggestions_activity,

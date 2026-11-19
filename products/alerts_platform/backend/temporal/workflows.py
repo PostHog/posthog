@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import NonReportableApplicationError, unwrap_temporal_cause
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
@@ -821,12 +822,12 @@ SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformSourceDispatchWorkflow,
     AlertsPlatformRecordInventoryWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [
+SHARED_ORCHESTRATION_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_discover_demand_activity,
     alerts_platform_record_inventory_activity,
 ]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
-EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
+EVALUATION_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_probe_postgres_activity,
     alerts_platform_record_outcomes_activity,
 ]
@@ -836,7 +837,7 @@ DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformHandOverWorkflow,
     AlertsPlatformReleaseExpiredHoldsWorkflow,
 ]
-DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
+DELIVERY_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
     alerts_platform_deliver_routes_activity,
