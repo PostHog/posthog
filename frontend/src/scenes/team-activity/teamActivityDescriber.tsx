@@ -861,6 +861,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
     flag_evaluations_mode: () => null,
     flag_calls_only_in_flag_evaluations: () => null,
     realtime_cohorts: () => null,
+    available_error_tracking_ai_features: () => null,
     workflows_config: () => null,
 }
 
