@@ -16,7 +16,10 @@ from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
-from products.batch_exports.backend.temporal.pipeline.query_ranges import is_covered_by_events_json_recent
+from products.batch_exports.backend.temporal.pipeline.query_ranges import (
+    exports_feature_flag_called_events,
+    is_covered_by_events_json_recent,
+)
 from products.batch_exports.backend.temporal.sql.events import (
     EVENT_COUNT_BY_INTERVAL,
     build_event_count_by_interval_query,
@@ -120,13 +123,16 @@ class EventCount:
 async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[EventCount]:
     """Get the total number of events for a given team over a set of time intervals from ClickHouse."""
 
-    # Count from the table the exports read, so that a native export, which leaves out `$feature_flag_called`
-    # events, isn't compared with counts that include them.
+    # Count from the table the exports read, with the same `$feature_flag_called` rule, so that the counts match what
+    # the exports send.
     reads_events_json_recent = batch_exports_read_new_events_table() and is_covered_by_events_json_recent(
         str_to_datetime(inputs.overall_interval_start)
     )
     query = (
-        build_event_count_by_interval_query(EVENTS_JSON_RECENT_TABLE)
+        build_event_count_by_interval_query(
+            EVENTS_JSON_RECENT_TABLE,
+            includes_feature_flag_called=exports_feature_flag_called_events(inputs.team_id),
+        )
         if reads_events_json_recent
         else EVENT_COUNT_BY_INTERVAL
     )
