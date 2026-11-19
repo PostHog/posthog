@@ -200,6 +200,50 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         assert response.json()["detail"] == f"Flag dependency references non-existent flag with ID {disabled.id}"
         assert "hidden_disabled" not in str(response.json())
 
+    def _hidden_flag_as_member(self, key: str, runtime: str) -> FeatureFlag:
+        from posthog.models.organization import OrganizationMembership
+
+        from products.access_control.backend.models.access_control import AccessControl
+
+        self._enable_object_access_controls()
+        hidden = self._flag(key, runtime)
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=hidden.id, team=self.team, access_level="none"
+        )
+        self.client.force_login(self._create_user(f"{key}@posthog.com", level=OrganizationMembership.Level.MEMBER))
+        return hidden
+
+    @parameterized.expand(
+        [("rollout_edit_over_stored_dependency", False), ("adding_a_readable_flag_that_depends_on_it", True)]
+    )
+    def test_unreadable_dependency_the_write_does_not_add_does_not_block_edits(
+        self, _name: str, through_readable_flag: bool
+    ) -> None:
+        hidden = self._hidden_flag_as_member("hidden_dependency", "all")
+        if through_readable_flag:
+            middle = self._flag("readable_middle", "all", filters=_depends_on(hidden.id))
+            dependent = self._flag("dependent", "server")
+            data = {"filters": _depends_on(middle.id)}
+        else:
+            dependent = self._flag("dependent", "server", filters=_depends_on(hidden.id))
+            data = {"filters": _depends_on(hidden.id, rollout_percentage=50)}
+
+        response = self._patch(dependent, data)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_runtime_change_over_unreadable_stored_dependency_looks_like_a_missing_flag(self) -> None:
+        hidden = self._hidden_flag_as_member("hidden_client_dependency", "client")
+        dependent = self._flag("dependent", "client", filters=_depends_on(hidden.id))
+
+        response = self._patch(dependent, {"evaluation_runtime": "server"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == f"Flag dependency references non-existent flag with ID {hidden.id}"
+        assert "hidden_client_dependency" not in str(response.json())
+        dependent.refresh_from_db()
+        assert dependent.evaluation_runtime == "client"
+
     def test_readable_dependency_shows_its_runtime_to_a_member(self) -> None:
         from posthog.models.organization import OrganizationMembership
 

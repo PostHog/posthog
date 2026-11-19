@@ -7,7 +7,14 @@ import math
 import logging
 import builtins
 import functools
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    Set as AbstractSet,
+)
 from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -680,6 +687,11 @@ def _runtime_supports_dependency(dependent_runtime: str | None, dependency_runti
     # as false. The dependency must therefore evaluate everywhere the dependent does.
     dependency = _runtime(dependency_runtime)
     return dependency == "all" or dependency == _runtime(dependent_runtime)
+
+
+def _missing_dependency_error(flag_id: int) -> serializers.ValidationError:
+    # A flag the caller cannot read raises this error too, so both cases must produce the same message.
+    return serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
 
 
 def find_dependent_flags_batch(
@@ -1962,17 +1974,13 @@ class FeatureFlagSerializer(
         if not checked_ids:
             return
 
-        dependencies = (
-            self._readable_flags(
-                FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
-            )
-            .only("id", "key", "evaluation_runtime")
-            .order_by("key")
-        )
-        readable_ids = {dependency.id for dependency in dependencies}
-        for missing_id in sorted(checked_ids - readable_ids):
-            raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {missing_id}")
-        for dependency in dependencies:
+        flags = FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
+        readable_ids = set(self._readable_flags(flags).values_list("id", flat=True))
+        # A flag the caller cannot read looks missing. This covers a stored dependency too, but only when the
+        # runtime changes: an unrelated edit does not check stored dependencies, so it saves.
+        if hidden_ids := checked_ids - readable_ids:
+            raise _missing_dependency_error(min(hidden_ids))
+        for dependency in flags.only("id", "key", "evaluation_runtime").order_by("key"):
             if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
                 continue
             # A dependency the flag already stores fails only because this write changes the runtime.
@@ -1981,8 +1989,8 @@ class FeatureFlagSerializer(
                 f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
                 f"{_describe_runtime(dependency.evaluation_runtime)} and this flag evaluates "
                 f"{_describe_runtime(runtime)}. Where flag {dependency.id} doesn't evaluate, this flag reads it "
-                f"as false. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag "
-                f"to evaluate {_describe_runtime(dependency.evaluation_runtime)}."
+                f"as false. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this "
+                f"flag to evaluate {_describe_runtime(dependency.evaluation_runtime)}."
             )
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
 
@@ -2829,8 +2837,11 @@ class FeatureFlagSerializer(
                 code="unsupported_dependency_config_version",
             ) from exc
 
-    def _validate_flag_reference(self, flag_reference):
-        """Validate and convert flag reference to flag key."""
+    def _validate_flag_reference(self, flag_reference, *, require_read_access: bool = False):
+        """Validate and convert flag reference to flag key.
+
+        With ``require_read_access``, a flag the caller cannot read raises the same error as a missing flag.
+        """
         flag_id = safe_int(flag_reference)
         if flag_id is None:
             raise serializers.ValidationError(
@@ -2839,9 +2850,10 @@ class FeatureFlagSerializer(
             )
 
         try:
-            flag = self._readable_flags(
-                FeatureFlag.objects.filter(id=flag_id, team__project_id=self.context["project_id"])
-            ).get()
+            queryset = FeatureFlag.objects.filter(id=flag_id, team__project_id=self.context["project_id"])
+            if require_read_access:
+                queryset = self._readable_flags(queryset)
+            flag = queryset.get()
 
             # Check if the referenced flag is active
             if not flag.active:
@@ -2853,7 +2865,7 @@ class FeatureFlagSerializer(
             self._validate_dependency_formats(flag.filters, flag_id=flag_id)
             return flag.key
         except FeatureFlag.DoesNotExist:
-            raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
+            raise _missing_dependency_error(flag_id)
 
     def _get_properties_from_filters(self, filters: dict, property_type: PropertyFilterType | None = None):
         """
@@ -2879,13 +2891,18 @@ class FeatureFlagSerializer(
             if prop.get("key") == "$group_key"
         ]
 
-    def _extract_flag_dependencies(self, filters):
-        """Extract flag dependencies from filters."""
+    def _extract_flag_dependencies(self, filters, *, readable_only_ids: AbstractSet[int] = frozenset()):
+        """Extract flag dependencies from filters.
+
+        Only the references in ``readable_only_ids`` must point at flags the caller can read.
+        """
         dependencies = set()
         for flag_prop in self._get_properties_from_filters(filters, PropertyFilterType.FLAG):
             flag_reference = flag_prop.get("key")
             if flag_reference:
-                flag_key = self._validate_flag_reference(flag_reference)
+                flag_key = self._validate_flag_reference(
+                    flag_reference, require_read_access=safe_int(flag_reference) in readable_only_ids
+                )
                 dependencies.add(flag_key)
         return dependencies
 
@@ -2896,7 +2913,11 @@ class FeatureFlagSerializer(
         if not current_flag_key:
             return
 
-        flag_dependencies = self._extract_flag_dependencies(filters)
+        # Only the dependencies this write adds must be readable. A stored dependency, or a dependency of a
+        # dependency, that the caller cannot read must not block an edit the caller is allowed to make.
+        stored_filters = (self.instance.filters if self.instance is not None else None) or {}
+        added_ids = set(flag_dependency_ids(filters)) - set(flag_dependency_ids(stored_filters))
+        flag_dependencies = self._extract_flag_dependencies(filters, readable_only_ids=added_ids)
         if not flag_dependencies:
             return
 

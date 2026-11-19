@@ -55,6 +55,11 @@ All of these errors use the code `dependency_runtime_mismatch`.
 The runtime check never blocks re-enabling a flag.
 A copy that creates a flag in another project counts every dependency as added, so it fails when a remapped dependency has a runtime the copy cannot depend on.
 
+A dependency the write adds must be a flag the caller can read, judged in the write team's organization.
+Otherwise the write fails with the same error as a dependency on a flag that does not exist.
+A stored dependency, and a dependency of a dependency, that the caller cannot read does not block the write.
+When a runtime change touches a stored dependency the caller cannot read, the write fails with the same error as a dependency on a flag that does not exist, so the error does not reveal its runtime.
+
 Do not wrap facade writes in an outer transaction.
 An approval-required write creates a pending change request and then raises; an outer transaction would roll that request back.
 The serializer's existing update transaction locks the flag and increments its row version.
