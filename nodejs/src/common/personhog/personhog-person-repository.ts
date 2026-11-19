@@ -12,14 +12,7 @@ import { PersonRepositoryTransaction } from '~/common/persons/repositories/perso
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
-import {
-    InternalPerson,
-    PersonUpdateFields,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-    TeamId,
-} from '~/types'
+import { InternalPerson, PersonUpdateFields, Team, TeamId } from '~/types'
 
 import { PersonHogClient, shouldUseGrpcForTeam, shouldUseGrpcForTeamItems } from './client'
 import { timedGrpc, timedPostgres } from './metrics'
@@ -179,8 +172,6 @@ export class PersonHogPersonRepository implements PersonRepository {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,
@@ -191,8 +182,6 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.createPerson(
             createdAt,
             properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
             teamId,
             isUserId,
             isIdentified,

@@ -14,7 +14,7 @@ from uuid import UUID
 from django.db import models, transaction
 
 from products.alerts_platform.backend.delivery.addresses import refused_destination
-from products.alerts_platform.backend.delivery.destinations import live_hog_function_ids
+from products.alerts_platform.backend.delivery.destinations import copies_of_live_hog_functions
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
@@ -341,15 +341,9 @@ def record_source_destination(
     keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
-    destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
-    the alert's destinations itself: delivery then sends every row and emits to every HogFunction, so a
-    row beside these HogFunctions would send each message twice."""
-    configuration_id = (
-        _configurations_by_public_id(team_id, public_id)
-        .filter(destinations_owner=PlatformAlertOwner.SOURCE)
-        .values_list("id", flat=True)
-        .first()
-    )
+    destination outlives them. None when the platform has no alert under `public_id`. Delivery skips
+    the row while any of these HogFunctions exists, so the destination sends once."""
+    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(
@@ -428,10 +422,10 @@ def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) 
         .order_by("created_at", "id")
         if not _names_subscribers(row)
     ]
-    live = live_hog_function_ids(
-        team_id=team_id, hog_function_ids={copied for row in rows for copied in row.legacy_hog_function_ids}
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: row.legacy_hog_function_ids for row in rows}
     )
-    return tuple(_stored(row) for row in rows if live.isdisjoint(row.legacy_hog_function_ids))
+    return tuple(_stored(row) for row in rows if row.id not in copies)
 
 
 def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:

@@ -121,7 +121,9 @@ Create an internal integration at [notion.so/my-integrations](https://www.notion
 
 Then **share** each page or database you want to sync with the integration (via the page's `•••` menu → Connections), otherwise it will not be visible to the sync.
 
-To sync the `permission_groups` table, also enter an organization bot token with the `permission-group:read` scope. Organization owners create these tokens in the Notion organization console. This needs a Notion Enterprise plan.
+Internal integrations work on every Notion plan. If you can't create one, ask a workspace owner in Notion.
+
+Optional: to also sync the `permission_groups` table, enter an organization bot token with the `permission-group:read` scope. Only this table needs a Notion Enterprise plan. Organization owners create these tokens in the Notion organization console.
 """,
             iconPath="/static/services/notion.png",
             docsUrl="https://posthog.com/docs/cdp/sources/notion",
@@ -143,6 +145,7 @@ To sync the `permission_groups` table, also enter an organization bot token with
                         required=False,
                         placeholder="",
                         secret=True,
+                        caption="Only for the permission_groups table. Leave empty to sync everything else.",
                     ),
                 ],
             ),

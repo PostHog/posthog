@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 91 enabled ops
+ * PostHog API - MCP 92 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -315,7 +315,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .enum(['unusual', 'recent', 'rate'])
         .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
         .describe(
-            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
+            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
         ),
     search: zod
         .string()
@@ -612,6 +612,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .max(signalsReportsListQueryLimitMax)
         .optional()
         .describe('Number of results to return per page.'),
+    needs_you: zod
+        .boolean()
+        .optional()
+        .describe(
+            "'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking."
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()
@@ -5367,6 +5373,26 @@ export const SignalsScoutScratchpadRememberBody = () => zod
     .describe('Request body for `remember`.')
 
 /**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const SignalsScoutScratchpadDiscardParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = () => zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
+
+/**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
  * @summary Forget a scratchpad entry by key
  */
@@ -6139,7 +6165,7 @@ export const SignalsMonthlyUsageQueryParams = () => zod.object({
         .regex(signalsMonthlyUsageQueryMonthRegExp)
         .optional()
         .describe(
-            'UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.'
+            'UTC calendar month in YYYY-MM format, from 2026-10 onward and entirely within the last three calendar months. Defaults to the current month. Usage is grouped by finalization time.'
         ),
 })
 

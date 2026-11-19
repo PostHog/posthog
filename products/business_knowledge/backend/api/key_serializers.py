@@ -29,4 +29,10 @@ class KnowledgeKeyCreateSerializer(serializers.Serializer):
     label = serializers.CharField(  # type: ignore[assignment]
         max_length=40, help_text="Name for the key. Must be unique in this project."
     )
-    library_id = serializers.UUIDField(help_text="The library this key reads. It cannot be changed later.")
+    library_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "The library this key reads. Send null for a key that reads all business knowledge in the project. "
+            "It cannot be changed later."
+        ),
+    )

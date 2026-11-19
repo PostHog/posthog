@@ -254,13 +254,15 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        repositorySaving,
+        actionabilitySaving,
+        decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
-        inboxReportDetailLogic(logicProps)
-    )
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority, updateRepository, updateActionability } =
+        useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const { linkImplementReportId } = useValues(inboxSceneLogic)
@@ -501,6 +503,11 @@ export function InboxDetailFrame({
                                 updatePriority(priority)
                             }}
                             prioritySaving={prioritySaving}
+                            onRepositoryChange={updateRepository}
+                            repositorySaving={repositorySaving}
+                            onActionabilityChange={updateActionability}
+                            actionabilitySaving={actionabilitySaving}
+                            decisionAttributions={decisionAttributions}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}

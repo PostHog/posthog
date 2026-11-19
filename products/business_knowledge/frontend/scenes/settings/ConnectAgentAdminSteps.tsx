@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AgentConfigSnippet } from './AgentConfigSnippet'
 import { ConnectAgentKeyForm } from './ConnectAgentKeyForm'
@@ -17,19 +15,8 @@ export function ConnectAgentAdminSteps(): JSX.Element {
             <ol className="m-0 pl-5 flex flex-col gap-2 list-decimal">
                 <li>
                     <div className="flex flex-col gap-2">
-                        <span>Create a key for the library the agent can read.</span>
+                        <span>Create a key, and choose what the agent can read.</span>
                         <ConnectAgentKeyForm />
-                        <span className="text-xs text-secondary">
-                            To let an agent read every library,{' '}
-                            <Link
-                                to={urls.settings('environment-secret-api-keys')}
-                                // pinned: data-attr value. Autocapture insights and tests select on it.
-                                data-attr="business-knowledge-connect-agent-create-key"
-                            >
-                                create a project secret API key
-                            </Link>{' '}
-                            with the <code>business_knowledge:read</code> scope.
-                        </span>
                     </div>
                 </li>
                 <li>

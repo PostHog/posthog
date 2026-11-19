@@ -353,6 +353,8 @@ function isUntouchedNewTemplate(value: EmailTemplate | null | undefined): boolea
     return !!value?.html && value.html === NEW_TEMPLATE.content.email.html
 }
 
+const EMAIL_SAVE_FAILED_MESSAGE = "Couldn't save this email. Your changes are still in the editor, so try again."
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -1165,8 +1167,21 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
                 return
             }
+            cache.flushFailed = false
             await asyncActions.flushPendingDesignEdit()
+            // The edits stay in the open editor, so a failed save never closes it without a word.
+            if (cache.flushFailed) {
+                lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
+                return
+            }
             actions.setIsModalOpen(false)
+        },
+        submitEmailTemplateFailure: ({ error }) => {
+            if (error?.message === 'Validation Failed') {
+                return
+            }
+            posthog.captureException(error)
+            lemonToast.error(EMAIL_SAVE_FAILED_MESSAGE)
         },
 
         flushPendingDesignEdit: async () => {
@@ -1178,11 +1193,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
             while (cache.pendingDesignEdit) {
                 const editsBeforeExport = cache.designEdits
-                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                    await Promise.all([
+                let htmlData: { html: string; design: JSONTemplate }
+                let textData: { text: string }
+                try {
+                    ;[htmlData, textData] = await Promise.all([
                         exportEditorHtml(editor),
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
+                } catch (error) {
+                    posthog.captureException(error)
+                    cache.flushFailed = true
+                    return
+                }
                 if (cache.designEdits !== editsBeforeExport) {
                     continue
                 }

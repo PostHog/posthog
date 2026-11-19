@@ -114,6 +114,23 @@ class TestProvisioningReviewSlack(APIBaseTest):
         assert reply["thread_ts"] == "1700000000.000100"
         assert reply["text"] == "Needs staff review → Rejected: Staff: Malicious usage"
 
+    def test_a_review_settled_where_the_bot_is_not_configured_still_queues_its_thread(self, _send_email) -> None:
+        with (
+            override_settings(PROVISIONING_REVIEW_SLACK_BOT_TOKEN="", PROVISIONING_REVIEW_SLACK_CHANNEL=""),
+            patch("posthog.api.oauth.provisioning_review_slack.sync_review_slack_thread") as sync_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            settle_review(
+                str(self.app.pk),
+                status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                stage=ProvisioningReviewStage.RESEARCH,
+                reason="Not sure",
+            )
+
+        sync_task.delay.assert_called_once_with(
+            str(self.review.pk), ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.PENDING, "Not sure"
+        )
+
     @parameterized.expand(
         [
             ("same_decision_retried", ProvisioningReviewStatus.NEEDS_HUMAN, False),

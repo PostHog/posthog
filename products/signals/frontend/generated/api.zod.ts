@@ -1210,6 +1210,25 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const SignalsReportsActionabilityUpdateBody = /* @__PURE__ */ zod.object({
+    actionability: zod
+        .string()
+        .optional()
+        .describe(
+            '`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet.'
+        ),
+    already_addressed: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value.'
+        ),
+})
+
+/**
  * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
  * @summary Start a report action as a background agent run
  */
@@ -1442,6 +1461,22 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters."
+        ),
+})
+
+/**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdateBodyRepositoryMax = 140
+
+export const SignalsReportsRepositoryUpdateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsRepositoryUpdateBodyRepositoryMax)
+        .describe(
+            "Repository the report's work targets, in 'owner\/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it."
         ),
 })
 
@@ -4615,6 +4650,18 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `remember`.')
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
