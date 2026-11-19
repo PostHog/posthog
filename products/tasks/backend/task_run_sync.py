@@ -20,6 +20,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
+from products.tasks.backend.constants import STOPPED_BEFORE_TURN_CLOSED_STATE_KEY
 from products.tasks.backend.facade.profiles import find_task_profile
 from products.tasks.backend.metrics import observe_task_done, observe_task_status_outside_transitions
 from products.tasks.backend.models import TASK_RUN_FINISH_REPORT_STATE_KEY, Task, TaskRun, TaskStatusChange
@@ -31,6 +32,9 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     Task.Status.RUNNING: frozenset({Task.Status.IDLE, Task.Status.DONE}),
     Task.Status.IDLE: frozenset({Task.Status.QUEUED, Task.Status.DONE}),
     Task.Status.DONE: frozenset(),
+}
+_SEEN_WHEN_A_RUN_STARTS_BEFORE_ITS_FIRST_SYNC: dict[str, frozenset[str]] = {
+    Task.Status.IDLE: frozenset({Task.Status.RUNNING}),
 }
 
 _DONE_ONLY_REASONS: frozenset[str | None] = frozenset(
@@ -72,6 +76,7 @@ class LatestRun:
     scheduled_at: datetime | None
     error_message: str | None
     finish_report_saved: bool = False
+    stopped_before_turn_closed: bool = False
 
 
 @frozen
@@ -130,16 +135,23 @@ def latest_runs(task_ids: Iterable[UUID | str]) -> dict[UUID, LatestRun]:
             .order_by("task_id", "-created_at", "-id")
             .distinct("task_id")
             .values_list(
-                "task_id", "id", "status", "scheduled_at", "error_message", f"state__{TASK_RUN_FINISH_REPORT_STATE_KEY}"
+                "task_id",
+                "id",
+                "status",
+                "scheduled_at",
+                "error_message",
+                f"state__{TASK_RUN_FINISH_REPORT_STATE_KEY}",
+                f"state__{STOPPED_BEFORE_TURN_CLOSED_STATE_KEY}",
             )
         )
-        for task_id, run_id, status, scheduled_at, error_message, finish_report_saved in rows:
+        for task_id, run_id, status, scheduled_at, error_message, finish_report_saved, stopped_early in rows:
             runs[task_id] = LatestRun(
                 id=run_id,
                 status=status,
                 scheduled_at=scheduled_at,
                 error_message=error_message,
                 finish_report_saved=finish_report_saved is True,
+                stopped_before_turn_closed=stopped_early is True,
             )
     return runs
 
@@ -365,7 +377,9 @@ def _done_on_turn_close(profile_key: str | None, run: LatestRun) -> bool:
     profile = find_task_profile(profile_key)
     if profile is None:
         return False
-    return profile.done_on_turn_close or (profile.finish_tool and run.finish_report_saved)
+    if profile.finish_tool and run.finish_report_saved:
+        return True
+    return profile.done_on_turn_close and not run.stopped_before_turn_closed
 
 
 def _keeps_stored_done(stored: StoredTaskStatus) -> bool:
@@ -403,7 +417,11 @@ def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -
             return False
         if _keeps_stored_done(stored):
             return False
-        if previous is not None and derived.status not in {previous.status, *TRANSITIONS[previous.status]}:
+        if previous is not None and derived.status not in {
+            previous.status,
+            *TRANSITIONS[previous.status],
+            *_SEEN_WHEN_A_RUN_STARTS_BEFORE_ITS_FIRST_SYNC.get(previous.status, ()),
+        }:
             observe_task_status_outside_transitions(from_status=previous.status, to_status=derived.status)
         _write_status(
             stored,

@@ -359,6 +359,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                   description: changes.description ?? release.description,
                                   feature_flag_ids: changes.feature_flag_ids ?? release.feature_flag_ids,
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
+                                  survey_ids: changes.survey_ids ?? release.survey_ids,
+                                  insight_ids: changes.insight_ids ?? release.insight_ids,
                                   broadcasts:
                                       broadcasts ??
                                       release.broadcasts.filter(
@@ -872,6 +874,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                 description: saved.description,
                                 feature_flag_ids: saved.feature_flag_ids,
                                 broadcast_ids: saved.broadcast_ids,
+                                survey_ids: saved.survey_ids,
+                                insight_ids: saved.insight_ids,
                             },
                             broadcasts: [...saved.broadcasts],
                         })

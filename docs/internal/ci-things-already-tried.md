@@ -453,6 +453,27 @@ Run the trial for several days. A short window cannot separate the jobs whose ti
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
+### Run the python static checks in a `parallel:` block
+
+**Verdict: rejected** · Nov 2026 · [#131571](https://github.com/PostHog/posthog/pull/131571)
+
+The `code-quality` job in `ci-python.yml` runs mypy, ty, the projections check and a lint/pytest group. They read the same tree and share no state, so running them concurrently looks free, and the job wall should fall from their sum to the longest of them.
+
+It is a large regression. The job went from 382s to 528s, which is 38% slower.
+mypy went from 106-187s to 415s, and ty from 46-53s to 137s.
+The block itself took 415s, held open until mypy finished at 06:53:29Z, so overlapping the checks bought nothing on top.
+
+`code-quality` runs on `depot-ubuntu-24.04`, which has 2 vCPUs. mypy already saturates both cores with its own worker, and ty parallelizes internally too. Overlapping them does not divide the work, it time-shares one saturated CPU between three jobs, and each one pays the contention.
+On a 2-vCPU runner, the serial order is the fast order.
+
+This also explains why the existing `parallel:` group in that job is cheap to keep: ruff, the template linters and the gated pytest suites are short and mostly I/O-bound, so they do not compete with a CPU-saturating neighbour. Adding a CPU-bound step to that group is what breaks it.
+
+Do not retry this on the same runner. It would need `depot-ubuntu-24.04-4` or larger first, and then the extra runner cost has to be weighed against the wall time, the same trade rejected for WebKit in "Run the Storybook WebKit shards on 4-CPU runners".
+
+Both sides of the comparison ran with every gated pytest suite switched on. A diff that touches `ci-python.yml` matches every path filter in the `changes` job, so its job is not comparable to a typical pull request's.
+
+_Also asked as:_ parallelize mypy and ty, run the static checks at the same time, speed up the python code-quality job, why is mypy slow in CI
+
 ### Put the setup actions in a `parallel:` block
 
 **Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)

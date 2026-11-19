@@ -215,10 +215,11 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         subject: 'event tracking setup',
         campaign: 'Search - Product',
         action: 'Create or improve a page for this search',
-        reason: "You pay $540/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
+        reason: "You pay $600/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
         cpa: cpa(45, 100, 'account'),
         impact: 600,
         impactDirection: 'gain',
+        impactType: 'estimated',
     }),
     recommendation({
         rule: 'striking_distance',

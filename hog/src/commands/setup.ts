@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
+import { SIGN_UP_NOTE } from '@/core/approval'
 import { defineCommand, type OptionSpec } from '@/core/command'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 import { plural } from '@/core/text'
@@ -99,7 +100,7 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
             return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
         case 'wait':
             return [
-                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. If you don't have an account, sign up on the same page. Then run ${setupNext}.`,
+                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. ${SIGN_UP_NOTE} Then run ${setupNext}.`,
                 `  ${escapeControls(next.url)}`,
             ]
         case 'read':
@@ -211,6 +212,10 @@ export default defineCommand({
     agent({ result, out }) {
         out.json(agentResult(result), { first: AGENT_LEADING_KEYS })
     },
+
+    // The agent does `run` and `read` itself, so only a question or an approval waits on the person.
+    exitCode: (result) =>
+        result.next.kind === 'ask_user' || result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS,
 
     telemetry: ({ args, result }) => ({
         setup_action: args.action ?? 'status',

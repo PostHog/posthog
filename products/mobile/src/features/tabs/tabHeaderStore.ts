@@ -5,6 +5,7 @@ import { create } from 'zustand'
 export type TabKey = 'live' | 'inbox' | 'chats' | 'views' | 'errors' | 'replay' | 'web_analytics'
 
 export interface TabHeaderSlot {
+    liveAudience?: boolean
     refreshing?: boolean
     /** A short line under the status line, such as why a pull to refresh did nothing. */
     hint: string | null
@@ -14,8 +15,6 @@ export interface TabHeaderSlot {
     editPins: { disabled: boolean; onPress: () => void } | null
     /** The Inbox publishes this; the header then shows a filter button left of More. */
     filter: { active: boolean; onPress: () => void } | null
-    /** Home publishes this; the header then shows a Pause or Resume button left of More. */
-    pause?: { paused: boolean; onPress: () => void } | null
 }
 
 interface TabHeaderState {
@@ -51,28 +50,25 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
             done: (): void => latest.current.editing?.onDone(),
             editPins: (): void => latest.current.editPins?.onPress(),
             filter: (): void => latest.current.filter?.onPress(),
-            pause: (): void => latest.current.pause?.onPress(),
         }),
         []
     )
 
-    const { hint, status, editing, editPins, filter, pause = null, refreshing = false } = slot
+    const { hint, status, editing, editPins, filter, refreshing = false, liveAudience = false } = slot
     const editingTitle = editing?.title ?? null
     const hasEditPins = editPins !== null
     const editPinsDisabled = editPins?.disabled ?? false
     const hasFilter = filter !== null
     const filterActive = filter?.active ?? false
-    const hasPause = pause !== null
-    const paused = pause?.paused ?? false
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setSlot(tab, {
             refreshing,
+            liveAudience,
             hint,
             status,
             editing: editingTitle === null ? null : { title: editingTitle, onDone: callbacks.done },
             editPins: hasEditPins ? { disabled: editPinsDisabled, onPress: callbacks.editPins } : null,
             filter: hasFilter ? { active: filterActive, onPress: callbacks.filter } : null,
-            pause: hasPause ? { paused, onPress: callbacks.pause } : null,
         })
     }, [
         tab,
@@ -84,9 +80,8 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
         editPinsDisabled,
         hasFilter,
         filterActive,
-        hasPause,
-        paused,
         refreshing,
+        liveAudience,
     ])
 
     useLayoutEffect(() => () => useTabHeaderStore.getState().setSlot(tab, null), [tab])

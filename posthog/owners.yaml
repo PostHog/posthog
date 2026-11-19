@@ -21,6 +21,10 @@ rules:
       owners: team-data-tools
     - match: '/integrations/'
       owners: team-warehouse-sources
+    - match:
+          - '/llm/forecast_client.py'
+          - '/llm/test_forecast_client.py'
+      owners: team-apm
     - match: '/management/migration_analysis/'
       owners: team-devex
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.

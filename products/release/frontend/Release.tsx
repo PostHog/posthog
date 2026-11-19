@@ -30,7 +30,7 @@ import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseStatusCard } from './ReleaseStatusCard'
-import { ReleaseSuggestions } from './ReleaseSuggestions'
+import { ReleaseSuggestedCard } from './ReleaseSuggestedCard'
 import { ReleaseTrackCard } from './ReleaseTrackCard'
 import { STAGE_COLOR_VARS } from './releaseUtils'
 
@@ -134,7 +134,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                     <div className="flex min-w-0 flex-col gap-4">
                         <ReleaseDetailsCard row={row} />
                         <ReleaseLinkedCard row={row} />
-                        <ReleaseSuggestions row={row} />
+                        <ReleaseSuggestedCard row={row} />
                     </div>
                 </div>
                 <ReleaseScheduleDialog />

@@ -716,18 +716,41 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('disables every scout chat after the daily cap refusal until its retry time', async () => {
-        jest.useFakeTimers()
-        try {
-            mockSignalsScoutChatTasksCreate.mockRejectedValue(
+    it.each([
+        {
+            refusal: 'the daily cap',
+            makeError: () =>
                 new ApiError('Request was throttled.', 429, new Headers({ 'Retry-After': '3600' }), {
                     code: 'throttled',
-                })
-            )
+                }),
+            code: 'throttled',
+            reason: /^You've reached today's limit for scout chats\. Try again after /,
+        },
+        {
+            refusal: 'the team usage limit',
+            makeError: () =>
+                new ApiError("You've reached your PostHog Desktop usage limit.", 429, new Headers(), {
+                    type: 'rate_limited',
+                    code: 'usage_limit_exceeded',
+                    error: "You've reached your PostHog Desktop usage limit.",
+                    reset_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+                }),
+            code: 'usage_limit_exceeded',
+            reason: /^You've reached your PostHog Desktop usage limit\. Try again after /,
+        },
+    ])('disables every scout chat after $refusal refusal until its retry time', async ({ makeError, code, reason }) => {
+        jest.useFakeTimers()
+        try {
+            mockSignalsScoutChatTasksCreate.mockRejectedValue(makeError())
 
             logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
             await jest.advanceTimersByTimeAsync(0)
-            expect(logic.values.scoutChatDisabledReason).toMatch(/^You've reached today's limit for scout chats/)
+            expect(logic.values.scoutChatDisabledReason).toMatch(reason)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'Scout chat start failed',
+                expect.objectContaining({ chat_type: 'author_scout', status: 429, code, limited: true }),
+                undefined
+            )
 
             logic.actions.startScoutChatTask('fleet_overview', 'fleet overview task')
             await jest.advanceTimersByTimeAsync(0)
@@ -738,6 +761,21 @@ describe('scoutFleetLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it('keeps scout chats disabled after a billing limit refusal with no reset time', async () => {
+        mockSignalsScoutChatTasksCreate.mockRejectedValue(
+            new ApiError('Your organization has been deactivated.', 429, new Headers(), {
+                type: 'billing_limit',
+                code: 'organization_deactivated',
+                error: 'Your organization has been deactivated.',
+            })
+        )
+
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
+
+        expect(logic.values.scoutChatDisabledReason).toEqual('Your organization has been deactivated.')
     })
 
     it('reports roster filtering with the search length, not the term', async () => {

@@ -92,7 +92,15 @@ pub async fn handle_single(
         Ok(r) => r,
         Err(e) => {
             counter!(EMBEDDING_FAILED, labels.render()).increment(1);
-            error!("Failed to handle request: {request:?}");
+            // Log routing fields only: content and document_id can carry customer text.
+            error!(
+                team_id = request.team_id,
+                product = %request.product,
+                document_type = %request.document_type,
+                rendering = %request.rendering,
+                model = ?model,
+                "Failed to handle embedding request"
+            );
             return Err(e);
         }
     };

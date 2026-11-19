@@ -8891,6 +8891,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
+                    "stopped_before_turn_closed": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # a forged agent name bills this run's spend to another agent
@@ -8969,6 +8970,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
+        assert "stopped_before_turn_closed" not in run.state
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"

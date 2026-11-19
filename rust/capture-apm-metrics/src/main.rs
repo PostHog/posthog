@@ -252,6 +252,7 @@ async fn run(
         Arc::new(K8sResourceAttributes::from_token_list(
             &config.remote_write_k8s_resource_attribute_tokens,
         )),
+        config.prometheus_keep_stale_markers,
     );
     let http_bind = format!("{}:{}", config.base.host, config.base.port);
     info!("Listening on {}", http_bind);

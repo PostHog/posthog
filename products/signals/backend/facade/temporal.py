@@ -19,6 +19,7 @@ from products.signals.backend.temporal.emit_eval_signal import (
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
 )
+from products.signals.backend.temporal.grouping_record_cleanup import create_signal_grouping_record_cleanup_schedule
 
 __all__ = [
     "ACTIVITIES",
@@ -36,6 +37,7 @@ __all__ = [
     "create_inbox_ranking_scoring_schedule",
     "create_personal_inbox_ranking_tick_schedule",
     "create_scout_suggestions_coordinator_schedule",
+    "create_signal_grouping_record_cleanup_schedule",
     "create_signals_scout_coordinator_schedule",
     "emit_eval_signal_activity",
 ]

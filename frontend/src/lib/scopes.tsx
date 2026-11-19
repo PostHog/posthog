@@ -344,10 +344,13 @@ export const getScopeGroupLabel = (scopeObject: string): string =>
 
 // The rows grouped by product area in API_SCOPE_GROUPS order. An object that is in no group goes in
 // the "Other" group at the end, so it still shows. A group with no row is left out.
-export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePickerGroup<Row>[] => {
+export const groupScopeRows = <Row extends ScopePickerRow>(
+    rows: Row[],
+    groupLabel: (row: Row) => string = (row) => getScopeGroupLabel(row.key)
+): ScopePickerGroup<Row>[] => {
     const rowsByLabel = new Map<string, Row[]>()
     for (const row of rows) {
-        const label = getScopeGroupLabel(row.key)
+        const label = groupLabel(row)
         rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
     }
     return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]

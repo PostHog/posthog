@@ -1506,6 +1506,9 @@ class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
         ]
+        indexes = [
+            models.Index(fields=["created_at"], name="signals_grouping_rec_created"),
+        ]
 
 
 def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:

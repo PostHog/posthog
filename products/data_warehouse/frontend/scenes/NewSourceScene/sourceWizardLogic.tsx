@@ -14,7 +14,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
-import { chunk } from 'lib/utils/arrays'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -359,10 +358,10 @@ const isTimestampType = (field: IncrementalField): boolean => {
 
 const isIdField = (field: IncrementalField): boolean => /^(id|uuid)/i.test(field.label) && field.type === 'integer'
 
-// The backend ranks database-source candidates and marks its pick. Trust it only for the kinds of
-// field the name rules below would accept, so a recommended integer such as `score` is not a cursor.
+// A rule pick is trusted only for the field kinds the name rules accept, so a recommended `score`
+// integer is not a cursor. A model pick read the column names, so any type is trusted.
 const recommendedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
-    fields.find((field) => field.recommended && (isTimestampType(field) || isIdField(field)))
+    fields.find((field) => field.recommended && (field.picked_by_model || isTimestampType(field) || isIdField(field)))
 
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
     const recommended = recommendedIncrementalField(fields)
@@ -405,7 +404,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
 // updates, so only trust update-tracking columns and otherwise default to full refresh.
 export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
     // A model pick read the column names for one that changes on update, such as `fecha_actualizacion`.
-    fields.find((field) => field.picked_by_model && isTimestampType(field)) ??
+    fields.find((field) => field.picked_by_model) ??
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
 
@@ -467,7 +466,36 @@ export function defaultPollingSyncSettings(
 
 // The backend marks the candidates it ranked, so only those go to the model.
 const recommendationCandidates = (schema: ExternalDataSourceSyncSchema): IncrementalField[] =>
-    schema.incremental_fields.filter((field) => field.recommended !== undefined)
+    schema.incremental_fields
+        .filter((field) => field.recommended !== undefined)
+        .slice(0, externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax)
+
+// Mirrors MAX_COLUMNS_PER_CALL on the endpoint, which rejects a request over it with a 400.
+const MAX_RECOMMENDATION_COLUMNS = 32
+// Requests in flight at once. More would arrive at the model as a burst and get rate limited.
+const MAX_PARALLEL_RECOMMENDATION_REQUESTS = 3
+
+/** Tables grouped into requests that each fit one model call, in their original order. */
+export function packRecommendationBatches(tables: ExternalDataSourceSyncSchema[]): ExternalDataSourceSyncSchema[][] {
+    const batches: ExternalDataSourceSyncSchema[][] = []
+    let columns = 0
+    for (const table of tables) {
+        const count = recommendationCandidates(table).length
+        const current = batches[batches.length - 1]
+        const fits =
+            current &&
+            current.length < externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax &&
+            columns + count <= MAX_RECOMMENDATION_COLUMNS
+        if (fits) {
+            current.push(table)
+            columns += count
+        } else {
+            batches.push([table])
+            columns = count
+        }
+    }
+    return batches
+}
 
 /** The model's picks for one batch of tables, or none when the request fails. */
 async function fetchIncrementalFieldPicks(
@@ -479,11 +507,7 @@ async function fetchIncrementalFieldPicks(
         const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(String(teamId), {
             tables: batch.map((schema) => ({
                 table: schema.table,
-                // The model reads only the leading ranked candidates, so the rest stay local.
-                incremental_fields: recommendationCandidates(schema).slice(
-                    0,
-                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax
-                ),
+                incremental_fields: recommendationCandidates(schema),
             })),
         })
         for (const table of response.tables) {
@@ -2074,23 +2098,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 cache.schemaDiscovery === discovery &&
                 cache.recommendationsFrozenFor !== discovery &&
                 values.connectorSelectionCount === selection
-            // One batch at a time keeps a large discovery from sending a burst of requests. Each batch's
-            // picks land as soon as it answers, and a failed batch drops only its own tables.
-            for (const batch of chunk(tables, externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)) {
+            const batches = packRecommendationBatches(tables)
+            const sendNext = async (): Promise<void> => {
                 // An obsolete discovery would spend the team's model budget on answers nobody reads.
-                if (!stillApplies()) {
-                    return
-                }
-                const picked = await fetchIncrementalFieldPicks(teamId, batch)
-                if (picked.size > 0 && stillApplies()) {
-                    actions.setDatabaseSchemas(
-                        values.databaseSchema.map((schema) => {
-                            const reordered = picked.get(schema.table)
-                            return reordered ? applyIncrementalFieldPick(schema, reordered, connectorName) : schema
-                        })
-                    )
+                for (let batch = batches.shift(); batch && stillApplies(); batch = batches.shift()) {
+                    const picked = await fetchIncrementalFieldPicks(teamId, batch)
+                    if (picked.size > 0 && stillApplies()) {
+                        actions.setDatabaseSchemas(
+                            values.databaseSchema.map((schema) => {
+                                const reordered = picked.get(schema.table)
+                                return reordered ? applyIncrementalFieldPick(schema, reordered, connectorName) : schema
+                            })
+                        )
+                    }
                 }
             }
+            await Promise.all(Array.from({ length: MAX_PARALLEL_RECOMMENDATION_REQUESTS }, sendNext))
         },
         verifyCdcSelfManagedSetupSuccess: ({ cdcSelfManagedVerifyResult }) => {
             if (cdcSelfManagedVerifyResult?.valid) {

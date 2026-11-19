@@ -260,8 +260,11 @@ const aeoKeywordsModifiersGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/modifiers/`,
             query: {
+                branded: params.branded,
                 days: params.days,
+                engine: params.engine,
                 keyword: params.keyword,
+                topic: params.topic,
             },
         })
         return result
@@ -282,7 +285,10 @@ const aeoKeywordsReportGet = (): ToolBase<ReturnType<typeof AeoKeywordsReportGet
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/report/`,
             query: {
+                branded: params.branded,
                 days: params.days,
+                engine: params.engine,
+                topic: params.topic,
             },
         })
         return result
@@ -474,6 +480,8 @@ const aeoPromptsList = (): ToolBase<
             query: {
                 active: params.active,
                 branded: params.branded,
+                days: params.days,
+                engine: params.engine,
                 include_archived: params.include_archived,
                 limit: params.limit,
                 needs_improvement: params.needs_improvement,
@@ -515,6 +523,8 @@ const aeoPromptsOverviewGet = (): ToolBase<
             query: {
                 branded: params.branded,
                 days: params.days,
+                engine: params.engine,
+                topic: params.topic,
             },
         })
         return result
@@ -540,6 +550,8 @@ const aeoPromptsRankingsGet = (): ToolBase<
             query: {
                 branded: params.branded,
                 days: params.days,
+                engine: params.engine,
+                topic: params.topic,
             },
         })
         return result

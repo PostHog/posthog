@@ -1,7 +1,8 @@
 # Agent egress
 
 This module verifies run capabilities and relays HTTP requests to one configured endpoint.
-Tasks owns registration and capability issuance. The runnable service, registry client, sandbox wiring and credential injection are still to come.
+Tasks owns registration and capability issuance.
+The registry client and cache are available; the runnable service, sandbox wiring and credential injection are still to come.
 
 ## Adapter contract
 
@@ -28,7 +29,7 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 ## Registration and time
 
 `Lookup` receives the verified team, run and execution IDs and returns their current registration.
-It can use a local cache while the authorization lease is valid; reads cannot extend that lease.
+The registry cache serves entries within their authorization lease; reads cannot extend that lease.
 A missing run returns `ErrUnauthorized`; lookup failures and timeouts return `ErrUnavailable`.
 Production callers must return HTTP 503 for unavailable authorization and count it separately from rejected identities, without token values or per-run metric labels. Only the test handler does this mapping today.
 
@@ -64,6 +65,36 @@ Configure `AGENT_EGRESS_REGION` and dedicated `AGENT_EGRESS_REGISTRY_JWT_SECRETS
 Guest capabilities cannot call this route. Missing or inactive registrations return 404; no write route is exposed.
 Registry clients must treat 401/403 as service-authentication failures, not revoked guest authority, and report them as unavailable.
 The `/internal/` route also needs private ingress when the service is deployed.
+
+### Registry client and cache
+
+`registry.New` takes a fixed HTTPS origin, region, active registry signing key and lookup timeout.
+It signs each lookup with a scoped 30-second service JWT and checks the response's team, run, execution and region.
+It refuses redirects, limits response bodies to 16 KiB and honors cancellation through body reads.
+It drains small error bodies within those same limits so HTTP/1.1 connections can be reused.
+Only a 404 or an explicitly revoked registration returns `ErrUnauthorized`; transport, service-authentication and invalid-response failures return `ErrUnavailable`.
+The default transport connects directly to the configured registry, without an environment proxy.
+
+Wrap `client.Lookup` with `registry.NewCache` and pass `cache.Lookup` to the verifier.
+Set both the maximum cached entries and concurrent registry lookups.
+The cache uses team, run and execution as its key, evicts the least recently used entry at capacity, and shares concurrent lookups for one key.
+Each cache belongs to one regional client.
+
+Active entries refresh on the first request after 19–21 seconds.
+That request waits for the lookup; other requests can use the still-valid entry.
+An unavailable registry leaves the current lease usable and schedules the next refresh attempt at least one second later.
+That retry delay survives lease expiry; requests then return unavailable until the retry is due.
+Denials and failures share the cache's entry limit and eviction policy.
+A 404 clears cached authority immediately and caches the denial for one second.
+An unavailable result can preserve an existing live lease, but cannot create or extend one.
+Cache misses fail with `ErrUnavailable` when lookup capacity is full.
+The request that starts a lookup supplies its deadline; if it is cancelled, waiting callers must retry.
+
+The cache stops using a lease three seconds before its absolute expiry and caps local validity at 27 seconds from lookup start.
+An elapsed-time deadline prevents backward clock changes from extending that window.
+Wall-clock drift beyond three seconds from the process's elapsed clock stops lookups until the clock recovers or the cache is recreated after clock synchronization.
+Workers still renew the 30-second registration lease separately.
+There is no push invalidation yet, so cached authorization can survive revocation for the remainder of its lease.
 
 ### Verification keys
 

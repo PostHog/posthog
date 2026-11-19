@@ -678,13 +678,21 @@ class WidgetMessagesView(APIView):
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+        ticket_fields = {
+            "ticket_id": str(ticket.id),
+            "ticket_status": ticket.status,
+            "unread_count": ticket.unread_customer_count,
+        }
+
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
+        last_message_at_str = ticket.last_message_at.isoformat() if ticket.last_message_at else None
         use_cache = limit == 50  # Only cache the limit used by widget polling
         if use_cache:
-            cached = get_cached_messages(team.id, ticket_id, after_str)
+            cached = get_cached_messages(team.id, ticket_id, last_message_at=last_message_at_str, after=after_str)
             if cached is not None:
-                return Response(cached)
+                response_data = {**ticket_fields, **cached}
+                return Response(response_data)
 
         # Build query - prefetch created_by to avoid N+1 queries
         messages_query = Comment.objects.filter(
@@ -736,18 +744,16 @@ class WidgetMessagesView(APIView):
                 }
             )
 
-        response_data = {
-            "ticket_id": str(ticket.id),
-            "ticket_status": ticket.status,
-            "unread_count": ticket.unread_customer_count,
+        messages_page = {
             "messages": message_list,
             "has_more": len(messages) == limit,  # Hint if there are more messages
         }
 
         # Cache the response
         if use_cache:
-            set_cached_messages(team.id, ticket_id, response_data, after_str)
+            set_cached_messages(team.id, ticket_id, messages_page, last_message_at=last_message_at_str, after=after_str)
 
+        response_data = {**ticket_fields, **messages_page}
         return Response(response_data)
 
 

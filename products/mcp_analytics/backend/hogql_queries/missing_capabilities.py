@@ -1,8 +1,9 @@
-"""The missing-capabilities feed: every `$mcp_missing_capability` report, newest first.
+"""The missing-capabilities feed: every missing-capability report, newest first.
 
 When a server enables `reportMissing`, the SDK registers a virtual `get_more_tools`
-tool; an agent that calls it says, in its own words, what it wanted and could not
-get. That text lands in `$mcp_intent` and records the capability the agent needed.
+tool; with `collectFeedback`, a virtual `send_feedback` tool whose reports can have the
+`missing_capability` type. An agent that calls either says, in its own words, what it wanted
+and could not get. That text lands in `$mcp_intent` and records the capability the agent needed.
 
 The feed stays chronological because exact-text grouping would split similar free-form
 requests. Semantic clustering is a separate job.
@@ -26,13 +27,13 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
 from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     HarnessLabelQueryRunner,
     display_person_properties,
     mcp_query_date_range,
+    missing_capability_report_expr,
     shared_filter_exprs,
     validate_mcp_analytics_access,
 )
@@ -45,7 +46,9 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
 
 # Both the result column and search expression use this property so they cannot drift.
-_REPORT_TEXT = "toString(properties.$mcp_intent)"
+# `properties.$mcp_intent` returns the raw JSON text, which keeps escapes such as `\n` and `\"`.
+# A send_feedback report puts a blank line between its summary and details, so decode the string.
+_REPORT_TEXT = "JSONExtractString(properties, '$mcp_intent')"
 
 
 class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabilitiesQueryResponse]):
@@ -78,7 +81,7 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
 
     def _where(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
-            parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT)}),
+            missing_capability_report_expr(),
             parse_expr(
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),

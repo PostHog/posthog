@@ -6,7 +6,6 @@ import { pluralize } from 'lib/utils/strings'
 import type { AEOPromptSetSearchApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
-import { OVERVIEW_DAYS } from './contentAutopilotPromptsOverviewLogic'
 
 type SearchRow = AEOPromptSetSearchApi
 type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
@@ -16,9 +15,11 @@ const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.an
 /** One row per web search the engines ran. Expanding a row lists the prompts that ran it. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
+    days,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
+    days: number
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
     const columns: SearchColumn[] = [
@@ -88,7 +89,7 @@ export const ContentAutopilotPromptsSearchTable = ({
                     </div>
                 ),
             }}
-            emptyState={`No web searches in the last ${OVERVIEW_DAYS} days. Only some engines report the searches they run.`}
+            emptyState={`No web searches in the last ${days} days. Only some engines report the searches they run.`}
         />
     )
 }

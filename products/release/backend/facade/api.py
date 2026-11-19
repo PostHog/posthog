@@ -27,6 +27,8 @@ from . import contracts
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownFeatureFlagsError = contracts.UnknownFeatureFlagsError
 UnknownBroadcastsError = contracts.UnknownBroadcastsError
+UnknownSurveysError = contracts.UnknownSurveysError
+UnknownInsightsError = contracts.UnknownInsightsError
 ImportFlag = contracts.ImportFlag
 
 
@@ -35,28 +37,41 @@ RESTRICTED_NAME = "Release of a restricted flag"
 
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
 BroadcastVisibilityLookup = Callable[[list[UUID]], contracts.BroadcastVisibility]
+SurveyVisibilityLookup = Callable[[list[UUID]], contracts.SurveyVisibility]
+InsightVisibilityLookup = Callable[[list[int]], contracts.InsightVisibility]
 
 
 @dataclass(frozen=True)
 class LinkLookups:
     flags: FlagVisibilityLookup
     broadcasts: BroadcastVisibilityLookup
+    surveys: SurveyVisibilityLookup
+    insights: InsightVisibilityLookup
 
 
 @dataclass(frozen=True)
 class _Hidden:
     flags: frozenset[int]
     broadcasts: frozenset[UUID]
+    surveys: frozenset[UUID]
+    insights: frozenset[int]
+    insight_summaries: dict[int, contracts.LinkedInsightDTO]
     summaries: dict[UUID, contracts.LinkedBroadcastDTO]
 
 
 def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     flag_ids = sorted({flag_id for obj in releases for flag_id in obj.feature_flag_ids})
     broadcast_ids = sorted({broadcast_id for obj in releases for broadcast_id in obj.broadcast_ids}, key=str)
+    survey_ids = sorted({survey_id for obj in releases for survey_id in obj.survey_ids}, key=str)
+    insight_ids = sorted({insight_id for obj in releases for insight_id in obj.insight_ids})
     broadcasts = lookups.broadcasts(broadcast_ids)
+    insights = lookups.insights(insight_ids)
     return _Hidden(
         flags=lookups.flags(flag_ids).hidden,
         broadcasts=broadcasts.hidden,
+        surveys=frozenset(survey_ids) - lookups.surveys(survey_ids).visible,
+        insights=frozenset(insight_ids) - insights.visible,
+        insight_summaries={summary.id: summary for summary in insights.summaries},
         summaries={summary.id: summary for summary in broadcasts.summaries},
     )
 
@@ -75,6 +90,13 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
             hidden.summaries[broadcast_id]
             for broadcast_id in obj.broadcast_ids
             if broadcast_id not in hidden.broadcasts and broadcast_id in hidden.summaries
+        ],
+        survey_ids=[survey_id for survey_id in obj.survey_ids if survey_id not in hidden.surveys],
+        insight_ids=[insight_id for insight_id in obj.insight_ids if insight_id not in hidden.insights],
+        insights=[
+            hidden.insight_summaries[insight_id]
+            for insight_id in obj.insight_ids
+            if insight_id not in hidden.insights and insight_id in hidden.insight_summaries
         ],
         created_at=obj.created_at,
     )
@@ -114,6 +136,35 @@ def _checked_broadcasts(submitted: list[UUID], linked: list[UUID], lookup: Broad
     return [*submitted, *(broadcast_id for broadcast_id in linked if broadcast_id in visibility.hidden)]
 
 
+def _checked_surveys(submitted: list[UUID], linked: list[UUID], lookup: SurveyVisibilityLookup) -> list[UUID]:
+    linked_set = set(linked)
+    visibility = lookup(sorted(set(submitted) | linked_set, key=str))
+    unknown = sorted(
+        (
+            survey_id
+            for survey_id in set(submitted)
+            if survey_id in visibility.hidden or (survey_id not in visibility.linkable and survey_id not in linked_set)
+        ),
+        key=str,
+    )
+    if unknown:
+        raise contracts.UnknownSurveysError(unknown)
+    return [*submitted, *(survey_id for survey_id in linked if survey_id in visibility.hidden)]
+
+
+def _checked_insights(submitted: list[int], linked: list[int], lookup: InsightVisibilityLookup) -> list[int]:
+    linked_set = set(linked)
+    visibility = lookup(sorted(set(submitted) | linked_set))
+    unknown = sorted(
+        insight_id
+        for insight_id in set(submitted)
+        if insight_id in visibility.hidden or (insight_id not in visibility.linkable and insight_id not in linked_set)
+    )
+    if unknown:
+        raise contracts.UnknownInsightsError(unknown)
+    return [*submitted, *(insight_id for insight_id in linked if insight_id in visibility.hidden)]
+
+
 def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[contracts.ReleaseDTO]:
     releases = select_page(logic.list_releases(team_id), page)
     hidden = _hidden(lookups, list(releases.results))
@@ -130,12 +181,14 @@ def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contrac
         owner_id=input.owner_id,
         feature_flag_ids=feature_flag_ids,
         broadcast_ids=broadcast_ids,
+        survey_ids=_checked_surveys(list(input.survey_ids), [], lookups.surveys),
+        insight_ids=_checked_insights(list(input.insight_ids), [], lookups.insights),
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
 
 
 def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: LinkLookups) -> contracts.ReleaseDTO:
-    if "feature_flag_ids" in changes or "broadcast_ids" in changes:
+    if {"feature_flag_ids", "broadcast_ids", "survey_ids", "insight_ids"} & changes.keys():
         current = logic.get_release(team_id, release_id)
         changes = dict(changes)
         if "feature_flag_ids" in changes:
@@ -145,6 +198,14 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
         if "broadcast_ids" in changes:
             changes["broadcast_ids"] = _checked_broadcasts(
                 list(changes["broadcast_ids"]), list(current.broadcast_ids), lookups.broadcasts
+            )
+        if "survey_ids" in changes:
+            changes["survey_ids"] = _checked_surveys(
+                list(changes["survey_ids"]), list(current.survey_ids), lookups.surveys
+            )
+        if "insight_ids" in changes:
+            changes["insight_ids"] = _checked_insights(
+                list(changes["insight_ids"]), list(current.insight_ids), lookups.insights
             )
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 

@@ -84,6 +84,22 @@ class TestInsightLegacyConfigDrift(APIBaseTest):
             assert f"team={self.team.id} source=insight setting={setting} alerts=1 sample=[{self.alert.id}]" in output
         assert output.count("setting=") == len(settings)
 
+    def test_the_created_at_backfill_gives_a_copy_its_rows_creation_time(self) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(created_at=NOW - timedelta(days=30))
+        output, error = self._report()
+        assert error is not None
+        assert "setting=created_at alerts=1" in output
+
+        dry_run = StringIO()
+        call_command("backfill_platform_insight_alert_created_at", team_ids=[self.team.id], stdout=dry_run)
+        call_command(
+            "backfill_platform_insight_alert_created_at", team_ids=[self.team.id], apply=True, stdout=StringIO()
+        )
+
+        assert "Would set created_at on 1 insight platform copies" in dry_run.getvalue()
+        output, error = self._report()
+        assert error is None, output
+
     def test_a_threshold_the_copy_missed_is_reported(self) -> None:
         assert self.alert.threshold_id is not None
         Threshold.objects.filter(id=self.alert.threshold_id).update(

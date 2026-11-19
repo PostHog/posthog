@@ -803,3 +803,27 @@ jobs:
                   thread_ts: ${{ needs.identify-release.outputs.slack_ts }}
                   message: Toolbar extension v${{ needs.identify-release.outputs.new-version }} submitted to the Chrome Web Store for review.
                   emoji_reaction: rocket
+
+    # A failed build skips the publish, so the build counts too. A job that times out ends as cancelled, not failed,
+    # so both results count.
+    notify-publish-failed:
+        name: Notify Slack - Publish Failed
+        needs: [identify-release, build, publish]
+        if: >-
+            !cancelled()
+            && needs.identify-release.outputs.slack_ts != ''
+            && (
+                contains(fromJSON('["failure", "cancelled"]'), needs.build.result)
+                || contains(fromJSON('["failure", "cancelled"]'), needs.publish.result)
+            )
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Notify Slack - Publish Failed
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.identify-release.outputs.slack_ts }}
+                  message: 'The toolbar extension v${{ needs.identify-release.outputs.new-version }} release did not finish. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  emoji_reaction: x

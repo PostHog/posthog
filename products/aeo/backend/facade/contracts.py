@@ -312,6 +312,8 @@ class PromptSetOverview:
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     current: PromptSetCounts
     previous: PromptSetCounts
     # Answered checks in the current window on each side of the split, whatever `branded` selects.
@@ -596,6 +598,8 @@ class PromptSetRankings:
     window_from: dt.date
     window_to: dt.date
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     answers: int
     competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]

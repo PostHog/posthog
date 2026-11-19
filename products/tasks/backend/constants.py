@@ -61,6 +61,7 @@ PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 # TaskRun.state marker for runs completed by the inactivity timeout; kept out of
 # error_message so a normal completion never reads as a failure.
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
+STOPPED_BEFORE_TURN_CLOSED_STATE_KEY = "stopped_before_turn_closed"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
 # Separate from `store_skills`, which is also empty when the store is on and the user owns no skills.

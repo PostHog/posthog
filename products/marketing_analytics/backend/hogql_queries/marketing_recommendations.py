@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
+from difflib import SequenceMatcher
 from itertools import groupby
 from typing import Literal
 from urllib.parse import quote
@@ -77,6 +78,9 @@ COMPETITOR_PATTERNS = (
 DOMAIN_SUFFIX = re.compile(r"\.(com|io|co|ai|app|net|org)$")
 SITE_HOST = re.compile(r"^(?:sc-domain:|https?://)([a-z0-9.-]+)")
 MIN_BRAND_LENGTH = 3
+# How close a search must spell the brand to count as a misspelling of it, as a SequenceMatcher ratio.
+MIN_MISSPELLING_SIMILARITY = 0.75
+MAX_BRAND_MISSPELLINGS = 5
 # The bundled public suffix snapshot, so parsing a site never fetches the list over the network.
 DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
@@ -85,6 +89,7 @@ Direction = Literal["save", "gain", "invest", "keep"]
 MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 # Google Ads pages for the whole account. A link cannot open one campaign, because that needs an
 # interface id the API does not return, so steps also copy the campaign name to search for.
+ADS_ACCOUNT_SETTINGS_URL = "https://ads.google.com/aw/settings/account"
 ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
@@ -193,6 +198,7 @@ class RecommendationInputs:
 class _Term:
     term: str
     clicks: float
+    impressions: float
     cost: float
     conversions: float
     status: str
@@ -246,6 +252,16 @@ def _site_brand(site_url: str) -> str | None:
     # A URL-prefix property can be app.example.com or blog.example.com, so the brand is the registrable label.
     brand = DOMAIN_PARTS(match.group(1).strip(".")).domain
     return brand if len(brand) >= MIN_BRAND_LENGTH else None
+
+
+def _similarity(brand: str, compact_term: str) -> float:
+    return SequenceMatcher(None, brand, compact_term).ratio()
+
+
+def _brand_follow_up(has_brand_campaign: bool) -> str:
+    if has_brand_campaign:
+        return "Your brand campaign can serve them at a lower cost."
+    return "People who search your brand often find you without an ad."
 
 
 def brands_from_site_urls(site_urls: Iterable[str]) -> frozenset[str]:
@@ -423,7 +439,11 @@ class _Recommender:
             "measured",
             recommendation_identity(MarketingAnalyticsRecommendationRule.KEYWORD_TRACKING, self.inputs.customer_id),
             steps=(
-                Step(text="In Google Ads, open Admin, then Account settings, and expand Tracking."),
+                Step(
+                    text="In Google Ads, open Account settings and expand Tracking.",
+                    url=ADS_ACCOUNT_SETTINGS_URL,
+                    linkText="Account settings",
+                ),
                 Step(
                     text="Add this parameter to the Final URL suffix and save. If the field already has parameters, "
                     "add & before it. Google replaces {keyword} with the keyword that matched the search.",
@@ -483,12 +503,13 @@ class _Recommender:
             if campaign.conversions > 0 and (campaign.lost_to_rank or 0) >= 0.4:
                 recommendations.append(self._performance_max_rank(campaign))
 
+        search_leaks: list[tuple[CampaignStats, _BrandSpend]] = []
         for campaign in search_campaigns:
             if campaign.primary_status in INACTIVE_STATUSES:
                 continue
             leak = brand_spend.get(campaign.id)
             if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
-                recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
+                search_leaks.append((campaign, leak))
             benchmark = self._campaign_benchmark(campaign)
             if benchmark is None:
                 continue
@@ -503,6 +524,7 @@ class _Recommender:
                 and (cpa if cpa is not None else compared.cost) >= REVIEW_CPA_MULTIPLE * benchmark.cpa
             ):
                 recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
+        recommendations.extend(self._search_brand_leaks(search_leaks, has_brand_campaign))
         return recommendations
 
     def _budget_constrained(
@@ -535,6 +557,16 @@ class _Recommender:
             "invest",
             "estimated",
             budget_id=campaign.budget_id,
+            steps=(
+                self._open_campaign(campaign.name),
+                Step(
+                    text="Click its budget, change it to this daily amount and save. A shared budget changes for "
+                    "every campaign that uses it.",
+                    # A whole number reads the same in every Google Ads locale and currency.
+                    copyValue=str(round(recommended)),
+                ),
+                self._check_cpa_step(benchmark),
+            ),
             cpa=self._cpa(cpa, benchmark),
         )
 
@@ -543,7 +575,7 @@ class _Recommender:
     ) -> MarketingAnalyticsRecommendation:
         cost, conversions, top_term = leak.cost, leak.conversions, leak.top_term
         share = cost / max(self._term_cost(campaign.id), 1)
-        brand = next((brand for brand in self.brands if brand in top_term.replace(" ", "")), top_term)
+        brand = self._brand_spelled_by(top_term) or top_term
         check = Step(
             text="After a week, check the campaign's search terms. If misspellings of your brand still show, "
             "add each one the same way.",
@@ -568,28 +600,85 @@ class _Recommender:
                     url=ADS_NEGATIVE_KEYWORDS_URL,
                     linkText="Negative keywords",
                 ),
-                Step(
-                    text="Paste this keyword. The quotes make it phrase match, so it blocks searches that contain it "
-                    "spelled this way.",
-                    copyValue=f'"{brand}"',
-                ),
+                self._paste_brand_negatives(brand, {campaign.id}),
                 check,
             )
-        follow_up = (
-            "Your brand campaign can serve them at a lower cost."
-            if has_brand_campaign
-            else "People who search your brand often find you without an ad."
-        )
         return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.BRAND_LEAK,
             campaign,
             action,
             f'{share:.0%} of its search term spend goes to brand searches such as "{top_term}", '
-            f"with {conversions:,.0f} conversions. {follow_up}",
+            f"with {conversions:,.0f} conversions. {_brand_follow_up(has_brand_campaign)}",
             cost * self.per_month,
             "save",
             "measured",
             steps=steps,
+        )
+
+    def _search_brand_leaks(
+        self, leaks: list[tuple[CampaignStats, _BrandSpend]], has_brand_campaign: bool
+    ) -> list[MarketingAnalyticsRecommendation]:
+        by_brand: dict[str, list[tuple[CampaignStats, _BrandSpend]]] = defaultdict(list)
+        for campaign, leak in leaks:
+            by_brand[self._brand_spelled_by(leak.top_term) or leak.top_term].append((campaign, leak))
+        return [
+            self._shared_brand_leak(brand, group, has_brand_campaign)
+            if len(group) > 1
+            else self._brand_leak(group[0][0], group[0][1], has_brand_campaign)
+            for brand, group in by_brand.items()
+        ]
+
+    def _shared_brand_leak(
+        self, brand: str, group: list[tuple[CampaignStats, _BrandSpend]], has_brand_campaign: bool
+    ) -> MarketingAnalyticsRecommendation:
+        group = sorted(group, key=lambda pair: (-pair[1].cost, pair[0].name))
+        cost = sum(leak.cost for _, leak in group)
+        conversions = sum(leak.conversions for _, leak in group)
+        names = [campaign.name for campaign, _ in group]
+        steps = (
+            Step(
+                text="Open Negative keywords and create a negative keyword list.",
+                url=ADS_NEGATIVE_KEYWORDS_URL,
+                linkText="Negative keywords",
+            ),
+            self._paste_brand_negatives(brand, {campaign.id for campaign, _ in group}),
+            Step(
+                text=f"Apply the list to these {len(names)} campaigns, one name per line.",
+                copyValue="\n".join(names),
+            ),
+            Step(
+                text="After a week, check the search terms of these campaigns. If misspellings of your brand still "
+                "show, add each one to the list.",
+                url=ADS_SEARCH_TERMS_URL,
+                linkText="search terms",
+            ),
+        )
+        return self._recommendation(
+            MarketingAnalyticsRecommendationRule.BRAND_LEAK,
+            "account",
+            f"{len(names)} non-brand campaigns",
+            f'Add "{brand}" to a shared negative keyword list',
+            f"{len(names)} non-brand campaigns spend {self._money(cost)} on brand searches such as "
+            f'"{group[0][1].top_term}", with {conversions:,.0f} conversions. One shared list blocks these searches in '
+            f"every campaign. {_brand_follow_up(has_brand_campaign)}",
+            cost * self.per_month,
+            "save",
+            "measured",
+            recommendation_identity(
+                MarketingAnalyticsRecommendationRule.BRAND_LEAK, self.inputs.customer_id, subject=brand
+            ),
+            steps=steps,
+        )
+
+    def _paste_brand_negatives(self, brand: str, campaign_ids: set[str]) -> Step:
+        negatives = [brand, *self._brand_misspellings(campaign_ids, brand)]
+        return Step(
+            text="Paste this keyword. The quotes make it phrase match, so it blocks searches that contain it "
+            "spelled this way."
+            if len(negatives) == 1
+            else "Paste these keywords, one per line: your brand and the misspellings of it that got clicks. "
+            "The quotes make them phrase match, so they block searches that contain them spelled this way.",
+            copyValue="\n".join(f'"{negative}"' for negative in negatives),
         )
 
     def _scale(
@@ -607,6 +696,20 @@ class _Recommender:
             extra * self.per_month,
             "invest",
             "estimated",
+            steps=(
+                self._open_campaign(campaign.name),
+                Step(text="Click its budget, raise it and save.")
+                if budget_bound
+                else Step(text="Open the campaign settings, go to Bidding, raise the target CPA and save.")
+                if campaign.target_cpa
+                else Step(
+                    text="Open Keywords, filter by this campaign, and raise the bids of the keywords that convert. "
+                    "Check that their ads and landing page match the search.",
+                    url=ADS_KEYWORDS_URL,
+                    linkText="Keywords",
+                ),
+                self._check_cpa_step(benchmark),
+            ),
             cpa=self._cpa(cpa, benchmark),
         )
 
@@ -624,6 +727,14 @@ class _Recommender:
             extra * self.per_month,
             "invest",
             "estimated",
+            steps=(
+                self._open_campaign(campaign.name),
+                Step(
+                    text="Open the campaign settings, go to Bidding, and raise the target CPA or lower the target "
+                    "ROAS. Then save."
+                ),
+                Step(text="Open its asset groups and add assets to the ones with Poor or Average ad strength."),
+            ),
         )
 
     def _review(
@@ -749,9 +860,9 @@ class _Recommender:
                     else "It does not rank organically, so a new page in the top 3 "
                 )
                 + "could bring these visitors without ad spend.",
-                term.conversions * benchmark.cpa,
+                term.cost * min(1, term.impressions * TOP3_CTR / max(term.clicks, 1)),
                 "gain",
-                "measured",
+                "estimated",
                 steps=self._content_gap_steps(term),
             )
             for term in terms
@@ -1025,7 +1136,7 @@ class _Recommender:
     # Helpers
 
     def _aggregate_terms(self) -> dict[str, _Term]:
-        totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0])
+        totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
@@ -1034,6 +1145,7 @@ class _Recommender:
             total[0] += row.clicks
             total[1] += row.cost
             total[2] += row.conversions
+            total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
             if row.absolute_top_percentage is not None and row.impressions:
@@ -1043,6 +1155,7 @@ class _Recommender:
             term: _Term(
                 term=term,
                 clicks=clicks,
+                impressions=impressions,
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
@@ -1050,12 +1163,33 @@ class _Recommender:
                 organic=self.organic.get(term),
                 absolute_top=top[0] / top[1] if (top := top_impressions.get(term)) and top[1] else None,
             )
-            for term, (clicks, cost, conversions) in totals.items()
+            for term, (clicks, cost, conversions, impressions) in totals.items()
         }
 
     def _names_brand(self, query: str) -> bool:
         compact = query.replace(" ", "")
         return any(brand in compact for brand in self.brands)
+
+    def _brand_spelled_by(self, term: str) -> str | None:
+        compact = term.replace(" ", "")
+        if named := next((brand for brand in sorted(self.brands) if brand in compact), None):
+            return named
+        closest = max(sorted(self.brands), key=lambda brand: _similarity(brand, compact), default=None)
+        return closest if closest and _similarity(closest, compact) >= MIN_MISSPELLING_SIMILARITY else None
+
+    def _brand_misspellings(self, campaign_ids: set[str], brand: str) -> list[str]:
+        cost_by_term: dict[str, float] = defaultdict(float)
+        for row in self.inputs.search_terms:
+            # An added term is a keyword the advertiser bids on, maybe on purpose; an excluded one is blocked already.
+            if (
+                row.campaign_id not in campaign_ids
+                or row.status in ("ADDED", "EXCLUDED")
+                or row.term not in self.brand_terms
+            ):
+                continue
+            if brand not in row.term.replace(" ", "") and self._brand_spelled_by(row.term) == brand:
+                cost_by_term[row.term] += row.cost
+        return sorted(cost_by_term, key=lambda term: (-cost_by_term[term], term))[:MAX_BRAND_MISSPELLINGS]
 
     def _is_brand(self, term: _Term) -> bool:
         return self._is_brand_query(term.term, term.organic, term.clicks)
@@ -1158,6 +1292,13 @@ class _Recommender:
         campaign = self.campaigns.get(term.top_campaign_id)
         return campaign.name if campaign else None
 
+    def _check_cpa_step(self, benchmark: _Benchmark) -> Step:
+        # Google Ads shows no non-brand CPA, so the check happens on these recommendations.
+        return Step(
+            text=f"After two weeks, come back here and check that its {benchmark.compared} stays at or below "
+            f"{self._money(benchmark.cpa)}, {benchmark.label}."
+        )
+
     @staticmethod
     def _open_campaign(
         name: str | None,
@@ -1228,9 +1369,10 @@ class _Recommender:
         )
 
     def _search_console_url(self, url: str) -> str:
-        # With several properties the right one is unknown, so Search Console opens its property picker.
+        # A page other than the root needs a property, or it shows a welcome page. The root opens the last
+        # property the user viewed.
         sites = set(self.inputs.site_urls)
-        return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else url
+        return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else SEARCH_CONSOLE_URL
 
     @staticmethod
     def _internal_links_step() -> Step:
