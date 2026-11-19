@@ -896,8 +896,6 @@ describe('PersonhogPersonsStore', () => {
         const result = await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { plan: 'pro', first: 'x' },
-            {},
-            {},
             1,
             null,
             false,
