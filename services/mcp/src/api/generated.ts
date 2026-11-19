@@ -32986,6 +32986,579 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
+    export type DashboardV2DashboardLinkType = typeof DashboardV2DashboardLinkType[keyof typeof DashboardV2DashboardLinkType] | null;
+
+
+    export const DashboardV2DashboardLinkType = {
+      Link: 'link',
+      Dashboards: 'dashboards',
+    } as const;
+
+    export type DashboardV2DashboardLinkIcon = typeof DashboardV2DashboardLinkIcon[keyof typeof DashboardV2DashboardLinkIcon] | null;
+
+
+    export const DashboardV2DashboardLinkIcon = {
+      External: 'external',
+      Dashboard: 'dashboard',
+      Doc: 'doc',
+      Info: 'info',
+      Bell: 'bell',
+      Grafana: 'grafana',
+      Github: 'github',
+    } as const;
+
+    export interface DashboardV2DashboardLink {
+      title: string;
+      type?: DashboardV2DashboardLinkType;
+      url?: string | null;
+      tags?: string[] | null;
+      asDropdown?: boolean | null;
+      icon?: DashboardV2DashboardLinkIcon;
+      tooltip?: string | null;
+      newTab?: boolean | null;
+      keepTime?: boolean | null;
+      includeVars?: boolean | null;
+    }
+
+    export type DashboardV2SpecLinkStyle = typeof DashboardV2SpecLinkStyle[keyof typeof DashboardV2SpecLinkStyle] | null;
+
+
+    export const DashboardV2SpecLinkStyle = {
+      Buttons: 'buttons',
+      Tabs: 'tabs',
+    } as const;
+
+    export type DashboardV2SpecDisplay = typeof DashboardV2SpecDisplay[keyof typeof DashboardV2SpecDisplay] | null;
+
+
+    export const DashboardV2SpecDisplay = {
+      Spacious: 'spacious',
+      Dense: 'dense',
+    } as const;
+
+    export interface DashboardV2TimeRange {
+      from: string;
+      to: string;
+    }
+
+    export interface DashboardV2CustomVariable {
+      /** @pattern ^[A-Za-z_][A-Za-z0-9_]*$ */
+      name: string;
+      label?: string | null;
+      hidden?: boolean | null;
+      multi?: boolean | null;
+      includeAll?: boolean | null;
+      allValue?: string | null;
+      current?: string | string[] | null;
+      type: 'custom';
+      options: string[];
+    }
+
+    export type DashboardV2QueryVariableLanguageEnum = typeof DashboardV2QueryVariableLanguageEnum[keyof typeof DashboardV2QueryVariableLanguageEnum];
+
+
+    export const DashboardV2QueryVariableLanguageEnum = {
+      Promql: 'promql',
+      Hogql: 'hogql',
+      Sql: 'sql',
+      Logql: 'logql',
+      Insight: 'insight',
+    } as const;
+
+    export interface DashboardV2QueryVariable {
+      /** @pattern ^[A-Za-z_][A-Za-z0-9_]*$ */
+      name: string;
+      label?: string | null;
+      hidden?: boolean | null;
+      multi?: boolean | null;
+      includeAll?: boolean | null;
+      allValue?: string | null;
+      current?: string | string[] | null;
+      type: 'query';
+      language: DashboardV2QueryVariableLanguageEnum;
+      query: string;
+      regex?: string | null;
+    }
+
+    export interface DashboardV2TextboxVariable {
+      /** @pattern ^[A-Za-z_][A-Za-z0-9_]*$ */
+      name: string;
+      label?: string | null;
+      hidden?: boolean | null;
+      multi?: boolean | null;
+      includeAll?: boolean | null;
+      allValue?: string | null;
+      current?: string | string[] | null;
+      type: 'textbox';
+      default?: string | null;
+    }
+
+    export interface DashboardV2IntervalVariable {
+      /** @pattern ^[A-Za-z_][A-Za-z0-9_]*$ */
+      name: string;
+      label?: string | null;
+      hidden?: boolean | null;
+      multi?: boolean | null;
+      includeAll?: boolean | null;
+      allValue?: string | null;
+      current?: string | string[] | null;
+      type: 'interval';
+      options: string[];
+    }
+
+    export interface DashboardV2ConstantVariable {
+      /** @pattern ^[A-Za-z_][A-Za-z0-9_]*$ */
+      name: string;
+      label?: string | null;
+      hidden?: boolean | null;
+      multi?: boolean | null;
+      includeAll?: boolean | null;
+      allValue?: string | null;
+      current?: string | string[] | null;
+      type: 'constant';
+      value: string;
+    }
+
+    export interface DashboardV2AdhocVariable {
+      /** @pattern ^[A-Za-z_][A-Za-z0-9_]*$ */
+      name: string;
+      label?: string | null;
+      hidden?: boolean | null;
+      multi?: boolean | null;
+      includeAll?: boolean | null;
+      allValue?: string | null;
+      current?: string | string[] | null;
+      type: 'adhoc';
+    }
+
+    export interface DashboardV2PanelItem {
+      panel: string;
+      /**
+         * @minimum 0
+         * @maximum 23
+         */
+      x: number;
+      /** @minimum 0 */
+      y: number;
+      /**
+         * @minimum 1
+         * @maximum 24
+         */
+      w: number;
+      /** @minimum 1 */
+      h: number;
+    }
+
+    export interface DashboardV2RowItem {
+      row: string;
+      /** @minimum 0 */
+      y: number;
+      collapsed?: boolean | null;
+      repeat?: string | null;
+      items: DashboardV2PanelItem[];
+    }
+
+    export interface DashboardV2Tab {
+      title: string;
+      items: DashboardV2PanelItem[];
+    }
+
+    export interface DashboardV2TabsItem {
+      tabs: string;
+      /** @minimum 0 */
+      y: number;
+      items: DashboardV2Tab[];
+    }
+
+    export interface DashboardV2Layout {
+      type: 'grid';
+      columns?: 24;
+      items: (DashboardV2PanelItem | DashboardV2RowItem | DashboardV2TabsItem)[];
+    }
+
+    export type DashboardV2PanelDescriptionMode = typeof DashboardV2PanelDescriptionMode[keyof typeof DashboardV2PanelDescriptionMode] | null;
+
+
+    export const DashboardV2PanelDescriptionMode = {
+      Info: 'info',
+      Below: 'below',
+      Hidden: 'hidden',
+    } as const;
+
+    export type DashboardV2VizOptions = { [key: string]: unknown } | null;
+
+    export interface DashboardV2Viz {
+      type: string;
+      options?: DashboardV2VizOptions;
+    }
+
+    export type DashboardV2TargetLanguageEnum = typeof DashboardV2TargetLanguageEnum[keyof typeof DashboardV2TargetLanguageEnum];
+
+
+    export const DashboardV2TargetLanguageEnum = {
+      Promql: 'promql',
+      Hogql: 'hogql',
+      Sql: 'sql',
+      Logql: 'logql',
+      Insight: 'insight',
+    } as const;
+
+    export type DashboardV2TargetFormat = typeof DashboardV2TargetFormat[keyof typeof DashboardV2TargetFormat] | null;
+
+
+    export const DashboardV2TargetFormat = {
+      TimeSeries: 'time_series',
+      Table: 'table',
+    } as const;
+
+    export type DashboardV2BuilderStateSourceEnum = typeof DashboardV2BuilderStateSourceEnum[keyof typeof DashboardV2BuilderStateSourceEnum];
+
+
+    export const DashboardV2BuilderStateSourceEnum = {
+      Metrics: 'metrics',
+      Logs: 'logs',
+      Events: 'events',
+      Traces: 'traces',
+    } as const;
+
+    export interface DashboardV2BuilderState {
+      source: DashboardV2BuilderStateSourceEnum;
+      [key: string]: unknown;
+     }
+
+    export interface DashboardV2Target {
+      refId: string;
+      language: DashboardV2TargetLanguageEnum;
+      query: string;
+      legend?: string | null;
+      bucketed?: boolean | null;
+      instant?: boolean | null;
+      format?: DashboardV2TargetFormat;
+      hide?: boolean | null;
+      builder?: DashboardV2BuilderState | null;
+      builtBy?: string | null;
+    }
+
+    export interface DashboardV2PartitionTransform {
+      type: 'partition';
+      by: string;
+    }
+
+    export interface DashboardV2OrganizeTransform {
+      type: 'organize';
+      /** @minItems 1 */
+      fields: string[];
+    }
+
+    export interface DashboardV2MergeTransform {
+      type: 'merge';
+      on: string;
+    }
+
+    export interface DashboardV2LimitTransform {
+      type: 'limit';
+      /** @exclusiveMinimum 0 */
+      n: number;
+    }
+
+    export interface DashboardV2SortTransform {
+      type: 'sort';
+      field: string;
+      desc?: boolean | null;
+    }
+
+    export interface DashboardV2RenameTransform {
+      type: 'rename';
+      from: string;
+      to: string;
+    }
+
+    export type DashboardV2MathTransformMode = typeof DashboardV2MathTransformMode[keyof typeof DashboardV2MathTransformMode] | null;
+
+
+    export const DashboardV2MathTransformMode = {
+      Value: 'value',
+      Series: 'series',
+    } as const;
+
+    export interface DashboardV2MathTransform {
+      type: 'math';
+      as: string;
+      expression: string;
+      mode?: DashboardV2MathTransformMode;
+    }
+
+    export interface DashboardV2Threshold {
+      value: number;
+      color: string;
+      label?: string | null;
+    }
+
+    export type DashboardV2ColorSchemeSeriesBy = typeof DashboardV2ColorSchemeSeriesBy[keyof typeof DashboardV2ColorSchemeSeriesBy] | null;
+
+
+    export const DashboardV2ColorSchemeSeriesBy = {
+      Last: 'last',
+      Mean: 'mean',
+      Max: 'max',
+      Min: 'min',
+    } as const;
+
+    export interface DashboardV2ColorScheme {
+      mode: string;
+      fixedColor?: string | null;
+      seriesBy?: DashboardV2ColorSchemeSeriesBy;
+    }
+
+    export type DashboardV2FieldOverrideStyle = typeof DashboardV2FieldOverrideStyle[keyof typeof DashboardV2FieldOverrideStyle] | null;
+
+
+    export const DashboardV2FieldOverrideStyle = {
+      Line: 'line',
+      Bars: 'bars',
+      Points: 'points',
+    } as const;
+
+    export type DashboardV2FieldOverrideAxis = typeof DashboardV2FieldOverrideAxis[keyof typeof DashboardV2FieldOverrideAxis] | null;
+
+
+    export const DashboardV2FieldOverrideAxis = {
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    export type DashboardV2FieldOverrideCell = typeof DashboardV2FieldOverrideCell[keyof typeof DashboardV2FieldOverrideCell] | null;
+
+
+    export const DashboardV2FieldOverrideCell = {
+      Bar: 'bar',
+      ColorBackground: 'color-background',
+      ColorText: 'color-text',
+    } as const;
+
+    export interface DashboardV2Mapping {
+      value?: string | null;
+      from?: number | null;
+      to?: number | null;
+      null?: boolean | null;
+      text?: string | null;
+      color?: string | null;
+    }
+
+    export interface DashboardV2FieldOverride {
+      unit?: string | null;
+      decimals?: number | null;
+      color?: string | null;
+      displayName?: string | null;
+      hidden?: boolean | null;
+      style?: DashboardV2FieldOverrideStyle;
+      stack?: boolean | null;
+      fill?: number | null;
+      dash?: number[] | null;
+      width?: number | null;
+      axis?: DashboardV2FieldOverrideAxis;
+      negate?: boolean | null;
+      cell?: DashboardV2FieldOverrideCell;
+      link?: string | null;
+      wrap?: boolean | null;
+      mappings?: DashboardV2Mapping[] | null;
+    }
+
+    export type DashboardV2FieldConfigOverrides = {[key: string]: DashboardV2FieldOverride} | null;
+
+    export interface DashboardV2FieldConfig {
+      unit?: string | null;
+      decimals?: number | null;
+      min?: number | null;
+      max?: number | null;
+      softMin?: number | null;
+      softMax?: number | null;
+      thresholds?: DashboardV2Threshold[] | null;
+      color?: DashboardV2ColorScheme | null;
+      overrides?: DashboardV2FieldConfigOverrides;
+      mappings?: DashboardV2Mapping[] | null;
+    }
+
+    export interface DashboardV2PanelCache {
+      ttl?: string | null;
+    }
+
+    export type DashboardV2PanelIncomplete = typeof DashboardV2PanelIncomplete[keyof typeof DashboardV2PanelIncomplete] | null;
+
+
+    export const DashboardV2PanelIncomplete = {
+      Solid: 'solid',
+      Dashed: 'dashed',
+      Estimate: 'estimate',
+      Hidden: 'hidden',
+    } as const;
+
+    export interface DashboardV2UrlAction {
+      type: 'url';
+      url: string;
+      newTab?: boolean | null;
+    }
+
+    export type DashboardV2DashboardActionTime = typeof DashboardV2DashboardActionTime[keyof typeof DashboardV2DashboardActionTime] | null;
+
+
+    export const DashboardV2DashboardActionTime = {
+      Keep: 'keep',
+      Clicked: 'clicked',
+    } as const;
+
+    export type DashboardV2DashboardActionVars = {[key: string]: string} | null;
+
+    export interface DashboardV2DashboardAction {
+      type: 'dashboard';
+      uid: string;
+      vars?: DashboardV2DashboardActionVars;
+      time?: DashboardV2DashboardActionTime;
+    }
+
+    export interface DashboardV2VariableAction {
+      type: 'variable';
+      name: string;
+      value: string;
+    }
+
+    export type DashboardV2PanelActionTime = typeof DashboardV2PanelActionTime[keyof typeof DashboardV2PanelActionTime] | null;
+
+
+    export const DashboardV2PanelActionTime = {
+      Clicked: 'clicked',
+      Dashboard: 'dashboard',
+    } as const;
+
+    export type DashboardV2PanelActionPanel = { [key: string]: unknown };
+
+    export interface DashboardV2PanelAction {
+      type: 'panel';
+      panel: DashboardV2PanelActionPanel;
+      time?: DashboardV2PanelActionTime;
+    }
+
+    export const DashboardV2PeopleActionValue = {
+      type: 'people',
+    } as const;
+    export type DashboardV2PeopleAction = typeof DashboardV2PeopleActionValue;
+
+    export const DashboardV2EventsActionValue = {
+      type: 'events',
+    } as const;
+    export type DashboardV2EventsAction = typeof DashboardV2EventsActionValue;
+
+    export const DashboardV2ZoomActionValue = {
+      type: 'zoom',
+    } as const;
+    export type DashboardV2ZoomAction = typeof DashboardV2ZoomActionValue;
+
+    export const DashboardV2ExploreActionValue = {
+      type: 'explore',
+    } as const;
+    export type DashboardV2ExploreAction = typeof DashboardV2ExploreActionValue;
+
+    export interface DashboardV2Drilldown {
+      title: string;
+      action: DashboardV2UrlAction | DashboardV2DashboardAction | DashboardV2VariableAction | DashboardV2PanelAction | DashboardV2PeopleAction | DashboardV2EventsAction | DashboardV2ZoomAction | DashboardV2ExploreAction;
+    }
+
+    export interface DashboardV2Panel {
+      title?: string | null;
+      description?: string | null;
+      descriptionMode?: DashboardV2PanelDescriptionMode;
+      hideWhenEmpty?: boolean | null;
+      viz: DashboardV2Viz;
+      targets?: DashboardV2Target[] | null;
+      transforms?: (DashboardV2PartitionTransform | DashboardV2OrganizeTransform | DashboardV2MergeTransform | DashboardV2LimitTransform | DashboardV2SortTransform | DashboardV2RenameTransform | DashboardV2MathTransform)[] | null;
+      fieldConfig?: DashboardV2FieldConfig | null;
+      cache?: DashboardV2PanelCache | null;
+      precompute?: boolean | null;
+      interval?: string | null;
+      timeFrom?: string | null;
+      timeShift?: string | null;
+      compare?: string | null;
+      incomplete?: DashboardV2PanelIncomplete;
+      drilldowns?: DashboardV2Drilldown[] | null;
+      links?: DashboardV2DashboardLink[] | null;
+      maxDataPoints?: number | null;
+      builder?: DashboardV2BuilderState | null;
+      requires?: string[] | null;
+    }
+
+    export type DashboardV2RequirementKindEnum = typeof DashboardV2RequirementKindEnum[keyof typeof DashboardV2RequirementKindEnum];
+
+
+    export const DashboardV2RequirementKindEnum = {
+      Event: 'event',
+      Sdk: 'sdk',
+      Warehouse: 'warehouse',
+      Metric: 'metric',
+      Query: 'query',
+    } as const;
+
+    export type DashboardV2RequirementLanguage = typeof DashboardV2RequirementLanguage[keyof typeof DashboardV2RequirementLanguage] | null;
+
+
+    export const DashboardV2RequirementLanguage = {
+      Promql: 'promql',
+      Hogql: 'hogql',
+      Sql: 'sql',
+      Logql: 'logql',
+      Insight: 'insight',
+    } as const;
+
+    export interface DashboardV2Requirement {
+      /** @pattern ^[a-z0-9][a-z0-9_-]*$ */
+      id: string;
+      /**
+         * @minLength 1
+         * @maxLength 300
+         */
+      title: string;
+      kind: DashboardV2RequirementKindEnum;
+      why?: string | null;
+      optional?: boolean | null;
+      event?: string | null;
+      bind?: string | null;
+      property?: string | null;
+      table?: string | null;
+      metric?: string | null;
+      language?: DashboardV2RequirementLanguage;
+      query?: string | null;
+      setup?: string | null;
+    }
+
+    export type DashboardV2SpecPanels = {[key: string]: DashboardV2Panel};
+
+    export interface DashboardV2Spec {
+      /** @pattern ^[a-z0-9][a-z0-9_-]{1,62}$ */
+      uid: string;
+      /**
+         * @minLength 1
+         * @maxLength 300
+         */
+      title: string;
+      description?: string | null;
+      folder?: string | null;
+      tags?: string[] | null;
+      links?: DashboardV2DashboardLink[] | null;
+      linkStyle?: DashboardV2SpecLinkStyle;
+      display?: DashboardV2SpecDisplay;
+      time?: DashboardV2TimeRange;
+      refresh?: string | null;
+      timezone?: string | null;
+      variables?: (DashboardV2CustomVariable | DashboardV2QueryVariable | DashboardV2TextboxVariable | DashboardV2IntervalVariable | DashboardV2ConstantVariable | DashboardV2AdhocVariable)[];
+      layout: DashboardV2Layout;
+      panels: DashboardV2SpecPanels;
+      requires?: DashboardV2Requirement[] | null;
+    }
+
+    export interface CreateDashboardV2Input {
+      /** The dashboard document. Its `uid` becomes the uid of the dashboard and must be unused in the project. */
+      spec: DashboardV2Spec;
+    }
+
     /**
      * Typed configuration for a FileDownload batch-export destination.
      */
@@ -35659,6 +36232,92 @@ export namespace Schemas {
     export interface DashboardTileResult {
       id?: number;
       insight: InsightResult;
+    }
+
+    export interface DashboardV2Detail {
+      /** Unique identifier of the dashboard row. API routes use `uid`. */
+      id: string;
+      /** Identifier of the dashboard in URLs and in its spec. It is unique in the project. */
+      uid: string;
+      /** Title from the spec. */
+      title: string;
+      /**
+         * Description from the spec, or null when the spec has none.
+         * @nullable
+         */
+      description: string | null;
+      /** Folder titles from the spec, separated by `/`. Empty for the top level. */
+      folder: string;
+      /** Tags from the spec. */
+      tags: string[];
+      /** Number of the latest saved version. It starts at 1, and each save adds 1. */
+      version: number;
+      /** When the dashboard was created. */
+      created_at: string;
+      /** User who created the dashboard, or null when unknown. */
+      readonly created_by: UserBasic | null;
+      /** When the dashboard was last saved. */
+      last_modified_at: string;
+      /** User who last saved the dashboard, or null when unknown. */
+      readonly last_modified_by: UserBasic | null;
+      /** The dashboard document: its variables, layout and panels. Its keys are camelCase. */
+      spec: DashboardV2Spec;
+    }
+
+    export interface DashboardV2SpecIssue {
+      /** Where the problem is in the spec, for example `panels.orders.viz.type`. */
+      path: string;
+      /** What is wrong at that path. */
+      message: string;
+    }
+
+    export interface DashboardV2InvalidSpecExtra {
+      /** Every problem found in the spec. */
+      issues: DashboardV2SpecIssue[];
+    }
+
+    export interface DashboardV2InvalidSpecError {
+      /** Error category. Always `validation_error`. */
+      type: string;
+      /** Error code. `invalid_spec` when the spec has the problems in `extra`. */
+      code: string;
+      /** The problems as one readable message. */
+      detail: string;
+      /**
+         * Request field the error is about.
+         * @nullable
+         */
+      attr: string | null;
+      /** Present when `code` is `invalid_spec`. */
+      extra?: DashboardV2InvalidSpecExtra;
+    }
+
+    export interface DashboardV2Summary {
+      /** Unique identifier of the dashboard row. API routes use `uid`. */
+      id: string;
+      /** Identifier of the dashboard in URLs and in its spec. It is unique in the project. */
+      uid: string;
+      /** Title from the spec. */
+      title: string;
+      /**
+         * Description from the spec, or null when the spec has none.
+         * @nullable
+         */
+      description: string | null;
+      /** Folder titles from the spec, separated by `/`. Empty for the top level. */
+      folder: string;
+      /** Tags from the spec. */
+      tags: string[];
+      /** Number of the latest saved version. It starts at 1, and each save adds 1. */
+      version: number;
+      /** When the dashboard was created. */
+      created_at: string;
+      /** User who created the dashboard, or null when unknown. */
+      readonly created_by: UserBasic | null;
+      /** When the dashboard was last saved. */
+      last_modified_at: string;
+      /** User who last saved the dashboard, or null when unknown. */
+      readonly last_modified_by: UserBasic | null;
     }
 
     export interface DashboardWidgetRunResult {
@@ -79688,6 +80347,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
+    }
+
+    export interface PaginatedDashboardV2SummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DashboardV2Summary[];
     }
 
     export interface PaginatedDataCatalogCertificationList {
@@ -126206,6 +126874,19 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
+    export interface UpdateDashboardV2Input {
+      /** The whole dashboard document to save as the next version. Its `uid` must match the URL. */
+      spec: DashboardV2Spec;
+      /**
+         * The `version` this save is based on. The save is refused with a 409 when the dashboard has a different version. Leave it out to save over any version.
+         * @minimum 1
+         * @nullable
+         */
+      base_version?: number | null;
+      /** A note on what changed, stored with the new version. */
+      message?: string;
+    }
+
     export interface UpdateDashboardWidgetsBatchResponse {
       /** Updated dashboard widget tiles in request order. */
       tiles: DashboardTile[];
@@ -138437,6 +139118,22 @@ export namespace Schemas {
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
+
+    export type DashboardsV2ListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Return only dashboards whose title contains this text, ignoring case.
+     */
+    search?: string;
+    };
 
     export type DataCatalogCertificationsListParams = {
     /**
