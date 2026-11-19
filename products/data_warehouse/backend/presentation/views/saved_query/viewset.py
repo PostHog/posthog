@@ -221,7 +221,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+            context["database"] = Database.create_for(
+                team_id=self.team_id, user=cast(User, self.request.user), trigger="saved_query_save"
+            )
         return context
 
     @validated_request(
