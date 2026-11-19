@@ -1,13 +1,14 @@
 mod common;
 
+use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 
 use common::{
-    create_client, create_test_person, start_test_replica, start_test_router_raw_with_followers,
-    TestReplicaService,
+    create_client, create_test_person, start_test_replica, start_test_router_raw_following,
+    start_test_router_raw_with_followers, TestReplicaService,
 };
 use personhog_proto::personhog::types::v1::{GetPersonByUuidRequest, GetPersonRequest};
-use tonic::{Code, Request};
+use tonic::Request;
 
 fn for_person() -> Request<GetPersonRequest> {
     routed(by_id())
@@ -40,8 +41,12 @@ fn by_uuid() -> GetPersonByUuidRequest {
     }
 }
 
-fn refusing() -> TestReplicaService {
+fn shedding() -> TestReplicaService {
     TestReplicaService::new().sheds(usize::MAX)
+}
+
+fn with_the_person() -> TestReplicaService {
+    TestReplicaService::with_person(create_test_person())
 }
 
 #[tokio::test]
@@ -81,16 +86,21 @@ async fn a_followed_read_goes_to_the_preferred_instance_stamped_with_partition_a
 }
 
 #[tokio::test]
-async fn an_instance_that_refuses_or_has_no_owner_is_passed_over() {
-    let behind = refusing();
-    let behind_calls = behind.calls.clone();
+async fn an_instance_that_cannot_take_the_read_is_passed_over() {
+    let overloaded = shedding();
+    let overloaded_calls = overloaded.calls.clone();
+    // An address nothing listens on, as a pod that died leaves until its lease expires.
+    let gone = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let gone_addr = gone.local_addr().unwrap();
+    drop(gone);
     let replica = start_test_replica(TestReplicaService::new()).await;
     let router = start_test_router_raw_with_followers(
         replica,
         vec![
             None,
-            Some(start_test_replica(behind).await),
-            Some(start_test_replica(TestReplicaService::with_person(create_test_person())).await),
+            Some(gone_addr),
+            Some(start_test_replica(overloaded).await),
+            Some(start_test_replica(with_the_person()).await),
         ],
     )
     .await;
@@ -102,60 +112,87 @@ async fn an_instance_that_refuses_or_has_no_owner_is_passed_over() {
         .expect("served by the last instance");
 
     assert!(response.get_ref().person.is_some());
-    assert_eq!(behind_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(overloaded_calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
-async fn a_follower_that_never_answers_does_not_hold_the_read() {
-    // Accepts connections and says nothing, as a dead pod's address does until its lease expires.
-    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let silent_addr = silent.local_addr().unwrap();
-    let replica = start_test_replica(TestReplicaService::new()).await;
+async fn a_read_no_follower_can_take_is_answered_by_a_replica() {
+    // A router that has not joined its follower instances yet, and one whose instances
+    // have no owner for the partition.
+    let cases: [Option<Vec<Option<SocketAddr>>>; 2] = [None, Some(vec![None, None])];
+    for followers in cases {
+        let replica = start_test_replica(with_the_person()).await;
+        let router = start_test_router_raw_following(replica, followers).await;
+        let mut client = create_client(router).await;
+
+        let by_id = client.get_person(for_person()).await.expect("served");
+        let by_uuid = client
+            .get_person_by_uuid(routed(by_uuid()))
+            .await
+            .expect("served");
+
+        assert!(by_id.get_ref().person.is_some());
+        assert!(by_uuid.get_ref().person.is_some());
+    }
+}
+
+#[tokio::test]
+async fn a_read_with_routing_headers_the_router_cannot_read_is_answered_by_a_replica() {
+    let follower = with_the_person();
+    let follower_calls = follower.calls.clone();
+    let replica = start_test_replica(with_the_person()).await;
     let router = start_test_router_raw_with_followers(
         replica,
+        vec![Some(start_test_replica(follower).await)],
+    )
+    .await;
+    let mut request = Request::new(by_id());
+    request
+        .metadata_mut()
+        .insert("x-team-id", "one".parse().unwrap());
+    request
+        .metadata_mut()
+        .insert("x-person-id", "42".parse().unwrap());
+
+    let response = create_client(router)
+        .await
+        .get_person(request)
+        .await
+        .expect("served by a replica");
+
+    assert!(response.get_ref().person.is_some());
+    assert_eq!(follower_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_follower_that_takes_too_long_hands_the_read_to_a_replica_and_no_other_follower() {
+    let other = with_the_person();
+    let other_calls = other.calls.clone();
+    let replica = with_the_person();
+    let replica_calls = replica.calls.clone();
+    let router = start_test_router_raw_with_followers(
+        start_test_replica(replica).await,
         vec![
-            Some(silent_addr),
-            Some(start_test_replica(TestReplicaService::with_person(create_test_person())).await),
+            Some(start_test_replica(TestReplicaService::new().holding_person_reads()).await),
+            Some(start_test_replica(other).await),
         ],
     )
     .await;
 
-    let started = std::time::Instant::now();
     let response = create_client(router)
         .await
         .get_person(for_person())
         .await
-        .expect("served by the second instance");
+        .expect("served by a replica");
 
     assert!(response.get_ref().person.is_some());
-    assert!(started.elapsed() < std::time::Duration::from_secs(2));
-    drop(silent);
-}
-
-#[tokio::test]
-async fn the_caller_is_told_to_retry_only_when_every_instance_refuses() {
-    let refusals: [fn() -> TestReplicaService; 2] = [refusing, || {
-        TestReplicaService::new().following_another_partition()
-    }];
-    for refusal in refusals {
-        let replica = start_test_replica(TestReplicaService::new()).await;
-        let router = start_test_router_raw_with_followers(
-            replica,
-            vec![
-                Some(start_test_replica(refusal()).await),
-                Some(start_test_replica(refusal()).await),
-            ],
-        )
-        .await;
-
-        let status = create_client(router)
-            .await
-            .get_person(for_person())
-            .await
-            .unwrap_err();
-
-        assert_eq!(status.code(), Code::Unavailable);
-    }
+    assert_eq!(
+        (
+            replica_calls.load(Ordering::SeqCst),
+            other_calls.load(Ordering::SeqCst)
+        ),
+        (1, 0)
+    );
 }
 
 #[tokio::test]

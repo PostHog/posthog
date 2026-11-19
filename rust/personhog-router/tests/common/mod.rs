@@ -92,8 +92,8 @@ pub struct TestReplicaService {
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
     pub sheds_remaining: Arc<AtomicUsize>,
-    /// Refuse a person read as a follower the request was not routed for.
-    pub follows_another_partition: bool,
+    /// Never answer a person read.
+    pub holds_person_reads: bool,
     pub calls: Arc<AtomicUsize>,
 }
 
@@ -108,13 +108,13 @@ impl TestReplicaService {
             groups: vec![],
             group_type_mappings: vec![],
             sheds_remaining: Arc::new(AtomicUsize::new(0)),
-            follows_another_partition: false,
+            holds_person_reads: false,
             calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    pub fn following_another_partition(mut self) -> Self {
-        self.follows_another_partition = true;
+    pub fn holding_person_reads(mut self) -> Self {
+        self.holds_person_reads = true;
         self
     }
 
@@ -182,10 +182,8 @@ impl PersonHogReplica for TestReplicaService {
                 .insert(NOT_APPLIED_HEADER, "load_shed".parse().unwrap());
             return Err(status);
         }
-        if self.follows_another_partition {
-            return Err(Status::failed_precondition(
-                "the request was routed to another partition",
-            ));
+        if self.holds_person_reads {
+            std::future::pending::<()>().await;
         }
         let mut response = Response::new(GetPersonResponse {
             person: self.person.clone(),
@@ -1197,32 +1195,29 @@ pub async fn start_test_router_raw_with_followers(
     replica_addr: SocketAddr,
     followers: Vec<Option<SocketAddr>>,
 ) -> SocketAddr {
-    use personhog_router::backend::{FollowerBackend, FollowerInstance};
+    start_test_router_raw_following(replica_addr, Some(followers)).await
+}
+
+/// As [`start_test_router_raw_with_followers`]; `None` is a router that has not joined
+/// its follower instances yet.
+pub async fn start_test_router_raw_following(
+    replica_addr: SocketAddr,
+    followers: Option<Vec<Option<SocketAddr>>>,
+) -> SocketAddr {
+    use personhog_router::backend::FollowerBackend;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let instances = followers
-        .into_iter()
-        .enumerate()
-        .map(|(index, follower)| {
-            let owners: HashMap<u32, String> = follower
-                .iter()
-                .map(|_| (0, "follower-0".to_string()))
-                .collect();
-            let url = follower.map(|addr| format!("http://{addr}"));
-            FollowerInstance {
-                name: Arc::from(format!("zone-{index}")),
-                table: Arc::new(RwLock::new(owners)),
-                addresses: Arc::new(move |_pod: &str| url.clone()),
-            }
-        })
-        .collect();
-    let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", 1));
     let follower = Arc::new(FollowerBackend::new(
-        instances,
-        changelog,
+        Duration::from_millis(300),
         Duration::from_millis(300),
     ));
+    if let Some(followers) = followers {
+        follower.join(
+            follower_instances(followers),
+            LiveChangelog::new(ChangelogConfig::new("personhog_updates", 1)),
+        );
+    }
     let retry_config = RetryConfig {
         max_retries: 1,
         initial_backoff_ms: 1,
@@ -1242,6 +1237,29 @@ pub async fn start_test_router_raw_with_followers(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     addr
+}
+
+fn follower_instances(
+    followers: Vec<Option<SocketAddr>>,
+) -> Vec<personhog_router::backend::FollowerInstance> {
+    use personhog_router::backend::FollowerInstance;
+
+    followers
+        .into_iter()
+        .enumerate()
+        .map(|(index, follower)| {
+            let owners: HashMap<u32, String> = follower
+                .iter()
+                .map(|_| (0, "follower-0".to_string()))
+                .collect();
+            let url = follower.map(|addr| format!("http://{addr}"));
+            FollowerInstance {
+                name: Arc::from(format!("zone-{index}")),
+                table: Arc::new(RwLock::new(owners)),
+                addresses: Arc::new(move |_pod: &str| url.clone()),
+            }
+        })
+        .collect()
 }
 
 /// Start a raw proxy router with both replica and leader backends.

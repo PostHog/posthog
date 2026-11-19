@@ -219,7 +219,7 @@ impl RouterClient {
     /// person's partition to the router. A strong read adds the
     /// strong-consistency opt-in and goes to the owning leader; an eventual
     /// read goes to a changelog follower of the partition where the router
-    /// has any, and to a replica otherwise.
+    /// has one that can answer, and is read from Postgres otherwise.
     pub async fn get_person(
         &self,
         team_id: i64,

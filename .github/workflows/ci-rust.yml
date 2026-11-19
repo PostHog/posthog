@@ -864,6 +864,19 @@ jobs:
                     --migrate-after 10s --migrate-to-partitions 8 \
                     --migrate-to-kafka-hosts 127.0.0.1:29092
 
+            # Changelog followers: with the writer paused Postgres holds
+            # none of the run's writes, so a followed read can show an
+            # acked write only if a follower answers it. The run checks
+            # every acked write through followed reads before the writer
+            # resumes. A replica reads people from posthog_person, so the
+            # stack targets it.
+            - name: Run the e2e gate reading through followers with the writer paused
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --followers 2 --pg-target-table posthog_person \
+                    --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 15s \
+                    --writer-pause-after 1s --verify-followers-before-writer-resume
+
             - name: Dump service logs on failure
               if: failure()
               run: |
