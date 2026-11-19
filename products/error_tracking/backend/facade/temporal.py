@@ -12,6 +12,9 @@ from products.error_tracking.backend.temporal import ACTIVITIES, LIFECYCLE_ACTIV
 from products.error_tracking.backend.temporal.built_in_filters_refresh.schedule import (
     create_error_tracking_built_in_filters_refresh_schedule,
 )
+from products.error_tracking.backend.temporal.issue_change_cleanup.schedule import (
+    create_error_tracking_issue_change_cleanup_schedule,
+)
 from products.error_tracking.backend.temporal.recommendations_refresh.types import RecommendationsRefreshInputs
 from products.error_tracking.backend.temporal.spike_event_cleanup.schedule import (
     create_error_tracking_spike_event_cleanup_schedule,
@@ -28,6 +31,7 @@ __all__ = [
     "WORKFLOWS",
     "RecommendationsRefreshInputs",
     "create_error_tracking_built_in_filters_refresh_schedule",
+    "create_error_tracking_issue_change_cleanup_schedule",
     "create_error_tracking_spike_event_cleanup_schedule",
     "create_error_tracking_symbol_set_cleanup_schedule",
     "create_error_tracking_weekly_digest_schedule",
@@ -47,6 +51,7 @@ TEMPORAL = TemporalRegistration(
     schedules=(
         create_error_tracking_symbol_set_cleanup_schedule,
         create_error_tracking_spike_event_cleanup_schedule,
+        create_error_tracking_issue_change_cleanup_schedule,
         create_error_tracking_weekly_digest_schedule,
         create_error_tracking_built_in_filters_refresh_schedule,
     ),
