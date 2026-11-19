@@ -95,6 +95,18 @@ def filter_projects(
     return queryset.exclude(id__in=team_ids) if result.excluded else queryset.filter(id__in=team_ids)
 
 
+def filter_visible_projects(queryset: QuerySet[M], *, subject: Subject | None = None) -> QuerySet[M]:
+    """Keep the rows whose project the subject may view, in every organization the subject belongs to.
+
+    The rows are teams, or projects keyed by their main team's id, the ids that `team_ids_visible_for_user`
+    lists. `subject=None` means the request's user.
+    """
+    result = api.list_objects(resource=Resource(type=ResourceType.PROJECT), action=Action.VIEW, subject=subject)
+    if not result.complete:
+        return queryset.none()
+    return queryset.filter(pk__in=[int(team_id) for team_id in result.ids])
+
+
 def filter_file_system_queryset(
     queryset: "QuerySet[FileSystem]",
     *,
