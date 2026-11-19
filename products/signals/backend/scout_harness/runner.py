@@ -100,6 +100,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
+from products.signals.backend.scout_report_actions import granted_report_actions_for_run
 from products.signals.backend.spend import record_task_spend
 from products.signals.backend.spend_billing import scout_skill_spend_exempt
 from products.signals.backend.task_profiles import scout_profile
@@ -419,6 +420,7 @@ async def _arun_signals_scout(
     else:
         config = await database_sync_to_async(_get_trial_config, thread_sensitive=False)(trial)
         config.write_scopes = []
+        config.report_actions = []
         skill = replace(skill, body=trial.skill_body)
 
     # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
@@ -496,6 +498,9 @@ async def _arun_signals_scout(
             extra={"team_id": team_id, "skill_name": skill.name, "user_id": acting_user.user_id},
         )
         config.write_scopes = sorted(set(granted_write_scopes) & SCOUT_DEFAULT_WRITE_SCOPES)
+    if acting_user.is_team_fallback:
+        # Report actions start agents as the acting user, so a member who never approved them holds none.
+        config.report_actions = []
     user_id = acting_user.user_id
 
     started = time.monotonic()
@@ -1705,6 +1710,10 @@ def _create_run_row(
     # grant, so absence reads as "the fleet posture".
     if granted_write_scopes := _granted_write_scopes(config):
         metadata["write_scopes"] = granted_write_scopes
+    # Stamped for the report actions endpoint, which refuses a kind this stamp does not name, so a
+    # grant widened after dispatch never reaches a run already going.
+    if report_actions := granted_report_actions_for_run(config):
+        metadata["report_actions"] = report_actions
     # The tool list the run was narrowed to, stamped next to the write grant for the same reason.
     # Omitted when the run was not narrowed, so absence reads as "every tool the scopes allow".
     if mcp_tool_allowlist is not None:
