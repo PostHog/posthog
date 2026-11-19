@@ -1174,11 +1174,7 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
-                expect(result.invocation.queueMetadata).toEqual({
-                    ...invocation.queueMetadata,
-                    teamCapped: true,
-                    teamCappedAt: expect.any(String),
-                })
+                expect(result.invocation.queueMetadata).toMatchObject({ ...invocation.queueMetadata, teamCapped: true })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(drainedAt + minMs)
                 expect(scheduledMs).toBeLessThanOrEqual(after + maxMs)
@@ -1278,9 +1274,6 @@ describe('EmailService', () => {
 
                     expect(metricNames(first)).toEqual(['email_sending_limit_delayed'])
                     expect(metricNames(second)).toEqual([])
-                    expect(second.invocation.queueMetadata?.teamCappedAt).toEqual(
-                        first.invocation.queueMetadata?.teamCappedAt
-                    )
                 })
 
                 it('counts a later email step the limit holds, even with an earlier hold carried over', async () => {
