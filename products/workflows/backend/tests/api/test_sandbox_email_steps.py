@@ -609,3 +609,73 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
         assert response.status_code == 404, response.json()
         assert not self._sandbox_sender_is_set_up()
+
+    def _active_flow_with_draft(self, live_step: dict[str, Any], draft_step: dict[str, Any], status: str) -> HogFlow:
+        def edges(step: dict[str, Any]) -> list[dict[str, Any]]:
+            return [{"from": "trigger_node", "to": step["id"], "type": "continue"}]
+
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Flow",
+            status=status,
+            actions=[_trigger(), live_step],
+            edges=edges(live_step),
+            draft={"actions": [_trigger(), draft_step], "edges": edges(draft_step)},
+        )
+
+    @parameterized.expand(
+        [
+            ("moves_a_step_onto_the_test_sender", "own", "active", True),
+            ("keeps_the_same_test_sender_step", "sandbox", "active", False),
+            ("of_a_disabled_workflow", "own", "draft", False),
+        ]
+    )
+    def test_the_publish_preview_says_whether_it_moves_steps_onto_the_test_sender(
+        self, _name: str, live_sender: str, status: str, expected: bool
+    ) -> None:
+        live_step = (
+            _own_email_step(self._verified_sender().id, step_id=SANDBOX_STEP_ID)
+            if live_sender == "own"
+            else _sandbox_step()
+        )
+        flow = self._active_flow_with_draft(live_step, _sandbox_step(), status)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow.id}/publish", {}, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["moves_to_sandbox_sender"] is expected
+
+    @parameterized.expand(
+        [
+            ("unwarned_after_a_live_move_off_the_test_sender", True, False, 409),
+            ("warned_after_a_live_move_off_the_test_sender", True, True, 200),
+            ("without_saying_after_a_live_move_off_the_test_sender", True, None, 200),
+            ("unwarned_with_no_live_change", False, False, 200),
+        ]
+    )
+    def test_publish_refuses_test_sender_steps_its_preview_did_not_warn_about(
+        self, _name: str, live_moves_off: bool, warned: bool | None, expected: int
+    ) -> None:
+        verified_id = self._verified_sender().id
+        flow = self._active_flow_with_draft(_sandbox_step(), _sandbox_step(), "active")
+        with _flag(True), _runtime(True):
+            preview = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/publish", {}, format="json"
+            ).json()
+            assert preview["moves_to_sandbox_sender"] is False
+            if live_moves_off:
+                switched = self._patch_email(
+                    flow, SANDBOX_STEP_ID, {"sender": "own", "email_patch": {"from": {"integrationId": verified_id}}}
+                )
+                assert switched.status_code == 200, switched.json()
+                assert self._stored_step(flow)["type"] == "function_email"
+            body: dict[str, Any] = {"confirm": True, "confirm_token": preview["confirm_token"]}
+            if warned is not None:
+                body["sandbox_sender_warned"] = warned
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/publish", body, format="json"
+            )
+
+        assert response.status_code == expected, response.json()
+        stored = HogFlow.objects.get(id=flow.id)
+        assert (stored.draft is not None) == (expected == 409)

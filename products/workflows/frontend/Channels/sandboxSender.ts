@@ -29,14 +29,6 @@ export async function fetchStoredWorkflow(id: string): Promise<HogFlow | null> {
     }
 }
 
-export function publishMovesStepsToSandboxSender(live: HogFlow): boolean {
-    if (live.status !== 'active' || !live.draft) {
-        return false
-    }
-    const liveSandboxIds = new Set(live.actions.filter((a) => a.type === 'email_sandbox').map((a) => a.id))
-    return (live.draft.actions ?? []).some((a) => a.type === 'email_sandbox' && !liveSandboxIds.has(a.id))
-}
-
 export async function provisionSandboxSender(teamId: string, surface: SandboxSenderSurface): Promise<number> {
     const { integration_id } = await workflowEmailSandboxProvision(teamId)
     // pinned: analytics event name

@@ -2740,6 +2740,12 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
         ),
+    sandbox_sender_warned: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check."
+        ),
 })
 
 /**

@@ -57354,6 +57354,10 @@
                 {
                     "param": "confirm_token",
                     "key": "confirm_token"
+                },
+                {
+                    "param": "sandbox_sender_warned",
+                    "key": "sandbox_sender_warned"
                 }
             ],
             "injectBody": {},

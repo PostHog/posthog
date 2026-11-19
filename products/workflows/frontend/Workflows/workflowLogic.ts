@@ -63,12 +63,7 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
-import {
-    fetchStoredWorkflow,
-    isLiveOnSandboxSender,
-    publishMovesStepsToSandboxSender,
-    readySandboxSender,
-} from '../Channels/sandboxSender'
+import { fetchStoredWorkflow, isLiveOnSandboxSender, readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -565,8 +560,12 @@ export interface workflowLogicActions {
     confirmDiscardDraft: () => {
         value: true
     }
-    confirmPublishDraft: (confirmToken: string) => {
+    confirmPublishDraft: (
+        confirmToken: string,
+        sandboxSenderWarned: boolean
+    ) => {
         confirmToken: string
+        sandboxSenderWarned: boolean
     }
     confirmResumeEmailSending: () => {
         value: true
@@ -2928,8 +2927,10 @@ export interface workflowLogicActions {
     }
     saveWorkflowPartial: (
         workflow: Partial<HogFlow>,
-        sandboxSenderConfirmed?: boolean
+        sandboxSenderConfirmed?: boolean,
+        checkedUpdatedAt?: string
     ) => {
+        checkedUpdatedAt: string | undefined
         sandboxSenderConfirmed: boolean
         workflow: Partial<HogFlow>
     }
@@ -3745,9 +3746,14 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         restoreScheduleEdits: (edits: ScheduleEdits) => ({ edits }),
-        saveWorkflowPartial: (workflow: Partial<HogFlow>, sandboxSenderConfirmed: boolean = false) => ({
+        saveWorkflowPartial: (
+            workflow: Partial<HogFlow>,
+            sandboxSenderConfirmed: boolean = false,
+            checkedUpdatedAt?: string
+        ) => ({
             workflow,
             sandboxSenderConfirmed,
+            checkedUpdatedAt,
         }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
@@ -3776,7 +3782,10 @@ export const workflowLogic = kea<workflowLogicType>([
         setSaveBaseUpdatedAt: (updatedAt: string | null) => ({ updatedAt }),
         keepMyWorkflowVersion: true,
         publishDraft: true,
-        confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
+        confirmPublishDraft: (confirmToken: string, sandboxSenderWarned: boolean) => ({
+            confirmToken,
+            sandboxSenderWarned,
+        }),
         discardDraft: true,
         enableBlocked: true,
         workflowCreated: (workflowId: string) => ({ workflowId }),
@@ -4848,29 +4857,22 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             let preview
-            let stored
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
                 preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
-                // Publish stays pending through the sender check, so a second click opens no second dialog.
-                stored = await fetchStoredWorkflow(props.id)
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
             } finally {
                 actions.setDraftActionPending(null)
             }
-            if (!stored) {
-                lemonToast.error('Could not load the publish preview. Please try again.')
-                return
-            }
             // The token covers the server's draft. When that is not the draft this editor shows, the
-            // warning below would describe the wrong changes, so the user reviews the newer draft first.
-            const previewDraft = preview.draft_updated_at ?? undefined
+            // dialog would describe the wrong changes, so the user reviews the newer draft first.
             if (
-                !dayjs(stored.draft_updated_at ?? undefined).isSame(previewDraft) ||
-                !dayjs(values.originalWorkflow?.draft_updated_at ?? undefined).isSame(previewDraft)
+                !dayjs(values.originalWorkflow?.draft_updated_at ?? undefined).isSame(
+                    preview.draft_updated_at ?? undefined
+                )
             ) {
                 lemonToast.warning('The staged changes were edited somewhere else. Review them, then publish again.')
                 reloadAfterExternalEdit()
@@ -4881,7 +4883,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 lemonToast.warning('Save your changes first, then publish again.')
                 return
             }
-            const movesToSandboxSender = publishMovesStepsToSandboxSender(stored)
+            // The server judges the warning from the same copy the token covers, and refuses the confirm if
+            // a later live change moves steps onto the test sender that this dialog didn't warn about.
+            const movesToSandboxSender = !!preview.moves_to_sandbox_sender
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
                 posthog.capture('workflows sandbox sender enable warning shown', {
@@ -4890,7 +4894,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 })
             }
             // The dialog stays clickable while it animates closed, and a second click would publish twice.
-            // A live change since the preview fails the confirm, because the token covers the live steps.
             let confirmed = false
             openPublishConfirmDialog({
                 impact: preview.impact,
@@ -4907,11 +4910,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             surface: 'publish',
                         })
                     }
-                    actions.confirmPublishDraft(preview.confirm_token ?? '')
+                    actions.confirmPublishDraft(preview.confirm_token ?? '', movesToSandboxSender)
                 },
             })
         },
-        confirmPublishDraft: async ({ confirmToken }) => {
+        confirmPublishDraft: async ({ confirmToken, sandboxSenderWarned }) => {
             // draftActionPending also guards the dialog's close-animation window, where a fast
             // double-click on the confirm button dispatches twice.
             if (!props.id || props.id === 'new' || values.draftActionPending) {
@@ -4919,7 +4922,11 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             try {
-                await api.hogFlows.publishHogFlow(props.id, { confirm: true, confirm_token: confirmToken })
+                await api.hogFlows.publishHogFlow(props.id, {
+                    confirm: true,
+                    confirm_token: confirmToken,
+                    sandbox_sender_warned: sandboxSenderWarned,
+                })
                 lemonToast.success('Changes published')
                 actions.loadWorkflow()
             } catch (error) {
@@ -5004,7 +5011,7 @@ export const workflowLogic = kea<workflowLogicType>([
         submitWorkflow: () => {
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
         },
-        saveWorkflowPartial: async ({ workflow, sandboxSenderConfirmed }) => {
+        saveWorkflowPartial: async ({ workflow, sandboxSenderConfirmed, checkedUpdatedAt }) => {
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
@@ -5044,8 +5051,18 @@ export const workflowLogic = kea<workflowLogicType>([
                     confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
                 } else {
                     // The form may have changed while the check ran, so the save starts again from it.
-                    actions.saveWorkflowPartial(workflow, true)
+                    actions.saveWorkflowPartial(workflow, true, live.updated_at)
                 }
+                return
+            }
+            // When the editor loaded a newer copy while the check ran, the check described an older one.
+            // An editor that is behind keeps its own fence instead, so its save gets the conflict banner.
+            if (
+                enabling &&
+                checkedUpdatedAt &&
+                dayjs(values.originalWorkflow?.updated_at ?? undefined).isAfter(checkedUpdatedAt)
+            ) {
+                actions.saveWorkflowPartial(workflow)
                 return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag

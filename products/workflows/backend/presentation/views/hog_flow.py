@@ -375,6 +375,7 @@ from products.workflows.backend.facade.writes import (
     edit_workflow_content,
     publish_confirm_value,
     publish_draft,
+    publish_moves_to_sandbox_sender,
     save_validated_workflow,
     trigger_has_audience,
     update_workflow,
@@ -4743,6 +4744,15 @@ class HogFlowPublishRequestSerializer(serializers.Serializer):
             "draft edit invalidates it (409), so you always publish the exact draft you previewed."
         ),
     )
+    sandbox_sender_warned = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses "
+            "the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test "
+            "sender. Omit it to skip that check."
+        ),
+    )
 
 
 class HogFlowPublishImpactMoveTargetSerializer(serializers.Serializer):
@@ -4841,6 +4851,13 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
     impact = HogFlowPublishImpactSerializer(
         allow_null=True,
         help_text="What publishing does to people in-flight. Only set on previews; counts are approximate.",
+    )
+    moves_to_sandbox_sender = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which "
+            "reaches only verified members of the organization. Only set on previews."
+        ),
     )
     workflow = HogFlowSerializer(
         required=False,
@@ -5393,9 +5410,7 @@ _PUBLISH_CONFIRM_SALT = "hogflow-publish"
 
 def mint_publish_confirm_token(hog_flow: WorkflowEditState) -> str:
     return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(
-        publish_confirm_value(
-            hog_flow_id=hog_flow.id, draft_updated_at=hog_flow.draft_updated_at, live_actions=hog_flow.actions
-        )
+        publish_confirm_value(hog_flow_id=hog_flow.id, draft_updated_at=hog_flow.draft_updated_at)
     )
 
 
@@ -6544,6 +6559,9 @@ class HogFlowViewSet(
                     "draft_updated_at": instance.draft_updated_at,
                     "confirm_token": mint_publish_confirm_token(instance),
                     "impact": self._build_publish_impact(instance, counts),
+                    "moves_to_sandbox_sender": publish_moves_to_sandbox_sender(
+                        status=instance.status, live_actions=instance.actions, draft=instance.draft
+                    ),
                 }
             )
 
@@ -6595,6 +6613,7 @@ class HogFlowViewSet(
                 hog_flow_id=instance.id,
                 previewed_value=previewed_value,
                 validate=validate,
+                sandbox_sender_warned=param_serializer.validated_data.get("sandbox_sender_warned"),
             )
         except WorkflowHasNoDraft:
             raise exceptions.ValidationError("This workflow has no staged draft to publish.")
@@ -6614,6 +6633,7 @@ class HogFlowViewSet(
                 "draft_updated_at": None,
                 "confirm_token": None,
                 "impact": None,
+                "moves_to_sandbox_sender": None,
                 "workflow": self.get_serializer(locked).data,
             }
         )

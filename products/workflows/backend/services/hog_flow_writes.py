@@ -1,4 +1,3 @@
-import hashlib
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional
@@ -103,17 +102,25 @@ def trigger_has_audience(trigger: Optional[dict]) -> bool:
     return (trigger or {}).get("type") == "batch"
 
 
-def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime], live_actions: Any) -> str:
+def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime]) -> str:
     draft_stamp = draft_updated_at.isoformat() if draft_updated_at else ""
-    # The preview warns when a publish moves steps onto the PostHog test sender, judged against the live
-    # steps it saw. A live write since then can turn that warning wrong, so the token covers those steps.
-    sandbox_ids = sorted(
-        str(action.get("id"))
-        for action in (live_actions if isinstance(live_actions, list) else [])
-        if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
-    )
-    live_sandbox = hashlib.sha256(",".join(sandbox_ids).encode()).hexdigest()[:16]
-    return f"{hog_flow_id}:{draft_stamp}:{live_sandbox}"
+    return f"{hog_flow_id}:{draft_stamp}"
+
+
+def publish_moves_to_sandbox_sender(*, status: str, live_actions: Any, draft: Any) -> bool:
+    """Whether publishing the staged draft of an enabled workflow puts email steps on the PostHog test sender
+    that the live workflow does not already send from it."""
+    if status != "active" or not isinstance(draft, dict):
+        return False
+
+    def sandbox_ids(actions: Any) -> set[str]:
+        return {
+            str(action.get("id"))
+            for action in (actions if isinstance(actions, list) else [])
+            if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        }
+
+    return bool(sandbox_ids(draft.get("actions")) - sandbox_ids(live_actions))
 
 
 def _without_bytecode_contracts(node: Any) -> Any:
@@ -649,15 +656,22 @@ def publish_draft(
     hog_flow_id: UUID,
     previewed_value: str,
     validate: Callable[[WorkflowEditState, dict], dict],
+    sandbox_sender_warned: Optional[bool] = None,
 ) -> WorkflowWriteResult:
     """Promote the staged draft to the live config. `validate` receives the locked workflow and the draft
-    content, and returns the validated fields to write."""
+    content, and returns the validated fields to write. `sandbox_sender_warned` is False when the caller
+    showed no test sender warning, so a publish that would now move steps onto the test sender is refused.
+    None skips that check."""
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if not locked.draft:
             raise WorkflowHasNoDraft()
-        if previewed_value != publish_confirm_value(
-            hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at, live_actions=locked.actions
+        if previewed_value != publish_confirm_value(hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at):
+            raise WorkflowStale()
+        # A live write since the preview can turn a publish that warned of nothing into one that moves steps
+        # onto the test sender, so the rule runs again on the locked row.
+        if sandbox_sender_warned is False and publish_moves_to_sandbox_sender(
+            status=locked.status, live_actions=locked.actions, draft=locked.draft
         ):
             raise WorkflowStale()
 

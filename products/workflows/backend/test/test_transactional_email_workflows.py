@@ -102,11 +102,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
                 team_id=self.team.id,
                 user_id=self.user.id,
                 hog_flow_id=flow_id,
-                previewed_value=publish_confirm_value(
-                    hog_flow_id=flow_id,
-                    draft_updated_at=draft_updated_at,
-                    live_actions=HogFlow.objects.get(id=flow_id).actions,
-                ),
+                previewed_value=publish_confirm_value(hog_flow_id=flow_id, draft_updated_at=draft_updated_at),
                 validate=lambda _state, content: content,
             )
 
