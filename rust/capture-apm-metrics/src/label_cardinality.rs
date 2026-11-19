@@ -1,5 +1,6 @@
-//! Finds label keys that make a metric explode into many series. The README
-//! section "High cardinality label drop" describes the detection stages.
+//! Finds label keys that make a metric explode into many series, and drops
+//! them before the series fingerprint is final. The README section "High
+//! cardinality label drop" describes the detection stages and the rules.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
@@ -9,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use capture_logs::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE;
-use capture_logs::metric_record::KafkaMetricRow;
+use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use chrono::Utc;
 use dashmap::DashMap;
 use metrics::{counter, gauge};
@@ -17,19 +18,28 @@ use prometheus_rw_proto::prometheus::v1::{metric_metadata::MetricType, MetricMet
 use siphasher::sip::SipHasher13;
 use tracing::warn;
 
+use crate::histogram_assembly::fingerprint_with_bounds;
 use crate::series_label_gate::Clock;
 
 const PRUNE_INTERVAL: Duration = Duration::from_secs(300);
 const MEASURE_CHUNK_ROWS: usize = 1024;
 
+pub const DROPPED_LABELS_ATTRIBUTE: &str = "posthog.dropped_labels";
 const HISTOGRAM_SUFFIXES: [&str; 3] = ["_bucket", "_count", "_sum"];
 const SERVICE_NAME_RESOURCE: &str = "service.name";
+const MAX_RULES: usize = 200_000;
+const MAX_RULES_PER_TOKEN: usize = 2_000;
 const MAX_NAME_CHARS: usize = 100;
+const HISTOGRAM_TYPE: &str = "histogram";
+const SUM_TYPE: &str = "sum";
+const GAUGE_TYPE: &str = "gauge";
+const DELTA: &str = "delta";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Off,
     Shadow,
+    Enforce,
 }
 
 impl FromStr for Mode {
@@ -39,6 +49,7 @@ impl FromStr for Mode {
         match value.trim().to_ascii_lowercase().as_str() {
             "off" => Ok(Mode::Off),
             "shadow" => Ok(Mode::Shadow),
+            "enforce" => Ok(Mode::Enforce),
             other => Err(format!("unknown label cardinality mode {other:?}")),
         }
     }
@@ -49,6 +60,7 @@ impl Mode {
         match self {
             Mode::Off => "off",
             Mode::Shadow => "shadow",
+            Mode::Enforce => "enforce",
         }
     }
 }
@@ -137,7 +149,17 @@ pub struct Settings {
     pub max_keys_per_candidate: usize,
     pub max_tracked_metrics: usize,
     pub max_tracked_metrics_per_token: usize,
+    pub rule_ttl: Duration,
     pub protected_keys: HashSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rule {
+    pub metric_key: u64,
+    pub token_hash: u64,
+    pub scope: Scope,
+    pub key_hash: u64,
+    pub expires_at: i64,
 }
 
 #[derive(Clone)]
@@ -186,7 +208,6 @@ impl Sketch {
 struct KeySketch {
     sketch: Sketch,
     name: Box<str>,
-    flagged: bool,
 }
 
 struct Candidate {
@@ -229,6 +250,9 @@ pub struct LabelCardinality {
     candidates: DashMap<u64, Mutex<Candidate>>,
     candidate_count: AtomicUsize,
     candidates_per_token: DashMap<u64, usize>,
+    rules: DashMap<u64, Vec<Rule>>,
+    rule_count: AtomicUsize,
+    rules_per_token: DashMap<u64, usize>,
     protected: HashSet<(Scope, u64)>,
 }
 
@@ -246,7 +270,10 @@ impl LabelCardinality {
                 [(Scope::Attribute, hash), (Scope::Resource, hash)]
             })
             .collect();
-        protected.insert((Scope::Attribute, key_hash(ORIGINAL_TIMESTAMP_ATTRIBUTE)));
+        for key in [ORIGINAL_TIMESTAMP_ATTRIBUTE, DROPPED_LABELS_ATTRIBUTE] {
+            protected.insert((Scope::Attribute, key_hash(key)));
+            protected.insert((Scope::Resource, key_hash(key)));
+        }
         protected.insert((Scope::Resource, key_hash(SERVICE_NAME_RESOURCE)));
         Self {
             protected,
@@ -258,6 +285,9 @@ impl LabelCardinality {
             candidates: DashMap::new(),
             candidate_count: AtomicUsize::new(0),
             candidates_per_token: DashMap::new(),
+            rules: DashMap::new(),
+            rule_count: AtomicUsize::new(0),
+            rules_per_token: DashMap::new(),
         }
     }
 
@@ -341,7 +371,7 @@ impl LabelCardinality {
                 groups.entry(metric_key).or_default().push(index);
             }
         }
-        self.measure(rows, groups, source, window);
+        self.measure(rows, groups, source, now, window);
     }
 
     fn reserve_tracking(&self, token_hash: u64) -> bool {
@@ -412,23 +442,36 @@ impl LabelCardinality {
     }
 
     pub fn observe(&self, token: &str, rows: &[KafkaMetricRow], source: &Source) {
-        if self.settings.mode == Mode::Off || self.candidates.is_empty() {
+        if self.settings.mode == Mode::Off || (self.candidates.is_empty() && self.rules.is_empty())
+        {
             return;
         }
         let now = (self.clock)();
         let window = self.window_index(now);
+        let token_label: Arc<str> = Arc::from(token);
+        let token_hash = token_key(token);
 
         let mut keys_by_name: HashMap<&str, u64> = HashMap::new();
         let mut groups: HashMap<u64, Vec<usize>> = HashMap::new();
         for (index, row) in rows.iter().enumerate() {
+            let family_name = source.family(&row.metric_name);
             let metric_key = *keys_by_name
                 .entry(row.metric_name.as_str())
-                .or_insert_with(|| metric_key(token, source.family(&row.metric_name)));
-            if self.candidates.contains_key(&metric_key) {
+                .or_insert_with(|| metric_key(token, family_name));
+            if self.candidates.contains_key(&metric_key)
+                || (self.rules.contains_key(&metric_key)
+                    && self.add_candidate(
+                        metric_key,
+                        &token_label,
+                        token_hash,
+                        family_name,
+                        window,
+                    ))
+            {
                 groups.entry(metric_key).or_default().push(index);
             }
         }
-        self.measure(rows, groups, source, window);
+        self.measure(rows, groups, source, now, window);
     }
 
     fn measure(
@@ -436,6 +479,7 @@ impl LabelCardinality {
         rows: &[KafkaMetricRow],
         groups: HashMap<u64, Vec<usize>>,
         source: &Source,
+        now: i64,
         window: i64,
     ) {
         let mut contended = 0u64;
@@ -457,8 +501,8 @@ impl LabelCardinality {
                     self.feed(&mut candidate, row);
                 }
             }
-            if let Ok(mut candidate) = slot.try_lock() {
-                self.evaluate(&mut candidate);
+            if let Ok(candidate) = slot.try_lock() {
+                self.evaluate(metric_key, &candidate, now);
             };
         }
         if contended > 0 {
@@ -511,7 +555,6 @@ impl LabelCardinality {
                 KeySketch {
                     sketch,
                     name: truncated(name).into(),
-                    flagged: false,
                 },
             );
         }
@@ -520,42 +563,232 @@ impl LabelCardinality {
         }
     }
 
-    fn evaluate(&self, candidate: &mut Candidate) {
+    fn evaluate(&self, metric_key: u64, candidate: &Candidate, now: i64) {
+        let ttl = self.settings.rule_ttl.as_secs() as i64;
         let series = candidate.series.estimate();
-        for ((scope, _), entry) in candidate.keys.iter_mut() {
-            if entry.flagged {
-                continue;
-            }
+        for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
-            if distinct < self.settings.value_limit
-                || (distinct as f64) < self.settings.min_share * series as f64
-            {
+            if distinct * 2 < self.settings.value_limit {
                 continue;
             }
-            entry.flagged = true;
-            warn!(
-                token = %candidate.token,
-                metric = %candidate.family,
-                scope = ?scope,
-                key = %entry.name,
-                distinct_values = distinct,
-                distinct_series = series,
-                mode = self.settings.mode.as_str(),
-                "High cardinality metric label flagged"
+            let existing = self.rules.get(&metric_key).and_then(|rules| {
+                rules
+                    .iter()
+                    .find(|rule| {
+                        rule.scope == *scope && rule.key_hash == *key && rule.expires_at > now
+                    })
+                    .map(|rule| rule.expires_at)
+            });
+            let new_rule = match existing {
+                Some(expires_at) => {
+                    if expires_at - now > ttl / 2 {
+                        continue;
+                    }
+                    false
+                }
+                None => {
+                    if distinct < self.settings.value_limit
+                        || (distinct as f64) < self.settings.min_share * series as f64
+                    {
+                        continue;
+                    }
+                    true
+                }
+            };
+            let rule = Rule {
+                metric_key,
+                token_hash: candidate.token_hash,
+                scope: *scope,
+                key_hash: *key,
+                expires_at: now + ttl,
+            };
+            if !self.merge_rule(rule.clone()) {
+                continue;
+            }
+            if new_rule {
+                warn!(
+                    token = %candidate.token,
+                    metric = %candidate.family,
+                    scope = ?rule.scope,
+                    key = %entry.name,
+                    distinct_values = distinct,
+                    distinct_series = series,
+                    mode = self.settings.mode.as_str(),
+                    "High cardinality metric label flagged"
+                );
+                counter!(
+                    "capture_metrics_label_cardinality_rules_created",
+                    "mode" => self.settings.mode.as_str()
+                )
+                .increment(1);
+            }
+        }
+    }
+
+    fn merge_rule(&self, rule: Rule) -> bool {
+        if let Some(mut rules) = self.rules.get_mut(&rule.metric_key) {
+            if let Some(existing) = rules
+                .iter_mut()
+                .find(|r| r.scope == rule.scope && r.key_hash == rule.key_hash)
+            {
+                existing.expires_at = existing.expires_at.max(rule.expires_at);
+                return true;
+            }
+        }
+        if self.rule_count.fetch_add(1, Ordering::AcqRel) >= MAX_RULES {
+            self.rule_count.fetch_sub(1, Ordering::AcqRel);
+            counter!("capture_metrics_label_cardinality_rules_full", "cap" => "global")
+                .increment(1);
+            return false;
+        }
+        {
+            let mut per_token = self.rules_per_token.entry(rule.token_hash).or_insert(0);
+            if *per_token >= MAX_RULES_PER_TOKEN {
+                drop(per_token);
+                self.rule_count.fetch_sub(1, Ordering::AcqRel);
+                counter!("capture_metrics_label_cardinality_rules_full", "cap" => "token")
+                    .increment(1);
+                return false;
+            }
+            *per_token += 1;
+        }
+        let mut rules = self.rules.entry(rule.metric_key).or_default();
+        if rules
+            .iter()
+            .any(|r| r.scope == rule.scope && r.key_hash == rule.key_hash)
+        {
+            self.rule_count.fetch_sub(1, Ordering::AcqRel);
+            self.release_rule_slot(rule.token_hash);
+            return true;
+        }
+        rules.push(rule);
+        true
+    }
+
+    fn release_rule_slot(&self, token_hash: u64) {
+        if let Some(mut per_token) = self.rules_per_token.get_mut(&token_hash) {
+            *per_token = per_token.saturating_sub(1);
+        }
+    }
+
+    pub fn strip_reserved(&self, rows: &mut [KafkaMetricRow], source: &Source) {
+        for row in rows.iter_mut() {
+            let attribute = row.attributes.remove(DROPPED_LABELS_ATTRIBUTE);
+            let resource = row.resource_attributes.remove(DROPPED_LABELS_ATTRIBUTE);
+            if attribute.is_some() || resource.is_some() {
+                row.series_fingerprint = series_fingerprint(row, source);
+            }
+        }
+    }
+
+    pub fn apply(&self, token: &str, rows: &mut Vec<KafkaMetricRow>, source: &Source) {
+        if self.settings.mode == Mode::Off || self.rules.is_empty() {
+            return;
+        }
+        let now = (self.clock)();
+        let enforce = self.settings.mode == Mode::Enforce;
+        let mut active_by_name: HashMap<String, Vec<(Scope, u64)>> = HashMap::new();
+        let mut recomputed: HashMap<i64, i64> = HashMap::new();
+        let mut changed = vec![false; rows.len()];
+        let mut changed_count = 0u64;
+
+        for (index, row) in rows.iter_mut().enumerate() {
+            // Combining cumulative series needs reset-aware aggregation, so they
+            // are left as they are.
+            if row.metric_type != GAUGE_TYPE && row.aggregation_temporality != DELTA {
+                continue;
+            }
+            if !active_by_name.contains_key(&row.metric_name) {
+                let active =
+                    self.active_rules(metric_key(token, source.family(&row.metric_name)), now);
+                active_by_name.insert(row.metric_name.clone(), active);
+            }
+            let active = &active_by_name[&row.metric_name];
+            if active.is_empty() {
+                continue;
+            }
+            let mut dropped: Vec<String> = Vec::new();
+            for (scope, map) in [
+                (Scope::Attribute, &mut row.attributes),
+                (Scope::Resource, &mut row.resource_attributes),
+            ] {
+                let matched: Vec<String> = map
+                    .keys()
+                    .filter(|key| active.contains(&(scope, key_hash(key))))
+                    .cloned()
+                    .collect();
+                for key in matched {
+                    if enforce {
+                        map.remove(&key);
+                    }
+                    dropped.push(key);
+                }
+            }
+            if dropped.is_empty() {
+                continue;
+            }
+            changed_count += 1;
+            if !enforce {
+                continue;
+            }
+            changed[index] = true;
+            row.series_fingerprint = *recomputed
+                .entry(row.series_fingerprint)
+                .or_insert_with(|| series_fingerprint(row, source));
+            dropped.sort_unstable();
+            dropped.dedup();
+            let keys = serde_json::to_string(&dropped).unwrap_or_default();
+            row.attributes.insert(
+                DROPPED_LABELS_ATTRIBUTE.to_string(),
+                serde_json::Value::String(keys).to_string(),
             );
+        }
+
+        if changed_count > 0 {
             counter!(
-                "capture_metrics_label_cardinality_keys_flagged",
+                "capture_metrics_label_cardinality_rows_dropped",
                 "mode" => self.settings.mode.as_str()
             )
-            .increment(1);
+            .increment(changed_count);
         }
+        if enforce {
+            coalesce(rows, &changed);
+        }
+    }
+
+    fn active_rules(&self, metric_key: u64, now: i64) -> Vec<(Scope, u64)> {
+        self.rules
+            .get(&metric_key)
+            .map(|rules| {
+                rules
+                    .iter()
+                    .filter(|rule| {
+                        rule.expires_at > now
+                            && !self.protected.contains(&(rule.scope, rule.key_hash))
+                    })
+                    .map(|rule| (rule.scope, rule.key_hash))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn prune(&self, now: i64) {
         let window = self.window_index(now);
-        self.candidates.retain(|_, candidate| {
+        self.rules.retain(|_, rules| {
+            rules.retain(|rule| {
+                if rule.expires_at > now {
+                    return true;
+                }
+                self.rule_count.fetch_sub(1, Ordering::AcqRel);
+                self.release_rule_slot(rule.token_hash);
+                false
+            });
+            !rules.is_empty()
+        });
+        self.rules_per_token.retain(|_, count| *count > 0);
+        self.candidates.retain(|metric_key, candidate| {
             let candidate = candidate.get_mut().unwrap_or_else(PoisonError::into_inner);
-            if candidate.qualified_window >= window - 1 {
+            if candidate.qualified_window >= window - 1 || self.rules.contains_key(metric_key) {
                 return true;
             }
             self.candidate_count.fetch_sub(1, Ordering::AcqRel);
@@ -576,6 +809,8 @@ impl LabelCardinality {
         self.tracked_per_token.retain(|_, count| *count > 0);
         gauge!("capture_metrics_label_cardinality_candidates")
             .set(self.candidate_count.load(Ordering::Acquire) as f64);
+        gauge!("capture_metrics_label_cardinality_rules")
+            .set(self.rule_count.load(Ordering::Acquire) as f64);
     }
 
     pub fn spawn_pruner(self: &Arc<Self>) {
@@ -588,6 +823,81 @@ impl LabelCardinality {
                 detector.prune((detector.clock)());
             }
         });
+    }
+}
+
+/// Must match the row builders, or a dropped label does not combine series.
+fn series_fingerprint(row: &KafkaMetricRow, source: &Source) -> i64 {
+    let mut attributes = row.attributes.clone();
+    attributes.remove(ORIGINAL_TIMESTAMP_ATTRIBUTE);
+    attributes.remove(DROPPED_LABELS_ATTRIBUTE);
+    let fingerprint = compute_series_fingerprint(
+        &row.metric_name,
+        &row.metric_type,
+        &row.service_name,
+        &row.resource_attributes,
+        &attributes,
+    );
+    if source.remote_write && row.metric_type == HISTOGRAM_TYPE {
+        fingerprint_with_bounds(fingerprint, &row.histogram_bounds)
+    } else {
+        fingerprint
+    }
+}
+
+/// Storage caps points per series and hour, so a combined series keeps one point per second per request.
+fn coalesce(rows: &mut Vec<KafkaMetricRow>, changed: &[bool]) {
+    let mut first: HashMap<(i64, i64), usize> = HashMap::new();
+    let mut keep = vec![true; rows.len()];
+    for index in 0..rows.len() {
+        if !changed[index] || !rows[index].value.is_finite() {
+            continue;
+        }
+        let second = rows[index].timestamp.timestamp();
+        let target = *first
+            .entry((rows[index].series_fingerprint, second))
+            .or_insert(index);
+        if target == index {
+            continue;
+        }
+        let (head, tail) = rows.split_at_mut(index);
+        if merge_point(&mut head[target], &tail[0]) {
+            keep[index] = false;
+        }
+    }
+    let mut keep = keep.into_iter();
+    rows.retain(|_| keep.next().unwrap_or(true));
+}
+
+fn merge_point(target: &mut KafkaMetricRow, other: &KafkaMetricRow) -> bool {
+    if target.metric_type != other.metric_type {
+        return false;
+    }
+    match target.metric_type.as_str() {
+        SUM_TYPE => {
+            target.value += other.value;
+            target.count += other.count;
+            true
+        }
+        HISTOGRAM_TYPE => {
+            if target.histogram_bounds != other.histogram_bounds
+                || target.histogram_counts.len() != other.histogram_counts.len()
+            {
+                return false;
+            }
+            for (count, add) in target
+                .histogram_counts
+                .iter_mut()
+                .zip(&other.histogram_counts)
+            {
+                *count += add;
+            }
+            target.value += other.value;
+            target.count += other.count;
+            true
+        }
+        GAUGE_TYPE => true,
+        _ => false,
     }
 }
 
@@ -666,6 +976,7 @@ mod tests {
             max_keys_per_candidate: 32,
             max_tracked_metrics: 1000,
             max_tracked_metrics_per_token: 1000,
+            rule_ttl: Duration::from_secs(7200),
             protected_keys: ["le".to_string(), "quantile".to_string()].into(),
         }
     }
@@ -723,21 +1034,28 @@ mod tests {
         fold_classic_histograms(rows, &[])
     }
 
+    fn as_delta(mut rows: Vec<KafkaMetricRow>) -> Vec<KafkaMetricRow> {
+        for row in rows.iter_mut() {
+            row.aggregation_temporality = DELTA.to_string();
+        }
+        rows
+    }
+
     fn all_rows_new(rows: &[KafkaMetricRow]) -> Vec<usize> {
         (0..rows.len()).collect()
     }
 
     fn rule_keys(detector: &LabelCardinality) -> HashSet<(u64, Scope, u64)> {
-        let mut flagged = HashSet::new();
-        for entry in detector.candidates.iter() {
-            let candidate = entry.value().lock().unwrap();
-            for ((scope, key), sketch) in &candidate.keys {
-                if sketch.flagged {
-                    flagged.insert((*entry.key(), *scope, *key));
-                }
-            }
-        }
-        flagged
+        detector
+            .rules
+            .iter()
+            .flat_map(|rules| {
+                rules
+                    .iter()
+                    .map(|r| (r.metric_key, r.scope, r.key_hash))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     fn rule_key(family: &str, scope: Scope, key: &str) -> (u64, Scope, u64) {
@@ -762,6 +1080,16 @@ mod tests {
             })
             .collect();
         write_timeseries_to_kafka_rows(series, &[]).0
+    }
+
+    fn rule_for(family: &str, scope: Scope, key: &str) -> Rule {
+        Rule {
+            metric_key: metric_key(TOKEN, family),
+            token_hash: token_key(TOKEN),
+            scope,
+            key_hash: key_hash(key),
+            expires_at: START + 3600,
+        }
     }
 
     #[test]
@@ -906,6 +1234,23 @@ mod tests {
     }
 
     #[test]
+    fn rules_stop_being_admitted_at_the_cap() {
+        let (detector, _) = detector(Mode::Shadow);
+        for i in 0..MAX_RULES_PER_TOKEN + 10 {
+            detector.merge_rule(rule_for(&format!("m{i}"), Scope::Attribute, "user_id"));
+        }
+        assert_eq!(rule_keys(&detector).len(), MAX_RULES_PER_TOKEN);
+
+        for i in 0..MAX_RULES + 10 {
+            let mut rule = rule_for(&format!("other{i}"), Scope::Attribute, "user_id");
+            rule.token_hash = i as u64;
+            detector.merge_rule(rule);
+        }
+        assert_eq!(rule_keys(&detector).len(), MAX_RULES);
+        assert_eq!(detector.rules.len(), MAX_RULES);
+    }
+
+    #[test]
     fn service_name_is_never_flagged() {
         let (detector, _) = detector(Mode::Shadow);
         let timestamp = Utc::now().timestamp_millis();
@@ -1032,5 +1377,248 @@ mod tests {
             let error = (sketch.estimate() as f64 - n as f64).abs() / n as f64;
             assert!(error < 0.2, "n={n} estimate={}", sketch.estimate());
         }
+    }
+
+    #[test]
+    fn enforce_gives_the_fingerprint_of_rows_built_without_the_label() {
+        let (detector, _) = detector(Mode::Enforce);
+        let mut rows = as_delta(remote_write_rows(1000, true));
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+        detector.apply(TOKEN, &mut rows, &rw());
+
+        let expected = remote_write_rows(1000, false);
+        let fingerprints = |rows: &[KafkaMetricRow]| {
+            let mut by_name: HashMap<String, HashSet<i64>> = HashMap::new();
+            for row in rows {
+                by_name
+                    .entry(row.metric_name.clone())
+                    .or_default()
+                    .insert(row.series_fingerprint);
+            }
+            by_name
+        };
+        assert_eq!(fingerprints(&rows), fingerprints(&expected));
+        assert_eq!(fingerprints(&rows)["latency"].len(), 4);
+        assert!(rows
+            .iter()
+            .all(|row| !row.attributes.contains_key("user_id")));
+        assert!(rows.iter().all(|row| {
+            row.attributes
+                .get(DROPPED_LABELS_ATTRIBUTE)
+                .map(String::as_str)
+                == Some(r#""[\"user_id\"]""#)
+        }));
+    }
+
+    #[test]
+    fn shadow_mode_flags_the_key_but_leaves_rows_unchanged() {
+        let (detector, _) = detector(Mode::Shadow);
+        let mut rows = as_delta(remote_write_rows(1000, true));
+        let before: Vec<i64> = rows.iter().map(|r| r.series_fingerprint).collect();
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+        detector.apply(TOKEN, &mut rows, &rw());
+
+        assert!(!rule_keys(&detector).is_empty());
+        assert!(rows
+            .iter()
+            .all(|row| !row.attributes.contains_key(DROPPED_LABELS_ATTRIBUTE)));
+        let after: Vec<i64> = rows.iter().map(|r| r.series_fingerprint).collect();
+        assert_eq!(before, after);
+        assert!(rows
+            .iter()
+            .all(|row| row.attributes.contains_key("user_id")));
+    }
+
+    #[test]
+    fn a_rule_does_not_apply_to_another_token() {
+        let (detector, _) = detector(Mode::Enforce);
+        let rows = remote_write_rows(1000, true);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+
+        let mut other = as_delta(remote_write_rows(10, true));
+        detector.apply("phc_other", &mut other, &rw());
+        assert!(other
+            .iter()
+            .all(|row| row.attributes.contains_key("user_id")));
+    }
+
+    #[test]
+    fn a_rule_ends_when_the_key_stays_under_half_the_limit() {
+        let (detector, now) = detector(Mode::Enforce);
+        let rows = remote_write_rows(1000, true);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+        assert!(!rule_keys(&detector).is_empty());
+
+        let ttl = settings(Mode::Enforce).rule_ttl.as_secs() as i64;
+        for step in 1..=8 {
+            now.store(START + step * ttl / 4, Ordering::SeqCst);
+            detector.observe(TOKEN, &remote_write_rows(50, true), &rw());
+        }
+        let mut rows = as_delta(remote_write_rows(50, true));
+        detector.apply(TOKEN, &mut rows, &rw());
+        assert!(rows
+            .iter()
+            .all(|row| row.attributes.contains_key("user_id")));
+    }
+
+    #[test]
+    fn a_rule_stays_while_the_key_stays_over_half_the_limit() {
+        let (detector, now) = detector(Mode::Enforce);
+        let rows = remote_write_rows(1000, true);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+
+        let ttl = settings(Mode::Enforce).rule_ttl.as_secs() as i64;
+        for step in 1..=8 {
+            now.store(START + step * ttl / 4, Ordering::SeqCst);
+            detector.observe(TOKEN, &remote_write_rows(150, true), &rw());
+        }
+        let mut rows = as_delta(remote_write_rows(150, true));
+        detector.apply(TOKEN, &mut rows, &rw());
+        assert!(rows
+            .iter()
+            .all(|row| !row.attributes.contains_key("user_id")));
+    }
+
+    #[test]
+    fn a_rule_does_not_drop_a_key_this_pod_protects() {
+        let mut protecting = settings(Mode::Enforce);
+        protecting.protected_keys.insert("user_id".to_string());
+        let (detector, _) = detector_with(protecting);
+        detector.merge_rule(rule_for("requests_total", Scope::Attribute, "user_id"));
+
+        let mut rows = as_delta(named_rows(&["requests_total".to_string()], 3));
+        detector.apply(TOKEN, &mut rows, &rw());
+        assert!(rows
+            .iter()
+            .all(|row| row.attributes.contains_key("user_id")));
+    }
+
+    #[test]
+    fn an_otlp_name_with_a_histogram_suffix_is_its_own_family() {
+        let (detector, _) = detector(Mode::Enforce);
+        detector.merge_rule(rule_for("queue", Scope::Attribute, "user_id"));
+
+        let mut otlp = as_delta(named_rows(&["queue_count".to_string()], 3));
+        detector.apply(TOKEN, &mut otlp, &Source::otlp());
+        assert!(otlp
+            .iter()
+            .all(|row| row.attributes.contains_key("user_id")));
+
+        let mut remote_write = as_delta(named_rows(&["queue_count".to_string()], 3));
+        detector.apply(TOKEN, &mut remote_write, &rw());
+        assert!(remote_write
+            .iter()
+            .all(|row| !row.attributes.contains_key("user_id")));
+    }
+
+    #[test]
+    fn combined_rows_coalesce_into_one_point_per_second() {
+        let (detector, _) = detector(Mode::Enforce);
+        let mut rows = as_delta(remote_write_rows(1000, true));
+        let timestamp = chrono::DateTime::from_timestamp_millis(1_800_000_000_500).unwrap();
+        for row in rows.iter_mut() {
+            row.timestamp = timestamp;
+        }
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+        detector.apply(TOKEN, &mut rows, &rw());
+
+        let totals: Vec<&KafkaMetricRow> = rows
+            .iter()
+            .filter(|row| row.metric_name == "requests_total")
+            .collect();
+        assert_eq!(totals.len(), 4);
+        assert_eq!(totals.iter().map(|row| row.value).sum::<f64>(), 5000.0);
+        let latency: Vec<&KafkaMetricRow> = rows
+            .iter()
+            .filter(|row| row.metric_name == "latency")
+            .collect();
+        assert_eq!(latency.len(), 4);
+        assert_eq!(latency.iter().map(|row| row.count).sum::<i64>(), 2000);
+        assert!(rows.iter().all(|row| row.timestamp == timestamp));
+    }
+
+    #[test]
+    fn cumulative_series_are_left_unchanged() {
+        let (detector, _) = detector(Mode::Enforce);
+        let mut rows = remote_write_rows(1000, true);
+        let before: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &rw());
+        detector.apply(TOKEN, &mut rows, &rw());
+
+        let after: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        assert_eq!(after, before);
+        assert!(!rule_keys(&detector).is_empty());
+        assert!(rows.iter().all(|row| {
+            row.attributes.contains_key("user_id")
+                && !row.attributes.contains_key(DROPPED_LABELS_ATTRIBUTE)
+        }));
+    }
+
+    #[test]
+    fn a_sender_marker_is_removed_before_fingerprinting() {
+        let (detector, _) = detector(Mode::Enforce);
+        let mut rows = named_rows(&["jobs_total".to_string()], 3);
+        let expected: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        let source = rw();
+        for row in rows.iter_mut() {
+            row.attributes.insert(
+                DROPPED_LABELS_ATTRIBUTE.to_string(),
+                r#""forged""#.to_string(),
+            );
+            row.resource_attributes.insert(
+                DROPPED_LABELS_ATTRIBUTE.to_string(),
+                r#""forged""#.to_string(),
+            );
+            row.series_fingerprint = compute_series_fingerprint(
+                &row.metric_name,
+                &row.metric_type,
+                &row.service_name,
+                &row.resource_attributes,
+                &row.attributes,
+            );
+        }
+        detector.strip_reserved(&mut rows, &source);
+
+        assert!(rows.iter().all(|row| {
+            !row.attributes.contains_key(DROPPED_LABELS_ATTRIBUTE)
+                && !row
+                    .resource_attributes
+                    .contains_key(DROPPED_LABELS_ATTRIBUTE)
+        }));
+        let actual: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn a_sender_marker_on_an_old_classic_histogram_keeps_its_fingerprint() {
+        let (detector, _) = detector(Mode::Enforce);
+        let old = (Utc::now() - chrono::Duration::days(30)).timestamp_millis();
+        let mut series = histogram_series(3, true);
+        for ts in series.iter_mut() {
+            ts.samples[0].timestamp = old;
+        }
+        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
+        let mut rows = fold_classic_histograms(rows, &[]);
+        assert!(rows
+            .iter()
+            .all(|row| row.attributes.contains_key(ORIGINAL_TIMESTAMP_ATTRIBUTE)));
+        let expected: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        for row in rows.iter_mut() {
+            row.attributes.insert(
+                DROPPED_LABELS_ATTRIBUTE.to_string(),
+                r#""forged""#.to_string(),
+            );
+        }
+        detector.strip_reserved(&mut rows, &rw());
+
+        let actual: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        assert_eq!(actual, expected);
     }
 }

@@ -22,16 +22,17 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 | METRICS_SERIES_REDIS_PULL_INTERVAL_SECS | 60 | How often the local cache pulls new series from Redis |
 | METRICS_SERIES_CACHE_MAX_ENTRIES | 20000000 | Most series one pod remembers, across all tokens |
 | METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN | 2000000 | Most series one pod remembers for one token |
-| METRICS_LABEL_CARDINALITY_MODE | shadow | `off` or `shadow`. Shadow reports flagged keys but changes no row |
-| METRICS_LABEL_CARDINALITY_VALUE_LIMIT | 10000 | Distinct values per key per window before the key is flagged |
-| METRICS_LABEL_CARDINALITY_MIN_SHARE | 0.5 | Smallest ratio of a key's values to the metric's series for a flag |
+| METRICS_LABEL_CARDINALITY_MODE | shadow | `off`, `shadow` or `enforce`. Shadow finds rules but changes no row |
+| METRICS_LABEL_CARDINALITY_VALUE_LIMIT | 10000 | Distinct values per key per window before the key is dropped |
+| METRICS_LABEL_CARDINALITY_MIN_SHARE | 0.5 | Smallest ratio of a key's values to the metric's series for a drop |
 | METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES | 500 | New series per window before a metric's labels are measured |
 | METRICS_LABEL_CARDINALITY_MAX_CANDIDATES | 2000 | Most metrics one pod measures |
 | METRICS_LABEL_CARDINALITY_MAX_CANDIDATES_PER_TOKEN | 200 | Most metrics one pod measures for one token |
 | METRICS_LABEL_CARDINALITY_MAX_KEYS_PER_METRIC | 32 | Most label keys one pod measures for one metric |
 | METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS | 500000 | Most metrics one pod counts new series for |
 | METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS_PER_TOKEN | 50000 | Most metrics one pod counts new series for, per token |
-| METRICS_LABEL_CARDINALITY_PROTECTED_KEYS | le,quantile | Label keys that are never flagged |
+| METRICS_LABEL_CARDINALITY_RULE_TTL_SECS | 7200 | Rule lifetime after its key was last over half the limit |
+| METRICS_LABEL_CARDINALITY_PROTECTED_KEYS | le,quantile | Label keys that are never dropped |
 
 ### Metric series label gate
 
@@ -47,11 +48,13 @@ The cache is bounded. When the global or the per-token cap is full, a new series
 
 ### High cardinality label drop
 
-The service finds a label key that splits one metric into many series. The `_bucket`, `_count` and `_sum` series of a remote-write histogram or summary count as one metric, unless the request's metadata declares them as other types.
+The service finds a label key that splits one metric into many series, removes it, and computes the fingerprint without it, so those series become one. The `_bucket`, `_count` and `_sum` series of a remote-write histogram or summary share one rule, unless the request's metadata declares them as other types.
 
-A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets HyperLogLog sketches of its series and of each label key. A key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values that are at least `METRICS_LABEL_CARDINALITY_MIN_SHARE` of the series.
+A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets HyperLogLog sketches of its series and of each label key. A key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values that are at least `METRICS_LABEL_CARDINALITY_MIN_SHARE` of the series. A rule expires `METRICS_LABEL_CARDINALITY_RULE_TTL_SECS` after its key drops under half the limit.
 
-Each flagged key is logged at warn level once per window. Metrics start with `capture_metrics_label_cardinality_`.
+In `enforce` mode each changed row gets a `posthog.dropped_labels` attribute that lists the dropped keys. The fingerprint leaves it out, and billing counts the labels as sent. Enforcement applies to delta sums, delta histograms and gauges: they get the fingerprint without the key, and changed rows with one fingerprint in one second merge into one row, where sums and histograms add up and a gauge keeps one value. Cumulative series are left unchanged, because combining them needs reset-aware aggregation. A sender's own `posthog.dropped_labels` attribute is removed.
+
+Each new rule is logged at warn level. Metrics start with `capture_metrics_label_cardinality_`.
 
 ## Classic Prometheus histograms on remote write
 
