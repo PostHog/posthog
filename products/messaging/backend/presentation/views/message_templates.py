@@ -7,7 +7,7 @@ from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.core.exceptions import (
@@ -33,7 +33,12 @@ from drf_spectacular.utils import (
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ErrorDetail, NotFound, ParseError
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser, get_encoding
+from rest_framework.parsers import (  # type: ignore[attr-defined]  # the stubs predate get_encoding
+    FormParser,
+    JSONParser,
+    MultiPartParser,
+    get_encoding,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -550,11 +555,15 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
             or (isinstance(data, MultiValueDict) and len(data.getlist("scheduled_at")) > 1)
         ):
             raise serializers.ValidationError(
-                {"scheduled_at": ErrorDetail(ScheduledAtField.default_error_messages["repeated"], code="repeated")}
+                {"scheduled_at": ErrorDetail(str(ScheduledAtField.default_error_messages["repeated"]), code="repeated")}
             )
         if isinstance(data, Mapping) and data.get("scheduled_at") is not None:
             team = self.context.get("team")
-            if team is not None and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
+            if (
+                team is not None
+                and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG)
+                and _flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG)
+            ):
                 fix = "To schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out"
             else:
                 fix = "Leave out"
@@ -602,6 +611,9 @@ class ScheduledAtField(serializers.DateTimeField):
     def enforce_timezone(self, value: datetime) -> datetime:
         if timezone.is_naive(value):
             self.fail("no_offset")
+        if value.year == datetime.max.year and (value.utcoffset() or timedelta(0)) < timedelta(0):
+            # UTC is past the last datetime Python holds, so the seven-day check refuses it instead of DRF's overflow.
+            return datetime.max.replace(tzinfo=UTC)
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
@@ -655,7 +667,7 @@ class SendBodyJSONParser(JSONParser):
     def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None):
         encoding = get_encoding(parser_context or {})
         try:
-            decoded_stream = codecs.getreader(encoding)(stream)
+            decoded_stream = cast(IO[str], codecs.getreader(encoding)(stream))
             parse_constant = drf_json.strict_constant if self.strict else None
             return drf_json.load(
                 decoded_stream, parse_constant=parse_constant, object_pairs_hook=_JsonObject.from_pairs

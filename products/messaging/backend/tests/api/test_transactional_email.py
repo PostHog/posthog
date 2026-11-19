@@ -116,7 +116,7 @@ class TestTransactionalEmail(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/send/"
         self.send_email_url = f"/api/projects/{self.team.id}/messaging/send/email/"
-        self.body = {
+        self.body: dict[str, Any] = {
             "to": "user@example.com",
             "identifiers": {"distinct_id": "user-1"},
             "message_data": {"link": "https://example.com/reset", "nickname": None},
@@ -165,7 +165,7 @@ class TestTransactionalEmail(APIBaseTest):
         without: tuple[str, ...] = (),
         key: str | None = None,
     ) -> Any:
-        headers = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
+        headers: dict[str, Any] = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
         if route == "template_form":
             body = {"to": self.body["to"], "scheduled_at": scheduled_at}
             return client.post(self.url, body, format="multipart", **headers)
@@ -1183,16 +1183,17 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_time", "2026-11-20T09:00:00Z", (), True),
-            ("an_empty_string", "", (), True),
-            ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",), True),
-            ("a_time_while_scheduled_sends_are_off", "2026-11-20T09:00:00Z", (), False),
+            ("a_time", "2026-11-20T09:00:00Z", (), set()),
+            ("an_empty_string", "", (), set()),
+            ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",), set()),
+            ("a_time_while_scheduled_sends_are_off", "2026-11-20T09:00:00Z", (), {EMAIL_SCHEDULED_SENDS_FLAG}),
+            ("a_time_while_the_send_api_is_off", "2026-11-20T09:00:00Z", (), {TRANSACTIONAL_EMAIL_API_FLAG}),
         ]
     )
     def test_the_template_route_refuses_a_scheduled_at_for_good(
-        self, mock_post, flag, _capture, _name, scheduled_at, without, scheduled_sends_on
+        self, mock_post, flag, _capture, _name, scheduled_at, without, flags_off
     ):
-        flag.side_effect = lambda key, *_args, **_kwargs: scheduled_sends_on or key != EMAIL_SCHEDULED_SENDS_FLAG
+        flag.side_effect = lambda key, *_args, **_kwargs: key not in flags_off
         psak = self._psak_client(["hog_flow:write"])
 
         with FakeCdpApi().serving(mock_post) as cdp:
@@ -1200,7 +1201,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
-        assert ("/api/messaging/send/email/" in response.json()["detail"]) == scheduled_sends_on
+        assert ("/api/messaging/send/email/" in response.json()["detail"]) == (not flags_off)
         assert cdp.received == []
 
     @parameterized.expand(
@@ -1405,6 +1406,7 @@ class TestTransactionalEmail(APIBaseTest):
                     ("non_ascii_digits", "2026-11-20T08:10:00.001000\u0660Z", "invalid_format"),
                     ("a_blank_time", "", "invalid_format"),
                     ("the_last_microsecond_there_is", "9999-12-31T23:59:59.999999Z", "scheduled_too_far"),
+                    ("the_last_second_there_is_west_of_utc", "9999-12-31T23:59:59-01:00", "scheduled_too_far"),
                 )
             ),
             ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),
