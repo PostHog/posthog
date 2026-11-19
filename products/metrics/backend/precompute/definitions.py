@@ -43,12 +43,13 @@ class LabelRef:
 
 @dataclass(frozen=True, slots=True)
 class Leaf:
-    """What a clause needs stored: a metric, a kind, and the labels it filters or groups by, sorted."""
+    """What a clause needs stored: a metric, a kind, the labels it filters or groups by, sorted, and the bucket width."""
 
     metric_name: str
     metric_type: MetricType | None
     kind: PrecomputedMetricKind
     labels: tuple[LabelRef, ...]
+    bucket_seconds: int = 3600
 
 
 def leaf_for_clause(clause: MetricQueryClause) -> Leaf | str:
@@ -88,6 +89,7 @@ def find_precomputed_metric(team_id: int, leaf: Leaf) -> MetricPrecomputedMetric
             metric_name=leaf.metric_name,
             metric_type=leaf.metric_type.value if leaf.metric_type is not None else "",
             kind=leaf.kind.value,
+            bucket_seconds=leaf.bucket_seconds,
         )
         if set(leaf.labels) <= set(labels_of(candidate))
     ]
@@ -114,6 +116,7 @@ def get_or_create_precomputed_metric(team_id: int, leaf: Leaf) -> MetricPrecompu
                 kind=leaf.kind.value,
                 labels=labels,
                 labels_key=hashlib.sha256(json.dumps(labels, sort_keys=True).encode()).hexdigest(),
+                bucket_seconds=leaf.bucket_seconds,
                 last_used_at=timezone.now(),
             )
     except IntegrityError:

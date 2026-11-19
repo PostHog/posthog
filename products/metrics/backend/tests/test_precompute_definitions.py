@@ -147,3 +147,15 @@ class TestGetOrCreatePrecomputedMetric(BaseTest):
         for index in range(MAX_PRECOMPUTED_METRICS_PER_TEAM):
             get_or_create_precomputed_metric(self.team.pk, self._leaf(metric_name=f"m{index}"))
         assert get_or_create_precomputed_metric(other_team.pk, self._leaf()) is not None
+
+    def test_keeps_the_bucket_width_of_the_leaf_apart(self):
+        six_hours = Leaf(
+            metric_name="latency_seconds_bucket",
+            metric_type=None,
+            kind=PrecomputedMetricKind.BUCKET_INCREASE,
+            labels=(LabelRef("le", AttributeScope.AUTO),),
+            bucket_seconds=6 * 3600,
+        )
+        created = get_or_create_precomputed_metric(self.team.pk, six_hours)
+        assert created is not None and created.bucket_seconds == 6 * 3600
+        assert find_precomputed_metric(self.team.pk, dataclasses.replace(six_hours, bucket_seconds=3600)) is None

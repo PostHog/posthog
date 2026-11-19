@@ -186,10 +186,10 @@ class MetricRecordingRule(TeamScopedRootMixin, UUIDModel):
 
 
 class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
-    """Hourly aggregates of one metric, summed by a few kept labels, that answer long-range dashboard tiles.
+    """Per-bucket aggregates of one metric, summed by a few kept labels, that answer long-range dashboard tiles.
 
-    A dashboard-v2 tile creates one the first time it needs it. The fill loop stores one chunk per UTC day,
-    newest first, and the query planner reads the covered hours instead of the raw samples.
+    A dashboard-v2 tile creates one the first time it needs it. The fill loop stores one chunk per bucket,
+    newest first, and the query planner reads the covered buckets instead of the raw samples.
     """
 
     class State(models.TextChoices):
@@ -211,6 +211,8 @@ class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
     covered_to = models.DateTimeField(null=True, blank=True)
     # An hour is stored once it ended this long ago. It widens when a re-read finds late data.
     settle_seconds = models.PositiveIntegerField(default=900)
+    # The last re-read of the past day, which rewrites the buckets that late data changed and marks them final.
+    refilled_at = models.DateTimeField(null=True, blank=True)
     state = models.CharField(max_length=16, choices=State.choices, default=State.ACTIVE)
     consecutive_failures = models.PositiveSmallIntegerField(default=0)
     last_error = models.TextField(null=True, blank=True)
@@ -229,18 +231,23 @@ class MetricPrecomputedMetric(TeamScopedRootMixin, UUIDModel):
 
 
 class MetricPrecomputedChunk(TeamScopedRootMixin, UUIDModel):
-    """One UTC day of a precomputed metric's hourly buckets. A fill replaces the hours it read."""
+    """One bucket of a precomputed metric. A fill rewrites a bucket only when its values changed."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     precomputed_metric = models.ForeignKey(MetricPrecomputedMetric, on_delete=models.CASCADE, related_name="+")
-    day = models.DateField()
+    start = models.DateTimeField(help_text="The bucket's start, in UTC. It is `bucket_seconds` of its metric long.")
     series = models.JSONField(
         default=list,
-        help_text="One entry per kept label set (and histogram layout): its label values, fingerprints and points.",
+        help_text="One entry per kept label set (and histogram layout): its label values, fingerprints and value.",
     )
+    # Capture drops samples more than 24 hours late, so a bucket re-read after that can no longer change.
+    final = models.BooleanField(default=False)
     computed_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["precomputed_metric", "day"], name="metrics_precomputed_chunk_unique_day")
+            models.UniqueConstraint(
+                fields=["precomputed_metric", "start"], name="metrics_precomputed_chunk_unique_start"
+            )
         ]
+        indexes = [models.Index(fields=["team", "start"], name="metrics_pc_chunk_start")]
