@@ -192,9 +192,10 @@ attestations:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
     - name: dependency_proof
-      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. It
-      # first replays the pnpm update from the merge base, and confirms that the replay writes the
-      # same lockfile as the PR head.
+      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. For
+      # an npm update it replays the pnpm update from the merge base, and confirms that the replay
+      # writes the same lockfile as the PR head. For a first-party Python SDK bump it checks that
+      # only the SDK version moves and that PyPI serves the locked files from the SDK's release workflow.
       check: 'Dependency proof'
       app_id: 5697920
       lifts: [deps_toolchain]
@@ -202,6 +203,9 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
+          - '(?:^|/)pyproject\.toml$'
+          - '(?:^|/)uv\.lock$'
+          - '(?:^|/)requirements[^/]*\.txt$'
       # Transitional: the prover now pins the paths in tools/change-prover/issuer.yml, so a proof
       # it makes holds none of these keys and lifts nothing. A deployed engine that predates the
       # `issuer` key refuses a policy that uses it, so the switch to `issuer` lands in its own PR
@@ -219,6 +223,7 @@ attestations:
           - tools/change-prover/change_prover/core/identity.py
           - tools/change-prover/change_prover/core/lockfile_yaml.py
           - tools/change-prover/change_prover/core/policy.py
+          - tools/change-prover/change_prover/core/python_sdk.py
           - tools/change-prover/change_prover/core/replay.py
           - tools/change-prover/change_prover/prove.py
           - tools/change-prover/change_prover/scan.py

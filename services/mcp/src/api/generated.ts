@@ -84026,6 +84026,53 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `ok` - ok
+     * * `failing` - failing
+     */
+    export type SourceFilterRunStateEnum = typeof SourceFilterRunStateEnum[keyof typeof SourceFilterRunStateEnum];
+
+
+    export const SourceFilterRunStateEnum = {
+      Ok: 'ok',
+      Failing: 'failing',
+    } as const;
+
+    export interface SourceFilterRunStatus {
+      /** `failing` when the last fetch of this source's records failed because of its saved filter or the query it builds. Nothing from the source reaches the inbox until a fetch succeeds, and the next successful fetch reads the missed records again. `ok` otherwise.
+       *
+       * * `ok` - ok
+       * * `failing` - failing */
+      state: SourceFilterRunStateEnum;
+      /**
+         * Why the last fetch failed, such as `unknown_field`, `type`, `catalog_missing` or `query_failed`. Null unless `state` is `failing`.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * A readable explanation of the failure, or the error type for a failed query. It never carries record values. Null unless `state` is `failing`.
+         * @nullable
+         */
+      error_message: string | null;
+      /**
+         * When the most recent failure happened. Null unless `state` is `failing`.
+         * @nullable
+         */
+      failed_at: string | null;
+      /**
+         * Records created since this time wait to be read again once a fetch succeeds. Null when none wait.
+         * @nullable
+         */
+      unread_since: string | null;
+      /**
+         * When a fetch of this source last succeeded with the filter. Null if never.
+         * @nullable
+         */
+      last_success_at: string | null;
+      /** Records in the last successful fetch that the filter excluded because a field it reads held a value that could not be read. */
+      malformed_count: number;
+    }
+
+    /**
      * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
@@ -84050,6 +84097,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status: SignalSourceSyncStatusEnum | null;
+      /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
+      readonly filter_status: SourceFilterRunStatus | null;
     }
 
     export interface PaginatedSignalSourceConfigList {
@@ -96977,6 +97026,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status?: SignalSourceSyncStatusEnum | null;
+      /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
+      readonly filter_status?: SourceFilterRunStatus | null;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {

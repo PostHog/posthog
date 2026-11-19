@@ -10,7 +10,6 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     LazyTable,
     LazyTableToAdd,
-    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
 )
@@ -127,11 +126,6 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
         name="lc_estimated_bytes",
         nullable=False,
         description="Bytes the cost planner estimated the query would read before it ran. 0 when no estimate was recorded.",
-    ),
-    "warehouse_table_ids": StringArrayDatabaseField(
-        name="lc_warehouse_table_ids",
-        nullable=False,
-        description="Ids of the warehouse tables the query read. Empty when it read none, and for queries run before this column was filled.",
     ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
@@ -295,11 +289,6 @@ class RawQueryLogArchiveTable(Table):
             name="lc_estimated_bytes",
             nullable=False,
             description="Bytes the cost planner estimated the query would read. 0 when no estimate was recorded.",
-        ),
-        "lc_warehouse_table_ids": StringArrayDatabaseField(
-            name="lc_warehouse_table_ids",
-            nullable=False,
-            description="Ids of the warehouse tables the query read. Empty when it read none.",
         ),
     }
 
