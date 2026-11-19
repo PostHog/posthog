@@ -760,6 +760,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "supports_webhooks": schema.supports_webhooks,
                 "webhook_only": schema.webhook_only,
                 "prefers_full_refresh": schema.prefers_full_refresh,
+                "declares_primary_keys": schema.declares_primary_keys,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [

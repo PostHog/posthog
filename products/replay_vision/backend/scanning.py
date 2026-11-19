@@ -27,7 +27,7 @@ from products.replay_vision.backend.enqueue_claims import (
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
+from products.replay_vision.backend.quota import BillingSyncPending, compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
@@ -113,6 +113,8 @@ def scan_headroom(*, team: Team, model: str, scanner: ReplayScanner | None) -> S
         ),
     )
     snapshot = quota_state(team.organization_id)
+    if snapshot.awaiting_billing_sync:
+        raise BillingSyncPending()
     cost = observation_credits_for_model(model)
     # None means nothing binds: an uncapped org (or scanner), or a free model that spends nothing.
     affordable = snapshot.affordable_count(cost)

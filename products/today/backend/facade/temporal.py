@@ -4,6 +4,8 @@ activities and schedule."""
 from collections.abc import Callable
 from typing import Any
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from ..temporal.activities import finalize_highlights_activity, resolve_pins_activity, run_highlight_source_activity
 from ..temporal.schedule import delete_today_briefing_schedule as delete_today_briefing_schedule
 from ..temporal.workflows import ComputeTodayHighlightsWorkflow
@@ -14,3 +16,12 @@ ACTIVITIES: list[Callable[..., Any]] = [
     resolve_pins_activity,
     finalize_highlights_activity,
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="GENERAL_PURPOSE_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)
+        ),
+    ),
+    schedules=(delete_today_briefing_schedule,),
+)

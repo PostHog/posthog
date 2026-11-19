@@ -1482,6 +1482,7 @@ describe('sourceWizardLogic', () => {
             ],
             ['an id column', 'incremental', { available_columns: [column('ID'), column('updated_at')] }],
             ['no introspected columns', 'incremental', { available_columns: [] }],
+            ['a declared source key missing', 'full_refresh', { available_columns: [], declares_primary_keys: true }],
         ])('defaults a table with %s to %s', async (_, expectedSyncType, overrides) => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({

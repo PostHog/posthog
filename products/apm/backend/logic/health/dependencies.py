@@ -25,13 +25,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.apm.backend.logic.health import sources
 from products.apm.backend.logic.health.contract import DependencyEdge, DependencyKind
-from products.apm.backend.logic.health.sources import (
-    MAP_TRACE_LIMIT,
-    environment_where,
-    sampled_traces_query,
-    window_where,
-)
+from products.apm.backend.logic.health.sources import environment_where, sampled_traces_query, window_where
 
 DEPENDENCY_EDGES_LIMIT = 500
 MAX_BYTES_TO_READ = 10_000_000_000
@@ -274,7 +270,7 @@ def get_dependencies(
         edges=edges,
         truncated=len(rows) > DEPENDENCY_EDGES_LIMIT,
         # A full sample may have left traces out; a short one read every trace in the window.
-        sampled=len(trace_ids) >= MAP_TRACE_LIMIT,
+        sampled=len(trace_ids) >= sources.MAP_TRACE_LIMIT,
         trace_count=len(trace_ids),
     )
 
