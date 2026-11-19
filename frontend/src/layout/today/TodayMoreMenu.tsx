@@ -24,6 +24,7 @@ import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
 import { TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
+import { clickPoint } from './todayTourGeometry'
 import { todayTourLogic } from './todayTourLogic'
 
 /**
@@ -42,8 +43,9 @@ export function TodayMoreMenu({
     const { statusPageUrl } = useValues(posthogStatusLogic)
     const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
-    const { switchAvailable } = useValues(navSwitchLogic)
+    const { switchAvailable, switchFlagOn } = useValues(navSwitchLogic)
     const { tourActive } = useValues(todayTourLogic)
+    const { startTour } = useActions(todayTourLogic)
     const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const overflowActive = overflowPanes.includes(activePane)
@@ -119,6 +121,16 @@ export function TodayMoreMenu({
                 >
                     Health
                 </DropdownMenuItem>
+                {/* Also reaches people enrolled without the switch, who never see the dialog that offers the tour. */}
+                {switchFlagOn && !tourActive && (
+                    <DropdownMenuItem
+                        // The tour's cursor starts where this click happened.
+                        onClick={(event) => startTour(clickPoint(event))}
+                        data-attr="more-menu-take-tour-button"
+                    >
+                        Take the tour
+                    </DropdownMenuItem>
+                )}
                 {switchAvailable && <TodayNavSwitchMenuItem />}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
