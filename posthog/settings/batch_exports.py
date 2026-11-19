@@ -1,4 +1,5 @@
 import os
+import datetime as dt
 
 from posthog.settings.utils import get_from_env, get_list
 from posthog.utils import str_to_bool
@@ -107,6 +108,24 @@ DEFAULT_TIMESTAMP_LOOKBACK_DAYS = 7
 # Comma separated list of overrides in the format "team_id:lookback_days"
 OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("OVERRIDE_TIMESTAMP_TEAM_IDS", "").split(",") if o]  # type: ignore
+)
+
+
+def _parse_utc_datetime(value: str) -> dt.datetime:
+    parsed = dt.datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
+
+
+# The first time from which `events_json_recent` holds every event inserted in this region. A recent export run of a
+# team on the new events schema reads that table only when its range starts at or after this time, because an earlier
+# range would find rows missing. When unset, no run reads it and those runs read the legacy recent tables.
+BATCH_EXPORTS_EVENTS_JSON_RECENT_SINCE: dt.datetime | None = get_from_env(
+    "BATCH_EXPORTS_EVENTS_JSON_RECENT_SINCE", optional=True, type_cast=_parse_utc_datetime
+)
+# Teams whose exports from `events_json_recent` include `$feature_flag_called` events. The table stores them, but
+# `events_json` does not, so other teams get the same events from either table.
+BATCH_EXPORTS_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
+    os.getenv("BATCH_EXPORTS_FEATURE_FLAG_CALLED_TEAM_IDS", "")
 )
 
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)

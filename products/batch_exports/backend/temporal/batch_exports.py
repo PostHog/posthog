@@ -41,7 +41,11 @@ from products.batch_exports.backend.service import (
     update_batch_export_run,
 )
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
-from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
+from products.batch_exports.backend.temporal.pipeline.query_ranges import (
+    exports_feature_flag_called_events,
+    is_covered_by_events_json_recent,
+    use_distributed_events_recent_table,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -49,6 +53,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from products.notifications.backend.facade.api import (
@@ -247,17 +252,20 @@ def reads_native_events_table(
     is_backfill: bool = False,
     backfill_details: BackfillDetails | None = None,
 ) -> bool:
-    """Whether `iter_records` reads the native events table, so its filters must be printed for the new schema."""
-    return (
-        use_new_events_schema
-        and select_events_query_template(
-            team_id=team_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            is_backfill=is_backfill,
-            backfill_details=backfill_details,
-        )
-        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    """Whether `iter_records` reads a native events table, so its filters must be printed for the new schema."""
+    if not use_new_events_schema:
+        return False
+    query = select_events_query_template(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
+    )
+    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
+        return True
+    return query in (SELECT_FROM_EVENTS_VIEW_RECENT, SELECT_FROM_DISTRIBUTED_EVENTS_RECENT) and (
+        is_covered_by_events_json_recent(dt.datetime.fromisoformat(interval_start) if interval_start else None)
     )
 
 
@@ -334,8 +342,24 @@ def iter_records(
             team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
         )
 
-    if use_new_events_schema and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
+    reads_native_table = reads_native_events_table(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        use_new_events_schema=use_new_events_schema,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
+    )
+    if reads_native_table and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
         query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
+    elif reads_native_table:
+        query_str = native_recent_events_export_query(
+            select_fields,
+            filters_str or "",
+            is_5_min_batch_export=query is SELECT_FROM_EVENTS_VIEW_RECENT,
+            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            order="ORDER BY _inserted_at, event",
+        )
     else:
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
         if filters_str:
