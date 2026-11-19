@@ -608,6 +608,12 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Group type index for this condition set. None means person-level aggregation.",
     )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Display-only name for this release condition group, shown in the UI. It does not affect evaluation.",
+    )
 
 
 class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):

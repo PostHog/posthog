@@ -37,7 +37,8 @@ tools:
             want to run an experiment, and if so create the experiment with `experiment-create`, which will manage its
             own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the
             structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for
-            variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing
+            variants, `filters.payloads` for JSON-encoded payloads). To name a release condition, set `description` on
+            it; the name shows in the UI and does not change evaluation. Use `update-feature-flag` to change an existing
             flag. Check the key first: `feature-flag-get-definition-by-key` when you already have the exact key it will
             use, `feature-flag-get-all` when you only know part of the key or the name.
         include_params:
@@ -1056,7 +1057,9 @@ tools:
             condition. A `condition_id` belongs to the flag you read it from, so leave it off a condition copied from a
             different flag. Once any condition has a `condition_id`, a condition without one is treated as new. This
             tool uses the ID to restore each condition's property types and targeting, so a reorder, deletion, or edit
-            keeps every condition on the persons or group type it targeted. If a `condition_id` matches no condition on
+            keeps every condition on the persons or group type it targeted. A condition's `description` is the name the
+            UI shows for it. A condition with a `condition_id` and no `description` keeps its stored name. Send
+            `description` to rename it, and null or an empty string to remove the name. If a `condition_id` matches no condition on
             the flag, the flag may have changed after your read, and the update is refused. Read the flag again and
             rebuild the update. When the flag targets groups, keep `type: "group"`, `group_type_index`, and
             `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the

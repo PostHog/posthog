@@ -141,6 +141,39 @@ describe('update-feature-flag preserving groups', () => {
         }
     )
 
+    it.each([
+        { name: 'sets a sent description', sent: { description: 'Wave 3' }, expected: ['Wave 3', 'Wave 2'] },
+        { name: 'keeps the stored description when omitted', sent: {}, expected: ['Wave 1', 'Wave 2'] },
+        { name: 'clears on null', sent: { description: null }, expected: [null, 'Wave 2'] },
+        { name: 'clears on an empty string', sent: { description: '' }, expected: ['', 'Wave 2'] },
+    ])('$name on a condition with a condition_id', async ({ sent, expected }) => {
+        // Both conditions have the same filters, so they share a condition_id but not a description.
+        const storedGroups = ['Wave 1', 'Wave 2'].map((description) => ({
+            properties: [{ key: 'plan', type: 'person', operator: 'exact', value: 'pro' }],
+            rollout_percentage: 100,
+            description,
+        }))
+        const existing = { id: 9, key: 'staged-rollout', filters: { groups: storedGroups } }
+        const request = vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(existing)
+        const readGroups = withConditionIds(existing).filters.groups as unknown as { condition_id: string }[]
+
+        const params = tool.schema.parse({
+            id: 9,
+            filters: {
+                groups: readGroups.map(({ condition_id }, index) => ({
+                    condition_id,
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                    rollout_percentage: 100,
+                    ...(index === 0 ? sent : {}),
+                })),
+            },
+        })
+        await tool.handler(createMockContext(request), params)
+
+        const patchGroups = (requestArgs(request, 1).body as typeof existing).filters.groups
+        expect(patchGroups.map((group) => group.description)).toEqual(expected)
+    })
+
     it('surfaces GET failures instead of PATCHing unmerged filters', async () => {
         const request = vi.fn().mockRejectedValueOnce(new Error('HTTP 429: rate limited'))
 

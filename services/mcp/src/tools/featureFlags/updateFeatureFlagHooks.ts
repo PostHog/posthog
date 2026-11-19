@@ -5,6 +5,7 @@
  * `filters` param shape changes, if the API changes the `groups[i].properties[j].type: ` prefix
  * of its property type rejection, or if it changes the code or the `groups[i].properties[j]: `
  * prefix of its group type mismatch rejection.
+ * Before the merge, a condition with a `condition_id` and no `description` gets its stored description back.
  * The merge removes each `condition_id` before the PATCH, because the API does not store it.
  * afterResponse adds a `condition_id` to each condition in the returned flag.
  */
@@ -13,6 +14,7 @@ import { PostHogValidationError } from '@/lib/errors'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
+import { restoreConditionDescriptions } from './conditionDescriptions'
 import conditionIdHooks from './conditionIdHooks'
 import { preserveGroupTargetingFilters, type FlagFilters } from './preserveGroupTargeting'
 
@@ -41,7 +43,10 @@ async function beforeRequest<T extends UpdateParams>(context: Context, params: T
         path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
     })
     const existingFilters = (existing?.filters ?? undefined) as FlagFilters | undefined
-    const mergedFilters = preserveGroupTargetingFilters(existingFilters, params.filters)
+    const mergedFilters = preserveGroupTargetingFilters(
+        existingFilters,
+        restoreConditionDescriptions(existingFilters, params.filters)
+    )
 
     return { ...params, filters: mergedFilters }
 }

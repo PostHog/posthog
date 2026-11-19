@@ -94,6 +94,17 @@
                                 ],
                                 "description": "Group type index for this condition set. None means person-level aggregation."
                             },
+                            "description": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Display-only name for this release condition group, shown in the UI. It does not affect evaluation."
+                            },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
                                 "items": {
