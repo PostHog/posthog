@@ -590,6 +590,11 @@
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "error-tracking-alert-evaluate",
+    "product": "error_tracking",
+    "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "error-tracking-built-in-filters-refresh",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
