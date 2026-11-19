@@ -222,7 +222,7 @@ export function QuillMaterializationRunHistory({
         useActions(jobsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const managedWarehouseEnabled = !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]
-    const [expandedJobIds, setExpandedJobIds] = useState<string[]>([])
+    const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(() => new Set())
 
     const jobs = jobsPage > 1 && runHistoryError ? [] : (jobsPageResults?.results ?? [])
     const count = jobsPageResults?.count ?? 0
@@ -240,9 +240,15 @@ export function QuillMaterializationRunHistory({
               ? loadDataModelingJobs()
               : loadRunHistoryJobs()
     const toggleJob = (jobId: string): void =>
-        setExpandedJobIds(
-            expandedJobIds.includes(jobId) ? expandedJobIds.filter((id) => id !== jobId) : [...expandedJobIds, jobId]
-        )
+        setExpandedJobIds((previous) => {
+            const next = new Set(previous)
+            if (next.has(jobId)) {
+                next.delete(jobId)
+            } else {
+                next.add(jobId)
+            }
+            return next
+        })
 
     return (
         <section className="flex flex-col gap-2 border-t border-border pt-4">
@@ -319,7 +325,7 @@ export function QuillMaterializationRunHistory({
                 ) : (
                     <TableBody>
                         {jobs.map((job) => {
-                            const expanded = expandedJobIds.includes(job.id)
+                            const expanded = expandedJobIds.has(job.id)
                             return (
                                 <Fragment key={job.id}>
                                     <TableRow>
