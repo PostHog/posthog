@@ -6215,6 +6215,7 @@ describe('CDP API', () => {
             const res = await send(hogFlow.id, mintToken(hogFlow.id))
 
             expect(res.status).toEqual(500)
+            expect(res.body).toEqual({ error: 'internal_error' })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 

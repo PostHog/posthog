@@ -1846,7 +1846,7 @@ export class CdpApi {
             return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
         } catch (e) {
             logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
-            return reply('error', 500, { error: e instanceof Error ? e.message : String(e) })
+            return reply('error', 500, { error: 'internal_error' })
         }
     }
 
