@@ -1302,8 +1302,7 @@ class UserViewSet(
             )
 
     def perform_destroy(self, user: User) -> None:
-        # The deletion event clears the person's email, so it goes out only after the delete succeeds.
-        # The metadata reads related rows, which the delete removes, so it is read first.
+        # The event clears the person's email, so it waits for the delete, which removes the rows the metadata reads.
         distinct_id, analytics_metadata = user.distinct_id, user.get_analytics_metadata()
         super().perform_destroy(user)
         report_user_deleted_account(distinct_id, analytics_metadata)
