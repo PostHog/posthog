@@ -215,7 +215,7 @@ export interface SendEmailApi {
     /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
     text?: string
     /**
-     * Addresses replies to the email your code rendered go to.
+     * Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`.
      * @maxItems 10
      */
     reply_to?: string[]
@@ -239,14 +239,14 @@ export interface SendEmailApi {
     /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
-     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
      * @maxLength 1024
      */
     from?: string
 }
 
 /**
- * * `sandbox_sender` - Sent from the sandbox sender
+ * * `sandbox_sender` - Sent from the PostHog test sender
  */
 export type SendWarningCodeEnumApi = (typeof SendWarningCodeEnumApi)[keyof typeof SendWarningCodeEnumApi]
 
@@ -255,9 +255,9 @@ export const SendWarningCodeEnumApi = {
 } as const
 
 export interface SendWarningApi {
-    /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+    /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
      *
-     * * `sandbox_sender` - Sent from the sandbox sender */
+     * * `sandbox_sender` - Sent from the PostHog test sender */
     code: SendWarningCodeEnumApi
     /** What happened and what to do next, in words a person can read. */
     message: string

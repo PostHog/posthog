@@ -229,11 +229,6 @@
         "params": [],
         "scope": "project"
     },
-    "analyticsProductHome": {
-        "template": "/analytics/product-analytics",
-        "params": [],
-        "scope": "project"
-    },
     "analyticsSpaces": {
         "template": "/analytics/collections",
         "params": [],

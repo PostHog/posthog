@@ -16,6 +16,7 @@ from hogli_commands.ci_preflight import (
     DIFF_CHECKS,
     DiffCheck,
     _pnpm_workspace_root,
+    _run_diff_check,
     _run_workspace_scoped,
     _staleness_risks,
 )
@@ -394,6 +395,43 @@ class TestWorkspaceScopedLockfile:
 
         assert status == "skipped"
         assert "products/desktop: needs node" in detail
+
+
+class TestMigrationsCheck:
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
+    @patch("hogli_commands.ci_preflight._port_open", return_value=True)
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    def test_disabled_migration_checks_report_skipped_not_pass(
+        self, mock_run: MagicMock, mock_port: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("POSTHOG_SKIP_MIGRATION_CHECKS", "1")
+        migrations = next(chk for chk in DIFF_CHECKS if chk.key == "migrations")
+        migrations.matched = ["posthog/migrations/0999_example.py"]
+
+        status, detail = _run_diff_check(migrations, do_fix=False, against=None, strict=True)
+
+        assert status == "skipped"
+        assert "POSTHOG_SKIP_MIGRATION_CHECKS" in detail
+
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
+    @patch("hogli_commands.ci_preflight._port_open", return_value=True)
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    def test_failure_detail_shows_the_closing_error_not_the_log_noise(
+        self, mock_run: MagicMock, mock_port: MagicMock, mock_which: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("POSTHOG_SKIP_MIGRATION_CHECKS", raising=False)
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="DEBUG settings loaded\nDEBUG connecting\nDEBUG warning: cache cold\nDEBUG done\n",
+            stderr="The local database lacks these migrations: posthog.0999_example\n",
+        )
+        migrations = next(chk for chk in DIFF_CHECKS if chk.key == "migrations")
+        migrations.matched = ["posthog/migrations/0999_example.py"]
+
+        status, detail = _run_diff_check(migrations, do_fix=False, against=None, strict=True)
+
+        assert status == "fail"
+        assert "posthog.0999_example" in detail
 
 
 class TestDepotMirrorsCheck:

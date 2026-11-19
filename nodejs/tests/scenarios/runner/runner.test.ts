@@ -1507,6 +1507,7 @@ describe('runner through seed, drive and judge', () => {
         expect(result.bars[0]).toEqual({
             name: 'writer_cpu_under',
             unit: '%',
+            limit: 70,
             passed: false,
             unjudged: 'no writer CPU reading off a run host in the 1x step',
         })

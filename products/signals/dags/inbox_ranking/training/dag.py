@@ -121,6 +121,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     model_promoted_event,
     promotion_event,
+    run_times,
     serving_manifest_event,
     unseen_calibration_events,
     unseen_head_evaluated_events,
@@ -606,6 +607,7 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
 def _publish_manifest(
     context: RunContext, partition_key: str, run_id: str, *, auto_promote: bool = False
 ) -> dict[str, dagster.MetadataValue]:
+    started_at = datetime.datetime.now(datetime.UTC)
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
     overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     auto_metadata = (
@@ -683,6 +685,7 @@ def _publish_manifest(
                     served_family=served_family,
                     manifest=None,
                     reason=decision.reason,
+                    times=run_times(started_at),
                 )
             ],
         )
@@ -735,6 +738,7 @@ def _publish_manifest(
                         *(family.champion for family in families if family.champion),
                     )
                 },
+                times=run_times(started_at),
             )
         ],
     )
