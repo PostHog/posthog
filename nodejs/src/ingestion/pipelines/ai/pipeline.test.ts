@@ -192,6 +192,7 @@ describe('AiIngestionPipeline', () => {
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
             topHog: createNoopTopHog(),
             aiBlobStore: null,
+            aiEventsRetentionDaysByTeam: new Map(),
             aiBlobOffloadConfig: {
                 isTeamEnabled: (): boolean => false,
                 minBase64Length: 8192,
