@@ -142,6 +142,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     actionability?: SignalReportActionability | null
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact. */
     already_addressed?: boolean | null
+    /** Lowercase kebab-case slug tags for grouping and filtering reports, at most 10. */
+    tags?: SignalReportApi['tags']
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
@@ -177,11 +179,11 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
-    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    /** For the personal order: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
     personal_tier?: SignalReportListApi['personal_tier']
-    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    /** For the personal order: why the personal ranking put the report where it is. Null when it did not rank the report. */
     personal_reason?: SignalReportListApi['personal_reason']
 }
 

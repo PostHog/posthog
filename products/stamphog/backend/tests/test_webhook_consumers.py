@@ -51,7 +51,8 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
         [
             ("pull_request", "opened", PULL_REQUEST_DELAY, INSTALLATION_DELAY, True),
             ("pull_request", "ready_for_review", PULL_REQUEST_DELAY, INSTALLATION_DELAY, True),
-            ("pull_request", "synchronize", PULL_REQUEST_DELAY, INSTALLATION_DELAY, False),
+            ("pull_request", "synchronize", PULL_REQUEST_DELAY, INSTALLATION_DELAY, True),
+            ("pull_request", "edited", PULL_REQUEST_DELAY, INSTALLATION_DELAY, False),
             ("installation", "opened", INSTALLATION_DELAY, PULL_REQUEST_DELAY, False),
             ("installation_repositories", "opened", INSTALLATION_DELAY, PULL_REQUEST_DELAY, False),
         ]
@@ -71,7 +72,7 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
         assert response.status_code == 202
         expected_delay.assert_called_once_with(payload={"action": action}, delivery_id="delivery-1")
         other_delay.assert_not_called()
-        # Routing is its own consumer, queued only for the actions that ask for reviews.
+        # Routing is its own consumer, queued for the actions that ask for reviews and for a push.
         assert routing_delay.call_count == (1 if routes else 0)
 
     @patch(ROUTING_DELAY)
