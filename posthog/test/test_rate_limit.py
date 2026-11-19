@@ -1224,13 +1224,18 @@ class TestReserveUnits(BaseTest):
                 "KEY_PREFIX": "test-reserve-units",
             }
         }
-        with override_settings(CACHES=replicated), patch.object(_PSAKThrottleForTest, "rate", "2/minute"):
+        now = time.time()
+        with (
+            override_settings(CACHES=replicated),
+            patch.object(_PSAKThrottleForTest, "rate", "2/minute"),
+            patch.object(_PSAKThrottleForTest, "timer", lambda _throttle: now),
+        ):
             redis_cache = caches["default"]
             assert isinstance(redis_cache, RedisCache)
             key = _PSAKThrottleForTest().get_cache_key(self._request(), self.view)
             clients = [redis_cache.client.get_client(write=True), redis_cache.client.get_client(write=False)]
             for client in clients:
-                redis_cache.set(key, [time.time()], 60, client=client)
+                redis_cache.set(key, [now], 60, client=client)
             try:
                 retry_after = self._send([_PSAKThrottleForTest], 2)
             finally:
