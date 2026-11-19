@@ -212,7 +212,7 @@ async fn load_and_maybe_reopen(
     )
     .await?
     else {
-        resend_new_issue_state(context, &mut conn, &issue, fingerprint, first_seen).await?;
+        resend_new_issue_state(context, &mut conn, &issue, fingerprint, issue.created_at).await?;
         return Ok(Some(issue));
     };
     // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
