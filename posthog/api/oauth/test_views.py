@@ -784,8 +784,8 @@ class TestOAuthAPI(APIBaseTest):
             ("team", "team", True, 403),
             ("all", "all", True, 403),
             ("current_organization", "team", False, 200),
-            ("auto_organization", "organization", True, 403, "auto"),
-            ("auto_team", "team", True, 403, "auto"),
+            ("auto_organization", "organization", True, 200, "auto"),
+            ("auto_team", "team", True, 200, "auto"),
             ("auto_current_organization", "team", False, 302, "auto"),
             ("first_party", "organization", True, 403, "first_party"),
         ]
@@ -839,6 +839,10 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.content)
         if expected_status == 403:
             self.assertContains(response, "two_factor_setup_required", status_code=403)
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
+        elif approval_path == "auto" and target_strict:
+            # Auto-approval falls back to the consent screen, whose POST gets the 2FA denial the app prompts on.
+            self.assertIn("oauth_scope_resolution", response.context["posthog_app_context"])
             self.assertEqual(OAuthGrant.objects.count(), grants_before)
         else:
             self.assertEqual(OAuthGrant.objects.count(), grants_before + 1)

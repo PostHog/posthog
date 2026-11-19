@@ -1826,9 +1826,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         enforce_credential_ip_restrictions(
                             request, credentials["scoped_organizations"], credentials["scoped_teams"]
                         )
-                        enforce_credential_two_factor(
-                            request, credentials["scoped_organizations"], credentials["scoped_teams"]
-                        )
+                        try:
+                            enforce_credential_two_factor(
+                                request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                            )
+                        except PermissionDenied:
+                            # This page load can't open the app's 2FA prompt. Show the consent screen:
+                            # its POST gets the same denial, and the app prompts on it.
+                            break
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
