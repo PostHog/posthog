@@ -509,7 +509,7 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
 
         content, artifact = await tool._arun_impl(task_id=str(task.id))
 
-        logs_api_url = absolute_uri(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/logs/")
+        logs_api_url = absolute_uri(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/log_entries/")
         assert logs_api_url in content
         assert artifact == {"task_id": str(task.id), "run_id": str(run.id), "logs_api_url": logs_api_url}
 
@@ -559,7 +559,7 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
 
         content, artifact = await tool._arun_impl(task_id=str(task.id), run_id=str(run1.id))
 
-        assert artifact["logs_api_url"].endswith(f"/runs/{run1.id}/logs/")
+        assert artifact["logs_api_url"].endswith(f"/runs/{run1.id}/log_entries/")
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

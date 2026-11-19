@@ -379,7 +379,9 @@ Use this tool when the user wants to:
             return {
                 "task_id": str(task.id),
                 "run_id": str(task_run.id),
-                "logs_api_url": absolute_uri(f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/logs/"),
+                "logs_api_url": absolute_uri(
+                    f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/log_entries/"
+                ),
             }
 
         result = await get_task_and_run()
