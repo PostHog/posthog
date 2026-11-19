@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto'
+import http from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import type { Application, Request, Response } from 'ultimate-express'
@@ -23,7 +24,7 @@ describe('setupExpressApp request body handling', () => {
     let server: ReturnType<Application['listen']>
 
     beforeAll(() => {
-        app = setupExpressApp({ bodyLimitBytes: 1024, readOnlyPathPrefixes: ['/read-only/'] })
+        app = setupExpressApp({ jsonBodyLimitBytes: 1024, readOnlyPathPrefixes: ['/read-only/'] })
         app.set('body methods', ['DELETE'])
         const echo = (req: Request, res: Response) => {
             res.status(200).json({ body: req.body, rawBody: (req as ModifiedRequest).rawBody })
@@ -109,11 +110,13 @@ describe('setupExpressApp request body handling', () => {
         }
     )
 
-    it('rejects streamed compressed bytes past the limit with 413 and keeps serving', async () => {
+    it('rejects a streamed compressed body that decodes past the limit with 413 and keeps serving', async () => {
+        const compressed = gzipSync(JSON.stringify({ data: randomBytes(4096).toString('hex') }))
+        const quarter = Math.ceil(compressed.length / 4)
         const res = await postBytes(
             '/echo',
             { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
-            Array.from({ length: 4 }, () => randomBytes(1024))
+            Array.from({ length: 4 }, (_, index) => compressed.subarray(index * quarter, (index + 1) * quarter))
         )
 
         expect(res.status).toEqual(413)
@@ -121,6 +124,36 @@ describe('setupExpressApp request body handling', () => {
         const after = await supertest(app).post('/echo').send({ data: 'x' })
         expect(after.status).toEqual(200)
     })
+
+    it.each([
+        ['JSON', '/echo', 'application/json', JSON.stringify({ data: 'x'.repeat(4096) })],
+        ['text', '/echo-text', 'text/plain', 'x'.repeat(200 * 1024)],
+    ])(
+        'answers a %s body that decodes past its limit with 413 before the upload ends',
+        async (_, path, contentType, text) => {
+            const compressed = gzipSync(text)
+            const status = await new Promise<number | undefined>((resolve) => {
+                const req = http.request({
+                    port: (app as Application & { port: number }).port,
+                    path,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': contentType,
+                        'Content-Encoding': 'gzip',
+                        'Transfer-Encoding': 'chunked',
+                    },
+                })
+                req.on('response', (res) => {
+                    resolve(res.statusCode)
+                    req.destroy()
+                })
+                req.on('error', () => resolve(undefined))
+                req.write(compressed.subarray(0, compressed.length - 8))
+            })
+
+            expect(status).toEqual(413)
+        }
+    )
 
     it('refuses a write to a read-only prefix before parsing its body', async () => {
         const res = await supertest(app)

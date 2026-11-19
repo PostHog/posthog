@@ -1,11 +1,7 @@
 import * as prometheus from 'prom-client'
 import express, { NextFunction, Request, Response } from 'ultimate-express'
 
-import {
-    DEFAULT_BODY_LIMIT_BYTES,
-    bytesParserLimit,
-    createCompressedBodyMiddleware,
-} from '~/common/api/middleware/compressed-body'
+import { bytesParserLimit, createCompressedBodyMiddleware } from '~/common/api/middleware/compressed-body'
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/common/api/middleware/internal-api-auth'
@@ -37,13 +33,15 @@ export interface SetupExpressAppOptions {
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
-    bodyLimitBytes?: number
+    // JSON body size limit in bytes. Overridable in tests.
+    jsonBodyLimitBytes?: number
     // Path prefixes that only serve reads. Other methods get a 405 before the body parser buffers anything, so an
     // unauthenticated caller cannot make the server parse a large body for a route that never reads one.
     readOnlyPathPrefixes?: string[]
 }
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+const DEFAULT_JSON_BODY_LIMIT_BYTES = 20 * 1024 * 1024
 
 export function setupCommonRoutes(
     app: express.Application,
@@ -91,11 +89,11 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
         })
     }
 
-    const bodyLimitBytes = options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES
-    app.use(createCompressedBodyMiddleware(bodyLimitBytes))
+    const jsonBodyLimitBytes = options.jsonBodyLimitBytes ?? DEFAULT_JSON_BODY_LIMIT_BYTES
+    app.use(createCompressedBodyMiddleware(jsonBodyLimitBytes))
     app.use(
         express.json({
-            limit: bytesParserLimit(bodyLimitBytes),
+            limit: bytesParserLimit(jsonBodyLimitBytes),
             inflate: false,
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')
