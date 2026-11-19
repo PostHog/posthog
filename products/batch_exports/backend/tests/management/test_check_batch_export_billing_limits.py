@@ -20,6 +20,13 @@ pytestmark = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def before_unified_pricing_cutover():
+    # Most cases seed ROWS_EXPORTED, which the command stops reading at the cutover.
+    with time_machine.travel(dt.datetime(2027, 1, 15, tzinfo=dt.UTC), tick=False):
+        yield
+
+
 @pytest.fixture
 def organization():
     return create_organization("test-billing-limits")
