@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
+import { IconApps, IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -56,6 +56,7 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                                     menuItem
                                     data-attr="notebook-open-app-builder"
                                 >
+                                    <IconApps />
                                     App builder
                                 </ButtonPrimitive>
                             </DropdownMenuItem>

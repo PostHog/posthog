@@ -3,10 +3,30 @@ from typing import Any
 
 from django.db import models
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.exceptions import Conflict
+from posthog.models import Team, User
+from posthog.utils import flag_identity
+
+
+def notebook_app_builder_enabled(user: User, team: Team) -> bool:
+    identity = flag_identity(user, team, team.organization)
+    if identity is None:
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            "notebook-app-builder",
+            identity.distinct_id,
+            groups=identity.groups,
+            group_properties=identity.group_properties,
+            person_properties=identity.person_properties,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def update_app_revision(validated_data: dict[str, Any], current_revision: int) -> None:

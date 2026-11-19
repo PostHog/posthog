@@ -1,6 +1,7 @@
 import math
 import hashlib
 from collections import Counter
+from functools import cached_property
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -125,7 +126,11 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
-from products.notebooks.backend.presentation.app_serializers import NotebookAppLayoutField, update_app_revision
+from products.notebooks.backend.presentation.app_serializers import (
+    NotebookAppLayoutField,
+    notebook_app_builder_enabled,
+    update_app_revision,
+)
 from products.notebooks.backend.presentation.notebook_throttles import (
     NotebookCreateBurstThrottle,
     NotebookCreateSustainedThrottle,
@@ -363,6 +368,27 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    @cached_property
+    def app_builder_enabled(self) -> bool:
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.is_authenticated
+            and notebook_app_builder_enabled(request.user, self.context["get_team"]())
+        )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if {"app_draft", "app_published", "app_revision"}.intersection(attrs) and not self.app_builder_enabled:
+            raise PermissionDenied("App builder is not available for this project.")
+        return super().validate(attrs)
+
+    def to_representation(self, instance: Notebook) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not self.app_builder_enabled:
+            for field in ("app_draft", "app_published", "app_revision"):
+                data.pop(field, None)
+        return data
 
     def validate_variables(self, value: list[dict]) -> list[dict]:
         # A Python cell reads variables and cell dataframes out of one namespace, so a duplicate
