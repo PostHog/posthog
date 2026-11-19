@@ -355,6 +355,39 @@ class TestScopeDualWrite(BaseTest):
 
         self.assertIsNone(scanner.scope)
 
+    def test_a_model_level_enable_consumes_the_launch_marker(self) -> None:
+        # The Django admin and any script save through the model, not the serializer. Leaving the
+        # marker there would let a later launch turn the scanner back on after its owner stopped it.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": 51, "start_on_launch": True},
+            enabled=False,
+        )
+
+        scanner.enabled = True
+        scanner.save()
+        scanner.refresh_from_db()
+
+        assert "start_on_launch" not in scanner.scanner_config
+        assert isinstance(scanner.scope, dict)
+        assert "start_on_launch" not in scanner.scope
+
+    def test_a_save_that_leaves_the_scanner_off_keeps_the_launch_marker(self) -> None:
+        # Only an enable consumes it. A scanner still waiting must keep waiting.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": 52, "start_on_launch": True},
+            enabled=False,
+        )
+
+        scanner.description = "edited"
+        scanner.save()
+        scanner.refresh_from_db()
+
+        assert scanner.scanner_config["start_on_launch"] is True
+
     def test_retargeting_bumps_the_scanner_version(self) -> None:
         scanner = _make_scanner(self.team, scanner_type=ScannerType.MONITOR, experiment_targeting={"experiment_id": 44})
         before = scanner.scanner_version

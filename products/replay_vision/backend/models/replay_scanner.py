@@ -50,6 +50,11 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
     return query.model_copy(update={"experiment_exposure": exposure})
 
 
+# The key a scanner waits for its experiment's launch under, in `scanner_config` or in `scope`.
+# `experiment_launch` imports it from here, so the two stay one spelling.
+_START_ON_LAUNCH_KEY = "start_on_launch"
+
+
 def config_experiment_scope(scanner_config: "dict | None") -> dict | None:
     """The experiment scope carried inside an experiment scanner's `scanner_config`, or None.
 
@@ -612,6 +617,12 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                                 "disabled_reason",
                             ]
                         )
+                        # The scanner is on, so it is no longer waiting for a launch to turn it on.
+                        # Consumed here rather than in the serializer alone, because an enable that
+                        # skips it — the Django admin, a script — would leave the marker armed and
+                        # the launch receiver would turn the scanner back on after its owner stops
+                        # it. Cleared from whichever store carries it.
+                        extra_fields.extend(self._consume_start_on_launch())
                     if track_enabled and old.enabled and not self.enabled and self.disabled_reason is None:
                         self.disabled_reason = ScannerDisabledReason.MANUAL
                         extra_fields.append("disabled_reason")
@@ -676,6 +687,24 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
             return False
         self.scope = derived
         return True
+
+    def _consume_start_on_launch(self) -> list[str]:
+        """Drop the launch marker from both stores, and name the fields that changed.
+
+        The marker means "turn this on when the experiment launches". Once the scanner is on it has
+        served its purpose, and leaving it would let a later launch override an owner who turned the
+        scanner off in between.
+        """
+        changed: list[str] = []
+        config = self.scanner_config
+        if isinstance(config, dict) and _START_ON_LAUNCH_KEY in config:
+            self.scanner_config = {k: v for k, v in config.items() if k != _START_ON_LAUNCH_KEY}
+            changed.append("scanner_config")
+        scope = self.scope
+        if isinstance(scope, dict) and _START_ON_LAUNCH_KEY in scope:
+            self.scope = {k: v for k, v in scope.items() if k != _START_ON_LAUNCH_KEY}
+            changed.append("scope")
+        return changed
 
     def _scope_came_from_a_legacy_store(self) -> bool:
         """Whether the stored `scope` is this row's own mirror of an older store.

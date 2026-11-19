@@ -5,9 +5,9 @@ from django.db import transaction
 from django.db.models import Q
 
 from products.experiments.backend.facade.launch_signals import connect_experiment_launched
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import _START_ON_LAUNCH_KEY, ReplayScanner, ScannerType
 
-START_ON_LAUNCH_KEY = "start_on_launch"
+START_ON_LAUNCH_KEY = _START_ON_LAUNCH_KEY
 
 # A scanner waits for its launch in whichever store holds its scope. The native experiment type keeps
 # both keys in `scanner_config`; a scanner moved onto `scope` keeps them there and is no longer that
