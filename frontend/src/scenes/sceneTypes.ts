@@ -134,6 +134,8 @@ export enum Scene {
     NewTab = 'NewTab',
     Notebook = 'Notebook',
     Notebooks = 'Notebooks',
+    Investigations = 'Investigations',
+    Investigation = 'Investigation',
     OAuthAuthorize = 'OAuthAuthorize',
     Onboarding = 'Onboarding',
     OnboardingCoupon = 'OnboardingCoupon',
@@ -388,6 +390,9 @@ export interface SceneConfig {
 export const sceneToAccessControlResourceType: Partial<
     Record<Scene, AccessControlResourceType | AccessControlResourceType[]>
 > = {
+    [Scene.Investigations]: AccessControlResourceType.Investigation,
+    [Scene.Investigation]: AccessControlResourceType.Investigation,
+
     // Actions
     [Scene.Action]: AccessControlResourceType.Action,
     [Scene.Actions]: AccessControlResourceType.Action,

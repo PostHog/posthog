@@ -57,6 +57,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[catalog.APIScopeObject] = frozenset(
 # across it. The MCP server treats a tool that needs one as staff-only and hides it from everyone else.
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[catalog.APIScopeObject] = frozenset(
     {
+        "investigation",
         "wizard_session",
         "wizard_run",
         "query_performance",

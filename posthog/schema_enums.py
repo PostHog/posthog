@@ -1621,6 +1621,7 @@ class Tag(StrEnum):
 
 
 class FileSystemIconType(StrEnum):
+    INVESTIGATION = "investigation"
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     CANVAS = "canvas"
@@ -2868,6 +2869,7 @@ class ProductKey(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
+    INVESTIGATIONS = "investigations"
     PERSONS = "persons"
     PIPELINE_BATCH_EXPORTS = "pipeline_batch_exports"
     PIPELINE_DESTINATIONS = "pipeline_destinations"

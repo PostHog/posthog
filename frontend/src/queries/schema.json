@@ -31513,6 +31513,7 @@
         },
         "FileSystemIconType": {
             "enum": [
+                "investigation",
                 "default_icon_type",
                 "dashboard",
                 "canvas",
@@ -46758,6 +46759,7 @@
                 "mcp_analytics",
                 "mobile_replay",
                 "notebooks",
+                "investigations",
                 "persons",
                 "pipeline_batch_exports",
                 "pipeline_destinations",

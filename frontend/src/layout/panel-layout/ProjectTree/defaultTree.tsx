@@ -64,6 +64,7 @@ import {
     IconRocket,
     IconScatter,
     IconSearch,
+    IconCompass,
     IconSend,
     IconServer,
     IconShuffle,
@@ -264,6 +265,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     transactional: {
         icon: <IconLetter />,
         iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+    },
+    investigation: {
+        icon: <IconCompass />,
+        iconColor: ['var(--color-product-investigations-light)', 'var(--color-product-investigations-dark)'],
     },
     notebook: {
         icon: <IconNotebook />,

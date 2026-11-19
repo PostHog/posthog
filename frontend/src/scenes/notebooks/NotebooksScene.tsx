@@ -19,7 +19,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
-import { NewInvestigationButton } from 'products/notebooks/frontend/Investigations/NewInvestigationButton'
 import { ReusableWidgetCatalog } from 'products/notebooks/frontend/ReusableWidgetCatalog/ReusableWidgetCatalog'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
@@ -49,7 +48,6 @@ export function NotebooksScene(): JSX.Element {
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <div className="flex flex-wrap items-center gap-2">
-                            <NewInvestigationButton />
                             <Shortcut
                                 name="NewNotebook"
                                 keybind={[keyBinds.new]}

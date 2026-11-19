@@ -344,6 +344,7 @@ export enum AccessControlResourceType {
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
+    Investigation = 'investigation',
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',

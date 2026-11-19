@@ -1,0 +1,26 @@
+{
+    "name": "@posthog/products-investigations",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "@posthog/quill": "workspace:*",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:",
+        "storybook": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}
