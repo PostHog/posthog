@@ -611,9 +611,13 @@ class ScheduledAtField(serializers.DateTimeField):
     def enforce_timezone(self, value: datetime) -> datetime:
         if timezone.is_naive(value):
             self.fail("no_offset")
-        if value.year == datetime.max.year and (value.utcoffset() or timedelta(0)) < timedelta(0):
-            # UTC is past the last datetime Python holds, so the seven-day check refuses it instead of DRF's overflow.
+        offset = value.utcoffset() or timedelta(0)
+        # In UTC these fall outside the datetimes Python holds, and DRF would answer overflow. Clamped, the seven-day
+        # check refuses the late one, and the early one is a time that passed.
+        if value.year == datetime.max.year and offset < timedelta(0):
             return datetime.max.replace(tzinfo=UTC)
+        if value.year == datetime.min.year and offset > timedelta(0):
+            return datetime.min.replace(tzinfo=UTC)
         return super().enforce_timezone(value)
 
     def to_internal_value(self, value: Any) -> datetime:
@@ -664,7 +668,7 @@ class _JsonObject(dict):
 class SendBodyJSONParser(JSONParser):
     # Python's JSON reader keeps only the last value of a repeated key, which can be an earlier send time than the
     # one before it. This parser keeps every value, so ScheduledAtField can refuse the body.
-    def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None):
+    def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None) -> Any:
         encoding = get_encoding(parser_context or {})
         try:
             decoded_stream = cast(IO[str], codecs.getreader(encoding)(stream))

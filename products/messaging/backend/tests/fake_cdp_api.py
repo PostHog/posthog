@@ -241,7 +241,6 @@ class FakeCdpApi:
             return _response(422, {"error": "recipient_unreachable"})
         if issues:
             return _response(400, {"error": _json_dumps(issues)})
-        # cdp-api holds a key per project, so two projects can use the same key.
         key = request.get("idempotency_key")
         claim = (url.split("/api/projects/")[1].split("/")[0], key) if key is not None else None
         fingerprint = _send_fingerprint(url, request) if claim is not None else ""

@@ -1276,6 +1276,13 @@ class TestTransactionalEmail(APIBaseTest):
                         None,
                     ),
                     (
+                        "the_first_minute_there_is_east_of_utc",
+                        "0001-01-01T00:00:00+00:01",
+                        "0001-01-01T00:00:00.000Z",
+                        {"status": "queued", "scheduled_at": None},
+                        None,
+                    ),
+                    (
                         "in_microseconds",
                         "2026-11-20T08:10:00.000001Z",
                         "2026-11-20T08:10:00.001Z",
@@ -1453,22 +1460,29 @@ class TestTransactionalEmail(APIBaseTest):
         assert cdp.received == []
 
     @parameterized.expand([("template_route", "template"), ("template_id", "send_email")])
-    def test_a_retry_refused_for_its_time_leaves_the_key_to_the_first_send(
-        self, mock_post, flag, _capture, _name, route
-    ):
+    def test_a_send_refused_for_its_time_claims_no_key(self, mock_post, flag, _capture, _name, route):
         flag.side_effect = lambda key, *_args, **_kwargs: key != EMAIL_SCHEDULED_SENDS_FLAG
         psak = self._psak_client(["hog_flow:write"])
         key = {"headers": {"Idempotency-Key": "reset:user-1:42"}}
+        fresh_key = {"headers": {"Idempotency-Key": "reset:user-1:43"}}
+        timed = {**self.body, "scheduled_at": "2026-11-20T09:00:00Z"}
 
         with FakeCdpApi().serving(mock_post) as cdp:
             first = self._send(psak, route, self.body, **key)
-            retry = self._send(psak, route, {**self.body, "scheduled_at": "2026-11-20T09:00:00Z"}, **key)
+            retry = self._send(psak, route, timed, **key)
             again = self._send(psak, route, self.body, **key)
+            refused_first = self._send(psak, route, timed, **fresh_key)
+            corrected = self._send(psak, route, self.body, **fresh_key)
 
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
         assert (retry.status_code, retry.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "scheduled_at")
         assert again.json() == {"message_id": first.json()["message_id"], "replayed": True}
-        assert len(cdp.queued) == 1
+        assert (refused_first.status_code, refused_first.json()["attr"]) == (
+            status.HTTP_400_BAD_REQUEST,
+            "scheduled_at",
+        )
+        assert (corrected.status_code, corrected.json()["replayed"]) == (status.HTTP_202_ACCEPTED, False)
+        assert len(cdp.queued) == 2
 
     @parameterized.expand(
         [
