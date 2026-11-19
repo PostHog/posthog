@@ -10186,6 +10186,7 @@ export namespace Schemas {
         rollout_percentage: number;
         variant: string | null;
         aggregation_group_type_index: number | null;
+        description: string | null;
     }>;
     /**
      * A holdout group — a stable slice of users excluded from experiment exposure.
