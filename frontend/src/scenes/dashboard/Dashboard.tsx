@@ -142,6 +142,7 @@ function DashboardScene({
 }): JSX.Element {
     const {
         placement,
+        isPreview,
         dashboard,
         canEditDashboard,
         tiles,
@@ -177,13 +178,21 @@ function DashboardScene({
     useFileSystemLogView({
         type: 'dashboard',
         ref: dashboard?.id,
-        enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
+        enabled: Boolean(
+            !isPreview && currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard
+        ),
     })
 
     useOnMountEffect(() => {
-        reportDashboardViewed()
+        if (!isPreview) {
+            reportDashboardViewed()
+        }
 
         // request cancellation of any running insight, widget and tile group loads when this component is no longer in the dom
+        // A preview shares its logic with the dashboard it opens, whose mount changes the placement before this cleanup runs
+        if (isPreview) {
+            return
+        }
         return () => cancelDashboardRefresh()
     })
 
@@ -234,7 +243,7 @@ function DashboardScene({
                 </Suspense>
             )}
             {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
-            {placement !== DashboardPlacement.Export && (
+            {placement !== DashboardPlacement.Export && !isPreview && (
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
@@ -257,11 +266,7 @@ function DashboardScene({
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
-                <div
-                    className={cn({
-                        '-mt-4': placement == DashboardPlacement.ProjectHomepage,
-                    })}
-                >
+                <div>
                     {dashboardFailedToLoad && (
                         <LemonBanner
                             type="warning"
@@ -280,13 +285,20 @@ function DashboardScene({
                             This dashboard couldn't finish loading.
                         </LemonBanner>
                     )}
-                    <DashboardRetentionBanner />
-                    <DashboardQueryScanBanner />
-                    <DashboardWarehouseSyncBanner />
+                    {!isPreview && (
+                        <>
+                            <DashboardRetentionBanner />
+                            <DashboardQueryScanBanner />
+                            <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
-                        <DashboardFilterBar backTo={backTo} />
-                    </SceneStickyBar>
+                            <SceneStickyBar
+                                showBorderBottom={false}
+                                className={cn('flex gap-2 space-y-0', compact && 'py-1')}
+                            >
+                                <DashboardFilterBar backTo={backTo} />
+                            </SceneStickyBar>
+                        </>
+                    )}
 
                     {placement === DashboardPlacement.Dashboard &&
                         !isSharedView() &&
