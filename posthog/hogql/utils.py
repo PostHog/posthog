@@ -197,7 +197,9 @@ def alias_output_columns(query: ast.SelectQuery | ast.SelectSetQuery, names: Seq
 
     HogQL names some output columns differently from the engine that runs the printed SQL, and keeps
     one column per name when a query reads another by name. A caller that re-selects the output pins
-    the names the engine gives it. Only the first branch of a union names the output.
+    the names the engine gives it. Only the first branch of a union names the output. An item that
+    already outputs its name is kept as it is, because re-aliasing a bare reference to an array join
+    or select alias would define that alias a second time.
 
     A star expands to an unknown number of columns, so a select list holding one, or one whose length
     differs from ``names``, is left unchanged and the call returns False. On a resolved query the alias
@@ -219,6 +221,13 @@ def alias_output_columns(query: ast.SelectQuery | ast.SelectSetQuery, names: Seq
     columns: dict[str, ast.Type] = {}
     aliased: list[ast.Expr] = []
     for item, name in zip(select.select, names):
+        if (isinstance(item, ast.Alias) and item.alias == name and not item.hidden) or (
+            isinstance(item, ast.Field) and item.chain == [name]
+        ):
+            aliased.append(item)
+            if select_type is not None:
+                columns[name] = item.type or ast.UnknownType()
+            continue
         expr = item.expr if isinstance(item, ast.Alias) else item
         if select_type is None:
             aliased.append(ast.Alias(alias=name, expr=expr))

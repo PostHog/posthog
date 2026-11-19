@@ -2823,9 +2823,33 @@ class TestHogqlTableDuplicateOutputColumns:
         assert len(rows) == len(events)
         assert all(row["a.event"] == row["event"] for row in rows)
 
-    # the pinned aliases sit next to the filter and the sort, so a wrong name would redirect them
-    async def test_a_join_filtered_on_a_pinned_column_materializes_the_rows_the_sql_editor_returns(
-        self, ateam: Team, clickhouse_client: ClickHouseClient
+    @pytest.mark.parametrize(
+        ("query", "expected_columns", "expected_row_count"),
+        [
+            # the pinned aliases sit next to the filter and the sort, so a wrong name would redirect them
+            pytest.param(
+                "SELECT a.event, b.event, a.timestamp FROM events AS a JOIN events AS b ON a.team_id = b.team_id "
+                "WHERE b.event = 'test-1' ORDER BY a.timestamp, a.event",
+                ["a.event", "event", "timestamp"],
+                4,
+                id="join-filtered-on-a-pinned-column",
+            ),
+            # the array join already defines `n`, so pinning must not alias it a second time
+            pytest.param(
+                "SELECT n, timestamp FROM events ARRAY JOIN [1, 2] AS n ORDER BY timestamp, n",
+                ["n", "timestamp"],
+                8,
+                id="array-join-alias-selected-by-name",
+            ),
+        ],
+    )
+    async def test_materializes_the_rows_the_sql_editor_returns(
+        self,
+        ateam: Team,
+        clickhouse_client: ClickHouseClient,
+        query: str,
+        expected_columns: list[str],
+        expected_row_count: int,
     ) -> None:
         await generate_test_events_in_clickhouse(
             client=clickhouse_client,
@@ -2836,10 +2860,6 @@ class TestHogqlTableDuplicateOutputColumns:
             count_outside_range=0,
             count_other_team=0,
             table="sharded_events",
-        )
-        query = (
-            "SELECT a.event, b.event, a.timestamp FROM events AS a JOIN events AS b ON a.team_id = b.team_id "
-            "WHERE b.event = 'test-1' ORDER BY a.timestamp, a.event"
         )
 
         @contextlib.asynccontextmanager
@@ -2852,10 +2872,10 @@ class TestHogqlTableDuplicateOutputColumns:
             batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
         editor = await database_sync_to_async(execute_hogql_query)(query, ateam)
 
-        assert [name for name, _ in batches[0][1]] == ["a.event", "event", "timestamp"]
+        assert [name for name, _ in batches[0][1]] == expected_columns
         materialized = [tuple(row.values()) for table, _ in batches for row in table.to_pylist()]
         assert materialized == [tuple(row) for row in editor.results]
-        assert len(materialized) == 4
+        assert len(materialized) == expected_row_count
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
