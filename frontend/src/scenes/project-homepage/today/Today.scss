@@ -179,19 +179,8 @@ html[data-today-transition]::view-transition-new(root) {
     list-style: none;
 
     @container main-content (max-width: 600px) {
-        display: flex;
-        gap: 8px;
-        padding: 0 20px;
-        margin: 0 -20px;
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
-        scroll-padding-inline: 20px;
-        scroll-snap-type: x mandatory;
-        scrollbar-width: none;
-
-        &::-webkit-scrollbar {
-            display: none;
-        }
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-flow: row;
     }
 }
 
@@ -200,16 +189,6 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
-
-    @container main-content (max-width: 600px) {
-        flex: 0 0 clamp(152px, 46%, 200px);
-        min-width: min-content;
-        padding: 10px 12px 8px;
-        scroll-snap-align: start;
-        background: var(--today-card);
-        border: 1px solid var(--today-line);
-        border-radius: 10px;
-    }
 }
 
 .TodayPulse__name {
@@ -222,10 +201,6 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
-
-    @container main-content (max-width: 600px) {
-        contain: inline-size;
-    }
 }
 
 .TodayPulse__suggested {
@@ -258,22 +233,6 @@ html[data-today-transition]::view-transition-new(root) {
     &:focus-visible {
         background: var(--fill-hover);
     }
-
-    @container main-content (max-width: 600px) {
-        padding: 0;
-        margin: 0;
-
-        &:hover,
-        &:focus-visible {
-            background: none;
-        }
-    }
-}
-
-.TodayPulse__metric:has(.TodayPulse__link:hover, .TodayPulse__link:focus-visible) {
-    @container main-content (max-width: 600px) {
-        background: var(--fill-hover);
-    }
 }
 
 .TodayPulse__trigger,
@@ -290,7 +249,6 @@ html[data-today-transition]::view-transition-new(root) {
     @container main-content (max-width: 600px) {
         flex-wrap: wrap;
         row-gap: 0;
-        margin-bottom: 6px;
     }
 }
 
@@ -325,12 +283,6 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
-
-    @container main-content (max-width: 600px) {
-        height: 24px;
-        margin-top: auto;
-        line-height: 24px;
-    }
 }
 
 .TodayPulse__spark {
@@ -339,12 +291,6 @@ html[data-today-transition]::view-transition-new(root) {
     max-width: 160px;
     height: 22px;
     margin-top: 4px;
-
-    @container main-content (max-width: 600px) {
-        max-width: none;
-        height: 24px;
-        margin-top: auto;
-    }
 }
 
 .TodayHome__headingRow {
