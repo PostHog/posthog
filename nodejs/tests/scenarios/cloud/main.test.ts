@@ -1266,11 +1266,18 @@ describe('cloud controller', () => {
             pooler: { ...p.pooler, settings: { ...p.pooler.settings, default_pool_size: 40 } },
         }))
         const monitoredEverySecond = await fingerprintOf((p) => ({ ...p, readerMonitoringIntervalSeconds: 1 }))
+        const monitoredEveryFiveSeconds = await fingerprintOf((p) => ({ ...p, readerMonitoringIntervalSeconds: 5 }))
+        const monitoredEveryFiveSecondsAgain = await fingerprintOf((p) => ({
+            ...p,
+            readerMonitoringIntervalSeconds: 5,
+        }))
 
         expect(first).toMatch(/^[0-9a-f]{64}$/)
         expect(repriced).toBe(first)
         expect(other).not.toBe(first)
         expect(monitoredEverySecond).not.toBe(first)
+        expect(monitoredEveryFiveSeconds).not.toBe(monitoredEverySecond)
+        expect(monitoredEveryFiveSecondsAgain).toBe(monitoredEveryFiveSeconds)
     })
 
     it.each<[string, (fake: FakeCloud) => void, (volumeId: string) => unknown]>([
