@@ -131,7 +131,7 @@ export function TileContextMenu({ actions, children }: { actions: TileAction[]; 
     }
     return (
         <ContextMenu>
-            <ContextMenuTrigger className="contents" render={<div />}>
+            <ContextMenuTrigger render={<div className="DashboardV2__menu-trigger contents" />}>
                 {children}
             </ContextMenuTrigger>
             <ContextMenuContent>
