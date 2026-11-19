@@ -127,7 +127,7 @@ class TestPlanLead(SimpleTestCase):
     @parameterized.expand(
         [
             ("resolved_step", "resolved", None, PlanStepState.MERGED),
-            ("merged_pr_before_the_webhook_resolves", "ready", "merged", PlanStepState.MERGED),
+            ("reopened_step_that_keeps_its_merged_pr", "ready", "merged", PlanStepState.WAITING),
             ("archived_step", "suppressed", "closed", PlanStepState.DISMISSED),
             ("open_pr", "ready", "open", PlanStepState.IN_REVIEW),
             ("closed_pr_on_a_live_step", "ready", "closed", PlanStepState.WAITING),

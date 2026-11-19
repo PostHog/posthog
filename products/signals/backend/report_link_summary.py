@@ -100,7 +100,9 @@ _STRIP_ORDER: tuple[ReportLinkKind, ...] = (
 
 
 def plan_step_state(*, status: str, pr_state: str | None) -> PlanStepState:
-    if status in _MERGED_STATUSES or pr_state == SignalReportAssignment.PrState.MERGED:
+    """The report's status decides whether a step is done. A merged pull request alone does not: a
+    person can reopen a step after its pull request merged, and the step keeps that pull request."""
+    if status in _MERGED_STATUSES:
         return PlanStepState.MERGED
     if status in _DISMISSED_STATUSES:
         return PlanStepState.DISMISSED
