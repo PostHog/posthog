@@ -126,14 +126,29 @@ pub async fn record_issue_change<'c, E>(
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
+    record_issue_change_with_id(executor, Uuid::now_v7(), issue, change, snapshot, exception).await
+}
+
+pub async fn record_issue_change_with_id<'c, E>(
+    executor: E,
+    id: Uuid,
+    issue: &Issue,
+    change: &IssueChange,
+    snapshot: &IssueSnapshot,
+    exception: &ExceptionRef,
+) -> Result<(), UnhandledError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
     sqlx::query(
         r#"
         INSERT INTO posthog_errortrackingissuechange
             (id, team_id, issue_id, kind, data, snapshot, operation_id, actor_type, event_uuid, event_timestamp)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ingestion', $8, $9)
+        ON CONFLICT (id) DO NOTHING
         "#,
     )
-    .bind(Uuid::now_v7())
+    .bind(id)
     .bind(issue.team_id)
     .bind(issue.id)
     .bind(change.kind())

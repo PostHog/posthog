@@ -2,22 +2,17 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use common_redis::Client;
-use common_types::format::parse_datetime_assuming_utc;
-use sqlx::PgPool;
 use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::{send_issue_spiking_notification, Issue};
+use crate::issue_resolution::{send_issue_spiking_notification, Issue, SpikingIssue};
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_FETCH_BUCKETS_ERRORS, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
     SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
-};
-use crate::modes::processing::issue_changes::{
-    load_assignments, record_issue_change, ExceptionRef, IssueChange, IssueSnapshot,
 };
 use crate::modes::processing::redis_heal::{heal_on_connection_error, HealGate};
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
@@ -43,16 +38,6 @@ fn team_issue_set_key(team_id: i32, timestamp: &str) -> String {
 
 fn cooldown_key(issue_id: &Uuid) -> String {
     format!("spike-cooldown:{issue_id}")
-}
-
-#[derive(Debug, Clone)]
-pub struct SpikingIssue {
-    pub issue: Issue,
-    pub props: ProcessedExceptionProperties,
-    pub event_uuid: Uuid,
-    pub event_timestamp: String,
-    pub computed_baseline: f64,
-    pub current_bucket_value: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -325,26 +310,38 @@ async fn emit_spiking_events(
         return;
     }
 
-    if !context.config.issue_change_log_disabled {
-        if let Err(e) = record_spiking_changes(&context.posthog_pool, &acquired_locks).await {
-            warn!("Failed to record spiking issue changes: {e}");
+    let change_ids = if context.config.issue_change_log_enabled {
+        let cooldowns: Vec<_> = acquired_locks
+            .iter()
+            .map(|spike| {
+                (
+                    spike.issue.id,
+                    team_configs[&spike.issue.team_id].snooze_duration_seconds,
+                )
+            })
+            .collect();
+        match spike_change_ids(&*context.issue_buckets_redis_client, &cooldowns).await {
+            Ok(ids) => ids.into_iter().map(Some).collect(),
+            Err(error) => {
+                warn!("Failed to reserve spike change ids: {error}");
+                let keys = acquired_locks
+                    .iter()
+                    .map(|spike| cooldown_key(&spike.issue.id))
+                    .collect();
+                if let Err(error) = context.issue_buckets_redis_client.batch_del(keys).await {
+                    warn!("Failed to release spike cooldown locks: {error}");
+                }
+                return;
+            }
         }
-    }
+    } else {
+        vec![None; acquired_locks.len()]
+    };
 
     // Publish spike side effects out of the processing hot path.
     let mut failed_keys = Vec::new();
-    for spike in &acquired_locks {
-        if let Err(e) = send_issue_spiking_notification(
-            context,
-            &spike.issue,
-            spike.props.clone(),
-            spike.event_uuid,
-            &spike.event_timestamp,
-            spike.computed_baseline,
-            spike.current_bucket_value as f64,
-        )
-        .await
-        {
+    for (spike, change_id) in acquired_locks.iter().zip(change_ids) {
+        if let Err(e) = send_issue_spiking_notification(context, spike, change_id).await {
             warn!("Failed to publish spike notification: {e}");
             failed_keys.push(cooldown_key(&spike.issue.id));
         }
@@ -361,43 +358,39 @@ async fn emit_spiking_events(
     }
 }
 
-async fn record_spiking_changes(
-    pool: &PgPool,
-    spikes: &[SpikingIssue],
-) -> Result<(), UnhandledError> {
-    let issue_ids: Vec<Uuid> = spikes.iter().map(|spike| spike.issue.id).collect();
-    let mut txn = pool.begin().await?;
-    let assignments = load_assignments(&mut *txn, &issue_ids).await?;
-    for spike in spikes {
-        let Ok(timestamp) = parse_datetime_assuming_utc(&spike.event_timestamp) else {
-            warn!(
-                "Skipping spiking change for issue {}: unparseable event timestamp",
-                spike.issue.id
-            );
-            continue;
-        };
-        record_issue_change(
-            &mut *txn,
-            &spike.issue,
-            &IssueChange::Spiking {
-                computed_baseline: spike.computed_baseline,
-                current_bucket_value: spike.current_bucket_value,
-            },
-            // Spike detection has no per-fingerprint first sighting, so this uses the issue's creation time.
-            &IssueSnapshot::of(
-                &spike.issue,
-                assignments.get(&spike.issue.id),
-                spike.issue.created_at,
-            ),
-            &ExceptionRef {
-                uuid: spike.event_uuid,
-                timestamp,
-            },
-        )
-        .await?;
-    }
-    txn.commit().await?;
-    Ok(())
+fn change_cooldown_key(issue_id: &Uuid) -> String {
+    format!("spike-change-cooldown:{issue_id}")
+}
+
+async fn spike_change_ids(
+    redis: &(dyn Client + Send + Sync),
+    cooldowns: &[(Uuid, usize)],
+) -> Result<Vec<Uuid>, UnhandledError> {
+    let items: Vec<_> = cooldowns
+        .iter()
+        .map(|(issue_id, ttl)| {
+            (
+                change_cooldown_key(issue_id),
+                Uuid::now_v7().to_string(),
+                *ttl,
+            )
+        })
+        .collect();
+    let keys = items.iter().map(|(key, _, _)| key.clone()).collect();
+    redis.batch_set_nx_ex(items).await?;
+    // Kafka retries release the delivery lock, but keep the change identity for the snooze window.
+    let ids = redis.get_multiple(keys).await?;
+    ids.into_iter()
+        .map(|id| {
+            id.as_deref()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .and_then(|value| Uuid::parse_str(value).ok())
+                .filter(|id| !id.is_nil())
+                .ok_or_else(|| {
+                    UnhandledError::Other("Missing or invalid spike change id".to_string())
+                })
+        })
+        .collect()
 }
 
 fn get_bucket_timestamps(now: DateTime<Utc>) -> Vec<String> {
@@ -693,61 +686,35 @@ mod tests {
         assert!(ops.contains(&"batch_del".to_string()));
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn records_spiking_changes_with_assignee_and_exception(db: PgPool) {
-        let spike = |team_id: i32| SpikingIssue {
-            issue: Issue {
-                id: Uuid::now_v7(),
-                team_id,
-                status: crate::issue_resolution::IssueStatus::Active,
-                severity: None,
-                name: Some("TypeError".to_string()),
-                description: None,
-                created_at: Utc::now(),
-            },
-            props: processed_properties(Uuid::now_v7()),
-            event_uuid: Uuid::now_v7(),
-            event_timestamp: "2026-11-18T10:00:00Z".to_string(),
-            computed_baseline: 12.5,
-            current_bucket_value: 140,
-        };
-        let assigned = spike(1);
-        let unparseable = SpikingIssue {
-            event_timestamp: "not a timestamp".to_string(),
-            ..spike(1)
-        };
-        sqlx::query(
-            "INSERT INTO posthog_errortrackingissueassignment (id, issue_id, user_id, created_at) VALUES ($1, $2, 42, NOW())",
-        )
-        .bind(Uuid::now_v7())
-        .bind(assigned.issue.id)
-        .execute(&db)
-        .await
-        .unwrap();
-
-        record_spiking_changes(&db, &[assigned.clone(), unparseable])
+    #[tokio::test]
+    async fn kafka_retries_keep_the_change_identity_for_the_cooldown() {
+        let issue_id = Uuid::now_v7();
+        let change_id = Uuid::now_v7();
+        let key = change_cooldown_key(&issue_id);
+        let mut redis = MockRedisClient::new();
+        redis.set_nx_ex_ret(&key, Ok(false));
+        redis.mget_ret(&key, Some(change_id.to_string().into_bytes()));
+        let cooldowns = [(issue_id, 600)];
+        assert_eq!(
+            spike_change_ids(&redis, &cooldowns).await.unwrap(),
+            vec![change_id]
+        );
+        redis
+            .batch_del(vec![cooldown_key(&issue_id)])
             .await
             .unwrap();
+        assert_eq!(
+            spike_change_ids(&redis, &cooldowns).await.unwrap(),
+            vec![change_id]
+        );
+    }
 
-        let rows: Vec<(Uuid, String, serde_json::Value, serde_json::Value, Uuid)> = sqlx::query_as(
-            "SELECT issue_id, kind, data, snapshot, event_uuid FROM posthog_errortrackingissuechange",
-        )
-        .fetch_all(&db)
-        .await
-        .unwrap();
-        assert_eq!(rows.len(), 1);
-        let (issue_id, kind, data, snapshot, event_uuid) = &rows[0];
-        assert_eq!(*issue_id, assigned.issue.id);
-        assert_eq!(kind, "spiking");
-        assert_eq!(
-            *data,
-            serde_json::json!({"computed_baseline": 12.5, "current_bucket_value": 140})
-        );
-        assert_eq!(
-            snapshot["assignee"],
-            serde_json::json!({"type": "user", "id": "42"})
-        );
-        assert_eq!(*event_uuid, assigned.event_uuid);
+    #[tokio::test]
+    async fn missing_change_identity_is_an_error() {
+        let redis = MockRedisClient::new();
+        assert!(spike_change_ids(&redis, &[(Uuid::now_v7(), 600)])
+            .await
+            .is_err());
     }
 
     fn bytes(v: i64) -> Vec<u8> {

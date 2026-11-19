@@ -21,6 +21,7 @@ pub mod config;
 mod consumer_loop;
 mod context;
 mod handler;
+mod issue_changes;
 mod issue_handler;
 pub mod rate_limit;
 pub mod temporal;
