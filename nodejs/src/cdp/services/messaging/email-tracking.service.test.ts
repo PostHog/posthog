@@ -269,6 +269,11 @@ describe('EmailTrackingService', () => {
                     '<a href=https://example.com/it\'s ses:tags="phl:0">Bob\'s</a>',
                 ],
                 [
+                    "an unquoted href holding =' and a >",
+                    "<a href=https://example.com/?q='a>Bob's</a>",
+                    '<a href=https://example.com/?q=\'a ses:tags="phl:0">Bob\'s</a>',
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -295,7 +300,7 @@ describe('EmailTrackingService', () => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
                 const out = addTrackingToEmail(html, inv, signer, false, 'ses')
-                expect(out).toContain('ses:no-track')
+                expect(out).toContain(' ses:no-track>x</a>')
                 expect(out).not.toContain('ses:tags')
                 // Opting links out of click tracking keeps the open pixel.
                 expect(out).toContain('ph_id=')
