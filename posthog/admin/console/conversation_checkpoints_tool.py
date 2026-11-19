@@ -142,7 +142,7 @@ class ConversationCheckpointsTool(ConsoleTool):
     key = TOOL_KEY
     title = "AI conversation checkpoints"
     owner = None
-    group = "Data"
+    group = "AI"
     description = "Compacts the stored checkpoints of PostHog AI conversations."
 
     def page(self, request: HttpRequest) -> Page:
