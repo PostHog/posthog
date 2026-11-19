@@ -2,6 +2,7 @@ import time
 import datetime
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -10,9 +11,13 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
+from parameterized import parameterized
+from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -22,14 +27,17 @@ from posthog.auth import (
 )
 from posthog.helpers.two_factor_session import (
     TWO_FACTOR_ENFORCEMENT_FROM_DATE,
+    TWO_FACTOR_VERIFIED_SESSION_KEY,
     clear_two_factor_session_flags,
     is_two_factor_session_expired,
     is_two_factor_verified_in_session,
     set_two_factor_verified_in_session,
 )
 from posthog.models import Organization, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import hash_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 
 
 class TestTwoFactorSessionUtils(TestCase):
@@ -688,3 +696,150 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         response = client.post("/api/login/token/", {"token": "abcd2345"})
         self.assertEqual(response.status_code, 400, "Backup codes have their own rate limit")
+
+
+class TestTwoFactorPolicyOfTheTargetOrganization(APIBaseTest):
+    """The member has no 2FA, belongs to an organization that requires it, and keeps another one current."""
+
+    def setUp(self):
+        super().setUp()
+        self.strict_organization, _, self.strict_team = Organization.objects.bootstrap(self.user, name="Strict")
+        self.strict_organization.enforce_2fa = True
+        self.strict_organization.save()
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+        session.save()
+
+    def _assert_two_factor_setup_required(self, response) -> None:
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["code"], "two_factor_setup_required")
+
+    def _mint_key(self, team: Team) -> str:
+        return mint_personal_api_key(
+            self.user,
+            label="Key",
+            scopes=["dashboard:read"],
+            teams=AccessibleTeams.for_user(self.user, [team.id]),
+        ).value
+
+    @parameterized.expand(
+        [
+            ("project route", "/api/environments/{team}/dashboards/"),
+            ("project object", "/api/environments/{team}/"),
+            ("organization route", "/api/organizations/{organization}/members/"),
+            ("organization object", "/api/organizations/{organization}/"),
+            ("organization object action", "/api/organizations/{organization}/teams/data_freshness/"),
+        ]
+    )
+    def test_session_request_follows_the_target_organization(self, _name: str, path: str) -> None:
+        response = self.client.get(path.format(team=self.strict_team.id, organization=self.strict_organization.id))
+
+        self._assert_two_factor_setup_required(response)
+
+    def test_organization_object_write_follows_the_target_organization(self) -> None:
+        response = self.client.post(f"/api/organizations/{self.strict_organization.id}/request_ai_access/")
+
+        self._assert_two_factor_setup_required(response)
+
+    def test_session_request_to_the_current_organization_is_allowed(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/dashboards/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def test_verified_session_reaches_the_target_organization(self) -> None:
+        TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        session = self.client.session
+        session[TWO_FACTOR_VERIFIED_SESSION_KEY] = True
+        session.save()
+
+        response = self.client.get(f"/api/environments/{self.strict_team.id}/dashboards/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def test_non_member_gets_the_same_response_whatever_the_organization_policy(self) -> None:
+        responses = []
+        for enforce_2fa in (True, False):
+            organization = Organization.objects.create(name="Outside", enforce_2fa=enforce_2fa)
+            response = self.client.get(f"/api/organizations/{organization.id}/projects/")
+            responses.append((response.status_code, response.json()))
+
+        self.assertEqual(responses[0], responses[1])
+
+    def test_personal_api_key_request_has_no_two_factor_check(self) -> None:
+        value = self._mint_key(self.strict_team)
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/environments/{self.strict_team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {value}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @parameterized.expand([("a project",), ("the organization",), ("every organization",)])
+    def test_personal_api_key_creation_follows_the_target_organization(self, reach: str) -> None:
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "Key",
+                "scopes": ["dashboard:read"],
+                "scoped_teams": [self.strict_team.id] if reach == "a project" else [],
+                "scoped_organizations": [str(self.strict_organization.id)] if reach == "the organization" else [],
+            },
+        )
+
+        self._assert_two_factor_setup_required(response)
+        self.assertFalse(PersonalAPIKey.objects.filter(user=self.user).exists())
+
+    def test_personal_api_key_creation_for_the_current_organization_is_allowed(self) -> None:
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "Key", "scopes": ["dashboard:read"], "scoped_teams": [self.team.id], "scoped_organizations": []},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    def test_personal_api_key_creation_ignores_a_listed_organization_its_projects_exclude(self) -> None:
+        # Each scope list limits the key on its own, so this key reaches only the current organization.
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "Key",
+                "scopes": ["dashboard:read"],
+                "scoped_teams": [self.team.id],
+                "scoped_organizations": [str(self.organization.id), str(self.strict_organization.id)],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    def test_personal_api_key_scope_change_follows_the_target_organization(self) -> None:
+        self._mint_key(self.team)
+        key = PersonalAPIKey.objects.get(user=self.user)
+
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}/", {"scoped_teams": [self.strict_team.id]})
+
+        self._assert_two_factor_setup_required(response)
+        key.refresh_from_db()
+        self.assertEqual(key.scoped_teams, [self.team.id])
+
+    def test_personal_api_key_roll_follows_the_target_organization(self) -> None:
+        self._mint_key(self.strict_team)
+        key = PersonalAPIKey.objects.get(user=self.user)
+
+        response = self.client.post(f"/api/personal_api_keys/{key.id}/roll/")
+
+        self._assert_two_factor_setup_required(response)
+        self.assertEqual(PersonalAPIKey.objects.get(user=self.user).secure_value, key.secure_value)
+
+    def test_cli_authorization_follows_the_target_organization(self) -> None:
+        user_code = self.client.post("/api/cli-auth/device-code/").json()["user_code"]
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/", {"user_code": user_code, "project_id": self.strict_team.id}
+        )
+
+        self._assert_two_factor_setup_required(response)
+        self.assertFalse(PersonalAPIKey.objects.filter(user=self.user).exists())
