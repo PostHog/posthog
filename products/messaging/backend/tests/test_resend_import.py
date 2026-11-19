@@ -625,6 +625,20 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         )
         assert preferences["Happy@Example.com"] == {"$all": "OPTED_OUT"}
 
+    def test_a_contact_id_cannot_reach_another_resend_endpoint(self) -> None:
+        crafted = "x/../../api-keys"
+        self.resend.data["contacts"] = [{**self.resend.data["contacts"][0], "id": crafted}]
+
+        run = runs.start_run(
+            self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "contact_properties"], API_KEY, self.user.id
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/contacts/x%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert not any(call.endswith("api-keys") and "%2F" not in call for call in self.resend.calls)
+
     @parameterized.expand([("properties_defined", True), ("no_properties_defined", False)])
     def test_contact_properties_fill_only_what_the_person_lacks(self, _name: str, defined: bool) -> None:
         if not defined:

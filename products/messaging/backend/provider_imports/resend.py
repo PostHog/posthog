@@ -453,7 +453,7 @@ def _fetch_contact_properties(
             if not contact_id:
                 continue
             try:
-                properties = client.get(f"/contacts/{quote(str(contact_id))}").get("properties")
+                properties = client.get(f"/contacts/{quote(str(contact_id), safe='')}").get("properties")
             except ResendAPIError as e:
                 # The contact was deleted after the page listed it.
                 if e.status_code == 404:
