@@ -1147,7 +1147,8 @@ _ATTESTED_ROUTING_CASES = [
     ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
     (
         "proven_by_an_issuer_entry",
-        _proof_policy("^products/", pin=f"issuer: {_PROOF_ISSUER}"),
+        "deny:\n  stamphog_policy:\n    match:\n      extend_paths: ['^tools/change-prover/']\n"
+        + _proof_policy("^products/", pin=f"issuer: {_PROOF_ISSUER}"),
         _proof_check(),
         {},
         [_STAMPHOG_APPROVED, _POLL],
