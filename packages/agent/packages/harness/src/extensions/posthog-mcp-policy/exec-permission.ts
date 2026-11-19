@@ -19,12 +19,7 @@ import { z } from "zod/v4";
  */
 const POSTHOG_SERVER_PREFIX = "^mcp__posthog(?:_[^_]+)*__";
 
-/**
- * Dispatchers that can write, so the permission regex gates their sub-tools.
- * A connection that splits writes lists `exec-read` and `exec-write` instead
- * of `exec`; the server refuses every write on `exec-read`, so only usage
- * tracking needs to recognise it.
- */
+/** `exec-read` is left out: the server refuses every write on it. */
 export const POSTHOG_GATED_EXEC_TOOLS = ["exec", "exec-write"] as const;
 
 const POSTHOG_EXEC_TOOL_RE = new RegExp(
@@ -100,6 +95,13 @@ export function isPostHogExecTool(toolName: string): boolean {
 
 export function isPostHogDispatcherTool(toolName: string): boolean {
   return POSTHOG_DISPATCHER_TOOL_RE.test(toolName);
+}
+
+/** `exec-read` and `exec-write` replace `exec` on a split connection, so a permission rule written for `exec` covers them. */
+export function postHogExecRuleName(toolName: string): string | undefined {
+  return isPostHogDispatcherTool(toolName)
+    ? toolName.replace(/-(?:read|write)$/, "")
+    : undefined;
 }
 
 export function isPostHogExecDescriptor(descriptor: {

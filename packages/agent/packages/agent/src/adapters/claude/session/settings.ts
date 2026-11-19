@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { PermissionRuleValue } from "@anthropic-ai/claude-agent-sdk";
+import { postHogExecRuleName } from "@posthog/harness/extensions/posthog-mcp-policy";
 import { minimatch } from "minimatch";
 import { AsyncMutex } from "../../../utils/async-mutex";
 import { MACHINE_AUTH_STRIPPED_KEYS } from "../machine-auth";
@@ -107,7 +108,8 @@ function matchesRule(
     (rule.toolName === "Bash" && toolName === acpToolNames.bash) ||
     (rule.toolName === "Edit" && FILE_EDITING_TOOLS.includes(toolName)) ||
     (rule.toolName === "Read" && FILE_READING_TOOLS.includes(toolName)) ||
-    (rule.toolName === toolName && !rule.argument);
+    (rule.toolName === toolName && !rule.argument) ||
+    (rule.toolName === postHogExecRuleName(toolName) && !rule.argument);
 
   if (!ruleAppliesToTool) {
     return false;
