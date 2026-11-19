@@ -2,6 +2,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { liftStopReasonFromOutputChoices } from './stop-reason'
+import { readToolState } from './tool-state'
 import { OtelLibraryMiddleware } from './types'
 
 const LOGFIRE_STRIP_KEYS = [
@@ -16,31 +17,6 @@ const LOGFIRE_STRIP_KEYS = [
 
 const TOOL_ARGUMENT_KEYS = ['gen_ai.tool.call.arguments', 'tool_arguments']
 const TOOL_RESULT_KEYS = ['gen_ai.tool.call.result', 'tool_response']
-// Match the other OTel JSON parsing limits to bound ingestion-worker allocations.
-const MAX_TOOL_STATE_LENGTH = 500_000
-
-function readToolState(props: NonNullable<PluginEvent['properties']>, keys: string[]): unknown {
-    for (const key of keys) {
-        const value = props[key]
-        if (value === undefined) {
-            continue
-        }
-        if (typeof value !== 'string') {
-            return typeof value === 'object' && value !== null ? value : String(value)
-        }
-        if (value.length > MAX_TOOL_STATE_LENGTH) {
-            return value
-        }
-        try {
-            const parsed = parseJSON(value)
-            // Conversation normalization accepts containers and strings, but drops scalar primitives.
-            return typeof parsed === 'object' && parsed !== null ? parsed : value
-        } catch {
-            return value
-        }
-    }
-    return undefined
-}
 
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {

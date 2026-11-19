@@ -1,5 +1,6 @@
 import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel/index'
 import { createEvent } from '~/ingestion/pipelines/ai/otel/test-helpers'
+import { MAX_OUTPUT_CHOICES_LENGTH } from '~/ingestion/pipelines/ai/tools'
 
 jest.mock('~/ingestion/pipelines/ai/metrics', () => ({
     aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
@@ -274,31 +275,45 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_output_state']).toEqual(toolResponse)
         })
 
-        it.each([500_000, 500_001])('handles %i-character tool arguments and results', (length) => {
-            const toolArgs = { value: 'x'.repeat(length - JSON.stringify({ value: '' }).length) }
-            const toolResult = [{ value: 'y'.repeat(length - JSON.stringify([{ value: '' }]).length) }]
-            const serializedArgs = JSON.stringify(toolArgs)
-            const serializedResult = JSON.stringify(toolResult)
-            const event = createEvent('$ai_span', {
-                $ai_parent_id: 'parent-1',
-                'logfire.msg': 'tool run',
-                [argumentsKey]: serializedArgs,
-                [resultKey]: serializedResult,
-            })
-            convertOtelEvent(event)
+        const toolArgsAtLimit = { value: 'x'.repeat(MAX_OUTPUT_CHOICES_LENGTH - JSON.stringify({ value: '' }).length) }
+        const toolResultAtLimit = [
+            { value: 'y'.repeat(MAX_OUTPUT_CHOICES_LENGTH - JSON.stringify([{ value: '' }]).length) },
+        ]
+        const oversizedArgs = JSON.stringify({ value: `${toolArgsAtLimit.value}x` })
+        const oversizedResult = JSON.stringify([{ value: `${toolResultAtLimit[0].value}y` }])
 
-            if (length > 500_000) {
-                expect(typeof event.properties!['$ai_input_state']).toBe('string')
-                expect(typeof event.properties!['$ai_output_state']).toBe('string')
-                expect(event.properties!['$ai_input_state']).toBe(serializedArgs)
-                expect(event.properties!['$ai_output_state']).toBe(serializedResult)
-            } else {
-                expect(event.properties!['$ai_input_state']).toEqual(toolArgs)
-                expect(event.properties!['$ai_output_state']).toEqual(toolResult)
+        it.each([
+            {
+                length: MAX_OUTPUT_CHOICES_LENGTH,
+                toolArgs: JSON.stringify(toolArgsAtLimit),
+                toolResult: JSON.stringify(toolResultAtLimit),
+                expectedInput: toolArgsAtLimit,
+                expectedOutput: toolResultAtLimit,
+            },
+            {
+                length: MAX_OUTPUT_CHOICES_LENGTH + 1,
+                toolArgs: oversizedArgs,
+                toolResult: oversizedResult,
+                expectedInput: oversizedArgs,
+                expectedOutput: oversizedResult,
+            },
+        ])(
+            'handles $length-character tool arguments and results',
+            ({ toolArgs, toolResult, expectedInput, expectedOutput }) => {
+                const event = createEvent('$ai_span', {
+                    $ai_parent_id: 'parent-1',
+                    'logfire.msg': 'tool run',
+                    [argumentsKey]: toolArgs,
+                    [resultKey]: toolResult,
+                })
+                convertOtelEvent(event)
+
+                expect(event.properties!['$ai_input_state']).toEqual(expectedInput)
+                expect(event.properties!['$ai_output_state']).toEqual(expectedOutput)
+                expect(event.properties).not.toHaveProperty(argumentsKey)
+                expect(event.properties).not.toHaveProperty(resultKey)
             }
-            expect(event.properties).not.toHaveProperty(argumentsKey)
-            expect(event.properties).not.toHaveProperty(resultKey)
-        })
+        )
 
         it.each([
             ['Sunny, 25°C', 'Sunny, 25°C'],
@@ -348,7 +363,7 @@ describe('pydantic-ai middleware', () => {
     })
 
     describe('mixed tool attribute versions', () => {
-        const oversizedToolState = JSON.stringify({ value: 'x'.repeat(500_000) })
+        const oversizedToolState = JSON.stringify({ value: 'x'.repeat(MAX_OUTPUT_CHOICES_LENGTH) })
 
         it.each([
             [
