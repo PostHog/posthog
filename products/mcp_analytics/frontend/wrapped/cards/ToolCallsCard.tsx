@@ -20,11 +20,21 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                     {formatCallCount(card.total_calls)}
                 </span>
                 <span className="text-2xl font-semibold">times</span>
+                {milestone && (
+                    <span
+                        className="MCPWrapped__sticker absolute -top-7 right-0 rounded-md bg-warning px-2 py-1 font-mono text-xs font-bold uppercase text-black"
+                        title="The largest round number your total passed"
+                    >
+                        {milestone}
+                    </span>
+                )}
             </div>
             {busiestMonth && (
                 <p className="MCPWrapped__rise m-0 text-base">
                     {formatMonth(busiestMonth.month)} was your busiest month, with{' '}
                     {humanFriendlyNumber(busiestMonth.calls)} calls.
+                    {card.growth_multiple !== null &&
+                        ` Calls grew ${card.growth_multiple}× since ${formatMonth(card.months[1]?.month ?? card.months[0].month)}.`}
                 </p>
             )}
             <ol className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label="Tool calls by month">
@@ -52,20 +62,6 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                     </li>
                 ))}
             </ol>
-            {(milestone || card.growth_multiple !== null) && (
-                <div className="MCPWrapped__rise flex flex-wrap gap-1.5">
-                    {milestone && (
-                        <span className="rounded-full bg-white/20 px-2 py-0.5 font-mono text-xs font-semibold">
-                            {milestone}
-                        </span>
-                    )}
-                    {card.growth_multiple !== null && (
-                        <span className="rounded-full bg-white/20 px-2 py-0.5 font-mono text-xs font-semibold">
-                            {card.growth_multiple}× since {formatMonth(card.months[1]?.month ?? card.months[0].month)}
-                        </span>
-                    )}
-                </div>
-            )}
         </WrappedCard>
     )
 }
