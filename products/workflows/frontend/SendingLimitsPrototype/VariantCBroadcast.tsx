@@ -10,6 +10,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { BroadcastShell } from './BroadcastShell'
+import { PrototypeNote } from './PrototypeNote'
 import { ReputationShell } from './ReputationShell'
 import { BOUNCE_LIMIT, SendingState, SurfaceKey, sendDays } from './sendingLimitsPrototypeData'
 import { SetupShell } from './SetupShell'
@@ -237,6 +238,11 @@ export function VariantCBroadcast({ surface, state }: { surface: SurfaceKey; sta
                         </LemonBanner>
                     )}
                     <SendTimeline state={state} />
+                    <PrototypeNote>
+                        Agents create more broadcasts through the broadcasts-create MCP tool than people do in this
+                        wizard, and they never see these hints. The build has to return the same delivery plan and
+                        sample result from the tool.
+                    </PrototypeNote>
                 </>
             }
         />

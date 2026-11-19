@@ -62,7 +62,8 @@ export function SendingLimitsPrototype(): JSX.Element {
 
     const switcherVariants = VARIANTS.map((v) => ({
         key: v.key,
-        label: `${v.key} (${v.name})${VARIANT_USAGE_FLAGS[v.key] ? ` · ${VARIANT_USAGE_FLAGS[v.key]}` : ''}`,
+        label: `${v.key} (${v.name})`,
+        detail: VARIANT_USAGE_FLAGS[v.key],
     }))
 
     return (
