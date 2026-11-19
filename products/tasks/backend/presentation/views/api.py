@@ -3,8 +3,8 @@ import re
 import json
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator, Iterable
-from datetime import datetime
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
+from contextlib import contextmanager
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, quote, urlparse
@@ -41,7 +41,7 @@ from rest_framework.views import APIView
 
 from posthog.schema import QuerySchemaRoot
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
@@ -141,6 +141,7 @@ from products.tasks.backend.facade.streams import (
 )
 from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
+    TASK_RUN_LOG_PAGE_FIELDS,
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
     ModelCatalogueResponseSerializer,
@@ -206,6 +207,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunLogPageResponseSerializer,
+    TaskRunLogsOutput,
     TaskRunLogsQuerySerializer,
     TaskRunLogsView,
     TaskRunPostHogReferencesRequestSerializer,
@@ -384,7 +387,66 @@ TASKS_MCP_AGENT_RUN_START_FLAG = "tasks-mcp-agent-run-start"
 
 
 SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
-SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
+
+TASK_RUN_LOGS_DESCRIPTION = (
+    "Fetch the logs for a task run as JSONL. If the run resumes from "
+    "another (state.resume_from_run_id), each ancestor's log is "
+    "concatenated first (oldest ancestor → ... → this run) so resume "
+    "consumers see a single continuous history. A resumed Pi run "
+    "includes the earlier runs of its task session the same way, each "
+    "preceded by a pi_run_started entry that names its run. For a live "
+    "presence-gated run, the request marks the stream as watched before "
+    "it reads the log, so events after the snapshot reach the live stream. A read with limit, after, "
+    "event_types, exclude_types or output=json does not mark it. Pass tail_bytes to read only "
+    "the latest turns first, add before to page back through older turns, or add start to read every "
+    "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
+    "with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log "
+    "headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, "
+    "event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate "
+    "of a session/update notification, or else its notification method. Pass output=json to read a page as a "
+    "JSON object. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does "
+    "not use."
+)
+TASK_RUN_LOGS_RESPONSES: dict[int, ResponseDeclaration] = {
+    200: OpenApiResponse(
+        response=TaskRunLogPageResponseSerializer,
+        description="Log content as JSONL, or with output=json a JSON object with entries, offset and count",
+    ),
+    404: OpenApiResponse(description="Task run not found"),
+}
+
+
+def _log_types(types: str | None) -> frozenset[str]:
+    if not types:
+        return frozenset()
+    return frozenset(name.strip() for name in types.split(",") if name.strip())
+
+
+def _log_entry_objects(content: str) -> list[object]:
+    entries: list[object] = []
+    for line in content.split("\n"):
+        if line.strip():
+            try:
+                entries.append(json.loads(line))
+            except ValueError:
+                entries.append({"unparseable_line": line})
+    return entries
+
+
+@contextmanager
+def _run_context_denied() -> Iterator[None]:
+    try:
+        yield
+    except tasks_contracts.TaskRunContextUnreadable:
+        raise PermissionDenied("The analytics data in this task run is not available to you.")
+
+
+def _log_filter(query: dict) -> tasks_contracts.TaskRunLogFilter:
+    return tasks_contracts.TaskRunLogFilter(
+        after=query.get("after"),
+        event_types=_log_types(query.get("event_types")),
+        exclude_types=_log_types(query.get("exclude_types")),
+    )
 
 
 def _task_done_response() -> Response:
@@ -2196,6 +2258,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
     _authorized_task_id: str | None = None
+    _sandbox_run_request = False
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
@@ -2364,13 +2427,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 UUID(run_id)
             except (ValueError, TypeError):
                 raise NotFound("Task run not found")
-        if not run_context.is_sandbox_run_request(
+        self._sandbox_run_request = run_context.is_sandbox_run_request(
             request=self.request,
             team_id=self.team_id,
             task_id=task_id,
             run_id=run_id,
             include_resume_sources=is_read_only,
-        ) and not run_context.may_read_task_run_context(
+        )
+        if not self._sandbox_run_request and not run_context.may_read_task_run_context(
             request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
@@ -2381,6 +2445,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise NotFound("Task run not found")
         return task_id
+
+    def _log_context_reader(self) -> Callable[[object], bool] | None:
+        if self._sandbox_run_request:
+            return None
+        return run_context.analytics_context_reader(request=self.request, team_id=self.team_id)
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
@@ -3649,31 +3718,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         query_serializer=TaskRunLogsQuerySerializer,
         extensions={"x-product": "logs"},
-        responses={
-            200: OpenApiResponse(description="Log content in JSONL format"),
-            404: OpenApiResponse(description="Task run not found"),
-        },
+        responses=TASK_RUN_LOGS_RESPONSES,
         summary="Get task run logs",
-        description=(
-            "Fetch the logs for a task run as JSONL. If the run resumes from "
-            "another (state.resume_from_run_id), each ancestor's log is "
-            "concatenated first (oldest ancestor → ... → this run) so resume "
-            "consumers see a single continuous history. A resumed Pi run "
-            "includes the earlier runs of its task session the same way, each "
-            "preceded by a pi_run_started entry that names its run. For a live "
-            "presence-gated run, the request marks the stream as watched before "
-            "it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only "
-            "the latest turns first, add before to page back through older turns, or add start to read every "
-            "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
-            "with different origins do not match. A Pi run returns its full log without the X-Log headers. Pass "
-            "view=thread to drop the duplicate tool response copy that a rendered conversation does not use."
-        ),
+        description=TASK_RUN_LOGS_DESCRIPTION,
+        deprecated=True,
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         return self._logs_response(request, pk)
 
-    @validated_request(query_serializer=TaskRunLogsQuerySerializer, exclude=True)
+    @validated_request(
+        query_serializer=TaskRunLogsQuerySerializer,
+        responses=TASK_RUN_LOGS_RESPONSES,
+        summary="Get task run log entries",
+        description=TASK_RUN_LOGS_DESCRIPTION,
+    )
     @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
     def log_entries(self, request, pk=None, **kwargs):
         return self._logs_response(request, pk)
@@ -3681,14 +3740,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _logs_response(self, request, pk) -> HttpResponse:
         task_id = self._ensure_task_accessible()
         query = request.validated_query_data
+        json_output = query["output"] == TaskRunLogsOutput.JSON
+        page_read = json_output or not query.keys().isdisjoint(TASK_RUN_LOG_PAGE_FIELDS)
         timer = ServerTimingsGathered()
-        with timer("mark_watched"):
-            tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
-        log_slice = None
-        with timer("s3_read"):
-            if "tail_bytes" not in query:
-                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
-            else:
+        if not page_read:
+            with timer("mark_watched"):
+                tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
+        log_headers: dict[str, str] = {}
+        log_page: tasks_contracts.TaskRunLogPageDTO | None = None
+        reader = self._log_context_reader()
+        with timer("s3_read"), _run_context_denied():
+            if "tail_bytes" in query:
                 log_slice = tasks_facade.read_task_run_conversation_log_slice(
                     pk,
                     task_id,
@@ -3696,25 +3758,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     tail_bytes=query["tail_bytes"],
                     before=query.get("before"),
                     start=query.get("start"),
+                    reader=reader,
                 )
                 log_content = log_slice.content if log_slice else None
+                if log_slice is not None and log_slice.sliced:
+                    log_headers = {
+                        "X-Log-Offset": str(log_slice.offset),
+                        "X-Log-Count": str(log_slice.count),
+                        "X-Log-Preamble": str(log_slice.preamble),
+                        "X-Log-Turns-Before": str(log_slice.turns_before),
+                        "X-Log-Origin": log_slice.origin,
+                    }
+            elif page_read or "start" in query:
+                log_page = tasks_facade.read_task_run_conversation_log_page(
+                    pk,
+                    task_id,
+                    self.team_id,
+                    start=query.get("start", 0),
+                    limit=query.get("limit"),
+                    log_filter=_log_filter(query),
+                    reader=reader,
+                )
+                log_content = log_page.content if log_page else None
+                if log_page is not None:
+                    log_headers = {
+                        "X-Log-Offset": str(log_page.offset),
+                        "X-Log-Count": str(log_page.count),
+                        "X-Log-Origin": log_page.origin,
+                    }
+            else:
+                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id, reader=reader)
         if log_content is None:
             raise NotFound()
         if query["view"] == TaskRunLogsView.THREAD:
             with timer("thread_view"):
                 log_content = tasks_facade.thread_view_of_log_content(log_content)
-        response = HttpResponse(log_content, content_type="application/jsonl")
-        if log_slice is not None and log_slice.sliced:
-            response["X-Log-Offset"] = str(log_slice.offset)
-            response["X-Log-Count"] = str(log_slice.count)
-            response["X-Log-Preamble"] = str(log_slice.preamble)
-            response["X-Log-Turns-Before"] = str(log_slice.turns_before)
-            response["X-Log-Origin"] = log_slice.origin
+        if json_output:
+            assert log_page is not None
+            response: HttpResponse = JsonResponse(
+                {"entries": _log_entry_objects(log_content), "offset": log_page.offset, "count": log_page.count}
+            )
+        else:
+            response = HttpResponse(log_content, content_type="application/jsonl")
+        for name, value in log_headers.items():
+            response[name] = value
+        if log_headers:
             # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
             # headers it cannot read looks like the whole log.
-            response["Access-Control-Expose-Headers"] = (
-                "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before, X-Log-Origin"
-            )
+            response["Access-Control-Expose-Headers"] = ", ".join(log_headers)
 
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
@@ -4323,87 +4414,27 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         timer = ServerTimingsGathered()
 
-        with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
+        with timer("s3_read"), _run_context_denied():
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id, reader=self._log_context_reader())
         if log_content is None:
             raise NotFound()
 
-        if not log_content.strip():
-            response = JsonResponse([], safe=False)
-            response["X-Total-Count"] = "0"
-            response["X-Filtered-Count"] = "0"
-            response["X-Matching-Count"] = "0"
-            response["X-Has-More"] = "false"
-            response["Cache-Control"] = "no-cache"
-            response["Server-Timing"] = timer.to_header_string()
-            return response
-
-        # Parse all JSONL entries
-        all_entries = []
-        for line in log_content.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                all_entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-
-        total_count = len(all_entries)
-
-        # Apply filters from validated query params
         params = request.validated_query_data
-        after = params.get("after")
-        event_types_str = params.get("event_types")
-        exclude_types_str = params.get("exclude_types")
-        limit = params.get("limit", 1000)
-        offset = params.get("offset", 0)
-
-        event_types = {t.strip() for t in event_types_str.split(",") if t.strip()} if event_types_str else None
-        exclude_types = {t.strip() for t in exclude_types_str.split(",") if t.strip()} if exclude_types_str else None
-
         with timer("filter"):
-            filtered = []
-            for entry in all_entries:
-                # Filter by timestamp (parse to avoid Z vs +00:00 and fractional second mismatches)
-                if after:
-                    entry_ts = entry.get("timestamp", "")
-                    if not entry_ts:
-                        continue  # Skip entries without timestamps
-                    try:
-                        entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
-                        if entry_dt <= after:
-                            continue
-                    except (ValueError, TypeError):
-                        continue  # Skip entries with unparseable timestamps
+            page = tasks_facade.page_log_objects(
+                log_content,
+                offset=params["offset"],
+                limit=params["limit"],
+                log_filter=_log_filter(params),
+                max_bytes=SESSION_LOG_PAGE_MAX_BYTES,
+            )
 
-                # Determine the event type for filtering
-                event_type = self._get_event_type(entry)
+        has_more = params["offset"] + len(page.entries) < page.matching_count
 
-                if event_types and event_type not in event_types:
-                    continue
-                if exclude_types and event_type in exclude_types:
-                    continue
-
-                filtered.append(entry)
-
-        matching_count = len(filtered)
-
-        page: list = []
-        page_bytes = SESSION_LOG_PAGE_ENVELOPE_BYTES
-        for entry in filtered[offset : offset + limit]:
-            entry_bytes = len(json.dumps(entry)) + SESSION_LOG_PAGE_ENVELOPE_BYTES
-            if page and page_bytes + entry_bytes > SESSION_LOG_PAGE_MAX_BYTES:
-                break
-            page.append(entry)
-            page_bytes += entry_bytes
-
-        has_more = offset + len(page) < matching_count
-
-        response = JsonResponse(page, safe=False)
-        response["X-Total-Count"] = str(total_count)
-        response["X-Filtered-Count"] = str(matching_count)
-        response["X-Matching-Count"] = str(matching_count)
+        response = JsonResponse(page.entries, safe=False)
+        response["X-Total-Count"] = str(page.total_count)
+        response["X-Filtered-Count"] = str(page.matching_count)
+        response["X-Matching-Count"] = str(page.matching_count)
         response["X-Has-More"] = "true" if has_more else "false"
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
@@ -4601,12 +4632,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
         backlog_logs: list[tasks_facade.TaskRunLog] = []
+        reader = self._log_context_reader()
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id) or []
+            with _run_context_denied():
+                backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id, reader=reader) or []
+        else:
+            with _run_context_denied():
+                tasks_facade.check_task_run_history_context(pk, task_id, self.team_id, reader=reader)
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -4842,25 +4878,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
             endpoint="task_run_log",
         )
-
-    @staticmethod
-    def _get_event_type(entry: dict) -> str:
-        """Extract the event type from a log entry for filtering purposes.
-
-        For _posthog/* events, returns the notification method (e.g., '_posthog/console').
-        For session/update events, returns the sessionUpdate value (e.g., 'agent_message_chunk').
-        """
-        notification = entry.get("notification", {})
-        if not isinstance(notification, dict):
-            return ""
-        method = notification.get("method", "")
-
-        if method == "session/update":
-            params = notification.get("params", {})
-            update = params.get("update", {}) if isinstance(params, dict) else {}
-            return str(update.get("sessionUpdate", method)) if isinstance(update, dict) else method
-
-        return method
 
 
 class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

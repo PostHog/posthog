@@ -123374,6 +123374,17 @@ export namespace Schemas {
       artifacts: TaskRunLivingArtifactResponse[];
     }
 
+    export type TaskRunLogPageResponseEntriesItem = { [key: string]: unknown };
+
+    export interface TaskRunLogPageResponse {
+      /** The log entries of the page, oldest first. An entry that is not valid JSON is unparseable_line. */
+      entries: TaskRunLogPageResponseEntriesItem[];
+      /** The index of the first returned entry. */
+      offset: number;
+      /** The number of entries in the log, counting only the matching entries when a filter is given. */
+      count: number;
+    }
+
     export interface TaskRunPostHogReference {
       /**
          * Fallback display name for the referenced object.
@@ -149138,14 +149149,112 @@ export namespace Schemas {
     version?: number;
     };
 
-    export type TasksRunsLogsRetrieveParams = {
+    export type TasksRunsLogEntriesRetrieveParams = {
+    /**
+     * Only return events after this ISO8601 timestamp
+     */
+    after?: string;
     /**
      * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
      * @minimum 0
      */
     before?: number;
     /**
-     * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
+     * Comma-separated list of event types to include
+     * @minLength 1
+     */
+    event_types?: string;
+    /**
+     * Comma-separated list of event types to exclude
+     * @minLength 1
+     */
+    exclude_types?: string;
+    /**
+     * Return at most this many entries from start, which defaults to 0. A page also stops before it passes 16 MiB, so it can hold fewer entries. X-Log-Offset is the index of the first entry, and X-Log-Count is the number of entries, counting only the matching entries when a filter is given. More entries remain while X-Log-Offset plus the number of returned entries is below X-Log-Count. Cannot be combined with tail_bytes or before.
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number;
+    /**
+     * 'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.
+     *
+     * * `jsonl` - jsonl
+     * * `json` - json
+     * @minLength 1
+     */
+    output?: TasksRunsLogEntriesRetrieveOutput;
+    /**
+     * Return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. With tail_bytes, when those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start. With after, event_types or exclude_types, the index counts only the matching entries.
+     * @minimum 0
+     */
+    start?: number;
+    /**
+     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.
+     * @minimum 1
+     */
+    tail_bytes?: number;
+    /**
+     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
+     *
+     * * `full` - full
+     * * `thread` - thread
+     * @minLength 1
+     */
+    view?: TasksRunsLogEntriesRetrieveView;
+    };
+
+    export type TasksRunsLogEntriesRetrieveOutput = typeof TasksRunsLogEntriesRetrieveOutput[keyof typeof TasksRunsLogEntriesRetrieveOutput];
+
+
+    export const TasksRunsLogEntriesRetrieveOutput = {
+      Jsonl: 'jsonl',
+      Json: 'json',
+    } as const;
+
+    export type TasksRunsLogEntriesRetrieveView = typeof TasksRunsLogEntriesRetrieveView[keyof typeof TasksRunsLogEntriesRetrieveView];
+
+
+    export const TasksRunsLogEntriesRetrieveView = {
+      Full: 'full',
+      Thread: 'thread',
+    } as const;
+
+    export type TasksRunsLogsRetrieveParams = {
+    /**
+     * Only return events after this ISO8601 timestamp
+     */
+    after?: string;
+    /**
+     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
+     * @minimum 0
+     */
+    before?: number;
+    /**
+     * Comma-separated list of event types to include
+     * @minLength 1
+     */
+    event_types?: string;
+    /**
+     * Comma-separated list of event types to exclude
+     * @minLength 1
+     */
+    exclude_types?: string;
+    /**
+     * Return at most this many entries from start, which defaults to 0. A page also stops before it passes 16 MiB, so it can hold fewer entries. X-Log-Offset is the index of the first entry, and X-Log-Count is the number of entries, counting only the matching entries when a filter is given. More entries remain while X-Log-Offset plus the number of returned entries is below X-Log-Count. Cannot be combined with tail_bytes or before.
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number;
+    /**
+     * 'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.
+     *
+     * * `jsonl` - jsonl
+     * * `json` - json
+     * @minLength 1
+     */
+    output?: TasksRunsLogsRetrieveOutput;
+    /**
+     * Return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. With tail_bytes, when those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start. With after, event_types or exclude_types, the index counts only the matching entries.
      * @minimum 0
      */
     start?: number;
@@ -149163,6 +149272,14 @@ export namespace Schemas {
      */
     view?: TasksRunsLogsRetrieveView;
     };
+
+    export type TasksRunsLogsRetrieveOutput = typeof TasksRunsLogsRetrieveOutput[keyof typeof TasksRunsLogsRetrieveOutput];
+
+
+    export const TasksRunsLogsRetrieveOutput = {
+      Jsonl: 'jsonl',
+      Json: 'json',
+    } as const;
 
     export type TasksRunsLogsRetrieveView = typeof TasksRunsLogsRetrieveView[keyof typeof TasksRunsLogsRetrieveView];
 

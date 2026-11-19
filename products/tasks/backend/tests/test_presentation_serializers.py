@@ -35,6 +35,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskRunLivingArtifactEditRequestSerializer,
+    TaskRunLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
@@ -227,6 +228,33 @@ class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
     def test_content_source_exclusivity(self, _name: str, data: dict, expected_valid: bool) -> None:
         serializer = TaskRunLivingArtifactCreateRequestSerializer(data=data)
         assert serializer.is_valid() is expected_valid
+
+
+class TestTaskRunLogsQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("start_without_tail_bytes", {"start": "2"}, True),
+            (
+                "filtered_page",
+                {
+                    "start": "2",
+                    "limit": "10",
+                    "after": "2026-01-01T00:00:00Z",
+                    "event_types": "agent_message",
+                    "exclude_types": "tool_call",
+                },
+                True,
+            ),
+            ("limit_with_tail_bytes", {"limit": "10", "tail_bytes": "1"}, False),
+            ("after_with_tail_bytes", {"after": "2026-01-01T00:00:00Z", "tail_bytes": "1"}, False),
+            ("event_types_with_tail_bytes", {"event_types": "agent_message", "tail_bytes": "1"}, False),
+            ("exclude_types_with_tail_bytes", {"exclude_types": "tool_call", "tail_bytes": "1"}, False),
+            ("json_page", {"output": "json", "start": "2", "limit": "10"}, True),
+            ("json_with_tail_bytes", {"output": "json", "tail_bytes": "1"}, False),
+        ]
+    )
+    def test_query_combinations(self, _name: str, data: dict, expected_valid: bool) -> None:
+        assert TaskRunLogsQuerySerializer(data=data).is_valid() is expected_valid
 
 
 class TestTaskRunCreateRequestSerializer(SimpleTestCase):

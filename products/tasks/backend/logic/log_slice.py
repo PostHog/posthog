@@ -2,14 +2,21 @@ import json
 import bisect
 import hashlib
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from datetime import datetime
+from typing import TypeVar
 
 from posthog.dataclasses import frozen
 
 from products.posthog_ai.backend.turn_suggestions.transcript import HumanTurnCounter, human_text, is_turn_text
+from products.tasks.backend.facade.contracts import TaskRunLogFilter, TaskRunLogObjectPageDTO, TaskRunLogPageDTO
 
 TAIL_TURN_SLACK_FACTOR = 4
 START_READ_MAX_BYTES = 8 * 1024 * 1024
+PAGE_MAX_BYTES = 16 * 1024 * 1024
+JSON_PAGE_ENVELOPE_BYTES = 2
+
+T = TypeVar("T")
 
 STATE_METHODS = frozenset({"_posthog/run_started", "_posthog/sdk_session", "session/new"})
 STATE_SESSION_UPDATES = frozenset({"current_mode_update", "available_commands_update"})
@@ -89,20 +96,20 @@ def log_entries(content: str) -> list[str]:
     return [line for line in content.split("\n") if line.strip().startswith("{")]
 
 
+def _entry_object(line: str) -> dict | None:
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
 def log_part(entries: list[str]) -> LogPart:
     return LogPart(summary=summarize_log_part(entries), entries=lambda: entries)
 
 
-def _entry(line: str) -> dict:
-    try:
-        entry = json.loads(line)
-    except ValueError:
-        return {}
-    return entry if isinstance(entry, dict) else {}
-
-
 def _notification(line: str) -> dict:
-    notification = _entry(line).get("notification")
+    notification = (_entry_object(line) or {}).get("notification")
     return notification if isinstance(notification, dict) else {}
 
 
@@ -120,6 +127,58 @@ def _session_update(notification: dict) -> dict:
 def _session_update_type(notification: dict) -> str | None:
     session_update = _session_update(notification).get("sessionUpdate")
     return session_update if isinstance(session_update, str) else None
+
+
+def _entry_type(entry: dict) -> str:
+    """Extract the event type from a log entry for filtering purposes.
+
+    For _posthog/* events, returns the notification method (e.g., '_posthog/console').
+    For session/update events, returns the sessionUpdate value (e.g., 'agent_message_chunk').
+    """
+    notification = entry.get("notification")
+    if not isinstance(notification, dict):
+        return ""
+    method = _method(notification)
+    if method == "session/update":
+        return str(_session_update(notification).get("sessionUpdate", method))
+    return method or ""
+
+
+def _logged_after(entry: dict, after: datetime) -> bool:
+    # Filter by timestamp (parse to avoid Z vs +00:00 and fractional second mismatches)
+    timestamp = entry.get("timestamp", "")
+    if not timestamp:
+        return False  # Skip entries without timestamps
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")) > after
+    except (ValueError, TypeError, AttributeError):
+        return False  # Skip entries with unparseable timestamps
+
+
+def _entry_matches(entry: dict, log_filter: TaskRunLogFilter) -> bool:
+    if log_filter.after is not None and not _logged_after(entry, log_filter.after):
+        return False
+    # Determine the event type for filtering
+    entry_type = _entry_type(entry)
+    if log_filter.event_types and entry_type not in log_filter.event_types:
+        return False
+    return entry_type not in log_filter.exclude_types
+
+
+def _line_matches(line: str, log_filter: TaskRunLogFilter) -> bool:
+    entry = _entry_object(line)
+    return entry is not None and _entry_matches(entry, log_filter)
+
+
+def _within_bytes(items: Iterable[T], size: Callable[[T], int], max_bytes: int) -> list[T]:
+    taken: list[T] = []
+    total = 0
+    for item in items:
+        total += size(item)
+        if taken and total > max_bytes:
+            break
+        taken.append(item)
+    return taken
 
 
 def _is_user_entry(line: str) -> bool:
@@ -341,15 +400,16 @@ class _Chain:
             for local in range(last - 1, -1, -1):
                 yield start + local, entries[local]
 
-    def lines(self, begin: int, end: int) -> list[str]:
-        lines: list[str] = []
+    def lines_forward(self, begin: int, end: int) -> Iterator[str]:
         for part_index, part in enumerate(self._parts):
             start = self.starts[part_index]
             stop = start + part.summary.count
             if stop <= begin or start >= end:
                 continue
-            lines += self._entries(part_index)[max(begin - start, 0) : min(end, stop) - start]
-        return lines
+            yield from self._entries(part_index)[max(begin - start, 0) : min(end, stop) - start]
+
+    def lines(self, begin: int, end: int) -> list[str]:
+        return list(self.lines_forward(begin, end))
 
     def size_after_part_of(self, index: int) -> int:
         """The byte size of the parts that start after the part that holds ``index``."""
@@ -529,6 +589,68 @@ def slice_log_parts_from(
         count=chain.count,
         turns_before=chain.turns_before(start),
     )
+
+
+def _page(
+    lines: Iterable[str], *, offset: int, count: int, limit: int | None, origin: str, max_bytes: int
+) -> TaskRunLogPageDTO:
+    if limit is None:
+        window = list(lines)
+    else:
+        assert limit > 0
+        window = _within_bytes(lines, lambda line: len(line.encode()) + 1, max_bytes)
+    return TaskRunLogPageDTO(content=_join(window), offset=offset, count=count, origin=origin)
+
+
+def page_log_entries(
+    entries: list[str],
+    *,
+    start: int,
+    limit: int | None,
+    log_filter: TaskRunLogFilter,
+    origin: str,
+    max_bytes: int = PAGE_MAX_BYTES,
+) -> TaskRunLogPageDTO:
+    assert start >= 0
+    if log_filter == TaskRunLogFilter():
+        matching = entries
+    else:
+        matching = [line for line in entries if _line_matches(line, log_filter)]
+    offset = min(start, len(matching))
+    end = len(matching) if limit is None else offset + limit
+    return _page(
+        matching[offset:end], offset=offset, count=len(matching), limit=limit, origin=origin, max_bytes=max_bytes
+    )
+
+
+def page_log_parts(
+    parts: Sequence[LogPart], *, start: int, limit: int | None, origin: str, max_bytes: int = PAGE_MAX_BYTES
+) -> TaskRunLogPageDTO:
+    assert start >= 0
+    chain = _Chain(parts)
+    offset = min(start, chain.count)
+    end = chain.count if limit is None else offset + limit
+    return _page(
+        chain.lines_forward(offset, end),
+        offset=offset,
+        count=chain.count,
+        limit=limit,
+        origin=origin,
+        max_bytes=max_bytes,
+    )
+
+
+def page_log_objects(
+    content: str, *, offset: int, limit: int, log_filter: TaskRunLogFilter, max_bytes: int
+) -> TaskRunLogObjectPageDTO:
+    entries = [entry for line in log_entries(content) if (entry := _entry_object(line)) is not None]
+    matching = [entry for entry in entries if _entry_matches(entry, log_filter)]
+    page = _within_bytes(
+        matching[offset : offset + limit],
+        lambda entry: len(json.dumps(entry)) + JSON_PAGE_ENVELOPE_BYTES,
+        max_bytes - JSON_PAGE_ENVELOPE_BYTES,
+    )
+    return TaskRunLogObjectPageDTO(entries=page, total_count=len(entries), matching_count=len(matching))
 
 
 def slice_log_tail(content: str, tail_bytes: int, before: int | None = None) -> LogSlice:

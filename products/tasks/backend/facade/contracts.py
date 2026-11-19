@@ -598,6 +598,10 @@ class TaskAnalysisError(Exception):
     """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
+class TaskRunContextUnreadable(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class TaskValidationError:
     """A structured validation-error payload the presentation layer renders as a 400/404.
@@ -835,6 +839,28 @@ class TaskRunLogSliceDTO:
     turns_before: int = 0
     origin: str = ""
     sliced: bool = True
+
+
+@dataclass(frozen=True)
+class TaskRunLogFilter:
+    after: datetime | None = None
+    event_types: frozenset[str] = frozenset()
+    exclude_types: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class TaskRunLogPageDTO:
+    content: str
+    offset: int
+    count: int
+    origin: str
+
+
+@dataclass(frozen=True)
+class TaskRunLogObjectPageDTO:
+    entries: list[dict]
+    total_count: int
+    matching_count: int
 
 
 @dataclass(frozen=True)

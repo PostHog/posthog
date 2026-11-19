@@ -224,7 +224,6 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -242,6 +241,7 @@ import type {
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
+    TasksRunsLogEntriesRetrieveParams,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -5201,7 +5201,7 @@ const api = {
                     tailBytes?: number
                     before?: number
                     start?: number
-                    view?: TasksRunsLogsRetrieveParams['view']
+                    view?: TasksRunsLogEntriesRetrieveParams['view']
                 }
             ): Promise<{
                 entries: Record<string, any>[]
