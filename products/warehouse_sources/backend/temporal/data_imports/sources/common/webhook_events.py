@@ -56,14 +56,6 @@ def _order(time: Any, rank: Any, arrival: Any) -> tuple[Any, ...]:
     return (time is not None, time, rank or 0, arrival or "")
 
 
-def _content_id(staged: dict[str, Any], row: dict[str, Any]) -> str:
-    # A redelivery of an event without an id has the same payload, which holds its key and change time.
-    digest = staged.get(PAYLOAD_HASH_COLUMN)
-    if digest is None:
-        digest = hashlib.sha256(orjson.dumps(row, option=orjson.OPT_SORT_KEYS, default=str)).hexdigest()
-    return f"sha256:{digest}"
-
-
 def _utc(time: datetime.datetime | None) -> datetime.datetime | None:
     if time is None:
         return None
@@ -79,7 +71,8 @@ def event_rows(table: pa.Table, events: WebhookEvents) -> list[dict[str, Any]]:
             continue
         row = {name: value for name, value in event.row.items() if name not in _STAGING_COLUMNS}
         time = _utc(event.time)
-        event_id = event.event_id or _content_id(staged, row)
+        # A redelivery of an event without an id has the same payload, which holds its key and change time.
+        event_id = event.event_id or f"sha256:{staged[PAYLOAD_HASH_COLUMN]}"
         if event_id in rows:
             continue
         rows[event_id] = {
@@ -96,7 +89,7 @@ def event_rows(table: pa.Table, events: WebhookEvents) -> list[dict[str, Any]]:
     # `complete` can return objects it read again, so the event columns are put back on each one.
     return [
         {**completed, **{name: row[name] for name in WEBHOOK_EVENT_COLUMNS}}
-        for row, completed in zip(ordered, events.complete(ordered))
+        for row, completed in zip(ordered, events.complete(ordered), strict=True)
     ]
 
 

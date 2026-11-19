@@ -82,7 +82,7 @@ class StagedWebhookFile:
 def _arrival_prefix(key: str, last_modified: datetime.datetime | None) -> str:
     # A fixed-width UTC time sorts as text. `~` sorts after it, as the listing puts a file without a time last.
     modified = last_modified.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ") if last_modified else "~"
-    return f"{modified}|{key}"
+    return f"{modified}|{key.rsplit('/', 1)[-1]}"
 
 
 def _webhook_folder(team_id: int, schema_id: str) -> str:

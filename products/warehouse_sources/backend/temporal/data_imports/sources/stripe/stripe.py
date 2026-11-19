@@ -1762,6 +1762,7 @@ def stripe_source(
     use_warehouse_parent: bool = False,
     api_key_provider: Optional[Callable[[], str]] = None,
     include_zero_balance_customers: bool = False,
+    events: Optional[WebhookEvents] = None,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1801,7 +1802,7 @@ def stripe_source(
             # History tables keep every event as its own row; everything else collapses each
             # batch to the latest state per object id and upserts it.
             refetch = WEBHOOK_REFETCH.get(endpoint)
-            events = webhook_events(endpoint)
+            history_events = events
             table_transformer: Callable[[pa.Table], pa.Table]
             if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
                 table_transformer = _webhook_history_table_transformer
@@ -1814,9 +1815,9 @@ def stripe_source(
                     ),
                 )
                 table_transformer = _refetching_webhook_table_transformer(refetcher)
-                if events is not None:
-                    events = dataclasses.replace(
-                        events,
+                if history_events is not None:
+                    history_events = dataclasses.replace(
+                        history_events,
                         complete=lambda rows: [_scrub_client_secrets(obj) for obj in refetcher.complete(rows)],
                     )
             else:
@@ -1825,7 +1826,7 @@ def stripe_source(
             # checked, so a batch that completes objects holds no more rows than a list sync chunk.
             batch_row_limit = STRIPE_CHUNK_SIZE if refetch is not None else DEFAULT_BATCH_ROW_LIMIT
             return webhook_source_manager.get_items(
-                table_transformer=table_transformer, batch_row_limit=batch_row_limit, events=events
+                table_transformer=table_transformer, batch_row_limit=batch_row_limit, events=history_events
             )
 
         return get_rows(

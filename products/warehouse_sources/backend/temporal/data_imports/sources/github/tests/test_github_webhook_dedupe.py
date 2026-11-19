@@ -11,17 +11,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
     EVENT_TIME_COLUMN,
     WEBHOOK_EVENT_COLUMNS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
-    every_event_transformer,
-    latest_event_per_key,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import latest_event_per_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     _make_webhook_dedupe_transformer,
-    webhook_events,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
@@ -249,20 +245,3 @@ def test_read_without_history_keeps_the_latest_job_only() -> None:
 
     assert rows.column("status").to_pylist() == ["completed"]
     assert not set(WEBHOOK_EVENT_COLUMNS) & set(rows.column_names)
-
-
-def test_rerun_attempt_outranks_the_previous_attempts_completion_in_history() -> None:
-    events = webhook_events("workflow_runs")
-    assert events is not None
-    table = pa.table(
-        {
-            "id": [1, 1],
-            "status": ["queued", "completed"],
-            "run_attempt": [2, 1],
-            "updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
-        }
-    )
-
-    rows = every_event_transformer(events)(table)
-
-    assert latest_event_per_key(rows, ["id"]).column("status").to_pylist() == ["queued"]

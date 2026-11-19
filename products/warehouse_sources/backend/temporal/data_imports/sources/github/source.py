@@ -1152,6 +1152,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             incremental_field=inputs.incremental_field,
             reconcile_since=inputs.last_synced_at,
             webhook_source_manager=webhook_source_manager,
+            events=self.webhook_events(inputs.schema_name),
             egress_identity=egress_identity,
             response_name=response_name,
             api_version=self.resolve_api_version(inputs.api_version),

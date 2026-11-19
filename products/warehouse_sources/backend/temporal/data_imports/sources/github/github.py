@@ -1803,11 +1803,6 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
     return transform
 
 
-# A version key that counts re-runs rather than holding a time. A re-run outranks the stages of the attempt before it.
-_ATTEMPT_VERSION_KEY = "run_attempt"
-_STAGES_PER_ATTEMPT = max(_STATUS_STAGE.values()) + 1
-
-
 def _github_time(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value
@@ -1822,24 +1817,23 @@ def _github_time(value: Any) -> datetime | None:
 def webhook_events(endpoint: str) -> WebhookEvents | None:
     """The events of an endpoint that ranks its webhook rows by `version_keys`.
 
-    The change time is the first of the time keys that is set, as the keys run newest first. GitHub
+    The change time is the first of the version keys that is set, as the keys run newest first. GitHub
     sends no event id in the body, so a redelivery is matched by its content.
     """
     endpoint_config = GITHUB_ENDPOINTS.get(endpoint)
     if endpoint_config is None or not endpoint_config.version_keys:
         return None
+    # The reconciliation poll that follows the drain yields rows without the event columns.
+    if endpoint == "workflow_runs" or endpoint_config.webhook_reconcile_lookback_days is not None:
+        return None
     primary_keys = tuple(_normalize_primary_key(endpoint_config.primary_key))
-    time_keys = [key for key in endpoint_config.version_keys if key != _ATTEMPT_VERSION_KEY]
-    ranks_attempts = _ATTEMPT_VERSION_KEY in endpoint_config.version_keys
+    time_keys = endpoint_config.version_keys
 
     def read(staged: dict[str, Any]) -> WebhookEvent | None:
         if any(staged.get(key) is None for key in primary_keys):
             return None
         time = next((t for t in (_github_time(staged.get(key)) for key in time_keys) if t is not None), None)
-        attempt = staged.get(_ATTEMPT_VERSION_KEY) if ranks_attempts else None
-        stage = _STATUS_STAGE.get(staged.get("status") or "", 0)
-        rank = (attempt if isinstance(attempt, int) else 0) * _STAGES_PER_ATTEMPT + stage
-        return WebhookEvent(row=staged, time=time, rank=rank)
+        return WebhookEvent(row=staged, time=time, rank=_STATUS_STAGE.get(staged.get("status") or "", 0))
 
     return WebhookEvents(read=read)
 
@@ -1955,6 +1949,7 @@ def github_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
+    events: WebhookEvents | None = None,
     egress_identity: GithubEgressIdentity | None = None,
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
@@ -2028,9 +2023,7 @@ def github_source(
                 if endpoint_config.version_keys
                 else None
             )
-            webhook_items = webhook_source_manager.get_items(
-                table_transformer=transformer, events=webhook_events(endpoint)
-            )
+            webhook_items = webhook_source_manager.get_items(table_transformer=transformer, events=events)
             if endpoint == "workflow_runs":
                 # The poll runs after the drain, so its completed row lands after the queued
                 # webhook row of the same run and wins the merge.

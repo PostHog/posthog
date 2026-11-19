@@ -1955,6 +1955,33 @@ class TestWebhookEventRows:
         ]
         assert latest_event_per_key(rows, ["id"]).column("status").to_pylist() == ["paid"]
 
+    def test_history_read_reads_a_truncated_invoice_once_for_all_its_events(self) -> None:
+        files = [
+            [
+                _event_row("evt_open", "invoice.finalized", 1700000100, {**_INCOMPLETE_INVOICE, "status": "open"}),
+                _event_row("evt_paid", "invoice.paid", 1700000200, _INCOMPLETE_INVOICE),
+            ]
+        ]
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+
+        result = SourceDriver(StripeSource(), config, webhook_files=files).run(
+            INVOICE_RESOURCE_NAME,
+            lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path)),
+            webhook_history=True,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/invoices/in_1/lines"]
+        assert [
+            (row[EVENT_ID_COLUMN], row[EVENT_TIME_COLUMN], row["status"], len(orjson.loads(row["lines"])["data"]))
+            for row in pa.concat_tables(result.items).to_pylist()
+        ] == [
+            ("evt_open", datetime.fromtimestamp(1700000100, UTC), "open", len(_ALL_LINES)),
+            ("evt_paid", datetime.fromtimestamp(1700000200, UTC), "paid", len(_ALL_LINES)),
+        ]
+
     def test_read_without_history_keeps_the_latest_object_only(self) -> None:
         rows = self._rows(webhook_history=False)
 

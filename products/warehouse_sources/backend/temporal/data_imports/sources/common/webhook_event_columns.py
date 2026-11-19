@@ -4,7 +4,7 @@ They are the contract between the webhook read and the history load. The load dr
 `EVENT_ID_COLUMN` it already holds, and orders the versions of a key by `WEBHOOK_EVENT_ORDER`.
 """
 
-# The vendor's event id. An event without one gets a hash of its key, its change time and its row.
+# The vendor's event id. An event without one gets a hash of its payload as delivered.
 EVENT_ID_COLUMN = "_ph_event_id"
 # When the change happened at the vendor, in UTC. It becomes the version's `valid_from`.
 EVENT_TIME_COLUMN = "_ph_event_time"

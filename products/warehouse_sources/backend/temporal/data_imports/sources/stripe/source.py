@@ -754,6 +754,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
+            events=self.webhook_events(inputs.schema_name),
             api_version=self.resolve_api_version(inputs.api_version),
             team_id=inputs.team_id,
             source_id=inputs.source_id,
