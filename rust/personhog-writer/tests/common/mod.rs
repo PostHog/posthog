@@ -102,8 +102,6 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
         team_id,
         uuid: format!("00000000-0000-0000-0000-{:012}", team_id * 1000 + person_id),
         properties: serde_json::to_vec(&serde_json::json!({"email": "test@example.com"})).unwrap(),
-        properties_last_updated_at: vec![],
-        properties_last_operation: vec![],
         created_at: 1700000000,
         version,
         is_identified: false,

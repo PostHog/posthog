@@ -97,7 +97,15 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
-from products.signals.backend.source_filters import SourceFilterPreviewStatus, compile_source_filter
+from products.signals.backend.source_filters import (
+    SourceFilterPreviewStatus,
+    SourceFilterRunState,
+    SourceKey,
+    compile_source_filter,
+    filter_run_status,
+    filter_state_rows,
+    saved_filter_fingerprint,
+)
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -142,6 +150,7 @@ from .models import (
     SignalReportTrackerIssue,
     SignalReportWorkState,
     SignalSourceConfig,
+    SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -289,12 +298,59 @@ class _SourceConfigField(serializers.JSONField):
 SIGNAL_SOURCE_CONFIG_STATUSES = ["running", "completed", "failed"]
 
 
+class SourceFilterRunStatusSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=SourceFilterRunState.choices,
+        help_text=(
+            "`failing` when the last fetch of this source's records failed because of its saved filter or the "
+            "query it builds. Nothing from the source reaches the inbox until a fetch succeeds, and the next "
+            "successful fetch reads the missed records again. `ok` otherwise."
+        ),
+    )
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the last fetch failed, such as `unknown_field`, `type`, `catalog_missing` or `query_failed`. "
+            "Null unless `state` is `failing`."
+        ),
+    )
+    error_message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A readable explanation of the failure, or the error type for a failed query. It never carries "
+            "record values. Null unless `state` is `failing`."
+        ),
+    )
+    failed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the most recent failure happened. Null unless `state` is `failing`."
+    )
+    unread_since = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Records created since this time wait to be read again once a fetch succeeds. Null when none wait.",
+    )
+    last_success_at = serializers.DateTimeField(
+        allow_null=True, help_text="When a fetch of this source last succeeded with the filter. Null if never."
+    )
+    malformed_count = serializers.IntegerField(
+        help_text=(
+            "Records in the last successful fetch that the filter excluded because a field it reads held a value "
+            "that could not be read."
+        ),
+    )
+
+
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField(
         help_text=(
             "Sync state of the warehouse import behind this source: `running`, `failed`, or "
             "`completed`. Null for a source that imports nothing from the warehouse, for an "
             "import that has never synced, and when the sync state could not be read."
+        ),
+    )
+    filter_status = serializers.SerializerMethodField(
+        help_text=(
+            "How emission last went for this source's saved `hogql_filter`. Null when the source has no saved "
+            "filter, or before the first fetch with it."
         ),
     )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
@@ -323,13 +379,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "status",
+            "filter_status",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status"]
+        read_only_fields = ["id", "created_at", "updated_at", "status", "filter_status"]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Absent key means "not read yet", a `None` value means the read failed.
         self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
+        # Absent key means "not read yet", a `None` value means the read failed.
+        self._filter_state_rows_by_team: dict[int, dict[SourceKey, list[SignalSourceFilterState]] | None] = {}
 
     @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
@@ -352,6 +411,31 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
+
+    @extend_schema_field(SourceFilterRunStatusSerializer(allow_null=True))
+    def get_filter_status(self, obj: SignalSourceConfig) -> dict | None:
+        # A removed filter leaves its state rows behind, so only a source that has a filter now reports one.
+        if not isinstance(obj.config, dict) or HOGQL_FILTER_KEY not in obj.config:
+            return None
+        # DRF reuses one child serializer across a list, so the first row reads every row's state in one query.
+        if obj.team_id not in self._filter_state_rows_by_team:
+            self._filter_state_rows_by_team[obj.team_id] = self._read_filter_state_rows(obj.team_id)
+        rows_by_source = self._filter_state_rows_by_team[obj.team_id]
+        if rows_by_source is None:
+            return None
+        rows = rows_by_source.get(SourceKey(source_product=obj.source_product, source_type=obj.source_type), [])
+        # Only results from the filter saved now count. An edited filter reports nothing until it has run.
+        run_status = filter_run_status(rows, filter_fingerprint=saved_filter_fingerprint(obj.config[HOGQL_FILTER_KEY]))
+        return SourceFilterRunStatusSerializer(run_status).data if run_status else None
+
+    @staticmethod
+    def _read_filter_state_rows(team_id: int) -> dict[SourceKey, list[SignalSourceFilterState]] | None:
+        # Like the sync status, a failed warehouse read reports no filter status and keeps the response a 200.
+        try:
+            return filter_state_rows(team_id)
+        except Exception as exc:
+            capture_exception(exc)
+            return None
 
     def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
         """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
@@ -2270,6 +2354,36 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
         choices=AutonomyPriority.choices,
         help_text="New report priority, from P0 (critical) to P4 (minimal).",
     )
+
+
+class SignalReportActionabilityUpdateSerializer(serializers.Serializer):
+    # A string like the flat `actionability` field, for the reason `ReportActionabilityDecisionSerializer` gives.
+    actionability = serializers.CharField(
+        required=False,
+        help_text=(
+            "`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current "
+            "value. Required when the report has no actionability yet."
+        ),
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to "
+            "keep the current value."
+        ),
+    )
+
+    def validate_actionability(self, value: str) -> str:
+        if value not in {choice.value for choice in ActionabilityChoice}:
+            raise serializers.ValidationError(
+                "Use `immediately_actionable`, `requires_human_input`, or `not_actionable`."
+            )
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if "actionability" not in attrs and "already_addressed" not in attrs:
+            raise serializers.ValidationError("Set `actionability`, `already_addressed`, or both.")
+        return attrs
 
 
 class SignalReportRepositoryUpdateSerializer(serializers.Serializer):
