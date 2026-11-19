@@ -259,10 +259,11 @@ def classify_if_due(hog_function: HogFunction) -> None:
     content = content_of(hog_function, hog_function.template)
     runtime_content = _with_secret_inputs(hog_function, content)
     rule_hits = rules.matched_rules(runtime_content)
-    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits):
+    outbound_call = rules.has_outbound_call(runtime_content)
+    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits, outbound_call):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, runtime_content, rule_hits), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits, outbound_call), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -279,18 +280,12 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
     runtime_content = _with_secret_inputs(hog_function, content)
-    return _score(hog_function, content, runtime_content, rules.matched_rules(runtime_content))
+    return _score(hog_function, content, rules.matched_rules(runtime_content), rules.has_outbound_call(runtime_content))
 
 
 def _score(
-    hog_function: HogFunction,
-    content: HogFunctionContent,
-    runtime_content: HogFunctionContent,
-    rule_hits: tuple[rules.Rule, ...],
+    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...], outbound_call: bool
 ) -> ScoredHogFunction:
-    """Jev reads the public `content`. The checks that read what runs use `runtime_content`, which holds the
-    decrypted secret inputs."""
-    outbound_call = rules.has_outbound_call(runtime_content)
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
@@ -331,11 +326,11 @@ def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
     return secret_inputs if isinstance(secret_inputs, dict) else {}
 
 
-def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...]) -> str:
-    """The model sees only the public content, and secret inputs change only the rule hits. Keeping both means a
-    secret change that matches a rule scores the function again, while the cache holds nothing derived from a
-    secret value."""
-    return f"{public_content_hash}:{','.join(rule_hits)}"
+def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool) -> str:
+    """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
+    Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
+    cache holds nothing more about a secret value than the event does."""
+    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}"
 
 
 def report(
@@ -377,7 +372,11 @@ def report(
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
-    cache.set(_hash_key(str(hog_function.id)), _cache_entry(scored.content_hash, scored.rule_hits), _HASH_TTL_SECONDS)
+    cache.set(
+        _hash_key(str(hog_function.id)),
+        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call),
+        _HASH_TTL_SECONDS,
+    )
 
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:

@@ -328,12 +328,24 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 },
                 2,
             ),
+            (
+                "secret_input_that_adds_an_outbound_call",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{fetch(event.uuid)}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+                {"hog": "print(event)"},
+            ),
         ]
     )
     def test_a_resave_is_scored_again_only_when_its_content_changes(
-        self, _name: str, changes: dict[str, Any], expected_requests: int
+        self, _name: str, changes: dict[str, Any], expected_requests: int, initial: dict[str, Any] | None = None
     ) -> None:
-        hog_function = self.create_destination()
+        hog_function = self.create_destination(**(initial or {}))
 
         for field, value in changes.items():
             setattr(hog_function, field, value)
