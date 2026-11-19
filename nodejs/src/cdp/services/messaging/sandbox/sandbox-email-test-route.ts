@@ -84,6 +84,7 @@ async function handleTestSend(
             workflow_id: hog_flow_id,
             action_id,
             is_test: true,
+            source: 'test',
             ...('reason' in outcome ? { reason: outcome.reason } : {}),
         })
     }

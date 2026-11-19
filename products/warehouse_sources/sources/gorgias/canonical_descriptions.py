@@ -193,6 +193,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "value": "Value of the field on the customer, as text.",
         },
     },
+    "view_items": {
+        "description": "One row per ticket in a saved ticket view. Deactivated views and customer views are not included.",
+        "docs_url": "https://developers.gorgias.com/reference/list-view-items",
+        "columns": {
+            "view_id": "ID of the view. Joins to the views table.",
+            "ticket_id": "ID of the ticket in the view. Joins to the tickets table.",
+            "ticket_created_datetime": "Time at which the ticket was created.",
+        },
+    },
     "events": {
         "description": "Audit log of actions in the Gorgias account, such as ticket status changes and assignments. Gorgias keeps the last 12 months.",
         "docs_url": "https://developers.gorgias.com/reference/the-event-object",

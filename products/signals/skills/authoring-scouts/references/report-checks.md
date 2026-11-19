@@ -88,7 +88,7 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
 - **`inconclusive`** does not spend the error budget. Its `reason` decides what happens next:
   - `awaiting_data` looks again after 24 hours, then 72 hours, then 7 days. After three looks, or when the next look falls past the horizon, the check ends as `inconclusive`.
   - `unmeasurable`, `needs_manual_verification`, and `no_fix_to_measure` end the check as `inconclusive` at once, because waiting does not help.
-- **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. The coordinator also cancels an `agent` check on a project with no scout configs, because no run can ever answer it. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
+- **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. The coordinator also cancels an `agent` check on a project with no scout configs, because no run can ever answer it. Verdicts already recorded stay on the report, and a finished check cannot be cancelled. A scout cannot cancel a check that is verifying a report in Monitoring, because a cancelled check no longer counts toward verification. Only a person can cancel it.
 
 A **failed check on a resolved report always reaches the inbox** as a fresh report linked `follow_up_of` the resolved one.
 A resolved report is no longer in the inbox, so a verdict left only on its artefact log would reach nobody.

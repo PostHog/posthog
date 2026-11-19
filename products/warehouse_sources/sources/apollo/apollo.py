@@ -126,12 +126,14 @@ def get_rows(
         wait=_wait_apollo,
         reraise=True,
     )
-    def fetch_page(page_number: int) -> dict[str, Any]:
-        page_params: dict[str, Any] = {"page": page_number, "per_page": PAGE_SIZE} if config.paginated else {}
+    def fetch_page(page_number: int) -> Any:
+        page_params: dict[str, Any] = (
+            {"page": page_number, config.page_size_param: PAGE_SIZE} if config.paginated else {}
+        )
         if config.method == "GET":
-            response = session.get(url, params=page_params, timeout=REQUEST_TIMEOUT_SECONDS)
+            response = session.get(url, params={**config.params, **page_params}, timeout=REQUEST_TIMEOUT_SECONDS)
         else:
-            query_params: dict[str, Any] = page_params if config.page_params_in_query else {}
+            query_params: dict[str, Any] = {**config.params, **(page_params if config.page_params_in_query else {})}
             body: dict[str, Any] = {} if config.page_params_in_query else dict(page_params)
             if config.sort_by_field is not None:
                 # Newest-first lets incremental runs stop at the watermark instead
@@ -157,7 +159,7 @@ def get_rows(
 
     while True:
         data = fetch_page(page)
-        items = data.get(config.data_key, []) or []
+        items = (data if config.data_key is None else data.get(config.data_key)) or []
 
         crossed_watermark = False
         if watermark is not None:

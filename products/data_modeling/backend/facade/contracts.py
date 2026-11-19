@@ -175,6 +175,23 @@ class MaterializationAlreadyRunningError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class SkippedRunNode:
+    """A node that a manual run selected but left out, and the reason it gives the caller."""
+
+    node_id: str
+    name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class StartedNodeRun:
+    """The nodes a manual run started, and the selected nodes it left out."""
+
+    node_ids: list[str]
+    skipped: list[SkippedRunNode]
+
+
 class MaterializationRanRecentlyError(Exception):
     def __init__(self, message: str, *, retry_after_seconds: int) -> None:
         super().__init__(message)

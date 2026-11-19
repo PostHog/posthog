@@ -36,6 +36,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     RelatedTo,
     ReportLink,
+    SourceIssue,
 )
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
@@ -2206,6 +2207,53 @@ async def test_research_returns_reviewer_decision_only_when_enabled(enabled: boo
             _build_signals()[:1], Mock(team_id=1), reviewer_selection_enabled=enabled
         )
     assert result.reviewer_decision == (decision if enabled else None)
+
+
+async def test_research_exempts_source_issues_from_signals_and_scout_artefacts() -> None:
+    finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    session = Mock(task=Mock(id="research-task-id"), end=AsyncMock())
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="No change needed.",
+                actionability=ActionabilityChoice.NOT_ACTIONABLE,
+                already_addressed=False,
+            ),
+            ReportPresentationOutput(title="Report", summary="Summary"),
+        ]
+    )
+    signal = replace(_build_signals()[1], extra={"html_url": "https://github.com/PostHog/posthog/issues/42606"})
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start", AsyncMock(return_value=(session, finding))
+        ) as start,
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        await run_multi_turn_research(
+            [signal], Mock(team_id=1), source_issues=[SourceIssue.github("posthog/posthog-js", 12)]
+        )
+    urls = ["https://github.com/posthog/posthog/issues/42606", "https://github.com/posthog/posthog-js/issues/12"]
+    for prompt in (start.await_args_list[0].kwargs["prompt"], session.send_followup.await_args_list[0].args[0]):
+        assert all(url in prompt for url in urls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_passes_scout_source_issues_to_research(monkeypatch, ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+    issue = SourceIssue.github("posthog/posthog", 12)
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id, report_id=str(report.id), content=issue, attribution=ArtefactAttribution.system()
+    )
+    research_kwargs: dict[str, object] = {}
+
+    await _run_activity_with_output(
+        monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
+    )
+
+    assert research_kwargs["source_issues"] == [issue]
 
 
 @pytest.mark.asyncio
