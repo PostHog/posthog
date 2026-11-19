@@ -130,7 +130,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
 
 type Judged = { scalars: Record<string, number | null>; readerAtT0: number | null; reason?: string }
 
-function judgeCapacity({ minutes }: Capacity, t0: number, idleMax: number | undefined): Judged {
+function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
     const t0Minute = minuteOf(t0)
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
@@ -159,14 +159,16 @@ function judgeCapacity({ minutes }: Capacity, t0: number, idleMax: number | unde
             reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
         }
     }
-    const above = minutes.filter(({ at, max, avg }) => at < t0Minute && (max ?? avg ?? 0) > idleMax)
-    return above.length === 0
-        ? { scalars, readerAtT0 }
-        : {
-              scalars,
-              readerAtT0,
-              reason: `reader above its ${idleMax} ACU idle limit before T0 (${above.map(({ at }) => iso(at)).join(', ')})`,
-          }
+    const pre = minutes.filter(({ at }) => at < t0Minute)
+    const above = pre.filter(({ max, avg }) => (max ?? avg ?? 0) > idleMax)
+    const unshown = pre.filter(({ max, avg }) => max === undefined && avg !== undefined && avg > min && avg <= idleMax)
+    const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
+    const reasons = [
+        above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
+        unshown.length > 0 &&
+            `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+    ].filter((reason): reason is string => typeof reason === 'string')
+    return reasons.length === 0 ? { scalars, readerAtT0 } : { scalars, readerAtT0, reason: reasons.join('; ') }
 }
 
 function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undefined): [string, number][] {
@@ -242,7 +244,7 @@ export async function report(
             host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
         )
     )
-    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu.idleMax) : undefined
+    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
     if (judged?.reason) {
         reasons.push(judged.reason)
     }

@@ -38,6 +38,10 @@ function defaultController(): Controller {
 
 async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
     const { profile } = inputs
+    const { min, idleMax } = profile.readerAcu
+    if (idleMax !== undefined && idleMax < min) {
+        throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
+    }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)

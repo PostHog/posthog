@@ -483,10 +483,20 @@ describe('cloud controller', () => {
         expect(out.join('\n')).toContain('Admitted estimate: $250.99 of the $200 cap')
     })
 
-    it('cleans up with only the cloud profile, after the runner profile is gone', async () => {
+    it.each<[string, () => void]>([
+        ['after the runner profile is gone', () => rmSync(path.join(dir, 'runner.yaml'))],
+        [
+            'after its idle limit was edited below the reader minimum',
+            () =>
+                writeFileSync(
+                    profilePath(),
+                    stringify({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax: 0.5 } })
+                ),
+        ],
+    ])('cleans up with only the cloud profile, %s', async (_, edit) => {
         const { controller } = prepare()
         const runId = await leaseAt(T, controller)
-        rmSync(path.join(dir, 'runner.yaml'))
+        edit()
 
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
 
@@ -1026,6 +1036,21 @@ describe('cloud controller', () => {
             'reader above its 2.5 ACU idle limit before T0',
         ],
         [
+            'a minute before T0 under the idle limit whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    { minute: -2, avg: 2 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit',
+        ],
+        [
             'a minute before T0 above the idle limit whose maximum CloudWatch left out',
             {
                 readerAcu: [
@@ -1131,6 +1156,19 @@ describe('cloud controller', () => {
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
             expect(out).toContain(`The reader sat at 1.5 ACU in the minute before T0 (${published().t0_at}).`)
         }
+    })
+
+    it('judges the reader against the idle limit its own profile sets', async () => {
+        const { controller } = prepare({
+            profile: (p) => ({ ...p, readerAcu: { ...p.readerAcu, idleMax: 1.5 } }),
+            cloud: { readerAcu: IDLE_THEN_PROMOTED },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        expect(published()).toMatchObject({ status: 'invalid', reader_acu_at_t0: 1.5 })
+        expect(published().status_reason).toContain('reader above its 1.5 ACU idle limit before T0')
     })
 
     it.each<[string, Partial<FakeCloudOptions>, string]>([
