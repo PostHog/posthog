@@ -405,6 +405,9 @@ describe('workflowsLogic', () => {
             ['fails', null],
             // A response without steps would read as "no test sender steps" and skip the warning.
             ['has no steps', {} as HogFlow],
+            ['has an empty step', { ...withEmail('draft', 'function_email'), actions: [null] } as unknown as HogFlow],
+            // Without a revision the enable would write with no fence against an edit from another tab.
+            ['has no revision', { ...withEmail('draft', 'function_email'), updated_at: '' } as HogFlow],
         ])("enables nothing when the server's copy %s", async (_, stored) => {
             useListMocks(200, { deleted: 1 }, stored)
             showToasts()

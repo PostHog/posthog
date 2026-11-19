@@ -693,7 +693,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("warned_onto_the_test_sender", "sandbox", True, 200),
             ("without_saying_onto_the_test_sender", "sandbox", None, 200),
             ("unwarned_on_an_own_sender", "own", False, 200),
-            ("unwarned_as_a_form_string", "sandbox", "false", 409),
+            ("unwarned_as_a_string", "sandbox", "false", 409),
             ("not_a_boolean", "sandbox", "maybe", 400),
             ("a_number", "sandbox", 1, 400),
             ("a_yes", "sandbox", "yes", 400),

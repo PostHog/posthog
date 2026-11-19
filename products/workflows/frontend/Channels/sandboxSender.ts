@@ -22,8 +22,14 @@ export function isLiveOnSandboxSender(workflow: Pick<HogFlow, 'status' | 'action
 export async function fetchStoredWorkflow(id: string): Promise<HogFlow | null> {
     try {
         const stored = (await hogFlowsRetrieve(String(ApiConfig.getCurrentTeamId()), id)) as unknown as HogFlow
-        // A response without steps or a stamp would read as "no test sender steps" and skip the warning.
-        return Array.isArray(stored?.actions) && typeof stored.updated_at === 'string' ? stored : null
+        // A response without steps would read as "no test sender steps" and skip the warning, and one
+        // without a stamp would enable with no fence against an edit from another tab.
+        const readable =
+            Array.isArray(stored?.actions) &&
+            stored.actions.every((action) => !!action && typeof action === 'object') &&
+            typeof stored.updated_at === 'string' &&
+            stored.updated_at !== ''
+        return readable ? stored : null
     } catch {
         return null
     }

@@ -4341,7 +4341,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 setDraftActionPending: (_, { pending }) => pending,
             },
         ],
-        // The enable reads the stored workflow before it writes, so the button shows that read.
+        // Set while an enable reads the stored workflow: Enable shows as loading, and a second click waits.
         checkingSandboxSender: [
             false,
             {
