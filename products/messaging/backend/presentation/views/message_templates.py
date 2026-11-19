@@ -498,6 +498,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+EMAIL_IMPACT_FLAG = "workflows-email-impact"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -747,7 +748,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
 class SendWarningSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=SendWarningCode.choices,
-        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        help_text="What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender "
         "because the project has no verified sending domain, so it only reaches members of the organization.",
     )
     message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
@@ -855,6 +856,10 @@ def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
 
 
+def require_email_impact(team: Any) -> None:
+    _require_flag(team, EMAIL_IMPACT_FLAG)
+
+
 def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
@@ -897,11 +902,11 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
         "the project has reached its limit of template keys and the `template_key` is new. A code send from a "
-        "project with no verified sending domain goes out from the sandbox sender, which refuses `cc`, `bcc`, "
+        "project with no verified sending domain goes out from the PostHog test sender, which refuses `cc`, `bcc`, "
         "`reply_to`, `attachments` and a custom `from`"
     ),
     403: OpenApiResponse(
-        description="The project has no verified sending domain, and the sandbox sender isn't available for its "
+        description="The project has no verified sending domain, and the PostHog test sender isn't available for its "
         "organization"
     ),
     404: OpenApiResponse(description="Template not found"),
@@ -909,7 +914,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request, or the email would go out from the sandbox sender to someone outside the "
+        "used for a different request, or the email would go out from the PostHog test sender to someone outside the "
         "organization"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
@@ -1430,6 +1435,8 @@ class MessageTemplatesViewSet(
                 )
 
             new_design = apply_design_operations(design, operations)
+            # The new email editor's document describes the design from before these edits.
+            new_design.pop("emailDocument", None)
             for warning in validate_design(new_design):
                 logger.info("email_template_design_warning", warning=warning, template_id=str(template.id))
 

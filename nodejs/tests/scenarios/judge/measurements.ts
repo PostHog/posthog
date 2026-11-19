@@ -625,7 +625,7 @@ export function hostSampleOf(at: number, procStat: string): HostSample | undefin
     return { at, busyTicks: totalTicks - ticks[3] - ticks[4], totalTicks }
 }
 
-export type Sampler = { sampledFrom: number; stop(): Promise<Sampled> }
+export type Sampler = { sampledFrom: number; taken(): readonly MetricSample[]; stop(): Promise<Sampled> }
 
 type Target = ReplicaOf & { metricsUrl: string }
 
@@ -703,6 +703,7 @@ export async function startSampler(
     let stopping: Promise<Sampled> | undefined
     return {
         sampledFrom,
+        taken: () => samples,
         stop: () =>
             (stopping ??= (async () => {
                 stopped.abort()

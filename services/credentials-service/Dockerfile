@@ -1,4 +1,5 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7.1@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+# The digest pins the frontend image; the tag alone is mutable. Update both together.
 # PostHog credentials-service (Hono / Node.js). Serves the platform integration
 # credentials PostHog itself owns over HTTP; see README.md.
 #
@@ -68,9 +69,6 @@ COPY --from=build --chown=node:node /code/services/credentials-service/dist/cred
 # ./migrations relative to the working directory.
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs ./credentials-service-migrate.mjs
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs.map ./credentials-service-migrate.mjs.map
-# The audit retention CronJob runs `node credentials-service-maintenance.mjs audit-retention`.
-COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs ./credentials-service-maintenance.mjs
-COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs.map ./credentials-service-maintenance.mjs.map
 COPY --from=build --chown=node:node /code/services/credentials-service/migrations ./migrations
 
 ENV NODE_ENV=production \

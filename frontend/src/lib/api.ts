@@ -34,7 +34,7 @@ import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -1641,11 +1641,6 @@ export class ApiRequest {
         return this.organizationIntegrations().addPathComponent(id)
     }
 
-    // # Organization OAuth Applications
-    public organizationOAuthApplications(): ApiRequest {
-        return this.organizations().current().addPathComponent('oauth_applications')
-    }
-
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -2848,6 +2843,8 @@ const api = {
                 flatSpans?: boolean
                 // true omits the per-span attribute maps — use when only scalar span fields are read.
                 excludeAttributes?: boolean
+                // true adds each span's OTel events. The column is large, so keep `limit` small.
+                includeEvents?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -6215,12 +6212,6 @@ const api = {
         },
         async delete(id: IntegrationType['id']): Promise<void> {
             await new ApiRequest().organizationIntegrationsDetail(id).delete()
-        },
-    },
-
-    organizationOAuthApplications: {
-        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
-            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
         },
     },
 

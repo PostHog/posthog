@@ -62,6 +62,7 @@ export function scorecardOf(
         card_hash: result.cardHash,
         profile_name: profile.name,
         profile_hash: result.profileHash,
+        topology_hash: result.topologyHash ?? null,
         head_sha: provenance.headSha,
         head_dirty: provenance.headDirty,
         origin: result.origin,

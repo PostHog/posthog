@@ -47,6 +47,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
+    TwoFactorEnforcementPermission,
     VerifiedDomainEnforcementPermission,
     is_service_auth,
 )
@@ -237,6 +238,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
 
+    # For a route with no project in its path, such as /api/messaging/send/email/: the view acts on the project of the
+    # project secret API key that authenticated the request, and refuses every other credential. It sets
+    # `param_derived_from_user_current_team`, because a project secret API key authenticates as a synthetic user
+    # whose team is fixed to the key's project. A credential with a real user would follow the project that user last
+    # opened, which is why nothing else may authenticate.
+    team_from_project_secret_api_key: bool = False
+
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: dict[str, str] = {}
@@ -292,6 +300,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+        if cls.team_from_project_secret_api_key:
+            cls.param_derived_from_user_current_team = "team_id"
 
         cls._check_path_parameters()
 
@@ -425,6 +436,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 *dangerously_defined,
                 *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
+                TwoFactorEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
                 IPRestrictionsPermission(),
@@ -456,6 +468,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # organization row it resolved is reused. The MCP cap follows for the same reason:
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
+        permission_classes.append(TwoFactorEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
         permission_classes.append(IPRestrictionsPermission)
@@ -464,6 +477,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
+        if self.team_from_project_secret_api_key:
+            return [ProjectSecretAPIKeyAuthentication()]
+
         # NOTE: Custom authentication_classes go first as these typically have extra initial checks
         authentication_classes: list = [
             *self.authentication_classes,
