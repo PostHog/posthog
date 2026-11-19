@@ -228,7 +228,13 @@ describe('SandboxEmailSendStep', () => {
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: false },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: false,
+                        source: 'workflow',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,
@@ -258,6 +264,12 @@ describe('SandboxEmailSendStep', () => {
             world.ses.replyNext(...sesReplies)
             return Promise.resolve()
         }
+
+    const ANALYTICS_EVENTS: Record<string, string> = {
+        email_sandbox_sent: 'workflows sandbox email sent',
+        email_sandbox_blocked: 'workflows sandbox email blocked',
+        email_sandbox_failed: 'workflows sandbox email failed',
+    }
 
     it.each<[string, () => Promise<void>, object, string, number, number]>([
         [
@@ -328,6 +340,11 @@ describe('SandboxEmailSendStep', () => {
             expect(metricNames(segments)).toEqual([[metric, 'email']])
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+            await waitForExpect(() =>
+                expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+                    [ANALYTICS_EVENTS[metric], 'workflow'],
+                ])
+            )
         }
     )
 

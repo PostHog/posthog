@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.customer_analytics.backend.temporal.account_track_rules import (
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationWorkflow,
@@ -61,7 +63,7 @@ WORKFLOWS = [
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
 ]
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     backfill_membership_batch_activity,
     fail_membership_backfill_activity,
     sync_membership_page_activity,
