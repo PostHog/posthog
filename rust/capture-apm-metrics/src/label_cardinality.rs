@@ -1595,4 +1595,30 @@ mod tests {
         let actual: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
         assert_eq!(actual, expected);
     }
+
+    #[test]
+    fn a_sender_marker_on_an_old_classic_histogram_keeps_its_fingerprint() {
+        let (detector, _) = detector(Mode::Enforce);
+        let old = (Utc::now() - chrono::Duration::days(30)).timestamp_millis();
+        let mut series = histogram_series(3, true);
+        for ts in series.iter_mut() {
+            ts.samples[0].timestamp = old;
+        }
+        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
+        let mut rows = fold_classic_histograms(rows, &[]);
+        assert!(rows
+            .iter()
+            .all(|row| row.attributes.contains_key(ORIGINAL_TIMESTAMP_ATTRIBUTE)));
+        let expected: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        for row in rows.iter_mut() {
+            row.attributes.insert(
+                DROPPED_LABELS_ATTRIBUTE.to_string(),
+                r#""forged""#.to_string(),
+            );
+        }
+        detector.strip_reserved(&mut rows, &rw());
+
+        let actual: Vec<i64> = rows.iter().map(|row| row.series_fingerprint).collect();
+        assert_eq!(actual, expected);
+    }
 }
