@@ -25,9 +25,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.team.conversations_settings import conversations_settings_as_dict
 from posthog.api.team.team_config import TEAM_CONFIG_ADMIN_FIELDS_SET
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.team import Team
+from posthog.permissions import request_subject
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 
 # Written only when the team has none set. posthog-js already masks inputs + passwords
 # by default, so this just pins that floor — page text stays visible for Signals to read.
@@ -129,8 +134,9 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # can't be a bypass (error_tracking + the replay opt-in stay member-safe).
             admin_fields = (touched - SERVER_DEFAULT_FIELDS) & TEAM_CONFIG_ADMIN_FIELDS_SET
             if admin_fields:
-                level = self.user_permissions.team(team).effective_membership_level
-                if level is None or level < OrganizationMembership.Level.ADMIN:
+                if not authorization.check(
+                    resource=Resource.project(team.pk), action=Action.EDIT, subject=request_subject(self.request)
+                ):
                     raise PermissionDenied(
                         "Only project admins can enable products that change these settings: "
                         + ", ".join(sorted(admin_fields))

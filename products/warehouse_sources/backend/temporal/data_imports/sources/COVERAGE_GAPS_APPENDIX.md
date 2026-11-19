@@ -8803,17 +8803,17 @@ Note: Parsed the current endpoint index and entity references, including the col
 
 ## OpenAQ — gaps
 
-Today (16): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameters`, `providers`, `sensor_flags`, `sensors`
+Today (17): `countries`, `instruments`, `licenses`, `location_flags`, `location_latest`, `locations`, `manufacturers`, `measurements`, `measurements_daily`, `measurements_hourly`, `measurements_yearly`, `owners`, `parameter_latest`, `parameters`, `providers`, `sensor_flags`, `sensors`
 
 Diffed against: <https://api.openaq.org/openapi.json>
 
 - [x] `/v3/locations/{id}/latest` — most recent value per location - the headline 'current air quality' read (high)
 - [x] `/v3/sensors/{id}/flags` — data-quality flags needed to exclude bad readings from measurement aggregates (medium)
 - [x] `/v3/locations/{id}/flags` — location-level data-quality flags for the same filtering (medium)
-- [ ] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
+- [x] `/v3/parameters/{id}/latest` — latest reading per pollutant across the network (medium)
 - [x] `/v3/sensors/{id}/years` — yearly rollups, cheaper than aggregating hourly data for long-range trends (medium)
-- [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low)
-- [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low)
+- [ ] `/v3/manufacturers/{id}/instruments` — join table linking manufacturers to instruments we already sync (low) Skipped: the instruments table already embeds each instrument's manufacturer.
+- [ ] `/v3/sensors/{id}/hours/hourofday and /days/dayofweek, /days/monthofyear` — seasonal/diurnal aggregations the API precomputes (low) Skipped: window-dependent summaries of measurements_hourly and measurements_daily, which we already sync.
 
 Note: measurements_hourly maps to /sensors/{id}/hours and measurements_daily to /sensors/{id}/days, so the main time grains are covered; sensors are already materialized from each location's embedded sensor list.
 
@@ -9049,13 +9049,13 @@ Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-documen
 - [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
 - [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
 - [x] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
-- [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
-- [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
+- [x] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
+- [x] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
 - [x] `/reports/marketers/{id}/interests` — interest-targeting breakdown (medium)
 - [x] `/marketers/{id}/segments` — audience segments lookup for segment-targeted campaigns (medium)
 - [x] `/campaigns/{campaignId}/locations` — campaign geo targeting rows, needed to interpret geo report deltas (medium)
-- [ ] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
-- [ ] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
+- [x] `/marketers/{id}/engagementMetrics` — marketer-level engagement metrics not present in the periodic report (low)
+- [x] `/campaigns/{campaignId}/promotedLinksSequences` — sequence grouping for promoted links (low)
 
 Note: Static endpoint list in settings.py (6 paths: /marketers, /marketers/{id}/campaigns, /marketers/{id}/budgets, /campaigns/{id}/promotedLinks, /reports/marketers/{id}/periodic, /reports/marketers/{id}/campaigns) - no dynamic table discovery. The apiary HTML site 502s; the machine-readable API Blueprint JSON at the jsapi.apiary.io URL above works and was parsed for the full resource list. Outbrain's Performance Reporting group is by far the largest part of the API and PostHog currently exposes only 2 of its ~20 report endpoints.
 
@@ -11283,10 +11283,10 @@ Today (7): `Comments`, `Posts`, `Promoter`, `Satisfaction`, `Updates`, `Users`, 
 
 Diffed against: <https://sleekplan.com/docs/api/openapi-v2.yaml>
 
-- [ ] `List groups (GET /v2/groups)` — analyze customer accounts and aggregate their feedback, votes, and satisfaction (medium)
-- [ ] `List a group's members (GET /v2/groups/{group_id}/members)` — join existing users to customer accounts for account-level feedback analysis (medium)
-- [ ] `Get post metadata (GET /v1/post/{postid}/meta)` — use custom feedback attributes to segment requests and connect them with business data (medium)
-- [ ] `List documents (GET /v2/documents)` — analyze product decisions and specifications alongside customer feedback (medium)
+- [x] `List groups (GET /v2/groups)` — analyze customer accounts and aggregate their feedback, votes, and satisfaction (medium) → `Groups` (full refresh)
+- [x] `List a group's members (GET /v2/groups/{group_id}/members)` — join existing users to customer accounts for account-level feedback analysis (medium) → `GroupMembers` (full refresh, fan-out over `Groups`)
+- [ ] `Get post metadata (GET /v1/post/{postid}/meta)` — use custom feedback attributes to segment requests and connect them with business data (medium) Skipped: the vendor spec and reference page document no response body, so no row shape or primary key can be chosen.
+- [x] `List documents (GET /v2/documents)` — analyze product decisions and specifications alongside customer feedback (medium) → `Documents` (full refresh)
 
 Note: Parsed both official OpenAPI files, openapi.yaml for V1 and openapi-v2.yaml for the newer namespace. Current comments and votes already use requests for each post; the seven fixed tables cover most V1 collections. Group members and post metadata require parent requests; full document content requires the document detail endpoint. Excluded notifications, mutations, and undocumented category, tag, or document history collections.
 

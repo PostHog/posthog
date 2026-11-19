@@ -39448,7 +39448,7 @@ export namespace Schemas {
     }
 
     export interface DeploymentVersion {
-      /** The service.version resource attribute. */
+      /** The version, read from the attribute named by version_source. */
       version: string;
       /** First span of this version in the window. */
       first_seen: string;
@@ -39487,9 +39487,26 @@ export namespace Schemas {
       active: boolean;
     }
 
+    /**
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name
+     */
+    export type VersionSourceEnum = typeof VersionSourceEnum[keyof typeof VersionSourceEnum];
+
+
+    export const VersionSourceEnum = {
+      Serviceversion: 'service.version',
+      K8sreplicasetname: 'k8s.replicaset.name',
+    } as const;
+
     export interface DeploymentsResponse {
       /** One row per version, oldest first. */
       results: DeploymentVersion[];
+      /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
+       *
+       * * `service.version` - Service Version
+       * * `k8s.replicaset.name` - K8S Replicaset Name */
+      version_source: VersionSourceEnum | null;
       /** The service the versions belong to. */
       service: string;
       /**
@@ -42366,6 +42383,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailSendStatusEnum = typeof EmailSendStatusEnum[keyof typeof EmailSendStatusEnum];
+
+
+    export const EmailSendStatusEnum = {
+      Scheduled: 'scheduled',
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -42432,16 +42471,17 @@ export namespace Schemas {
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
-      /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+      /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
        *
+       * * `scheduled` - Scheduled
        * * `queued` - Queued
        * * `failed` - Failed
        * * `sent` - Sent
        * * `delivered` - Delivered
        * * `bounced` - Bounced
        * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
-      /** When the send was queued. */
+      status: EmailSendStatusEnum;
+      /** When PostHog accepted the send. */
       created_at: string;
       /** When the email reached its current status. */
       status_at: string;
@@ -45936,6 +45976,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome
+     */
+    export type EvalFixProblemEnum = typeof EvalFixProblemEnum[keyof typeof EvalFixProblemEnum];
+
+
+    export const EvalFixProblemEnum = {
+      NoRuns: 'no_runs',
+      OneOutcome: 'one_outcome',
+    } as const;
+
+    /**
      * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
      */
     export type EvalSuggestionDraft = { [key: string]: unknown };
@@ -46082,6 +46134,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly target_evaluation_name: string | null;
+      /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+       *
+       * * `no_runs` - No runs
+       * * `one_outcome` - One outcome */
+      readonly fix_problem: EvalFixProblemEnum | null;
       /**
          * Existing evaluation that may already cover this suggestion.
          * @nullable
