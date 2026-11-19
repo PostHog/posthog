@@ -35,6 +35,8 @@ describe('servicePageLogic', () => {
                     endpointsRequests.push(new URL(request.url).searchParams)
                     return [200, EMPTY_HEALTH]
                 },
+                '/api/projects/:teamId/apm/dependencies/': () => [200, { edges: [], truncated: false }],
+                '/api/projects/:teamId/apm/deployments/': () => [200, { results: [], service: 'checkout' }],
                 '/api/projects/:teamId/apm/endpoints/': ({ request }) => {
                     endpointsRequests.push(new URL(request.url).searchParams)
                     return [200, EMPTY_HEALTH]

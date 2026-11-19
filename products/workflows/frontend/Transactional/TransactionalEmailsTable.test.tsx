@@ -271,18 +271,16 @@ describe('TransactionalEmailsTable', () => {
         const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
         await waitFor(() => {
             expect(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')).toBeInTheDocument()
-            expect(
-                container
-                    .querySelector('[data-attr=wizard-command-block]')
-                    ?.textContent?.includes('transactional-email') ?? false
-            ).toBe(wizardShown)
+            if (wizardShown) {
+                expect(container.querySelector('[data-attr=wizard-command-block]')).toHaveTextContent(
+                    'npx @posthog/wizard email'
+                )
+            }
         })
-        expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
-        if (wizardShown) {
-            const wizardBlock = container.querySelector('[data-attr=wizard-command-block]')!
-            const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
-            expect(wizardBlock.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        if (!wizardShown) {
+            expect(container.querySelector('[data-attr=wizard-command-block]')).not.toBeInTheDocument()
         }
+        expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
 
         const clipboard = {
@@ -292,6 +290,14 @@ describe('TransactionalEmailsTable', () => {
             },
         }
         Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+        if (wizardShown) {
+            const wizardButton = screen.getByLabelText('Copy wizard command')
+            const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
+            expect(wizardButton.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+            fireEvent.click(wizardButton)
+            await waitFor(() => expect(clipboard.text).toBe('npx -y @posthog/wizard@latest email'))
+        }
+
         fireEvent.click(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!)
         await waitFor(() => expect(clipboard.text).toContain('PostHog project token: phc_default-team-api-token'))
         expect(clipboard.text).toContain('Leave out the from address.')

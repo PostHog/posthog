@@ -56,6 +56,17 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
+    if (logItem.activity === 'bulk_delete_requested') {
+        return {
+            summary: activityLogSummary(logItem, 'Requested bulk person deletion', 'Persons'),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> requested bulk person deletion
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'deleted') {
         return {
             summary: activityLogSummary(logItem, 'Deleted the person', logItem.detail.name),
