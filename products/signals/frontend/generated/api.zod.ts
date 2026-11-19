@@ -10,6 +10,36 @@
 import * as zod from 'zod'
 
 /**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the chart points of anomaly series
+ */
+export const signalsAnomaliesPointsCreateBodySeriesItemSeriesKeyMax = 64
+
+export const signalsAnomaliesPointsCreateBodySeriesMax = 100
+
+export const SignalsAnomaliesPointsCreateBody = /* @__PURE__ */ zod.object({
+    series: zod
+        .array(
+            zod.object({
+                insight_id: zod.number().describe('The numeric id of the insight, from an anomaly search row.'),
+                series_key: zod
+                    .string()
+                    .max(signalsAnomaliesPointsCreateBodySeriesItemSeriesKeyMax)
+                    .describe('The `series_key` of an anomaly search row.'),
+                interval: zod
+                    .enum(['hour', 'day', 'week', 'month'])
+                    .describe('\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month')
+                    .describe(
+                        'The `interval` of the anomaly search row. It sets the length of the chart window.\n\n\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+                    ),
+            })
+        )
+        .min(1)
+        .max(signalsAnomaliesPointsCreateBodySeriesMax)
+        .describe('The series to read points for, usually one page of anomaly search rows. At most 100.'),
+})
+
+/**
  * Partial update of the per-project singleton. Omitted fields keep their value.
  * @summary Update the project's signals config
  */
