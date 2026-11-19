@@ -580,6 +580,61 @@ class TestEmail(BaseTest):
         else:
             self.assertTrue(record is None or record.sent_at is None)
 
+    @parameterized.expand(
+        [
+            ("flag_off_sends_over_smtp", False, None, 1, 0),
+            ("workflows_accepts", True, 202, 0, 1),
+            ("workflows_refuses_before_queueing_falls_back_to_smtp", True, 400, 1, 1),
+            ("workflows_may_have_queued_never_falls_back", True, 503, 0, 2),
+        ]
+    )
+    @patch("posthog.email.posthoganalytics.feature_enabled")
+    @patch("posthog.email.requests.post")
+    def test_smtp_email_routes_through_workflows_by_flag(
+        self,
+        _name: str,
+        flag_on: bool,
+        workflows_status: int | None,
+        expected_smtp_sends: int,
+        expected_workflows_posts: int,
+        mock_post: MagicMock,
+        mock_flag: MagicMock,
+    ) -> None:
+        mock_flag.return_value = flag_on
+        mock_post.return_value = MagicMock(
+            status_code=workflows_status, text="error", json=MagicMock(return_value={"message_id": "m1"})
+        )
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+        ):
+            message = EmailMessage(
+                campaign_key="smtp_routing",
+                subject="Subject",
+                template_name="async_migration_error",
+                reply_to="a@b.com",
+            )
+            message.add_recipient("test@posthog.com")
+            if workflows_status == 503:
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+                # A retry after the flag turns off still replays the email through Workflows, never over SMTP.
+                mock_flag.return_value = False
+                mock_post.return_value = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
+            message.send(send_async=False, retry=False)
+
+        self.assertEqual(len(mail.outbox), expected_smtp_sends)
+        self.assertEqual(mock_post.call_count, expected_workflows_posts)
+        if expected_workflows_posts:
+            payload = mock_post.call_args.kwargs["json"]
+            self.assertEqual(payload["template_key"], "async_migration_error")
+            self.assertEqual(payload["subject"], "Subject")
+            self.assertIn("<html", payload["html"])
+            self.assertEqual(payload["reply_to"], ["a@b.com"])
+        record = MessagingRecord.objects.get(campaign_key="smtp_routing")
+        self.assertIsNotNone(record.sent_at)
+
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")
     def test_retry_after_failing_to_mark_a_workflows_send_replays_it_under_the_same_key(
