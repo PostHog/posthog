@@ -6,6 +6,7 @@ import type {
     AEOKeywordReportApi,
     AEOPromptApi,
     AEOPromptCheckApi,
+    AEOPromptCitationApi,
     AEOPromptSetCountsApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
@@ -427,6 +428,22 @@ export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
     { topic: 'Session replay', prompts: 1 },
 ]
 
+const EXAMPLE_SCORED_SENTENCES = [
+    {
+        sentence: '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.',
+        label: 'positive',
+        score: 0.91,
+    },
+    { sentence: 'Example Analytics gets expensive at high event volumes.', label: 'negative', score: 0.78 },
+]
+
+const EXAMPLE_ANSWER_TEXT =
+    'For a small startup, a few open source product analytics tools stand out.\n\n' +
+    `${EXAMPLE_SCORED_SENTENCES[0].sentence}\n` +
+    '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
+    '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
+    `${EXAMPLE_SCORED_SENTENCES[1].sentence} Pick the one that matches how much infrastructure you want to run.`
+
 const EXAMPLE_CHECK: AEOPromptCheckApi = {
     id: '00000000-0000-4000-8000-000000000401',
     run_id: '00000000-0000-4000-8000-000000000501',
@@ -449,12 +466,13 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     prompt_version: 2,
     brand_sentiment: 'positive',
     brand_sentiment_score: 0.86,
-    answer_text:
-        'For a small startup, a few open source product analytics tools stand out.\n\n' +
-        '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
-        '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
-        '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
-        'Pick the one that matches how much infrastructure you want to run.',
+    brand_sentiment_sentences: EXAMPLE_SCORED_SENTENCES.map(({ sentence, label, score }) => ({
+        start: EXAMPLE_ANSWER_TEXT.indexOf(sentence),
+        end: EXAMPLE_ANSWER_TEXT.indexOf(sentence) + sentence.length,
+        label,
+        score,
+    })),
+    answer_text: EXAMPLE_ANSWER_TEXT,
 }
 
 export const EXAMPLE_COMPETITOR_BRANDS: AEOBrandApi[] = [
@@ -485,6 +503,7 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         search_queries: ['open source product analytics startup'],
         brand_sentiment: null,
         brand_sentiment_score: null,
+        brand_sentiment_sentences: [],
         answer_text: 'Most startups begin with a hosted tool.\nCompare pricing tiers before you commit.',
     },
     {
@@ -503,7 +522,36 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         search_queries: [],
         brand_sentiment: null,
         brand_sentiment_score: null,
+        brand_sentiment_sentences: [],
         answer_text: null,
+    },
+]
+
+export const EXAMPLE_PROMPT_CITATIONS: AEOPromptCitationApi[] = [
+    {
+        ...EXAMPLE_CHECK,
+        prompt_id: EXAMPLE_PROMPTS[0].id,
+        prompt_text: EXAMPLE_PROMPTS[0].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[0].topic,
+        mentioned: true,
+    },
+    {
+        ...EXAMPLE_PROMPT_CHECKS[1],
+        prompt_id: EXAMPLE_PROMPTS[1].id,
+        prompt_text: EXAMPLE_PROMPTS[1].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[1].topic,
+        mentioned: false,
+    },
+    {
+        ...EXAMPLE_PROMPT_CHECKS[1],
+        id: '00000000-0000-4000-8000-000000000404',
+        engine: 'exa-answer',
+        created_at: '2026-09-27T09:00:00Z',
+        answer_text: 'Example Analytics and Rival Analytics both have free tiers.',
+        prompt_id: EXAMPLE_PROMPTS[1].id,
+        prompt_text: EXAMPLE_PROMPTS[1].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[1].topic,
+        mentioned: true,
     },
 ]
 

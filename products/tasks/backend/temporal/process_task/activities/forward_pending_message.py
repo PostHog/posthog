@@ -347,9 +347,9 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
 
 
 def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
-    from posthog.storage import object_storage
+    from products.tasks.backend.storage import read_run_log
 
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
 
     if not log_content.strip():
         return None
@@ -438,9 +438,9 @@ def _extract_text_from_update(update: dict[str, Any]) -> str | None:
 
 
 def _has_recent_question_tool_failure(task_run: Any) -> bool:
-    from posthog.storage import object_storage
+    from products.tasks.backend.storage import read_run_log
 
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+    log_content = read_run_log(task_run.log)
 
     if not log_content.strip():
         return False

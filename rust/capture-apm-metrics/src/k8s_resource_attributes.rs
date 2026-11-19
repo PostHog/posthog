@@ -35,11 +35,6 @@ fn resource_key_for(label: &str) -> Option<&'static str> {
         .map(|(_, key)| *key)
 }
 
-/// The row builder adds this attribute per sample after it computes the
-/// fingerprint, so the recomputed fingerprint must leave it out too.
-const ORIGINAL_TIMESTAMP_ATTRIBUTES: [&str; 2] =
-    [ORIGINAL_TIMESTAMP_ATTRIBUTE, "$originalTimestamp"];
-
 /// Attribute values are JSON-encoded strings, so an empty label is `""`.
 const EMPTY_JSON_STRING: &str = "\"\"";
 
@@ -139,9 +134,9 @@ impl K8sResourceAttributes {
                 Some(fingerprint) => *fingerprint,
                 None => {
                     let mut series_attributes = row.attributes.clone();
-                    for attribute in ORIGINAL_TIMESTAMP_ATTRIBUTES {
-                        series_attributes.remove(attribute);
-                    }
+                    // The row builder adds this attribute to each sample after it computes
+                    // the fingerprint. Remove it so that the two fingerprints are equal.
+                    series_attributes.remove(ORIGINAL_TIMESTAMP_ATTRIBUTE);
                     let fingerprint = compute_series_fingerprint(
                         &row.metric_name,
                         &row.metric_type,

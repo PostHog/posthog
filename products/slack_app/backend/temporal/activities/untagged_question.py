@@ -250,6 +250,9 @@ def request_untagged_question_confirmation_activity(inputs: PostHogCodeSlackMent
         if channel_is_ext_shared(SlackIntegration(integration), str(inputs.event.get("channel") or "")):
             logger.info("slack_app_untagged_question_channel_now_shared", slack_team_id=inputs.slack_team_id)
             return True
+        capture_slack_event(
+            integration, "slack app unprompted answer started automatically", slack_user_id=slack_user_id
+        )
         return False
 
     prompted = _post_untagged_question_prompt(SlackIntegration(integration), integration, inputs.event)

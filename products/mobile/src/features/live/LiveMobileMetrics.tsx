@@ -30,20 +30,23 @@ export function LiveMobileMetrics({
                     {
                         key: 'dau',
                         label: 'DAU',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.dailyActiveUsers ?? null,
-                        about: 'Distinct mobile users active in the last 24 hours.',
+                        about: 'Unique users active in the last 24 hours.',
                     },
                     {
                         key: 'wau',
                         label: 'WAU',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.weeklyActiveUsers ?? null,
-                        about: 'Distinct mobile users active in the last 7 days.',
+                        about: 'Unique users active in the last 7 days.',
                     },
                     {
                         key: 'sessions',
                         label: 'Sessions',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.sessions ?? null,
-                        about: 'Distinct mobile sessions with activity in the last 30 minutes. Requires session tracking.',
+                        about: 'Sessions active in the last 30 minutes.',
                     },
                 ]}
             />
@@ -57,14 +60,16 @@ export function LiveMobileMetrics({
                     {
                         key: 'installs-day',
                         label: 'Installs · 24h',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.installs ?? null,
-                        about: 'Application Installed events in the last 24 hours. The SDK records the first launch after installation, rather than an app store download.',
+                        about: 'First launches after install in the last 24 hours.',
                     },
                     {
                         key: 'installs-week',
                         label: 'Installs · 7d',
+                        loading: !metrics?.updatedAt,
                         value: metrics?.weeklyInstalls ?? null,
-                        about: 'Application Installed events in the last 7 days. The SDK records the first launch after installation, rather than an app store download.',
+                        about: 'First launches after install in the last 7 days.',
                     },
                 ]}
             />

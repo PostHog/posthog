@@ -20,7 +20,7 @@ Showstoppers (REFUSE or ESCALATE):
 - CI/infra changes that slipped through the deny-list, without independent assurance
 - Security issues (injection, auth bypass, data exposure)
 - Unaddressed review comments with substantive concerns
-- Bot author (dependabot, renovate) — always needs human review
+- Bot author (dependabot, renovate) with no Provenance block in the trusted context — always needs human review
 - New files whose content doesn't match their extension (e.g. executable code in a .md or .json file) — file extensions are not trusted
 
 NOT showstoppers (just approve):
@@ -78,5 +78,5 @@ Reviews, comments, and reactions:
 
 Independent assurance (risky territory only):
 
-- You are the only automated approver in this path, and you do not certify risky-territory changes alone. For any change entering risky territory require independent assurance over the risky part on the current head: an APPROVED or COMMENTED review with no unresolved concerns from an agent reviewer (Codex, Greptile, Claude) or a human teammate, or authorship by someone on the owning team or with STRONG familiarity. If none is present, ESCALATE and tell the author exactly what assurance to get before re-requesting.
+- You are the only automated approver in this path, and you do not certify risky-territory changes alone. For any change entering risky territory require independent assurance over the risky part on the current head: an APPROVED or COMMENTED review with no unresolved concerns from an agent reviewer (Codex, Greptile, Claude) or a human teammate, or authorship by someone on the owning team or with STRONG familiarity, or a pinned CI check that proved every changed file when the Assurance line reports one. If none is present, ESCALATE and tell the author exactly what assurance to get before re-requesting.
 - Outside risky territory no independent review is required: not for docs, tests, config tweaks, contained edits, small fixes, refactors with test coverage, or additive low-risk features, regardless of size tier. Escalating those just adds a rubber stamp. Unresolved substantive reviewer concerns still block approval anywhere; that is evidence of a real problem, not process.

@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -18,7 +18,6 @@ from products.warehouse_sources.sources.azure_devops.azure_devops import (
     AzureDevOpsAuthError,
     AzureDevOpsResumeConfig,
     _flatten_classification_nodes,
-    _format_datetime,
     _validate_organization,
     validate_credentials,
     wire_api_version,
@@ -44,20 +43,6 @@ class TestValidateOrganization:
     def test_invalid_organizations_raise(self, value):
         with pytest.raises(ValueError):
             _validate_organization(value)
-
-
-class TestFormatDatetime:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
-            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
-            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
-        ],
-    )
-    def test_format_values(self, value, expected):
-        assert _format_datetime(value) == expected
 
 
 class TestValidateCredentials:
@@ -541,7 +526,7 @@ class TestTestRunEndpoint:
         query = result.requests[1]
         min_last_updated = query.param("minLastUpdatedDate")
         max_last_updated = query.param("maxLastUpdatedDate")
-        assert min_last_updated == _format_datetime(since)
+        assert min_last_updated == since.strftime("%Y-%m-%dT%H:%M:%SZ")
         assert max_last_updated is not None
         window_start = datetime.fromisoformat(min_last_updated.replace("Z", "+00:00"))
         window_end = datetime.fromisoformat(max_last_updated.replace("Z", "+00:00"))

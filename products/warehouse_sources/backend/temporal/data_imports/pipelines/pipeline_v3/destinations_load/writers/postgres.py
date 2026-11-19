@@ -32,8 +32,8 @@ import json
 import socket
 import asyncio
 import ipaddress
-from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from typing import Any, ClassVar
 
 import psycopg
@@ -107,6 +107,10 @@ ACCESS_RULE_DETAIL = (
 )
 UNKNOWN_DATABASE_DETAIL = (
     "The database does not exist on this server. Check the database name on the destination, then run the sync again."
+)
+PERMISSIONS_DETAIL = (
+    "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and SELECT, "
+    "INSERT, UPDATE and DELETE on its tables, then run the sync again."
 )
 
 # Connection failures carry no SQLSTATE: libpq reports them as text only, so these match the
@@ -311,6 +315,28 @@ class PostgresDestinationWriter:
                 raise
             yield client
 
+    def _write_error_detail(self, err: Exception) -> str | None:
+        """What the customer must fix when `err` stops a write that already connected, or None
+        to retry.
+
+        Covers only privilege: every connection-time failure is classified before this runs,
+        and every other write failure (a deadlock, a serialization failure, a dropped
+        connection) is the kind of thing a retry already handles.
+        """
+        if isinstance(err, psycopg.errors.InsufficientPrivilege):
+            return PERMISSIONS_DETAIL
+        return None
+
+    @contextmanager
+    def _write_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = self._write_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     @asynccontextmanager
     async def _write_cursor(self, client: PostgreSQLClient) -> AsyncIterator[psycopg.AsyncCursor]:
         """A cursor in a transaction of its own that is declared read-write.
@@ -351,8 +377,10 @@ class PostgresDestinationWriter:
         with_batch_index: bool,
         primary_keys: list[str] | None = None,
     ) -> None:
-        async with self._write_cursor(client) as cursor:
-            await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
+        # Needs CREATE on the database even when the schema exists, so only a missing one runs it.
+        if not await self._schema_exists(client):
+            async with self._write_cursor(client) as cursor:
+                await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
 
         fields = self._fields_for(schema, with_batch_index=with_batch_index)
         # Declared at creation rather than added later, so the merge target carries its own
@@ -390,6 +418,17 @@ class PostgresDestinationWriter:
                     )
                 )
 
+    async def _drop_batch_index_column(self, client: PostgreSQLClient, table: str) -> None:
+        """Strip the per-batch dedup column before a staging table is published."""
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}").format(
+                    sql.Identifier(self._schema),
+                    sql.Identifier(table),
+                    sql.Identifier(self._batch_index_column),
+                )
+            )
+
     # --- writer protocol ----------------------------------------------------------------
 
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
@@ -399,66 +438,73 @@ class PostgresDestinationWriter:
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
-        run = ctx.run
-        full_refresh = run.is_full_refresh
-        target = staging_table_name(run) if full_refresh else run.table_name
+        with self._write_errors():
+            run = ctx.run
+            full_refresh = run.is_full_refresh
+            target = staging_table_name(run) if full_refresh else run.table_name
 
-        rows_written = 0
+            rows_written = 0
 
-        async with self._client() as client:
-            if full_refresh and await self._already_published(client, run):
-                # This run's staging table is gone and the live table carries this run's
-                # publish stamp, so the run finished. Re-creating a staging table from this
-                # one batch and swapping it in would replace the whole table with it.
-                return BatchWriteOutcome(rows_written=0)
+            async with self._client() as client:
+                if full_refresh and await self._already_published(client, run):
+                    # This run's staging table is gone and the live table carries this run's
+                    # publish stamp, so the run finished. Re-creating a staging table from this
+                    # one batch and swapping it in would replace the whole table with it.
+                    return BatchWriteOutcome(rows_written=0)
 
-            first = True
-            async for batch in batches:
-                if first:
-                    # An incremental run writes straight into the live table, and a full
-                    # refresh writes into what it treats as *its own* staging table — either
-                    # way, a table that predates this sync and merely happens to share the
-                    # generated name must be refused up front, before its schema is evolved or
-                    # a row in it is touched. Reusing an unowned table as staging would mutate
-                    # or delete unrelated data and, on the final batch, replace its ownership
-                    # marker and swap it in under `finalize_run`'s nose. A full refresh's own
-                    # table gets one further check at swap time, once the new data is known to
-                    # be complete.
-                    table_existed = await self._table_exists(client, target)
-                    if table_existed and not await self._is_owned(client, target, run.schema_id):
-                        raise UnrelatedTableExistsError(
-                            f'"{self._schema}"."{target}" already exists and was not created by this sync; '
-                            + (
-                                "refusing to reuse it as a staging table."
-                                if full_refresh
-                                else "refusing to merge an incremental run's rows into it."
+                first = True
+                async for batch in batches:
+                    if first:
+                        # An incremental run writes straight into the live table, and a full
+                        # refresh writes into what it treats as *its own* staging table — either
+                        # way, a table that predates this sync and merely happens to share the
+                        # generated name must be refused up front, before its schema is evolved or
+                        # a row in it is touched. Reusing an unowned table as staging would mutate
+                        # or delete unrelated data and, on the final batch, replace its ownership
+                        # marker and swap it in under `finalize_run`'s nose. A full refresh's own
+                        # table gets one further check at swap time, once the new data is known to
+                        # be complete.
+                        table_existed = await self._table_exists(client, target)
+                        if table_existed and not await self._is_owned(client, target, run.schema_id):
+                            raise UnrelatedTableExistsError(
+                                f'"{self._schema}"."{target}" already exists and was not created by this sync; '
+                                + (
+                                    "refusing to reuse it as a staging table."
+                                    if full_refresh
+                                    else "refusing to merge an incremental run's rows into it."
+                                )
                             )
-                        )
 
-                    await self._ensure_table(
-                        client,
-                        target,
-                        batch.schema,
-                        with_batch_index=full_refresh,
-                        primary_keys=list(run.primary_keys) if run.is_incremental and not full_refresh else None,
+                        # Needs CREATE on the schema even when the table exists, so skip it then.
+                        if not table_existed:
+                            await self._ensure_table(
+                                client,
+                                target,
+                                batch.schema,
+                                with_batch_index=full_refresh,
+                                primary_keys=list(run.primary_keys)
+                                if run.is_incremental and not full_refresh
+                                else None,
+                            )
+                        await self._evolve_table(client, target, batch.schema)
+                        if full_refresh:
+                            # This batch may be a re-apply after a crash, so clear whatever its
+                            # previous attempt wrote before writing it again.
+                            await self._delete_batch_rows(client, target, ctx.batch_index)
+                            # Marked on the staging table, not the live one: the comment survives
+                            # the rename in `finalize_run`, which is where it gets checked.
+                            await self._mark_owned(client, target, run.schema_id)
+                        elif not table_existed:
+                            # A table this writer just created for an incremental run never gets
+                            # renamed, so mark it in place rather than at swap time.
+                            await self._mark_owned(client, target, run.schema_id)
+                        first = False
+
+                    rows_written += await self._write_record_batch(
+                        client, target, batch, ctx, full_refresh=full_refresh
                     )
-                    await self._evolve_table(client, target, batch.schema)
-                    if full_refresh:
-                        # This batch may be a re-apply after a crash, so clear whatever its
-                        # previous attempt wrote before writing it again.
-                        await self._delete_batch_rows(client, target, ctx.batch_index)
-                        # Marked on the staging table, not the live one: the comment survives
-                        # the rename in `finalize_run`, which is where it gets checked.
-                        await self._mark_owned(client, target, run.schema_id)
-                    elif not table_existed:
-                        # A table this writer just created for an incremental run never gets
-                        # renamed, so mark it in place rather than at swap time.
-                        await self._mark_owned(client, target, run.schema_id)
-                    first = False
 
-                rows_written += await self._write_record_batch(client, target, batch, ctx, full_refresh=full_refresh)
-
-        return BatchWriteOutcome(rows_written=rows_written)
+            return BatchWriteOutcome(rows_written=rows_written)
 
     async def _delete_batch_rows(self, client: PostgreSQLClient, target: str, batch_index: int) -> None:
         async with self._write_cursor(client) as cursor:
@@ -538,18 +584,29 @@ class PostgresDestinationWriter:
     async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table to receive one batch.
 
+        Created from `target`'s own column definitions (`LIKE`), not re-derived from `schema`:
+        a batch whose rows are all null for a column carries no real type information for it
+        (Arrow infers such a column as untyped, which `sql_types` falls back to mapping as
+        TEXT), and building the stage straight from that batch would then create the column as
+        TEXT against a `target` that already holds it as, say, BIGINT -- the upsert's
+        `INSERT ... SELECT` refuses to assign the stage's TEXT output into target's BIGINT
+        column. `target` always already carries every column this batch has, because the
+        caller ensures and evolves it from this same `schema` first.
+
         Created once per run and emptied between batches rather than created and dropped per
         batch. A table per batch is not free on someone else's server: each one writes catalog
         rows that later have to be vacuumed, and vacuuming catalog tables can need locks.
         `abort_run` and `finalize_run` drop it.
-
-        `target` is unused here because `ON CONFLICT` names its columns, so a stage carrying
-        only the batch's own columns is enough. Redshift's merge selects the destination's full
-        column list out of the stage, so its override builds the stage from `target` instead.
         """
-        await client.acreate_table(
-            self._schema, stage, self._fields_for(schema, with_batch_index=False), exists_ok=True
-        )
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("CREATE TABLE IF NOT EXISTS {}.{} (LIKE {}.{})").format(
+                    sql.Identifier(self._schema),
+                    sql.Identifier(stage),
+                    sql.Identifier(self._schema),
+                    sql.Identifier(target),
+                )
+            )
         # The stage outlives the batch that created it, so a column the source grew mid-run has
         # to reach it too, or the COPY names a column the stage does not have.
         await self._evolve_table(client, stage, schema)
@@ -626,21 +683,28 @@ class PostgresDestinationWriter:
 
     async def _has_unique_index_on(self, client: PostgreSQLClient, target: str, columns: list[str]) -> bool:
         """Whether some unique index already covers exactly these columns, in any order."""
-        async with client.connection.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT array_agg(a.attname::text ORDER BY a.attname)
-                FROM pg_index i
-                JOIN pg_class c ON c.oid = i.indrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
-                WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
-                GROUP BY i.indexrelid
-                """,
-                {"table": target, "schema": self._schema},
-            )
-            wanted = sorted(columns)
-            return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
+        # Demarcated like every other query here, unlike a bare cursor: left open, this
+        # probe's own implicit transaction would still be live when the next statement on
+        # this connection opens its own `transaction()`, which then nests as a savepoint
+        # instead of starting clean. Redshift has no savepoints, so that next statement
+        # fails outright with "current transaction is aborted", for a probe that already
+        # finished and had nothing left to protect.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT array_agg(a.attname::text ORDER BY a.attname)
+                    FROM pg_index i
+                    JOIN pg_class c ON c.oid = i.indrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+                    WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
+                    GROUP BY i.indexrelid
+                    """,
+                    {"table": target, "schema": self._schema},
+                )
+                wanted = sorted(columns)
+                return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
 
     async def _mark_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> None:
         async with self._write_cursor(client) as cursor:
@@ -659,19 +723,22 @@ class PostgresDestinationWriter:
         return is_owned_by(await self._table_comment(client, table), schema_id)
 
     async def _table_comment(self, client: PostgreSQLClient, table: str) -> str | None:
-        async with client.connection.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT d.description
-                FROM pg_catalog.pg_description d
-                JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relname = %(table)s AND n.nspname = %(schema)s
-                """,
-                {"table": table, "schema": self._schema},
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        # See `_has_unique_index_on`: demarcated so this probe's implicit transaction closes
+        # before the next statement on the connection can nest a savepoint into it.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT d.description
+                    FROM pg_catalog.pg_description d
+                    JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relname = %(table)s AND n.nspname = %(schema)s
+                    """,
+                    {"table": table, "schema": self._schema},
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
 
     async def _already_published(self, client: PostgreSQLClient, ctx: DestinationRunContext) -> bool:
         """Whether this run already swapped its staging table into place."""
@@ -683,81 +750,86 @@ class PostgresDestinationWriter:
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
-        if not ctx.is_full_refresh:
-            # An incremental run publishes as it goes, but its merge stage lives for the whole
-            # run, so this is the point where it stops being needed.
-            async with self._client() as client:
-                await client.adelete_table(self._schema, merge_stage_name(ctx.table_name, ctx), not_found_ok=True)
-            return
-
-        staging = staging_table_name(ctx)
-
-        async with self._client() as client:
-            if not await self._table_exists(client, staging):
-                # Already swapped by an earlier attempt at this same final batch.
+        with self._write_errors():
+            if not ctx.is_full_refresh:
+                # An incremental run publishes as it goes, but its merge stage lives for the
+                # whole run, so this is the point where it stops being needed.
+                async with self._client() as client:
+                    await client.adelete_table(self._schema, merge_stage_name(ctx.table_name, ctx), not_found_ok=True)
                 return
 
-            if await self._table_exists(client, ctx.table_name) and not await self._is_owned(
-                client, ctx.table_name, ctx.schema_id
-            ):
-                # A table with this name exists and this writer never created it. Refuse
-                # rather than drop it: `table_name` comes from the source's resource name,
-                # which a custom-source manifest controls, and a table that predates this
-                # sync could be anything the customer already had in this schema.
-                raise UnrelatedTableExistsError(
-                    f'"{self._schema}"."{ctx.table_name}" already exists and was not created by this sync; '
-                    "refusing to replace it with the full refresh's staging table."
-                )
+            staging = staging_table_name(ctx)
 
-            async with self._write_cursor(client) as cursor:
-                # TODO: `RedshiftDestinationWriter` inherits this statement, and Redshift may
-                # not accept `DROP COLUMN IF EXISTS`. If it does not, every Redshift full
-                # refresh fails here and no run ever publishes. Confirm against a real cluster.
-                await cursor.execute(
-                    sql.SQL("ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}").format(
-                        sql.Identifier(self._schema),
-                        sql.Identifier(staging),
-                        sql.Identifier(self._batch_index_column),
-                    )
-                )
+            async with self._client() as client:
+                if not await self._table_exists(client, staging):
+                    # Already swapped by an earlier attempt at this same final batch.
+                    return
 
-            async with self._write_cursor(client) as cursor:
-                await cursor.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                        sql.Identifier(self._schema), sql.Identifier(ctx.table_name)
+                if await self._table_exists(client, ctx.table_name) and not await self._is_owned(
+                    client, ctx.table_name, ctx.schema_id
+                ):
+                    # A table with this name exists and this writer never created it. Refuse
+                    # rather than drop it: `table_name` comes from the source's resource name,
+                    # which a custom-source manifest controls, and a table that predates this
+                    # sync could be anything the customer already had in this schema.
+                    raise UnrelatedTableExistsError(
+                        f'"{self._schema}"."{ctx.table_name}" already exists and was not created by this sync; '
+                        "refusing to replace it with the full refresh's staging table."
                     )
-                )
-                await cursor.execute(
-                    sql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
-                        sql.Identifier(self._schema),
-                        sql.Identifier(staging),
-                        sql.Identifier(ctx.table_name),
+
+                await self._drop_batch_index_column(client, staging)
+
+                async with self._write_cursor(client) as cursor:
+                    await cursor.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                            sql.Identifier(self._schema), sql.Identifier(ctx.table_name)
+                        )
                     )
-                )
-                # Stamp the run that published, so a redelivery of the final batch can tell
-                # "already published" from "never started" and refuse to rebuild the table.
-                await cursor.execute(
-                    sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
-                        sql.Identifier(self._schema),
-                        sql.Identifier(ctx.table_name),
-                        sql.Literal(published_marker(ctx.schema_id, ctx.run_uuid)),
+                    await cursor.execute(
+                        sql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                            sql.Identifier(self._schema),
+                            sql.Identifier(staging),
+                            sql.Identifier(ctx.table_name),
+                        )
                     )
+                    # Stamp the run that published, so a redelivery of the final batch can tell
+                    # "already published" from "never started" and refuse to rebuild the table.
+                    await cursor.execute(
+                        sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
+                            sql.Identifier(self._schema),
+                            sql.Identifier(ctx.table_name),
+                            sql.Literal(published_marker(ctx.schema_id, ctx.run_uuid)),
+                        )
+                    )
+
+    async def _schema_exists(self, client: PostgreSQLClient) -> bool:
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %(schema)s", {"schema": self._schema}
                 )
+                return await cursor.fetchone() is not None
 
     async def _table_exists(self, client: PostgreSQLClient, table: str) -> bool:
         # The probe batch exports uses. `information_schema.tables` would be the obvious
         # query, but it only exists on the leader node of a Redshift cluster, and Redshift
         # inherits this method.
+        #
+        # `_ensure_table` only creates the schema once this returns, so a destination's
+        # first-ever run against a schema it hasn't created yet must read as "table missing"
+        # too, not raise: `InvalidSchemaName` is Postgres's and Redshift's error for a schema
+        # that does not exist, the same way `UndefinedTable` is for a table.
         try:
             await client.aget_table_columns(self._schema, table)
-        except psycopg.errors.UndefinedTable:
+        except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
             return False
         return True
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
         """Drop whatever a run that will not finish left staged."""
-        async with self._client() as client:
-            await self._drop_run_scratch(client, ctx)
+        with self._write_errors():
+            async with self._client() as client:
+                await self._drop_run_scratch(client, ctx)
 
     async def _drop_run_scratch(self, client: PostgreSQLClient, ctx: DestinationRunContext) -> None:
         """Drop the scratch tables a run owns, once it can no longer need them."""

@@ -68,6 +68,8 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckCitation
+                              |AEOCheckSearch
                               |AEOCitationCheck
                               |AEOEngineSetting
                               |AEOKeyword
@@ -208,6 +210,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
                               |ErrorTrackingIssueTag
+                              |ErrorTrackingIssueTagRule
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -280,6 +283,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeKeyLibrary
                               |KnowledgeLearningRun
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
@@ -295,6 +299,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSigningSecret
                               |LogsView
                               |Loop
                               |LoopFire
@@ -329,6 +334,7 @@ rules:
                               |RelationshipProposal
                               |UsageSnapshot
                               |MCPAnalyticsSubmission
+                              |MCPAnalyticsWrapped
                               |MCPAuditEvent
                               |MCPCustomHarness
                               |MCPGatewayServer
@@ -761,6 +767,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
                         |ErrorTrackingIssueTag
+                        |ErrorTrackingIssueTagRule
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -830,6 +837,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeKeyLibrary
                         |KnowledgeLearningRun
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
@@ -872,6 +880,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |UsageSnapshot
+                        |MCPAnalyticsWrapped
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
@@ -1295,6 +1304,7 @@ rules:
                         |LogsAlertConfiguration
                         |LogsExclusionRule
                         |LogsRetentionRule
+                        |LogsSigningSecret
                         |LogsView
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot
@@ -1683,6 +1693,7 @@ rules:
                               AccountAuditCredential
                               |CommunitySkillVote
                               |GitHubInstallRequest
+                              |IdentityProviderEmailVerification
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1740,6 +1751,7 @@ rules:
                         AccountAuditCredential
                         |CommunitySkillVote
                         |GitHubInstallRequest
+                        |IdentityProviderEmailVerification
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

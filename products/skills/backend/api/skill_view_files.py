@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.models import User
 
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from ..models.skills import LLMSkillFile
 from .archive_guards import SkillPublishRefused
@@ -68,7 +68,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
         detail=False,
         url_path=r"name/(?P<skill_name>[^/]+)/files/(?P<file_path>.+)",
     )
-    @llma_track_latency("llma_skills_get_file")
+    @skills_track_latency("llma_skills_get_file")
     @monitor(feature=None, endpoint="llma_skills_get_file", method="GET")
     def get_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
         version_params = self._validated_query(LLMSkillFetchQuerySerializer, request)
@@ -97,7 +97,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/files",
         required_scopes=["llm_skill:write"],
     )
-    @llma_track_latency("llma_skills_create_file")
+    @skills_track_latency("llma_skills_create_file")
     @monitor(feature=None, endpoint="llma_skills_create_file", method="POST")
     def create_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)
@@ -156,7 +156,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
 
     @extend_schema(parameters=[LLMSkillFileDeleteQuerySerializer], responses={200: LLMSkillSerializer})
     @get_file.mapping.delete
-    @llma_track_latency("llma_skills_delete_file")
+    @skills_track_latency("llma_skills_delete_file")
     @monitor(feature=None, endpoint="llma_skills_delete_file", method="DELETE")
     def delete_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)
@@ -219,7 +219,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/files-rename",
         required_scopes=["llm_skill:write"],
     )
-    @llma_track_latency("llma_skills_rename_file")
+    @skills_track_latency("llma_skills_rename_file")
     @monitor(feature=None, endpoint="llma_skills_rename_file", method="POST")
     def rename_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)

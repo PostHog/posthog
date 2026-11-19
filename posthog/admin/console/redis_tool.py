@@ -168,7 +168,7 @@ class RedisValuesTool(ConsoleTool):
     key = "redis-values"
     title = "Redis values"
     owner = DEV_EXPERIENCE
-    group = "Data"
+    group = "Infrastructure"
     description = "The keys in Redis, with their type, TTL, size and value."
 
     def page(self, request: HttpRequest) -> Page:

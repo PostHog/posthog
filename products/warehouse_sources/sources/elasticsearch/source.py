@@ -84,6 +84,9 @@ class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatab
             "403 Client Error: Forbidden for url": "Elasticsearch denied access. Please check that your credentials can read this index.",
             "404 Client Error: Not Found for url": "Elasticsearch index not found. It may have been deleted or renamed.",
             NON_JSON_RESPONSE_ERROR: "Elasticsearch returned an unexpected response. Check that the cluster URL points at the Elasticsearch HTTP API, not a browser or Kibana URL.",
+            # The sync-time host check gives this message when DNS says the name doesn't exist. A
+            # resolver blip gives "Temporary failure resolving the host", which stays retryable.
+            "Couldn't resolve the host": "The Elasticsearch cluster URL could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
         }
 
     @property

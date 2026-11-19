@@ -1,17 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { EventEmitter, once } from 'events'
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    realpathSync,
-    rmSync,
-    rmdirSync,
-    symlinkSync,
-    writeFileSync,
-} from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
 import net from 'net'
@@ -64,6 +54,7 @@ const SELF = 100
 const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
 const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
+const NEVER_ABORTED = new AbortController().signal
 const EDGE = { url: 'http://127.0.0.1:4566', caCertPath: `${STATE_DIR}/edge-ca/ca.pem` }
 const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
@@ -482,6 +473,26 @@ describe('scenario environment', () => {
                 },
             ])
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
+        })
+
+        it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
+            const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const split = roleSpecs(
+                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                undefined,
+                { 'cdp-cyclotron-worker-hogflow': 2 }
+            )
+            const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
+
+            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(
+                shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
+            ).toEqual([1, 1])
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
         })
 
         it.each(CdpRole.options)(
@@ -1015,47 +1026,6 @@ describe('scenario environment', () => {
                 await killedElsewhere.stop()
             }
         }, 15_000)
-
-        it('records a role it cannot start again and keeps retrying until it starts', async () => {
-            const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
-            const exiting = createSupervisor({
-                command: process.execPath,
-                args: ['-e', 'process.exit(3)'],
-                cwd,
-                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
-                graceMs: 1000,
-                restartBackoffMs: 50,
-            })
-            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
-            try {
-                await exiting.start([spec])
-                rmdirSync(cwd)
-                await waitForExpect(
-                    () =>
-                        expect(exiting.exits().map(({ error }) => error)).toContainEqual(
-                            expect.stringContaining('ENOENT')
-                        ),
-                    5000,
-                    20
-                )
-                mkdirSync(cwd)
-                const failedStarts = exiting.exits().length
-
-                await waitForExpect(
-                    () =>
-                        expect(
-                            exiting
-                                .exits()
-                                .slice(failedStarts)
-                                .map(({ code }) => code)
-                        ).toContain(3),
-                    5000,
-                    20
-                )
-            } finally {
-                await exiting.stop()
-            }
-        }, 15_000)
     })
 
     describe('up and reset', () => {
@@ -1120,14 +1090,46 @@ describe('scenario environment', () => {
                 process.exit(1)
             }
             const verb = positionals.join(' ')
+            if (/ngrok/.test(command)) {
+                fail('The command line names the tunnel process: ' + command)
+            }
             if (verb === 'wait') {
                 const answersAfterS = stack.busy ? 10 : 0
                 if (!stack.running || Number(flags.timeout ?? 300) < answersAfterS) {
                     process.exit(3)
                 }
+                if (stack.hangs && !stack.ready) {
+                    fs.writeFileSync(path.join(__dirname, 'hogli-group'), String(process.pid))
+                    const ignoreTerm = stack.ignoresTerm ? "process.on('SIGTERM', () => undefined); " : ''
+                    if (stack.ignoresTerm) {
+                        process.on('SIGTERM', () => undefined)
+                        setInterval(() => undefined, 60_000)
+                    }
+                    require('child_process').spawn(
+                        process.execPath,
+                        [
+                            '-e',
+                            ignoreTerm +
+                                "require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => undefined, 60_000)",
+                            path.join(__dirname, 'waiting'),
+                        ],
+                        { stdio: 'ignore' }
+                    )
+                    return
+                }
+                if (stack.firstStartS !== undefined && Number(flags.timeout ?? 300) < stack.firstStartS) {
+                    process.stderr.write('timeout: still not ready: capture (pending)\\n')
+                    process.exit(2)
+                }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
             } else if (verb === 'dev:generate') {
-                const units = ['backend', 'frontend', 'nodejs', ...flags.with].filter((unit) => !flags.without.includes(unit))
+                const saved = fs.existsSync(process.env.HOGLI_MPROCS_PATH)
+                    ? JSON.parse(fs.readFileSync(process.env.HOGLI_MPROCS_PATH, 'utf8'))._posthog
+                    : { intents: ['product_analytics'], exclude_units: [] }
+                const excluded = [...saved.exclude_units, ...flags.without]
+                const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...saved.intents, ...flags.with].filter(
+                    (unit) => !excluded.includes(unit)
+                )
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
                     'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
@@ -1139,10 +1141,20 @@ describe('scenario environment', () => {
                 if (!fs.existsSync(flags.custom)) {
                     fail('No mprocs config at ' + flags.custom)
                 }
-                if (/^  nodejs:/m.test(fs.readFileSync(flags.custom, 'utf8'))) {
-                    fail('The config at ' + flags.custom + ' starts nodejs')
+                const started = /^  (nodejs|frontend|ingestion|ngrok):/m.exec(fs.readFileSync(flags.custom, 'utf8'))
+                if (started) {
+                    fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
-                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: false }))
+                fs.writeFileSync(
+                    stateFile,
+                    JSON.stringify({
+                        running: true,
+                        ready: false,
+                        firstStartS: stack.firstStartS,
+                        hangs: stack.hangs,
+                        ignoresTerm: stack.ignoresTerm,
+                    })
+                )
             } else if (verb === 'dev:sync-hog-templates') {
                 const { Client } = require(${JSON.stringify(require.resolve('pg'))})
                 const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
@@ -1312,8 +1324,14 @@ describe('scenario environment', () => {
                 (error: Error) => error.message
             ),
         })
-        const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
-            writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
+        const writeStack = (stack: {
+            running: boolean
+            ready: boolean
+            busy?: boolean
+            firstStartS?: number
+            hangs?: boolean
+            ignoresTerm?: boolean
+        }): void => writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
         const environmentOf = (roleHealthyWithinMs?: number): Environment =>
@@ -1430,6 +1448,9 @@ describe('scenario environment', () => {
         afterEach(async () => {
             await environment?.down()
             environment = undefined
+            if (existsSync(path.join(fakes, 'hogli-group'))) {
+                processes.signal(-Number(readFileSync(path.join(fakes, 'hogli-group'), 'utf8')), 'SIGKILL')
+            }
             portHolder?.close()
             portHolder = undefined
             unspawnable = undefined
@@ -1465,7 +1486,7 @@ describe('scenario environment', () => {
             holdDeadMember()
             environment = environmentOf()
 
-            const up = environment.up().then(
+            const up = environment.up(NEVER_ABORTED).then(
                 () => 'up',
                 (error: unknown) => String(error)
             )
@@ -1483,7 +1504,7 @@ describe('scenario environment', () => {
             })
         }, 45_000)
 
-        it.each<[string, { running: boolean; ready: boolean; busy?: boolean }, string[]]>([
+        it.each<[string, { running: boolean; ready: boolean; busy?: boolean; firstStartS?: number }, string[]]>([
             ['a running stack', { running: true, ready: true }, STACK.templates],
             [
                 'a running stack whose phrocs answers slowly, without starting it again',
@@ -1496,6 +1517,11 @@ describe('scenario environment', () => {
                 STACK.templates,
             ],
             ['a stack hogli cannot reach', { running: false, ready: false }, STACK.templates],
+            [
+                'a stack hogli cannot reach, whose first start builds for longer than the default wait',
+                { running: false, ready: false, firstStartS: 1800 },
+                STACK.templates,
+            ],
             ['a stack whose Django lacks the templates', { running: true, ready: true }, []],
         ])(
             'brings up %s through hogli and ends with the templates in Django',
@@ -1510,7 +1536,7 @@ describe('scenario environment', () => {
                 )
                 environment = environmentOf()
 
-                await environment.up()
+                await environment.up(NEVER_ABORTED)
 
                 expect({ stack: stackOf(), templates: await templatesInDjango() }).toEqual({
                     stack: { running: true, ready: true },
@@ -1520,10 +1546,34 @@ describe('scenario environment', () => {
             30_000
         )
 
+        it.each([
+            ['stop on SIGTERM', false],
+            ['ignore SIGTERM', true],
+        ])(
+            'stops the first start of the stack when the run is cancelled while hogli waits for it, when hogli and its waiter %s',
+            async (_, ignoresTerm) => {
+                writeStack({ running: false, ready: false, hangs: true, ignoresTerm })
+                environment = environmentOf()
+                const cancel = new AbortController()
+
+                const up = environment.up(cancel.signal).then(
+                    () => 'up',
+                    (error: Error) => error.name
+                )
+                await waitForExpect(() => expect(existsSync(path.join(fakes, 'waiting'))).toBe(true), 10_000, 20)
+                const waiting = Number(readFileSync(path.join(fakes, 'waiting'), 'utf8'))
+                cancel.abort()
+
+                expect(await up).toBe('AbortError')
+                await waitForExpect(() => expect(() => process.kill(waiting, 0)).toThrow(), 5000, 20)
+            },
+            30_000
+        )
+
         it('records a role that dies and starts it again', async () => {
             const role = 'cdp-processed-events'
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
             const killed = Number(await (await internalFetch(health)).text())
 
@@ -1540,7 +1590,7 @@ describe('scenario environment', () => {
         it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {
             const role = 'cdp-cyclotron-worker-email'
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
             const killed = Number(await (await internalFetch(health)).text())
 
@@ -1559,7 +1609,7 @@ describe('scenario environment', () => {
         it('starts every replica a profile asks for, lists each one, and kills only replica 0 on a valve', async () => {
             const role = 'cdp-cyclotron-worker-email'
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             await environment.reset({}, { [role]: 2 })
             const pidAt = async (url: string): Promise<number> =>
                 Number(await (await internalFetch(`${url}/_health`)).text())
@@ -1588,9 +1638,9 @@ describe('scenario environment', () => {
             })
         }, 30_000)
 
-        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
+        it("keeps dropping the roles' Postgres connections in every database on their servers until release, and spares every other one", async () => {
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             const connect = async (
                 url: string,
                 applicationName: string
@@ -1625,7 +1675,17 @@ describe('scenario environment', () => {
                     templatesUrl
                 )
                 expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                const reconnected = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(reconnected)
+                let reconnectedDropped = false
+                void reconnected.ended.then(() => (reconnectedDropped = true))
+                await waitForExpect(() => expect(reconnectedDropped).toBe(true), 5_000)
                 await actuation.release()
+                const afterRelease = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(afterRelease)
+                await expect(
+                    Promise.race([afterRelease.ended.then(() => 'dropped'), nextTimers(1_000).then(() => 'kept')])
+                ).resolves.toBe('kept')
             } finally {
                 await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
             }
@@ -1636,7 +1696,7 @@ describe('scenario environment', () => {
             process.env.DATABASE_READONLY_URL = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
             try {
                 environment = environmentOf()
-                await environment.up()
+                await environment.up(NEVER_ABORTED)
                 const client = new Client({
                     connectionString: templatesUrl,
                     application_name: `scenario-${process.pid}-${Date.now()}`,
@@ -1662,7 +1722,7 @@ describe('scenario environment', () => {
 
         it("drops the dose's share of the sessions it targets, rounded up, and no other session", async () => {
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             const tag = `${process.pid}-${Date.now()}`
             const open = (name: string) =>
                 Promise.all(
@@ -1704,7 +1764,7 @@ describe('scenario environment', () => {
         it('freezes a role on a valve, sees it stopped, and resumes the same process on release', async () => {
             const role = 'cdp-cyclotron-worker-hogflow'
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
             const frozen = Number(await (await internalFetch(health)).text())
 
@@ -1721,7 +1781,7 @@ describe('scenario environment', () => {
             const hung: Role = 'cdp-cyclotron-worker-hogflow'
             environment = environmentOf()
 
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
 
             const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
             const edge = (await internalFetch(`${environment.edgeUrl()}/_health`)).status
@@ -1775,7 +1835,7 @@ describe('scenario environment', () => {
                 const earlierRoles = new Set(stubRolePids)
                 environment = environmentOf(5000)
 
-                const failure = await environment.up().then(
+                const failure = await environment.up(NEVER_ABORTED).then(
                     () => null,
                     (error: Error) => error.message
                 )
@@ -1820,7 +1880,7 @@ describe('scenario environment', () => {
                 try {
                     environment = environmentOf()
 
-                    await expect(environment.up()).rejects.toMatchObject({
+                    await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject({
                         exitCode: 2,
                         message: expect.stringContaining(
                             `${port} (${owner}). Find the processes that hold them with \`ss -ltnp 'sport = :${port}'\`, stop them, then run the scenario again.`
@@ -1846,7 +1906,7 @@ describe('scenario environment', () => {
             'brings every role back healthy on reset%s',
             async (_name, arrange) => {
                 environment = environmentOf()
-                await environment.up()
+                await environment.up(NEVER_ABORTED)
                 await arrange()
 
                 await environment.reset({})
@@ -1863,7 +1923,7 @@ describe('scenario environment', () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             await withPostgres(
                 (client) =>
                     client.query(
@@ -1905,7 +1965,7 @@ describe('scenario environment', () => {
 
         it('waits for a stopped role to leave the events group before it moves the group to the end', async () => {
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             holdDeadMember()
 
             const reset = environment.reset({}).then(
@@ -1954,7 +2014,7 @@ describe('scenario environment', () => {
             async (_name, rpkSeek, failure) => {
                 writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
                 environment = environmentOf()
-                await environment.up()
+                await environment.up(NEVER_ABORTED)
 
                 const outcome = await environment
                     .reset({
@@ -1992,7 +2052,7 @@ describe('scenario environment', () => {
             'fails a reset at once naming a role that %s, why, and its log, and tears the environment down',
             async (_name, role, why, arrange) => {
                 environment = environmentOf()
-                await environment.up()
+                await environment.up(NEVER_ABORTED)
                 const edgeUrl = environment.edgeUrl()
                 arrange()
 
@@ -2020,7 +2080,7 @@ describe('scenario environment', () => {
         it('names a role whose exit never arrives after SIGKILL and still frees the edge and the state dir on down', async () => {
             exitGoesUnreported = 'cdp-processed-events'
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             const edgeUrl = environment.edgeUrl()
 
             const failure = await environment.down().then(
@@ -2037,7 +2097,7 @@ describe('scenario environment', () => {
 
         it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
             environment = environmentOf()
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
             takesPortOnExit = 'cdp-processed-events'
 
             await expect(environment.reset({})).rejects.toMatchObject({
@@ -2064,7 +2124,7 @@ describe('scenario environment', () => {
             process.env.XDG_CACHE_HOME = linked
             environment = environmentOf()
 
-            await environment.up()
+            await environment.up(NEVER_ABORTED)
 
             await waitForExpect(() => expect(role.signalCode).toBe('SIGTERM'), 5_000)
         }, 30_000)
@@ -2092,8 +2152,8 @@ describe('scenario environment', () => {
                 ),
             }
 
-            await expect(environment.up()).rejects.toMatchObject(refusal)
-            await expect(environment.up()).rejects.toMatchObject(refusal)
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
+            await expect(environment.up(NEVER_ABORTED)).rejects.toMatchObject(refusal)
         }, 20_000)
     })
 })

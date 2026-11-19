@@ -95,7 +95,7 @@ def list_suggestions(
         surface=surface,
         subject_kinds=subject_kinds,
     )
-    rows = select_page(visible, page)
+    rows = select_page(visible.filter(access.decided_or_editable_q()), page)
     return Page(results=_to_contracts(team_id, user_access_control, rows.results, access), count=rows.count)
 
 
@@ -152,6 +152,7 @@ def dismiss_suggestion(
     note: str | None,
     subject_kinds: SubjectKinds,
     surface: WarehouseSuggestionSurface | None = None,
+    bulk: bool = False,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     dismissed = suggestions.transition_to(
@@ -163,7 +164,13 @@ def dismiss_suggestion(
         note=note,
         transitions=suggestions.HUMAN_TRANSITIONS,
     )
-    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user, properties={"surface": surface})
+    report_outcomes(
+        SuggestionOutcome.DISMISSED,
+        [dismissed],
+        team=team,
+        user=user,
+        properties={"surface": surface, "bulk": bulk},
+    )
     return _single_contract(team.pk, user_access_control, dismissed, access)
 
 
@@ -215,6 +222,7 @@ def accept_suggestion(
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
     surface: WarehouseSuggestionSurface | None = None,
+    bulk: bool = False,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     if not options.delete_view:
@@ -230,7 +238,12 @@ def accept_suggestion(
             [outcome.suggestion],
             team=team,
             user=user,
-            properties={"changed_fields": list(outcome.changed_fields), "surface": surface, **asdict(outcome.savings)},
+            properties={
+                "changed_fields": list(outcome.changed_fields),
+                "surface": surface,
+                "bulk": bulk,
+                **asdict(outcome.savings),
+            },
         )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 

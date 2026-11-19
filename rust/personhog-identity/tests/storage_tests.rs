@@ -1,14 +1,17 @@
 mod common;
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
+use rstest::rstest;
 use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 use personhog_identity::config::OutboxWrites;
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
@@ -71,9 +74,8 @@ impl TestContext {
         sqlx::query_scalar(
             r#"
             INSERT INTO posthog_person
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version, is_deleted)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, $3, true)
+                (created_at, properties, team_id, is_identified, uuid, version, is_deleted)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, $3, true)
             RETURNING id
             "#,
         )
@@ -351,13 +353,29 @@ async fn batch_mixes_created_existing_and_lost_race_outcomes_per_row() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::own_transactions(false)]
+#[case::coalesced(true)]
 #[tokio::test]
-async fn concurrent_creates_for_one_distinct_id_create_exactly_once() {
+async fn concurrent_creates_for_one_distinct_id_create_exactly_once(#[case] coalesced: bool) {
     let ctx = TestContext::new().await;
+    let storage: Arc<dyn IdentityStorage> = if coalesced {
+        Arc::new(CoalescingIdentityStorage::spawn(
+            ctx.storage.clone(),
+            CoalesceSettings {
+                workers: 2,
+                max_batch_distinct_ids: 50,
+                max_queued_calls: 100,
+                max_queue_wait: Duration::from_secs(60),
+            },
+        ))
+    } else {
+        ctx.storage.clone()
+    };
 
     let tasks: Vec<_> = (0..8)
         .map(|_| {
-            let storage = ctx.storage.clone();
+            let storage = storage.clone();
             let stub = stub(&ctx, "race-key", &[]);
             tokio::spawn(async move { storage.create_person_stubs(&[stub]).await })
         })
@@ -398,9 +416,8 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     let winner_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
     )
@@ -448,6 +465,91 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     ctx.cleanup().await.ok();
 }
 
+/// The writer and the lifecycle sagas lock persons in (team_id, id) order. A
+/// multi-row create that locks them in another order deadlocks with those.
+#[tokio::test]
+async fn multi_row_create_waits_for_a_holder_locking_in_id_order() {
+    let ctx = TestContext::new().await;
+    let mut keys = ["cycle-a", "cycle-b"];
+    keys.sort_by_key(|key| std::cmp::Reverse(person_uuid(ctx.team_id, key)));
+    let mut ids: Vec<i64> = Vec::new();
+    for key in keys {
+        let id = sqlx::query_scalar(
+            r#"
+            INSERT INTO posthog_person
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
+            RETURNING id
+            "#,
+        )
+        .bind(ctx.team_id as i32)
+        .bind(person_uuid(ctx.team_id, key))
+        .fetch_one(&ctx.pool)
+        .await
+        .expect("insert live person");
+        ids.push(id);
+    }
+    assert!(ids[0] < ids[1], "the lower id must hold the higher uuid");
+
+    let lock_sql = "SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR NO KEY UPDATE";
+    let mut held = ctx.pool.begin().await.expect("begin held tx");
+    let held_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *held)
+        .await
+        .expect("held pid");
+    sqlx::query(lock_sql)
+        .bind(ctx.team_id as i32)
+        .bind(ids[0])
+        .execute(&mut *held)
+        .await
+        .expect("holder locks the lower id first");
+
+    let storage = ctx.storage.clone();
+    let stubs = vec![stub(&ctx, keys[0], &[]), stub(&ctx, keys[1], &[])];
+    let racer = tokio::spawn(async move { storage.create_person_stubs(&stubs).await });
+
+    let blocked = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+            )
+            .bind(held_pid)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("count blocked sessions");
+            if waiting > 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(blocked.is_ok(), "the create must block behind the holder");
+
+    sqlx::query(lock_sql)
+        .bind(ctx.team_id as i32)
+        .bind(ids[1])
+        .execute(&mut *held)
+        .await
+        .expect("holder locks the higher id without a deadlock");
+    held.commit().await.expect("commit holder");
+
+    let outcomes = racer
+        .await
+        .expect("task must not panic")
+        .expect("create must not be a deadlock victim");
+    let resolved: Vec<(i64, bool)> = outcomes
+        .iter()
+        .map(|outcome| match outcome {
+            StubOutcome::Committed { person, created } => (person.id, *created),
+            StubOutcome::LostRace => panic!("unexpected lost race"),
+        })
+        .collect();
+    assert_eq!(resolved, vec![(ids[0], false), (ids[1], false)]);
+
+    ctx.cleanup().await.ok();
+}
+
 /// The uncommitted mapping-steal window: a concurrent writer (a merge, an
 /// add-distinct-id) has mapped the distinct id to a different person but not
 /// yet committed. Our stub insert succeeds (different uuid), the distinct id
@@ -461,9 +563,8 @@ async fn create_blocked_on_uncommitted_mapping_rolls_back_as_lost_race() {
     let other_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, gen_random_uuid(), 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, gen_random_uuid(), 0)
         RETURNING id
         "#,
     )

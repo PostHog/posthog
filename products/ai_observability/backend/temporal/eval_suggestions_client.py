@@ -47,8 +47,9 @@ START_RUN = ActivityLimits(start_to_close=timedelta(minutes=1), attempts=3)
 MEASURE = ActivityLimits(start_to_close=timedelta(minutes=10), attempts=2, retry_interval=timedelta(minutes=1))
 # Screening and dedupe calls stop at their own budgets, 7 minutes together, before this runs out.
 SCREEN = ActivityLimits(start_to_close=timedelta(minutes=9), attempts=2, retry_interval=timedelta(minutes=1))
-# One attempt: a retry would pay for the draft again. Room for the slowest draft and measuring it.
-DRAFT = ActivityLimits(start_to_close=timedelta(minutes=15), attempts=1)
+# One attempt: a retry would pay for the review again. Room for its queries, the slowest triage and review, and the
+# judge calibration, which stops starting requests at the stage deadline.
+DRAFT = ActivityLimits(start_to_close=timedelta(minutes=30), attempts=1)
 PUBLISH = ActivityLimits(start_to_close=timedelta(minutes=2), attempts=3)
 FAIL_RUN = ActivityLimits(start_to_close=timedelta(minutes=1), attempts=3)
 # The activities run one after another, so the workflow needs room for each one's whole schedule-to-close.

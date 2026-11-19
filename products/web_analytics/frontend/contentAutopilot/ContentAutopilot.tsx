@@ -4,6 +4,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
+import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
@@ -220,6 +221,7 @@ export const ContentAutopilot = (): JSX.Element => {
             <ContentAutopilotProposalDetail />
             <ContentAutopilotPromptAddModal />
             <ContentAutopilotPromptSuggestModal />
+            <ContentAutopilotCitationsModal />
         </div>
     )
 }

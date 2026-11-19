@@ -33,7 +33,7 @@ export function draftChanges(drafted: ScannerFormValues, saved: ScannerFormValue
         query:
             !objectsEqual(drafted.query ?? null, saved.query ?? null) ||
             !objectsEqual(drafted.experiment_targeting ?? null, saved.experiment_targeting ?? null),
-        sampling: drafted.sampling_mode !== saved.sampling_mode || drafted.sampling_rate !== saved.sampling_rate,
+        sampling: drafted.sampling_rate !== saved.sampling_rate,
         model: drafted.model !== saved.model,
         budget:
             !!drafted.free_only !== !!saved.free_only ||

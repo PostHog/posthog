@@ -70,11 +70,18 @@ assert_result "desktop-only PR passes" 1 0 "No desktop/backend coupling detected
 register_pr 2 "[]" posthog/models.py ee/billing/models.py
 assert_result "backend-only PR is out of scope" 2 0 "No products/desktop changes"
 
-register_pr 3 "[]" products/desktop/apps/foo.ts posthog/models.py
-assert_result "coupled PR fails with split guidance" 3 1 "must be separated into different PRs"
+# The desktop and agent releases wait for the Django deploy, so these pairings are safe.
+register_pr 3 "[]" products/desktop/apps/foo.ts posthog/models.py ee/billing/models.py
+assert_result "desktop with Django changes passes" 3 0 "No desktop/backend coupling detected."
 
-register_pr 7 "[]" packages/agent/packages/agent/src/agent.ts posthog/models.py
-assert_result "agent workspace package coupled with backend fails" 7 1 "must be separated into different PRs"
+register_pr 12 "[]" packages/agent/packages/agent/src/agent.ts posthog/models.py
+assert_result "agent workspace package with Django changes passes" 12 0 "No desktop/backend coupling detected."
+
+register_pr 11 "[]" products/desktop/apps/foo.ts rust/capture/src/main.rs
+assert_result "desktop with a Rust service fails with split guidance" 11 1 "must be separated into different PRs"
+
+register_pr 7 "[]" packages/agent/packages/agent/src/agent.ts rust/capture/src/main.rs
+assert_result "agent workspace package with a Rust service fails" 7 1 "must be separated into different PRs"
 
 register_pr 8 "[]" packages/agent/agent-shadow/main.go products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
 assert_result "agent-shadow ships with the sandbox image, so it is out of scope" 8 0 "No products/desktop changes"
@@ -82,33 +89,29 @@ assert_result "agent-shadow ships with the sandbox image, so it is out of scope"
 register_pr 9 "[]" products/desktop/packages/api-client/src/generated.ts posthog/api/insight.py
 assert_result "regenerated desktop API client types ride along with a backend change" 9 0 "No products/desktop changes"
 
-register_pr 10 "[]" products/desktop/packages/api-client/src/generated.ts products/desktop/packages/api-client/src/posthog-client.ts posthog/api/insight.py
+register_pr 10 "[]" products/desktop/packages/api-client/src/generated.ts products/desktop/packages/api-client/src/posthog-client.ts rust/capture/src/main.rs
 assert_result "a desktop call site next to the regenerated types still fails" 10 1 "must be separated into different PRs"
 
-register_pr 4 '[{"name": "desktop-skip-backend-check"}]' products/desktop/apps/foo.ts posthog/models.py
+register_pr 4 '[{"name": "desktop-skip-backend-check"}]' products/desktop/apps/foo.ts rust/capture/src/main.rs
 assert_result "skip label suppresses the check" 4 0 "skipping the coupling check"
 
-# `yes` marks paths that count as backend and must fail the PR.
+# `yes` marks paths that must fail the PR.
 pr=100
 while IFS='|' read -r path gated; do
     pr=$((pr + 1))
     register_pr "$pr" "[]" products/desktop/apps/foo.ts "$path"
     if [ "$gated" = yes ]; then
-        assert_result "classifier arm $path is backend" "$pr" 1 "must be separated into different PRs"
+        assert_result "classifier arm $path is gated" "$pr" 1 "must be separated into different PRs"
     else
-        assert_result "classifier arm $path is not backend" "$pr" 0 "No desktop/backend coupling detected."
+        assert_result "classifier arm $path is not gated" "$pr" 0 "No desktop/backend coupling detected."
     fi
 done <<'CASES'
-posthog/api/insight.py|yes
-posthog/README.md|no
 rust/capture/src/main.rs|yes
+rust/feature-flags/Cargo.toml|yes
 rust/capture/README.md|no
-ee/billing/models.py|yes
-ee/frontend/exports.ts|no
-common/hogql_parser/parser.cpp|yes
-products/llm_analytics/backend/api.py|yes
-frontend/src/products.json|yes
-pyproject.toml|no
+posthog/api/insight.py|no
+common/hogql_parser/parser.cpp|no
+products/llm_analytics/backend/api.py|no
 frontend/src/scenes/App.tsx|no
 CASES
 

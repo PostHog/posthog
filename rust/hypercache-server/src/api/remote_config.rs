@@ -2,7 +2,7 @@ use crate::{
     config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
     sanitize::sanitize_config_for_client,
-    token::{Token, TokenError},
+    token::{loggable_token, Token, TokenError},
 };
 use axum::{
     extract::{Path, State},
@@ -78,7 +78,7 @@ async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, 
                 ],
                 1,
             );
-            info!(token = %token, "Remote config not found");
+            info!(token = %loggable_token(token.as_str()), "Remote config not found");
             Err(StatusCode::NOT_FOUND.into_response())
         }
     }
@@ -198,7 +198,7 @@ pub async fn config_js_endpoint(
     let config_json = match serde_json::to_string(&config) {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!(token = %token, error = %e, "Failed to serialize config");
+            tracing::error!(token = %loggable_token(token.as_str()), error = %e, "Failed to serialize config");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };

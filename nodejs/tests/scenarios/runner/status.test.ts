@@ -2,6 +2,7 @@ import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { Baseline } from '../judge/measurements'
+import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Admission, Verdict, admissionsOf, statusOf } from './status'
 
@@ -14,6 +15,9 @@ const HELD: Verdict = {
     invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
     timeline: [],
     exits: [],
+    writer: [],
+    drive: { startedAt: Date.UTC(2026, 0, 5, 10, 0, 0), endedAt: Date.UTC(2026, 0, 5, 10, 0, 50) },
+    bars: [],
 }
 
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
@@ -34,6 +38,36 @@ const killed = (role: string, applied: number, released?: number): ValveTimeline
     releasedAt: released === undefined ? undefined : at(released),
 })
 
+const failedOver: ValveTimelineEntry = {
+    valve: 'pg.failover',
+    target: 'cyclotron',
+    requestedAt: at(0),
+    intentAt: at(10),
+    appliedAt: at(10),
+    observedAt: at(12),
+    releaseIntentAt: at(30),
+    releasedAt: at(32),
+}
+
+const dropped = (from: number, to: number): ValveTimelineEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    requestedAt: at(0),
+    intentAt: at(from),
+    appliedAt: at(from),
+    observedAt: at(from),
+    releasedAt: at(to),
+})
+
+const probed = (failing: (second: number) => string | false): WriterSample[] =>
+    Array.from({ length: 56 }, (_, second) => {
+        const failure = failing(second)
+        const sample = { at: Date.parse(at(second)), monoMs: second * 1000, latencyMs: 5 }
+        return failure === false
+            ? { ...sample, ok: true }
+            : { ...sample, ok: false, ...(failure === 'timeout' ? {} : { sqlstate: failure }) }
+    })
+
 const exited = (role: Role, second: number, byValve = false, replica = 0): RoleExit => ({
     role,
     replica,
@@ -42,6 +76,8 @@ const exited = (role: Role, second: number, byValve = false, replica = 0): RoleE
     signal: 'SIGKILL',
     byValve,
 })
+
+const exitedWithError = (role: Role, second: number): RoleExit => ({ ...exited(role, second), code: 1, signal: null })
 
 describe('statusOf', () => {
     it.each<[string, Partial<Verdict>, string, string]>([
@@ -96,6 +132,38 @@ describe('statusOf', () => {
             `role.kill on ${EMAIL_WORKER} was not observed: never applied; at_least_once failed: run-1 email: lost`,
         ],
         [
+            'a bar broke at a ramp step while every invariant held',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        limit: 5,
+                        passed: false,
+                        breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
+                    },
+                ],
+            },
+            'failed',
+            'pickup_p99_under broke at the 10x step, 12.3 units/s offered: hogflow 10 s',
+        ],
+        [
+            'a bar could not be judged',
+            {
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'no writer CPU reading off a run host in the 1x step',
+                    },
+                ],
+            },
+            'invalid',
+            'writer_cpu_under was not judged: no writer CPU reading off a run host in the 1x step',
+        ],
+        [
             'a valve was observed but not released',
             {
                 timeline: [
@@ -145,6 +213,116 @@ describe('statusOf', () => {
             { admissions: [{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }] },
             'passed',
             'every invariant held',
+        ],
+        [
+            'pg.failover could not fail back',
+            {
+                timeline: [{ ...failedOver, releaseError: 'the fail-back request was refused: InternalFailure' }],
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'pg.failover on cyclotron did not fail back: the fail-back request was refused: InternalFailure',
+        ],
+        [
+            'the writer probe failed five times in a row before the failover',
+            {
+                timeline: [failedOver],
+                writer: probed((second) => (second >= 3 && second <= 7 ? 'timeout' : false)),
+                invariants: [BROKEN],
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: 5 writer probes failed in a row before any valve applied, at ${at(7)}`,
+        ],
+        [
+            'the writer probe lost its connection once after the drive and the fail-back',
+            { timeline: [failedOver], writer: probed((second) => (second === 52 ? '08006' : false)) },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
+        ],
+        [
+            'a card without a valve whose writer probe lost its connection across the drive end',
+            {
+                writer: [{ at: Date.parse(at(49)), monoMs: 49_000, ok: false, latencyMs: 2000, sqlstate: '57P01' }],
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 57P01) with no valve applied, at ${at(49)}`,
+        ],
+        [
+            'the writer probe timed out once before the failover and lost its connection during it',
+            {
+                timeline: [failedOver],
+                writer: probed((second) => (second === 3 ? 'timeout' : second >= 10 && second <= 20 ? '57P01' : false)),
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited during the failover',
+            { timeline: [failedOver], exits: [exited(HOGFLOW_WORKER, 15)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
+        ],
+        [
+            "a role exited with an error while the roles' Postgres connections were dropped",
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 25)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited with an error just after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 44)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited with an error well after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 46)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error before the connection drop applied',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 8)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error after the connection drop failed to apply',
+            {
+                timeline: [
+                    {
+                        valve: 'pg.drop_connections',
+                        target: 'postgres',
+                        requestedAt: at(0),
+                        intentAt: at(10),
+                        error: 'the first sweep failed',
+                    },
+                ],
+                exits: [exitedWithError(HOGFLOW_WORKER, 25)],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it; pg.drop_connections on postgres was not observed: the first sweep failed`,
+        ],
+        [
+            'a role exited with an error during a valve that sets no exit grace',
+            { timeline: [failedOver], exits: [exitedWithError(HOGFLOW_WORKER, 15)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied`,
+        ],
+        [
+            'a role failed to start while the connections were dropped',
+            {
+                timeline: [dropped(10, 40)],
+                exits: [{ ...exited(HOGFLOW_WORKER, 25), signal: null, error: 'spawn ENOENT' }],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code null) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
+            'a role was killed by a signal while the connections were dropped',
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.drop_connections on postgres was applied`,
         ],
         [
             'a dependency went away',

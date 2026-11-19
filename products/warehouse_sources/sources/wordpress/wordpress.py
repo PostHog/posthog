@@ -40,6 +40,14 @@ TLS_CERTIFICATE_ERROR = (
     "verification. Install a publicly trusted certificate (not a self-signed one) on the site and try again."
 )
 
+CREDENTIALS_REQUIRED_ERROR = "WordPress revisions require a username and application password"
+
+# Parent rows only carry their id, so a fan-out reads parents in the largest page WordPress allows.
+PARENT_PAGE_SIZE = 100
+# A revisions request answers 403 when the user can't edit that parent, and 404 when the parent was
+# deleted after its page was read. Neither should fail the whole table.
+SKIPPED_CHILD_STATUSES = frozenset({403, 404})
+
 # WordPress `after`/`modified_after` filter on the site-LOCAL post_date/post_modified columns, which
 # can be non-monotonic across a DST transition. We re-request a small overlap on each incremental run
 # and let primary-key merge dedupe the re-fetched rows. Two hours covers the largest DST shift (1h)
@@ -54,6 +62,10 @@ class WordpressRetryableError(Exception):
 
 
 class WordpressHostNotAllowedError(Exception):
+    pass
+
+
+class WordpressCredentialsRequiredError(Exception):
     pass
 
 
@@ -326,22 +338,66 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
-def get_rows(
-    site_url: str | None,
-    username: str | None,
-    application_password: str | None,
-    endpoint: str,
+@retry_with_deadline(
+    retry=retry_if_exception_type((WordpressRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=_retry_wait,
+    reraise=True,
+)
+def _fetch_page(
+    page_url: str,
+    headers: dict[str, str],
     logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[WordpressResumeConfig],
-    team_id: int,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = WORDPRESS_ENDPOINTS[endpoint]
-    headers = _get_headers(username, application_password)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    tolerated_statuses: frozenset[int] = frozenset(),
+) -> tuple[requests.Response, Any]:
+    # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
+    response = make_tracked_session().get(
+        page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+    )
 
+    # 408 is a transient request timeout on WordPress's side; retry it like 429/5xx rather
+    # than letting it fall through to raise_for_status() as a non-retryable HTTPError.
+    if response.status_code in (408, 429) or response.status_code >= 500:
+        retry_after = _parse_retry_after(response) if response.status_code == 429 else None
+        raise WordpressRetryableError(
+            f"WordPress API error (retryable): status={response.status_code}, url={page_url}",
+            retry_after=retry_after,
+        )
+
+    if response.is_redirect or response.is_permanent_redirect:
+        raise WordpressHostNotAllowedError(
+            f"{HOST_NOT_ALLOWED_ERROR}: WordPress API returned an unexpected redirect "
+            f"(status={response.status_code}); refusing to follow it"
+        )
+
+    if response.status_code in tolerated_statuses:
+        return response, None
+
+    if not response.ok:
+        logger.error(f"WordPress API error: status={response.status_code}, body={response.text}, url={page_url}")
+        response.raise_for_status()
+
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError as e:
+        # Empty body on a 2xx is a complete "no more rows" answer — treat it as an empty page
+        # and let pagination stop, rather than crashing.
+        if not response.content or not response.content.strip():
+            return response, None
+        # A body that doesn't even begin with a JSON value is a non-JSON error page (HTML, a
+        # login redirect, a WAF/maintenance page) served with a 2xx. Re-fetching returns the
+        # same body, so fail fast and non-retryably. A body that starts as JSON but fails to
+        # parse is a truncated read, which stays retryable.
+        if not _looks_like_json(response.content):
+            raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(page_url)}") from e
+        raise WordpressRetryableError(f"Malformed JSON response from {_safe_url(page_url)}: {e}") from e
+
+    return response, data
+
+
+def _check_host_at_run_time(
+    site_url: str | None, username: str | None, application_password: str | None, team_id: int
+) -> None:
     # Re-check HTTPS at run time (host could have been edited after source creation) before any
     # credential-bearing request goes out. Non-retryable — see get_non_retryable_errors().
     if _has_credentials(username, application_password) and _scheme(site_url) != "https":
@@ -355,70 +411,157 @@ def get_rows(
             f"{HOST_NOT_ALLOWED_ERROR}: {host_err}" if host_err else HOST_NOT_ALLOWED_ERROR
         )
 
+
+def _start_url(
+    resumable_source_manager: ResumableSourceManager[WordpressResumeConfig],
+    site_url: str | None,
+    initial_url: str,
+    logger: FilteringBoundLogger,
+) -> str:
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and _is_same_host(resume_config.next_url, site_url):
+        logger.debug(f"WordPress: resuming from URL: {resume_config.next_url}")
+        return resume_config.next_url
+    if resume_config is not None:
+        logger.warning("WordPress: ignoring resume URL whose host does not match the configured host")
+    return initial_url
+
+
+def _get_keyed_object_rows(
+    site_url: str | None,
+    config: WordpressEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[Any]:
+    _, data = _fetch_page(f"{_base_url(site_url)}{config.path}", headers, logger)
+    if not isinstance(data, dict):
+        return
+    rows = [row for row in data.values() if isinstance(row, dict)]
+    if rows:
+        yield rows
+
+
+def _get_fan_out_rows(
+    site_url: str | None,
+    config: WordpressEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[WordpressResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> Iterator[Any]:
+    assert config.parent_path is not None
+    parent_params: dict[str, Any] = {"per_page": PARENT_PAGE_SIZE, "_fields": "id", "orderby": "id", "order": "asc"}
+    # A parent's revisions list is never filtered by date, so an incremental run also drops the
+    # revisions older than the cutoff itself rather than re-writing every revision of an edited parent.
+    child_cutoff: str | None = None
+    active_field = _active_incremental_field(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+    if active_field is not None:
+        child_cutoff = _format_incremental_value(_apply_lookback(db_incremental_field_last_value))
+        parent_params[config.incremental_filter_params[active_field]] = child_cutoff
+
+    base_url = _base_url(site_url)
+    child_query = urlencode({"per_page": config.page_size, "orderby": "id", "order": "asc"})
+    url = _start_url(
+        resumable_source_manager, site_url, f"{base_url}{config.parent_path}?{urlencode(parent_params)}", logger
+    )
+    skipped_parents = 0
+
+    while True:
+        response, parents = _fetch_page(url, headers, logger)
+        if not isinstance(parents, list) or not parents:
+            break
+
+        # On resume we re-read this parent page and its children; primary-key merge dedupes them.
+        resumable_source_manager.save_state(WordpressResumeConfig(next_url=url))
+
+        for parent in parents:
+            parent_id = parent.get("id") if isinstance(parent, dict) else None
+            if parent_id is None:
+                continue
+            child_url: str | None = f"{base_url}{config.path.format(parent_id=parent_id)}?{child_query}"
+            while child_url is not None:
+                child_response, children = _fetch_page(
+                    child_url, headers, logger, tolerated_statuses=SKIPPED_CHILD_STATUSES
+                )
+                if child_response.status_code in SKIPPED_CHILD_STATUSES:
+                    skipped_parents += 1
+                rows = [
+                    row
+                    for row in (children if isinstance(children, list) else [])
+                    if isinstance(row, dict) and (child_cutoff is None or str(row.get("date")) >= child_cutoff)
+                ]
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+
+                child_url = _parse_next_url(child_response.headers.get("Link", "")) if children else None
+                if child_url is not None and not _is_same_host(child_url, site_url):
+                    logger.warning("WordPress: stopping pagination, next URL host does not match the configured host")
+                    child_url = None
+
+        next_url = _parse_next_url(response.headers.get("Link", ""))
+        if not next_url:
+            break
+        if not _is_same_host(next_url, site_url):
+            logger.warning("WordPress: stopping pagination, next URL host does not match the configured host")
+            break
+        url = next_url
+
+    if skipped_parents:
+        logger.warning(
+            f"WordPress: skipped {skipped_parents} {config.parent_path} entries whose {config.name} the user can't read"
+        )
+
+
+def get_rows(
+    site_url: str | None,
+    username: str | None,
+    application_password: str | None,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[WordpressResumeConfig],
+    team_id: int,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
+) -> Iterator[Any]:
+    config = WORDPRESS_ENDPOINTS[endpoint]
+    if config.requires_credentials and not _has_credentials(username, application_password):
+        raise WordpressCredentialsRequiredError(CREDENTIALS_REQUIRED_ERROR)
+    _check_host_at_run_time(site_url, username, application_password, team_id)
+    headers = _get_headers(username, application_password)
+
+    if config.keyed_object_response:
+        yield from _get_keyed_object_rows(site_url, config, headers, logger)
+        return
+
+    if config.parent_path is not None:
+        yield from _get_fan_out_rows(
+            site_url,
+            config,
+            headers,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
+        return
+
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
-    initial_url = _build_initial_url(site_url, config, params)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and _is_same_host(resume_config.next_url, site_url):
-        url: str = resume_config.next_url
-        logger.debug(f"WordPress: resuming from URL: {url}")
-    else:
-        if resume_config is not None:
-            logger.warning("WordPress: ignoring resume URL whose host does not match the configured host")
-        url = initial_url
-
-    @retry_with_deadline(
-        retry=retry_if_exception_type((WordpressRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> tuple[requests.Response, Any]:
-        # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
-        response = make_tracked_session().get(
-            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-        )
-
-        # 408 is a transient request timeout on WordPress's side; retry it like 429/5xx rather
-        # than letting it fall through to raise_for_status() as a non-retryable HTTPError.
-        if response.status_code in (408, 429) or response.status_code >= 500:
-            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-            raise WordpressRetryableError(
-                f"WordPress API error (retryable): status={response.status_code}, url={page_url}",
-                retry_after=retry_after,
-            )
-
-        if response.is_redirect or response.is_permanent_redirect:
-            raise WordpressHostNotAllowedError(
-                f"{HOST_NOT_ALLOWED_ERROR}: WordPress API returned an unexpected redirect "
-                f"(status={response.status_code}); refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(f"WordPress API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError as e:
-            # Empty body on a 2xx is a complete "no more rows" answer — treat it as an empty page
-            # and let pagination stop, rather than crashing.
-            if not response.content or not response.content.strip():
-                return response, None
-            # A body that doesn't even begin with a JSON value is a non-JSON error page (HTML, a
-            # login redirect, a WAF/maintenance page) served with a 2xx. Re-fetching returns the
-            # same body, so fail fast and non-retryably. A body that starts as JSON but fails to
-            # parse is a truncated read, which stays retryable.
-            if not _looks_like_json(response.content):
-                raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(page_url)}") from e
-            raise WordpressRetryableError(f"Malformed JSON response from {_safe_url(page_url)}: {e}") from e
-
-        return response, data
+    url = _start_url(resumable_source_manager, site_url, _build_initial_url(site_url, config, params), logger)
 
     while True:
-        response, data = fetch_page(url)
+        response, data = _fetch_page(url, headers, logger)
 
         if not isinstance(data, list) or not data:
             break
@@ -481,7 +624,7 @@ def wordpress_source(
             incremental_field=incremental_field,
         ),
         primary_keys=[endpoint_config.primary_key],
-        sort_mode="asc",
+        sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

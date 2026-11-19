@@ -9,6 +9,7 @@ ActiveCampaign,api_url api_key,,,,,active-campaign
 AcuityScheduling,,,,,,acuity-scheduling
 AdRoll,client_id personal_access_token,,,,,ad-roll
 Adapty,api_key,,,start_date,,adapty
+Adcell,,,,,,adcell
 Adjust,api_token,,,app_tokens,,adjust
 AdobeAnalytics,client_id client_secret report_suite_id global_company_id,,,report_dimension report_metrics start_date,,adobe-analytics
 AdobeCommerce,store_url store_code auth_method,,,,,adobe-commerce
@@ -61,7 +62,7 @@ AppStoreConnect,issuer_id key_id private_key vendor_number,,,app_ids,,app-store-
 Appcues,api_key api_secret account_id region,,,,,appcues
 Appdirect,,,,,,appdirect
 Appdynamics,host account_name auth_method,,,metric_paths event_types,,appdynamics
-Appfigures,personal_access_token,,,aso_countries,,appfigures
+Appfigures,personal_access_token,,,aso_countries estimate_products,,appfigures
 Appfolio,,,,,,appfolio
 Appfollow,api_key,,,,,appfollow
 AppleSearchAds,auth_method ad_account_id org_id,auth_method=oauth,,start_date,,apple-ads
@@ -104,6 +105,7 @@ AwsCostAndUsageReport,aws_access_key_id aws_secret_access_key aws_session_token 
 AwsCostAnomalyDetection,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-cost-anomaly-detection
 AwsCostExplorer,aws_access_key_id aws_secret_access_key aws_session_token,,,start_date,,aws-cost-explorer
 AwsDocumentDB,connection_string database_name,,,,,aws-documentdb
+AwsEndUserMessaging,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-end-user-messaging
 AwsGlueDataCatalog,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-glue-data-catalog
 AwsGuardduty,aws_access_key_id aws_secret_access_key aws_session_token aws_region,,,,,aws-guardduty
 AwsHealth,,,,,,aws-health
@@ -155,6 +157,7 @@ Baseten,api_key,,,,,baseten
 Beacons,,,,,,beacons
 Beamer,api_key,,,,,beamer
 Beehiiv,api_key publication_id,,,,,beehiiv
+BetterAuth,,,,,,better-auth
 BetterStack,api_token,,,,,better-stack
 Bettermode,region client_id client_secret network_id,,,,,bettermode
 Bexio,api_token,,,,,bexio
@@ -174,6 +177,7 @@ Bitrise,api_token,,,,,bitrise
 Bitwarden,,,,,,bitwarden
 BlackbaudRaisersEdgeNxt,,,,,,blackbaud-raisers-edge-nxt
 BlackboardLearn,,,,,,blackboard-learn
+Blacksmith,,,,,,blacksmith
 BlandAI,api_key,,,,,bland-ai
 Bling,,,,,,bling
 Blogger,api_key blog_id,,,,,blogger
@@ -199,6 +203,7 @@ BrowserUse,api_key,,,,,browser-use
 Browserbase,api_key,,,,,browserbase
 Buffer,,,,,,buffer
 Bugherd,api_key,,,,,bugherd
+Bugsink,,,,,,bugsink
 Bugsnag,auth_token,,,,,bugsnag
 BuildBetter,api_key,,,,,build-better
 Buildium,client_id client_secret,,,,,buildium
@@ -300,6 +305,7 @@ CoinMarketCap,api_key,,,,,coin-market-cap
 Collibra,,,,,,collibra
 Commercetools,region project_key client_id client_secret,,,,,commercetools
 CommissionJunction,,,,,,commission-junction
+CommonRoom,api_token,,,,,common-room
 Commslayer,,,,,,commslayer
 Companycam,api_key,,,,,companycam
 Concord,api_key environment organization_id,,,,,concord
@@ -438,7 +444,9 @@ Expo,access_token project_id,,,,,expo
 FacebookPages,,,,,,facebook-pages
 Factorial,api_key,,,,,factorial
 Faire,api_key,,,,,faire
+Fapi,,,,,,fapi
 FarosAi,,,,,,faros-ai
+FastSpring,,,,,,fastspring
 Fastbill,,,,,,fastbill
 Fastly,api_key,,,,,fastly
 Fathom,api_key,,,,,fathom
@@ -695,7 +703,7 @@ Klar,,,,,,klar
 Klarna,api_key username region environment,,,,,klarna
 Klaus,subdomain api_token,,,,,klaus
 Klaviyo,api_key,,,conversion_metric_id,,klaviyo
-Knock,api_key,,,object_collections audience_keys,,knock
+Knock,api_key,,,object_collections audience_keys in_app_feed_channel_ids,,knock
 Knowbe4,api_key region,,,,,knowbe4
 Kommo,subdomain api_key,,,,,kommo
 Komodor,api_key region,,,,,komodor
@@ -857,6 +865,7 @@ Netlify,api_token,,,,,netlify
 NewRelic,api_key account_id region,,,,,new-relic
 NewYorkTimes,api_key,,,article_search_query,,new-york-times
 NewsApi,api_key,,,query language,,news-api
+NewsBreak,access_token,,org_ids,report_timezone,,newsbreak
 NewsData,api_key,,,,,news-data
 Nexhealth,,,,,,nexhealth
 Nexiopay,,,,,,nexiopay
@@ -1169,6 +1178,8 @@ Smartrecruiters,api_key,,,,,smartrecruiters
 Smartsheet,access_token,,,,,smartsheet
 Smartwaiver,api_key,,,,,smartwaiver
 Smokeball,,,,,,smokeball
+SmsMagic,,,,,,sms-magic
+SmsManager,,,,,,sms-manager
 SnapchatAds,,snapchat_integration_id,ad_account_id,,,snapchat
 Snovio,,,,,,snovio
 Snowflake,connection_string account_id database warehouse auth_type role,,,schema,,snowflake

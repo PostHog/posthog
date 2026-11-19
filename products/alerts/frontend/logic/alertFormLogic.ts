@@ -745,6 +745,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
                         ui_version: 'redesigned',
+                        detector_type: values.alertForm.detector_config?.type ?? null,
                     })
                 }
 
