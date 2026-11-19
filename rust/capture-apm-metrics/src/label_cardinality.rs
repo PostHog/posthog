@@ -186,7 +186,9 @@ impl Sketch {
 
 struct KeySketch {
     sketch: Sketch,
-    /// Distinct series with this key removed, so the series that removing the key saves.
+    /// Distinct series of the rows that carry this key, with and without the key. Both cover
+    /// the same rows, so a series without the key never counts as saved.
+    with: Sketch,
     others: Sketch,
     name: Box<str>,
     rows: u64,
@@ -539,6 +541,7 @@ impl LabelCardinality {
             let others = row.series.wrapping_sub(pair);
             if let Some(entry) = candidate.keys.get_mut(&(scope, key)) {
                 entry.sketch.insert(hash);
+                entry.with.insert(row.series);
                 entry.others.insert(others);
                 entry.rows += 1;
                 entry.new_rows += new_rows;
@@ -550,12 +553,15 @@ impl LabelCardinality {
             }
             let mut sketch = Sketch::new();
             sketch.insert(hash);
+            let mut with = Sketch::new();
+            with.insert(row.series);
             let mut others_sketch = Sketch::new();
             others_sketch.insert(others);
             candidate.keys.insert(
                 (scope, key),
                 KeySketch {
                     sketch,
+                    with,
                     others: others_sketch,
                     name: truncated(name).into(),
                     rows: 1,
@@ -597,7 +603,10 @@ impl LabelCardinality {
         let series = candidate.series.estimate();
         for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
-            let saved = series.saturating_sub(entry.others.estimate());
+            let saved = entry
+                .with
+                .estimate()
+                .saturating_sub(entry.others.estimate());
             let share = self.settings.min_share * series as f64;
             if distinct < self.settings.value_limit
                 || ((distinct as f64) < share && (saved as f64) < share)
@@ -1016,6 +1025,38 @@ mod tests {
                 rule_key("jobs", Scope::Attribute, "request_id"),
                 rule_key("jobs", Scope::Attribute, "trace_id"),
             ])
+        );
+    }
+
+    #[test]
+    fn an_optional_key_beside_a_per_point_key_is_not_flagged() {
+        let (detector, now) = detector(Mode::Shadow);
+        let timestamp = Utc::now().timestamp_millis();
+        let series: Vec<TimeSeries> = (0..3000)
+            .map(|i| {
+                let mut labels = vec![
+                    label("__name__", "jobs"),
+                    label("request_id", &format!("r{i}")),
+                ];
+                if i % 10 == 0 {
+                    labels.push(label("user_id", &format!("u{i}")));
+                }
+                TimeSeries {
+                    labels,
+                    samples: vec![Sample {
+                        value: 1.0,
+                        timestamp,
+                    }],
+                }
+            })
+            .collect();
+        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
+
+        assert_eq!(
+            rule_keys(&detector),
+            HashSet::from([rule_key("jobs", Scope::Attribute, "request_id")])
         );
     }
 
