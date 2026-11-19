@@ -2163,7 +2163,7 @@ async def test_research_exempts_source_issues_from_signals_and_scout_artefacts()
             [signal], Mock(team_id=1), source_issues=[SourceIssue.github("posthog/posthog-js", 12)]
         )
     urls = ["https://github.com/posthog/posthog/issues/42606", "https://github.com/posthog/posthog-js/issues/12"]
-    for prompt in (start.await_args.kwargs["prompt"], session.send_followup.await_args_list[0].args[0]):
+    for prompt in (start.await_args_list[0].kwargs["prompt"], session.send_followup.await_args_list[0].args[0]):
         assert all(url in prompt for url in urls)
 
 
