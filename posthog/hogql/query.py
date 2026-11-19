@@ -89,7 +89,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, main_cluster_hosts_scope
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
@@ -1066,6 +1066,7 @@ class HogQLQueryExecutor:
         # The connection host follows the events table the SQL was printed against, which a query modifier can
         # set differently from the project's switch.
         printed_events_route = HogQLQueryModifiers(useNewEventsSchema=clickhouse_context.uses_new_events_schema())
+        stays_on_main_cluster = clickhouse_context.prints_flag_evaluations
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
@@ -1090,7 +1091,7 @@ class HogQLQueryExecutor:
                 workload = table_workload
 
             def run_clickhouse_query() -> Any:
-                with events_route_scope(printed_events_route):
+                with events_route_scope(printed_events_route), main_cluster_hosts_scope(stays_on_main_cluster):
                     return sync_execute(
                         self.clickhouse_sql,
                         clickhouse_context.values,
@@ -1142,7 +1143,7 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
-                with events_route_scope(printed_events_route):
+                with events_route_scope(printed_events_route), main_cluster_hosts_scope(stays_on_main_cluster):
                     # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
                     explain_results = sync_execute(
                         f"EXPLAIN {self.clickhouse_sql}",

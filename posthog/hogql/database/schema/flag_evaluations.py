@@ -300,6 +300,8 @@ class FlagEvaluationsTable(EventsRetentionTable):
         return ["flag_evaluation_person_id"]
 
     def to_printed_clickhouse(self, context):
+        if context is not None:
+            context.prints_flag_evaluations = True
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
     def to_printed_hogql(self):

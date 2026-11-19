@@ -183,10 +183,22 @@ class TestEventsTableSwitchThroughTheApi(APIBaseTest):
             )
         self.assertEqual("web_pre_aggregated_stats" in execute.call_args.args[0], not events_json)
 
-    @parameterized.expand([("legacy", False, None), ("events_json", True, "events.example.com")])
+    @parameterized.expand(
+        [
+            ("legacy", False, "select count() from events", None),
+            ("events_json", True, "select count() from events", "events.example.com"),
+            (
+                "events_json_flag_calls_from_flag_evaluations",
+                True,
+                "select count() from events where event = '$feature_flag_called' and timestamp >= now() - interval 1 day",
+                None,
+            ),
+            ("events_json_flag_evaluations", True, "select count() from posthog.flag_evaluations", None),
+        ]
+    )
     @override_settings(CLICKHOUSE_EVENTS_ONLINE_HOST="events.example.com")
     def test_the_connection_host_follows_the_printed_events_table(
-        self, _name: str, events_json: bool, expected_host: str | None
+        self, _name: str, events_json: bool, query: str, expected_host: str | None
     ) -> None:
         hosts: list[str | None] = []
 
@@ -197,9 +209,10 @@ class TestEventsTableSwitchThroughTheApi(APIBaseTest):
         with (
             override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             patch("posthog.hogql.query.sync_execute", side_effect=record_host),
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
         ):
             execute_hogql_query(
-                parse_select("select count() from events"),
+                parse_select(query),
                 team=self.team,
                 modifiers=HogQLQueryModifiers(useNewEventsSchema=events_json),
             )

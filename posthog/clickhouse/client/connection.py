@@ -3,8 +3,9 @@ import json
 import time
 import base64
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import field
 from datetime import date, timedelta
 from enum import StrEnum
@@ -521,8 +522,25 @@ def _pinned_cluster_kwargs(workload: Workload) -> dict[str, Any] | None:
     return None
 
 
+_main_cluster_hosts: ContextVar[bool] = ContextVar("main_cluster_hosts", default=False)
+
+
+@contextmanager
+def main_cluster_hosts_scope(enabled: bool = True) -> Iterator[None]:
+    """Queries inside the block keep the workload's own host, also for a project on the native events table.
+
+    The main cluster hosts forward events_json reads to the events cluster. The events cluster cannot read a table
+    that only the main cluster stores, such as flag_evaluations, so a query that reads one must not connect there.
+    """
+    token = _main_cluster_hosts.set(enabled)
+    try:
+        yield
+    finally:
+        _main_cluster_hosts.reset(token)
+
+
 def _events_cluster_workload(workload: Workload, team_id: int | None) -> Workload | None:
-    if team_id is None:
+    if team_id is None or _main_cluster_hosts.get():
         return None
     if workload == Workload.DEFAULT:
         workload = _default_workload
