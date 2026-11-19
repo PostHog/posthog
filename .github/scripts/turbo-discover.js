@@ -1402,15 +1402,81 @@ function isProductTestFile(file) {
     if (!name.endsWith('.py')) {
         return false
     }
-    return isInProductTestDirectory(parts) || name.startsWith('test_')
+    return isInProductTestDirectory(parts, PYTHON_TEST_DIRECTORIES) || name.startsWith('test_')
 }
 
-function isInProductTestDirectory(parts) {
-    return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test' || part === '__snapshots__')
+const PYTHON_TEST_DIRECTORIES = new Set(['tests', 'test'])
+const FIXTURE_DIRECTORIES = new Set(['tests', 'test', '__snapshots__'])
+
+function isInProductTestDirectory(parts, directories) {
+    return parts.slice(0, -1).some((part) => directories.has(part))
 }
 
 function isProductFixtureFile(file) {
-    return isInProductTestDirectory(file.split('/').slice(2)) && !isProductTestFile(file)
+    return isInProductTestDirectory(file.split('/').slice(2), FIXTURE_DIRECTORIES) && !isProductTestFile(file)
+}
+
+// A module that defines models under another name, such as dev_stack_image_models.py, is
+// registered by a re-export from the product's models module. The models module re-exports
+// helpers too, so a re-exported module counts only when it imports Django's models, or when
+// it is gone from disk and its source cannot say.
+function isProductModelOrMigrationFile(file, repoRoot) {
+    if (PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) {
+        return true
+    }
+    if (!file.endsWith('.py')) {
+        return false
+    }
+    const product = productOfFile(file)
+    const modulePath = file.slice(0, -'.py'.length).replace(/\/__init__$/, '')
+    if (!productModelReexports(repoRoot, product).has(modulePath)) {
+        return false
+    }
+    try {
+        return DJANGO_MODELS_IMPORT.test(fs.readFileSync(path.join(repoRoot, file), 'utf-8'))
+    } catch {
+        return true
+    }
+}
+
+const DJANGO_MODELS_IMPORT = /^\s*from\s+django\.db\s+import\b[^\n]*\bmodels\b/m
+
+const productModelReexportsByKey = new Map()
+
+function productModelReexports(repoRoot, product) {
+    const key = `${repoRoot}\0${product}`
+    if (!productModelReexportsByKey.has(key)) {
+        productModelReexportsByKey.set(key, readProductModelReexports(repoRoot, product))
+    }
+    return productModelReexportsByKey.get(key)
+}
+
+function readProductModelReexports(repoRoot, product) {
+    const backend = `${PRODUCTS_DIR}${product}/backend`
+    const modules = new Set()
+    for (const [entrypoint, packagePath] of [
+        [`${backend}/models.py`, backend],
+        [`${backend}/models/__init__.py`, `${backend}/models`],
+    ]) {
+        let source
+        try {
+            source = fs.readFileSync(path.join(repoRoot, entrypoint), 'utf-8')
+        } catch {
+            continue
+        }
+        for (const [, dots, dotted] of source.matchAll(/^\s*from\s+(\.*)([\w.]*)\s+import\b/gm)) {
+            const modulePath = dots ? resolveRelativeImport(packagePath, dots.length, dotted) : dotted.replaceAll('.', '/')
+            if (modulePath) {
+                modules.add(modulePath)
+            }
+        }
+    }
+    return modules
+}
+
+function resolveRelativeImport(packagePath, level, dotted) {
+    const base = packagePath.split('/').slice(0, packagePath.split('/').length - (level - 1))
+    return [...base, ...dotted.split('.').filter(Boolean)].join('/')
 }
 
 // How far a product cascade has to be trusted for the selector's subset to replace the
@@ -1451,7 +1517,7 @@ function productCascadePhase(runLegacyReason, changedFiles, repoRoot = process.c
     if (runLegacyReason === 'contract_cascade') {
         return productFiles.some((file) => isContractInputReachedWithoutImport(file, repoRoot)) ? null : 2
     }
-    return productFiles.some((file) => PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) ? null : 3
+    return productFiles.some((file) => isProductModelOrMigrationFile(file, repoRoot)) ? null : 3
 }
 
 function isContractInputReachedWithoutImport(file, repoRoot) {
