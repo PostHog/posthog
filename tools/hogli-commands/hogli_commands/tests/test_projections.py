@@ -15,6 +15,8 @@ from hogli_commands.projections import (
     OutputFormatter,
     Projection,
     ProjectionRunner,
+    Tier,
+    _select,
     formatter_for,
 )
 
@@ -146,3 +148,17 @@ class TestRuffFormatter:
 
     def test_output_without_a_formatter_is_written_as_rendered(self, tmp_path: Path) -> None:
         assert OutputFormatter(tmp_path).format("out/table.csv", "a,b\n1,2\n") == "a,b\n1,2\n"
+
+
+class TestTiers:
+    def test_a_projection_that_sets_django_up_cannot_join_the_preflight_tier(self) -> None:
+        with pytest.raises(ValueError, match="must use Tier.CI"):
+            Projection(name="heavy", renderer="heavy.py", inputs=(), outputs=("out/heavy.json",), django=True)
+
+    def test_the_preflight_tier_leaves_out_the_django_projections(self) -> None:
+        preflight = {projection.name for projection in _select((), Tier.PREFLIGHT)}
+        everything = {projection.name for projection in _select(())}
+
+        assert "warehouse-source-fields" in everything
+        assert "warehouse-source-fields" not in preflight
+        assert "taxonomy" in preflight
