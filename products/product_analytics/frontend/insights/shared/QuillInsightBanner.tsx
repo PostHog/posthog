@@ -1,5 +1,6 @@
 import { ReactNode } from 'react'
 
+import { IconInfo, IconWarning, IconX } from '@posthog/icons'
 import {
     Button,
     Callout,
@@ -32,9 +33,9 @@ export function QuillInsightBanner({
 }: QuillInsightBannerProps): JSX.Element {
     return (
         <Callout tone={tone} className={className} data-attr={dataAttr}>
-            <CalloutIcon />
+            <CalloutIcon>{tone === 'warning' ? <IconWarning /> : <IconInfo />}</CalloutIcon>
             <CalloutContent>
-                <CalloutDescription>{children}</CalloutDescription>
+                <CalloutDescription className="text-xs">{children}</CalloutDescription>
             </CalloutContent>
             {action && (
                 <CalloutActions>
@@ -43,7 +44,11 @@ export function QuillInsightBanner({
                     </Button>
                 </CalloutActions>
             )}
-            {onClose && <CalloutClose onClick={onClose} />}
+            {onClose && (
+                <CalloutClose onClick={onClose}>
+                    <IconX />
+                </CalloutClose>
+            )}
         </Callout>
     )
 }

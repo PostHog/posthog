@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 import { Callout, CalloutContent, CalloutDescription, CalloutIcon } from '@posthog/quill'
 
@@ -30,9 +31,11 @@ export function FlagCallsRetentionNotice({
     if (quillSurface) {
         return (
             <Callout tone="info" className="m-2 w-auto">
-                <CalloutIcon />
+                <CalloutIcon>
+                    <IconInfo />
+                </CalloutIcon>
                 <CalloutContent>
-                    <CalloutDescription>{message}</CalloutDescription>
+                    <CalloutDescription className="text-xs">{message}</CalloutDescription>
                 </CalloutContent>
             </Callout>
         )
