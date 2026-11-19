@@ -271,30 +271,30 @@ impl Issue {
 
         // The row is locked before it is read, so the status returned is the one this update replaced,
         // even when another writer reopens the issue at the same time.
-        let previous: Option<String> = sqlx::query_scalar(
+        let reopened: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
             r#"
             UPDATE posthog_errortrackingissue AS issue
             SET status = 'active'
             FROM (
                 SELECT id, status FROM posthog_errortrackingissue WHERE id = $1 FOR UPDATE
             ) AS before
-            WHERE issue.id = before.id AND before.status != 'active'
-            RETURNING before.status
+            WHERE issue.id = before.id AND before.status NOT IN ('active', 'suppressed')
+            RETURNING before.status, issue.name, issue.severity
             "#,
         )
         .bind(self.id)
         .fetch_optional(executor)
         .await?;
 
-        let reopened = previous.is_some();
-        if reopened {
-            // DB row is now active; keep in-memory state in sync so downstream Kafka payloads
-            // (fingerprint_issue_state, internal events) are not stale.
-            self.status = IssueStatus::Active;
-            metrics::counter!(ISSUE_REOPENED).increment(1);
-        }
+        let Some((previous, name, severity)) = reopened else {
+            return Ok(None);
+        };
+        self.status = IssueStatus::Active;
+        self.name = name;
+        self.severity = severity;
+        metrics::counter!(ISSUE_REOPENED).increment(1);
 
-        Ok(previous)
+        Ok(Some(previous))
     }
 
     pub async fn get_assignments<'c, E>(
@@ -856,7 +856,7 @@ mod test {
             super::Issue::insert_new(1, "TypeError".to_string(), String::new(), None, &pool)
                 .await
                 .unwrap();
-        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved', name = 'Updated issue', severity = 'high' WHERE id = $1")
             .bind(issue.id)
             .execute(&pool)
             .await
@@ -870,7 +870,23 @@ mod test {
             Some("resolved".to_string())
         );
         assert_eq!(issue.status, super::IssueStatus::Active);
+        assert_eq!(issue.name.as_deref(), Some("Updated issue"));
+        assert_eq!(issue.severity.as_deref(), Some("high"));
         assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'suppressed' WHERE id = $1")
+            .bind(issue.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stale.reopen(&pool).await.unwrap(), None);
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM posthog_errortrackingissue WHERE id = $1")
+                .bind(issue.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status, "suppressed");
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]

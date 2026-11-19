@@ -202,16 +202,11 @@ async fn load_and_maybe_reopen(
             );
             Utc::now()
         });
-    // We don't carry a per-fingerprint `first_seen` through this path (we loaded by id,
-    // not by fingerprint), so fall back to the issue's creation time the same way
-    // `resolve_issue` already does when the join returns no first_seen.
-    let first_seen = issue.created_at;
     let Some(assignment) = reopen_and_record(
         context,
         &mut conn,
         &mut issue,
         event_properties,
-        first_seen,
         event_timestamp,
     )
     .await?
@@ -264,7 +259,6 @@ async fn resolve_issue(
             &mut conn,
             &mut issue,
             event_properties,
-            first_seen_for_state,
             event_timestamp,
         )
         .await?
@@ -353,7 +347,6 @@ async fn resolve_issue(
             &mut conn,
             &mut issue,
             event_properties,
-            first_seen_for_state,
             event_timestamp,
         )
         .await?
@@ -397,7 +390,7 @@ async fn resolve_issue(
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
-        if !context.config.issue_change_log_disabled {
+        if context.config.issue_change_log_enabled {
             record_issue_change(
                 &mut *txn,
                 &issue,
@@ -472,7 +465,6 @@ async fn reopen_and_record(
     conn: &mut PgConnection,
     issue: &mut Issue,
     event_properties: &ExceptionEvent<Fingerprinted>,
-    first_seen: DateTime<Utc>,
     event_timestamp: DateTime<Utc>,
 ) -> Result<Option<Option<Assignment>>, UnhandledError> {
     // Most events land on an active issue, and those must not pay for a transaction.
@@ -486,12 +478,13 @@ async fn reopen_and_record(
     };
     let assignment =
         process_event_assignment(&mut txn, &context.team_manager, issue, event_properties).await?;
-    if !context.config.issue_change_log_disabled {
+    if context.config.issue_change_log_enabled {
+        let snapshot = IssueSnapshot::load(&mut txn, issue, assignment.as_ref()).await?;
         record_issue_change(
             &mut *txn,
             issue,
             &IssueChange::StatusChanged { previous },
-            &IssueSnapshot::of(issue, assignment.as_ref(), first_seen),
+            &snapshot,
             &ExceptionRef {
                 uuid: event_properties.uuid(),
                 timestamp: event_timestamp,

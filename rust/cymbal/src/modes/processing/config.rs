@@ -219,9 +219,9 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
 
-    // Kill switch for the issue change log rows cymbal writes for every team.
-    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_DISABLED", default = "false")]
-    pub issue_change_log_disabled: bool,
+    // Retention must be deployed before enabling writes for all teams.
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
+    pub issue_change_log_enabled: bool,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).

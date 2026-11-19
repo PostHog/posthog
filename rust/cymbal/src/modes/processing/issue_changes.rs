@@ -54,6 +54,25 @@ pub struct IssueSnapshot {
 }
 
 impl IssueSnapshot {
+    pub async fn load(
+        connection: &mut sqlx::PgConnection,
+        issue: &Issue,
+        assignment: Option<&Assignment>,
+    ) -> Result<Self, UnhandledError> {
+        let first_seen: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT MIN(first_seen) FROM posthog_errortrackingissuefingerprintv2 WHERE team_id = $1 AND issue_id = $2",
+        )
+        .bind(issue.team_id)
+        .bind(issue.id)
+        .fetch_one(connection)
+        .await?;
+        Ok(Self::of(
+            issue,
+            assignment,
+            first_seen.unwrap_or(issue.created_at),
+        ))
+    }
+
     pub fn of(issue: &Issue, assignment: Option<&Assignment>, first_seen: DateTime<Utc>) -> Self {
         let assignee =
             assignment.and_then(
