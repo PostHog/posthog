@@ -201,8 +201,10 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
-      # This list is a copy of PROVER_FILES in tools/change-prover/change_prover/prove.py, so
-      # update both together. The engine ignores a proof whose marker does not pin every file listed here.
+      # Transitional: the prover now pins the paths in tools/change-prover/issuer.yml, so a proof
+      # it makes holds none of these keys and lifts nothing. A deployed engine that predates the
+      # `issuer` key refuses a policy that uses it, so the switch to `issuer` lands in its own PR
+      # after this engine is deployed.
       publisher_files:
           - .github/actions/setup-uv/action.yml
           - .github/workflows/dependency-proof-trigger.yml

@@ -979,6 +979,20 @@ _DOCS_PROOF = Attestation(
 )
 _DOCS_LINT = replace(_DOCS_PROOF, name="docs_lint", check="Docs lint", app_id=78, paths=(r"^docs/linted\.md$",))
 _DOCS_NOTE = replace(_DOCS_PROOF, name="docs_note", check="Docs note", app_id=79, publisher_files=())
+_SITE_PROOF = replace(
+    _DOCS_PROOF,
+    name="site_proof",
+    check="Site proof",
+    app_id=80,
+    paths=(r"^site/",),
+    publisher_files=(),
+    issuer="tools/site_proof/issuer.yml",
+    issuer_paths=("tools/site_proof/",),
+)
+# Its manifest was missing or invalid on the default branch, so the loader left it no paths.
+_SITE_UNUSABLE = replace(
+    _SITE_PROOF, name="site_unusable", check="Site unusable", app_id=81, paths=(r"^www/",), issuer_paths=()
+)
 
 
 def _bot_context(
@@ -1002,6 +1016,21 @@ def _docs_proof(files: list[str]) -> dict:
     }
     return {
         **_proof("Docs proof", 77, []),
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps(marker)} -->"},
+        "pinned_blobs_current": True,
+    }
+
+
+def _site_proof(check: str, app_id: int, files: list[str]) -> dict:
+    marker = {
+        "files": files,
+        "pr": 1,
+        "head_sha": "h" * 40,
+        "merge_base": "m" * 40,
+        "blobs": {"tools/site_proof/": "c" * 40},
+    }
+    return {
+        **_proof(check, app_id, []),
         "output": {"summary": f"<!-- stamphog:v1 {json.dumps(marker)} -->"},
         "pinned_blobs_current": True,
     }
@@ -1101,6 +1130,20 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             None,
             id="every-file-proven-while-another-check-runs",
         ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(["site/a.md"], [_site_proof("Site proof", 80, ["site/a.md"])]),
+            None,
+            None,
+            id="every-file-proven-by-an-issuer-entry",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(["www/a.md"], [_site_proof("Site unusable", 81, ["www/a.md"])]),
+            "REFUSED",
+            "every_file_attested",
+            id="an-issuer-entry-whose-manifest-is-unusable",
+        ),
     ],
 )
 def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
@@ -1111,7 +1154,7 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
     policy = replace(
         review_pr.POLICY,
         bot_authors=bot_authors,
-        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT, _DOCS_NOTE),
+        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT, _DOCS_NOTE, _SITE_PROOF, _SITE_UNUSABLE),
     )
     monkeypatch.setattr(review_pr, "POLICY", policy)
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
