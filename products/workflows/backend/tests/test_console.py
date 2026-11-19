@@ -47,15 +47,23 @@ class TestEmailSendingConsolePanel(BaseTest):
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": False}
         )
 
-        response = self.client.post(self._operation_url("set-tier"), form)
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.post(self._operation_url("set-tier"), form)
 
         assert response.status_code == 302
+        tier_events = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "workflows email sending tier changed"
+        ]
         entries = list(
             ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         )
         if expected_changes is None:
             assert entries == []
+            assert tier_events == []
             return
+        assert [(event["changed_by"], event["reason"]) for event in tier_events] == [("staff", "staff_set")]
         assert len(entries) == 1
         assert entries[0].user == self.user
         detail = entries[0].detail or {}

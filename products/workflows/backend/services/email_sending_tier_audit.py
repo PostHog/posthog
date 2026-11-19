@@ -2,6 +2,7 @@
 
 import dataclasses
 
+from posthog.event_usage import report_team_action
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger, log_activity
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -9,6 +10,7 @@ from posthog.models.user import User
 EMAIL_SENDING_TIER_CHANGED_ACTIVITY = "email_sending_tier_changed"
 EMAIL_SENDING_TIER_SWEEP_JOB_TYPE = "workflows_email_sending_tier_sweep"
 EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE = "backfill_workflows_email_sending_tiers"
+EMAIL_SENDING_TIER_CHANGED_EVENT = "workflows email sending tier changed"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,4 +63,15 @@ def log_email_sending_tier_change(
             trigger=trigger,
             context=EmailSendingTierActivityContext(reason=reason),
         ),
+    )
+    report_team_action(
+        team,
+        EMAIL_SENDING_TIER_CHANGED_EVENT,
+        {
+            "previous_tier": previous_tier,
+            "new_tier": new_tier,
+            "reason": reason,
+            "changed_by": "staff" if user_id is not None else "system",
+            "pinned": pin_change[1] if pin_change is not None else None,
+        },
     )
