@@ -35,6 +35,16 @@ describe('maybeAddPreheaderToEmail', () => {
             `<body><!--[if !mso]><!--><div style="${HIDDEN_STYLE}">Preview</div><!--<![endif]--><p>Hi</p></body>`,
             'Preview',
         ],
+        [
+            'a hidden element whose text differs from the preheader only in case',
+            `<body><div style="${HIDDEN_STYLE}">PREVIEW</div><p>Hi</p></body>`,
+            'Preview',
+        ],
+        [
+            'a hidden element preceded by a stylesheet',
+            `<body><style>p{color:red}</style><div style="${HIDDEN_STYLE}">Preview</div><p>Hi</p></body>`,
+            'Preview',
+        ],
     ])('leaves the html alone when it already has the preheader in %s', (_case, html, preheader) => {
         expect(maybeAddPreheaderToEmail(html, preheader)).toBe(html)
     })

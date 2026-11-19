@@ -1,4 +1,6 @@
-const BODY_OPEN_TAG = /<body\b[^>]*>/i
+// `[^<>]*` rather than `[^>]*`, so an attempt at an unterminated `<body ` stops at the next tag
+// instead of scanning to the end of the document for every such tag.
+const BODY_OPEN_TAG = /<body\b[^<>]*>/i
 const OPEN_TAG = /<([a-z][a-z0-9]*)\b[^<>]*>/gi
 const CLOSE_TAG = /<\/[a-z][a-z0-9]*\s*>/gi
 const HIDDEN_STYLE = /display\s*:\s*none/i
@@ -48,18 +50,34 @@ const stripComments = (html: string): string => {
 // step's own copy as well makes inboxes show the preview twice. Only a hidden element that comes
 // before any other body text acts as the preview, so a copy further down does not count.
 const hasHiddenPreheader = (html: string, preheader: string): boolean => {
-    const wanted = visibleText(preheader)
+    const wanted = visibleText(preheader).toLowerCase()
     const stripped = stripComments(html)
     const bodyOpen = BODY_OPEN_TAG.exec(stripped)
     const body = bodyOpen ? stripped.slice(bodyOpen.index + bodyOpen[0].length) : stripped
     let lowerCased: string | undefined
     let textFrom = 0
     for (const openTag of body.matchAll(OPEN_TAG)) {
+        if (openTag.index < textFrom) {
+            // A tag inside stylesheet or script contents we already skipped past.
+            continue
+        }
         if (visibleText(body.slice(textFrom, openTag.index).replace(CLOSE_TAG, '')) !== '') {
             return false
         }
         const contentStart = openTag.index + openTag[0].length
         textFrom = contentStart
+        const tagName = openTag[1].toLowerCase()
+        if (tagName === 'style' || tagName === 'script') {
+            // Stylesheet and script contents look like text to this scan but never render, so they
+            // cannot be the preview the inbox shows.
+            lowerCased ??= body.toLowerCase()
+            const close = lowerCased.indexOf(`</${tagName}`, contentStart)
+            if (close === -1) {
+                return false
+            }
+            textFrom = close
+            continue
+        }
         if (!HIDDEN_STYLE.test(openTag[0])) {
             continue
         }
@@ -71,10 +89,10 @@ const hasHiddenPreheader = (html: string, preheader: string): boolean => {
             continue
         }
         lowerCased ??= body.toLowerCase()
-        if (!lowerCased.startsWith(`</${openTag[1].toLowerCase()}`, contentEnd)) {
+        if (!lowerCased.startsWith(`</${tagName}`, contentEnd)) {
             continue
         }
-        if (visibleText(body.slice(contentStart, contentEnd)) === wanted) {
+        if (visibleText(body.slice(contentStart, contentEnd)).toLowerCase() === wanted) {
             return true
         }
     }
