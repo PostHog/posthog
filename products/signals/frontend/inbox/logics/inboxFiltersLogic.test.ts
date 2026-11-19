@@ -339,7 +339,15 @@ describe('inboxFiltersLogic', () => {
             }
         )
 
-        it.each([
+        it.each<
+            [
+                string,
+                (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS],
+                Partial<InboxFilterState>,
+                'activeScoutFilter' | 'activeTagFilter',
+                'sourceFilterAvailabilityChanged' | 'tagFilterAvailabilityChanged',
+            ]
+        >([
             [
                 'source',
                 FEATURE_FLAGS.INBOX_SOURCE_FILTER,
@@ -354,7 +362,7 @@ describe('inboxFiltersLogic', () => {
                 'activeTagFilter',
                 'tagFilterAvailabilityChanged',
             ],
-        ] as const)(
+        ])(
             'ignores a stored %s selection while the flag is off and reloads when the flag changes',
             async (_name, flag, stored, activeKey, availabilityAction) => {
                 const [storedValue] = Object.values(stored)
