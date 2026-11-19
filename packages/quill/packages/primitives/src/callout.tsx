@@ -11,19 +11,8 @@ import { cn } from './lib/utils'
  * Callout is a static, inline message that stays in the layout: a warning above
  * a form, an info note in a panel, an error after a failed load. It is the quill
  * replacement for `LemonBanner`. Under the hood it is an outline `Item` with a
- * semantic `tone`, so it shares Item's tint, border and spacing.
- *
- *   <Callout tone="warning">
- *     <CalloutIcon />
- *     <CalloutContent>
- *       <CalloutTitle>Title</CalloutTitle>
- *       <CalloutDescription>Body text, links, or a list</CalloutDescription>
- *     </CalloutContent>
- *     <CalloutActions>
- *       <Button variant="outline">Action</Button>
- *     </CalloutActions>
- *     <CalloutClose onClick={dismiss} />
- *   </Callout>
+ * semantic `tone`, so it shares Item's tint, border and spacing. See the Callout
+ * section of packages/primitives/AGENTS.md for composition and the LemonBanner map.
  *
  * Callout sets no live-region role. Pass `role="alert"` (urgent) or
  * `role="status"` (polite) only when it appears after a user action and
