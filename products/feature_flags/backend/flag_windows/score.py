@@ -47,7 +47,9 @@ class ScoreParameters:
     # has full strength at `full_strength_z`.
     rise_z: float
     full_strength_z: float
-    # The smallest rise in exposure share that is an exposure step.
+    # The smallest rise in exposure share that is an exposure step. Level 4 only counts a rise of at least
+    # `min_share_step` between two adjacent hours, so a share that climbs slowly can make exposure steps and still leave
+    # level 4 None.
     min_share_step: float
     # The proximity falls to 1/e when the error rise is `decay` after the latest exposure step at or before it.
     decay: timedelta
@@ -93,9 +95,11 @@ class WindowScore:
     exposed or nobody unexposed, fewer than 5 people in a group, or an edit with watched conditions when
     `condition_match` is None or the exposure or error query doesn't find it. Level 2 is None without exposure, when
     nobody is exposed or nobody is unexposed, without the counts by last value, below the minimum volume, or for an
-    edit with watched conditions. Level 4 is None without an error rise or with fewer than two exposure steps.
-    `proximity` is that of the error rise closest after an exposure step, and weighs levels 2 and 4. Level 5 is weighed
-    by the proximity of its own error rise.
+    edit with watched conditions. Level 4 is None without an error rise, or with fewer than two rises in exposure share
+    of at least `min_share_step` between two adjacent hours, so a share that climbs slowly can make exposure steps and
+    still leave level 4 None. `proximity` is that of the error rise closest after an exposure step, or that of the
+    latest hour when no error rise comes after an exposure step, and weighs levels 2 and 4. Level 5 is weighed by the
+    proximity of its own error rise.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -164,6 +168,9 @@ def score_window(
 
     exposure_steps = _exposure_steps(edit, shares, parameters.min_share_step)
     error_rises = _error_rises(excess, parameters.rise_z)
+    # Without an error rise that the flag can explain, the latest hour stands in for it, so weak evidence counts less as
+    # the window ages.
+    latest_hour_proximity = _proximity(max([*shares, *hours], default=edit.edited_at), exposure_steps, parameters)
     if error_rises:
         level_4 = _level_4(shares, excess, parameters.min_share_step)
         proximities = {start: _proximity(start, exposure_steps, parameters) for start in error_rises}
@@ -173,16 +180,15 @@ def score_window(
         )
         level_5 = _strength(error_rises[level_5_rise], parameters)
         level_5_proximity = proximities[level_5_rise]
-        # Levels 2 and 4 don't come from one hour, so a later rise that the flag didn't cause can't weaken them.
-        proximity = max(proximities.values())
+        # Levels 2 and 4 don't come from one hour, so a later rise that the flag didn't cause can't weaken them. When
+        # every rise comes before the first exposure step, the flag explains none of them, so the latest hour stands in.
+        proximity = max(proximities.values()) or latest_hour_proximity
     else:
         # Without an error rise, the steps of the error rate are noise, and noise steps of similar size would pass
         # level 4 as errors that rise with exposure.
         level_4 = None
-        # Without an error rise, the latest hour stands in for it, so weak evidence counts less as the window ages.
-        latest_hour = max([*shares, *hours], default=edit.edited_at)
         level_5 = max([0.0, *(_strength(hour_excess, parameters) for hour_excess in excess.values())])
-        proximity = level_5_proximity = _proximity(latest_hour, exposure_steps, parameters)
+        proximity = level_5_proximity = latest_hour_proximity
 
     weighted = [parameters.weight_level_5 * level_5 * level_5_proximity]
     if level_2 is not None:
@@ -338,8 +344,9 @@ def _excess_by_hour(
     edit_hour = _utc_hour(edit.edited_at)
     excess: dict[datetime, _Excess] = {}
     for start, counts in sorted(hours.items()):
-        # In a small hour, such as one that just started, one error is a rate of 1 with no sampling noise.
         rates = [week.with_errors / week.active for week in earlier.get(start, ()) if week.active >= min_active]
+        # In a small hour, such as one that just started, one error makes a rate of 1, and the binomial term of
+        # `spread` is 0 at a rate of 1, so the hour would look like a certain rise.
         if start < edit_hour or counts.active < min_active or len(rates) < 2:
             continue
         # The two counts are separate `uniq` estimates, so the errors can come out above the active people.

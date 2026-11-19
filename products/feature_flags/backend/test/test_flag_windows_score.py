@@ -167,7 +167,7 @@ class TestScoreWindow(SimpleTestCase):
                 1.0,
                 False,
             ),
-            ("a_rise_that_grows_after_its_first_hour", {0: 0.027, 1: RISE_RATE}, PARAMETERS, 1.0, True),
+            ("a_rise_that_grows_after_its_first_hour", {0: 0.03, 1: 0.05}, PARAMETERS, 0.939, True),
             (
                 "with_the_exposure_rise_below_the_minimum_volume",
                 {0: RISE_RATE},
@@ -216,7 +216,7 @@ class TestScoreWindow(SimpleTestCase):
             _exposure(shares), _errors(40, 40), _rates(len(shares), dict.fromkeys(rise_hours, RISE_RATE)), edit=edit
         )
 
-        assert result.proximity == proximity
+        assert result.score == pytest.approx(PARAMETERS.weight_level_5 * proximity)
         assert result.suspicious is (proximity == 1.0)
 
     @parameterized.expand(
@@ -329,12 +329,22 @@ class TestScoreWindow(SimpleTestCase):
             ("one_step", [0.1, 0.2], [0.02, 0.03], None),
             ("steps_below_the_minimum", [0.1, 0.12, 0.14], [0.02, 0.03, 0.04], None),
             ("errors_within_the_baseline_noise", [0.1, 0.2, 0.3], [0.010, 0.011, 0.012], None),
+            ("too_few_active_people_between_steps", [0.1, 0.2, 0.3, 0.4], [0.02, 0.03, 0.04, 0.05], None, [2]),
         ]
     )
     def test_level_4_compares_the_error_rise_of_each_exposure_step(
-        self, _name: str, shares: list[float], rates: list[float], expected: float | None
+        self,
+        _name: str,
+        shares: list[float],
+        rates: list[float],
+        expected: float | None,
+        small_hours: Sequence[int] = (),
     ) -> None:
-        result = _score(_exposure(shares), _errors(40, 40), rates)
+        hours = _hours(rates)
+        for index in small_hours:
+            hours[EDITED_AT + index * HOUR] = HourErrors(active=1, with_errors=0)
+
+        result = score_window(EDIT, _exposure(shares), _errors(40, 40), hours, _baseline(hours), PARAMETERS)
 
         assert result.level_4 == pytest.approx(expected)
 
@@ -355,6 +365,13 @@ class TestScoreWindow(SimpleTestCase):
                 0.7,
             ),
             ("level_4_with_errors_already_up", [0.0, 0.0, 0.3, 0.6], [0.08, 0.08, 0.11, 0.14], None, 0.7),
+            (
+                "level_2_with_a_rise_before_the_exposure_rise",
+                [0.0, 0.0, 0.5, 0.5],
+                [RISE_RATE, BASELINE_RATE, BASELINE_RATE, BASELINE_RATE],
+                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                0.72 * math.exp(-1 / 6),
+            ),
             (
                 "errors_already_up_move_by_noise_at_a_step",
                 [0.0, 0.0, 0.0, 1.0],
