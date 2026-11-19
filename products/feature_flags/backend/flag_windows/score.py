@@ -85,9 +85,9 @@ WEB_PARAMETERS = ScoreParameters(
 @frozen
 class WindowScore:
     """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
-    exposed or everyone with the flag exposed, fewer than 5 people in a group, or an edit with watched conditions when
-    `condition_match` is None or this source doesn't find it. Level 2 is None without exposure, when nobody or everyone
-    with the flag is exposed, without the counts by last value, below the minimum volume, or for an edit with watched
+    exposed or nobody unexposed, fewer than 5 people in a group, or an edit with watched conditions when
+    `condition_match` is None or this source doesn't find it. Level 2 is None without exposure, when nobody is exposed
+    or nobody is unexposed, without the counts by last value, below the minimum volume, or for an edit with watched
     conditions. Level 4 is None without an error rise or with fewer than two exposure steps. `proximity` is that of the
     error rise closest after an exposure step, and weighs levels 2 and 4. Level 5 is weighed by the proximity of its
     own error rise.
@@ -241,15 +241,15 @@ def _share(counts: ExposureCounts) -> float:
 
 
 def _split_people(
-    with_flag: int, exposed: int, errors: ErrorCounts | ConditionErrors | ErrorsByLastValue | None
+    exposed: int, unexposed: int, errors: ErrorCounts | ConditionErrors | ErrorsByLastValue | None
 ) -> _Split | None:
-    unexposed = with_flag - exposed
     if exposed <= 0 or unexposed <= 0:
         return None
     exposed_with_errors = errors.exposed_with_errors if errors else 0
     unexposed_with_errors = errors.unexposed_with_errors if errors else 0
-    # A person whose value changed counts as exposed, with earlier errors as unexposed, which hides a difference rather
-    # than inventing one. Separate `uniq` estimates can put the errors above the people, and the test raises on that.
+    # A person whose value changed is in both groups, each with the errors of that value, which hides a difference
+    # rather than inventing one. Separate `uniq` estimates can put the errors above the people, and the test raises on
+    # that.
     return _Split(
         exposed=Proportion(trials=exposed, successes=min(exposed_with_errors, exposed)),
         unexposed=Proportion(trials=unexposed, successes=min(unexposed_with_errors, unexposed)),
@@ -269,7 +269,7 @@ def _level_1_split(
     elif edit.conditions:
         # Everyone with the flag would compare the people in the edited conditions with people outside them.
         return None
-    return _split_people(counts.with_flag, counts.exposed, error_counts)
+    return _split_people(counts.exposed, counts.unexposed, error_counts)
 
 
 def _level_1(split: _Split, alpha: float) -> ProportionTestResult | None:
@@ -286,7 +286,7 @@ def _level_2(
 ) -> float | None:
     if edit.conditions or exposure is None or errors is None or errors.by_last_value is None:
         return None
-    split = _split_people(exposure.with_flag, exposure.exposed, errors.by_last_value)
+    split = _split_people(exposure.exposed, exposure.unexposed, errors.by_last_value)
     if split is None or not _split_has_volume(split, parameters):
         return None
     exposed_rate = split.exposed.successes / split.exposed.trials

@@ -60,12 +60,21 @@ def _exposure(
     shares: Sequence[float],
     exposed: int = PEOPLE,
     in_condition: Mapping[ConditionMatch, ConditionExposure] | None = None,
+    unexposed: int | None = None,
 ) -> list[ExposureBucket]:
-    since_edit = ExposureCounts(with_flag=2 * PEOPLE, exposed=exposed, by_variant={}, in_condition=in_condition or {})
+    since_edit = ExposureCounts(
+        with_flag=2 * PEOPLE,
+        exposed=exposed,
+        unexposed=2 * PEOPLE - exposed if unexposed is None else unexposed,
+        by_variant={},
+        in_condition=in_condition or {},
+    )
     return [
         ExposureBucket(
             start=EDITED_AT + index * HOUR,
-            in_bucket=ExposureCounts(with_flag=PEOPLE, exposed=round(share * PEOPLE), by_variant={}),
+            in_bucket=ExposureCounts(
+                with_flag=PEOPLE, exposed=round(share * PEOPLE), unexposed=PEOPLE - round(share * PEOPLE), by_variant={}
+            ),
             since_edit=since_edit,
         )
         for index, share in enumerate(shares)
@@ -251,7 +260,10 @@ class TestScoreWindow(SimpleTestCase):
         self, _name: str, edit: WatchedEdit, condition_match: ConditionMatch | None, significant: bool | None
     ) -> None:
         exposure = _exposure(
-            [0.5], in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=PEOPLE, exposed=PEOPLE // 2)}
+            [0.5],
+            in_condition={
+                ConditionMatch.REASON: ConditionExposure(with_flag=PEOPLE, exposed=PEOPLE // 2, unexposed=PEOPLE // 2)
+            },
         )
         errors = _errors(
             40,
@@ -277,7 +289,9 @@ class TestScoreWindow(SimpleTestCase):
         assert (None if result.level_1 is None else result.level_1.is_significant) is significant
 
     def test_the_minimum_volume_applies_to_the_people_that_level_1_compares(self) -> None:
-        exposure = _exposure([0.5], in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=520, exposed=20)})
+        exposure = _exposure(
+            [0.5], in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=520, exposed=20, unexposed=500)}
+        )
         errors = _errors(
             40,
             40,
@@ -337,6 +351,14 @@ class TestScoreWindow(SimpleTestCase):
             ("exposed_people_worse", ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10), PEOPLE, 0.8),
             ("exposed_people_better", ErrorsByLastValue(exposed_with_errors=10, unexposed_with_errors=50), PEOPLE, 0.0),
             (
+                "people_whose_value_changed_in_both_groups",
+                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                PEOPLE,
+                0.84,
+                EDIT,
+                5 * PEOPLE // 4,
+            ),
+            (
                 "too_few_errors_with_a_value",
                 ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=0),
                 PEOPLE,
@@ -359,10 +381,11 @@ class TestScoreWindow(SimpleTestCase):
         exposed: int,
         expected: float | None,
         edit: WatchedEdit = EDIT,
+        unexposed: int | None = None,
     ) -> None:
         errors = _errors(0, 0, by_last_value=by_last_value)
 
-        result = _score(_exposure([0.5], exposed=exposed), errors, [BASELINE_RATE], edit=edit)
+        result = _score(_exposure([0.5], exposed=exposed, unexposed=unexposed), errors, [BASELINE_RATE], edit=edit)
 
         assert result.level_2 == pytest.approx(expected)
         assert result.score == pytest.approx(PARAMETERS.weight_level_2 * (expected or 0.0))
