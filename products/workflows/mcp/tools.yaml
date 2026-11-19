@@ -575,8 +575,9 @@ tools:
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish. When the published
-            workflow has a test_sender_live warning, tell the user its message: only verified members of their
-            organization get its emails until they set up a sending domain.
+            workflow has a test_sender_live warning, tell the user its message: email steps on the PostHog test
+            sender reach only verified members of their organization. Once they have a verified sender, move those
+            steps to it with workflows-patch-action-email (sender: 'own').
         response:
             exclude:
                 - workflow.actions.*.config.inputs

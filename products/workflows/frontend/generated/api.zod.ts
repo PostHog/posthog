@@ -2590,7 +2590,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .enum(['test_sender_live'])
                             .describe('\* `test_sender_live` - Test sender live')
                             .describe(
-                                'test_sender_live: the workflow is enabled and an email step sends from the PostHog test sender, so its emails reach only verified members of the organization.\n\n\* `test_sender_live` - Test sender live'
+                                'test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.\n\n\* `test_sender_live` - Test sender live'
                             ),
                         message: zod.string().describe('What to tell the user, with the link that fixes it.'),
                     })

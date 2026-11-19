@@ -3424,14 +3424,14 @@ class HogFlowWarningSerializer(serializers.Serializer):
         choices=HogFlowWarningCode.choices,
         read_only=True,
         help_text=(
-            "test_sender_live: the workflow is enabled and an email step sends from the PostHog test sender, "
-            "so its emails reach only verified members of the organization."
+            "test_sender_live: the workflow is enabled and at least one email step sends from the PostHog "
+            "test sender. Those steps reach only verified members of the organization."
         ),
     )
     message = serializers.CharField(read_only=True, help_text="What to tell the user, with the link that fixes it.")
 
 
-def _live_on_test_sender(hog_flow: Any) -> bool:
+def _live_on_test_sender(hog_flow: Workflow) -> bool:
     actions = hog_flow.actions if isinstance(hog_flow.actions, list) else []
     return hog_flow.status == HogFlowState.ACTIVE and any(
         isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE for action in actions
@@ -3443,9 +3443,9 @@ def _test_sender_live_warning(team_id: int) -> dict[str, str]:
     return {
         "code": HogFlowWarningCode.TEST_SENDER_LIVE,
         "message": (
-            "This workflow is live on the PostHog test sender, so its emails reach only verified members of "
-            "your organization. Everyone else is skipped. Set up your sending domain to reach your users: "
-            f"{setup_url}"
+            "This live workflow has email steps on the PostHog test sender. They reach only verified members "
+            "of your organization, and everyone else is skipped. To reach your users, set up your sending "
+            f"domain and switch those steps to it: {setup_url}"
         ),
     }
 
@@ -3568,7 +3568,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
         return getattr(hog_flow, "suggestions_enabled", None)
 
     @extend_schema_field(HogFlowWarningSerializer(many=True))
-    def get_warnings(self, hog_flow: Any) -> list[dict[str, str]]:
+    def get_warnings(self, hog_flow: Workflow) -> list[dict[str, str]]:
         return [_test_sender_live_warning(hog_flow.team_id)] if _live_on_test_sender(hog_flow) else []
 
     def validate(self, attrs: dict) -> dict:
