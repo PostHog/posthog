@@ -4,9 +4,9 @@ import clsx from 'clsx'
 import { EntryKind } from './prototypeData'
 
 const KIND_COLOR: Record<EntryKind, string> = {
-    broadcast: 'bg-info-foreground',
-    workflow: 'bg-completed-foreground',
-    transactional: 'bg-muted-foreground',
+    broadcast: 'bg-[var(--data-color-1)]',
+    workflow: 'bg-[var(--data-color-2)]',
+    transactional: 'bg-[var(--data-color-3)]',
 }
 
 export function KindDot({ kind, className }: { kind: EntryKind; className?: string }): JSX.Element {
