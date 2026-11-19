@@ -2,7 +2,6 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -81,7 +80,7 @@ describe('broadcastPreviewLogic', () => {
         expect(query.mock.calls.map(([sent]) => sent)).toEqual(
             [[], PRO_PLAN].map((properties) => ({
                 kind: NodeKind.ActorsQuery,
-                tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
+                tags: { productKey: ProductKey.WORKFLOWS },
                 properties,
                 select: ['id', 'person_display_name -- Person', 'properties'],
                 limit: 25,
