@@ -18,11 +18,11 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                 >
                     {formatCallCount(card.total_calls)}
                 </span>
-                <span className="text-2xl font-semibold">times</span>
+                <span className="text-2xl font-bold">times</span>
             </div>
             {busiestMonth && (
                 <p className="MCPWrapped__rise m-0 text-base">
-                    <span className="block text-xl font-bold">{formatMonth(busiestMonth.month)} took the crown.</span>
+                    <strong className="block">{formatMonth(busiestMonth.month)} took the crown.</strong>
                     {humanFriendlyNumber(busiestMonth.calls)} tool calls in a single month.
                     {card.growth_multiple !== null &&
                         ` Calls grew ${card.growth_multiple}× since ${formatMonth(card.months[1]?.month ?? card.months[0].month)}.`}
@@ -32,10 +32,10 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                 {months.map((month, index) => (
                     <li
                         key={month.month}
-                        className="MCPWrapped__rise grid grid-cols-[2.25rem_1fr_3rem] items-center gap-2"
+                        className="MCPWrapped__rise grid grid-cols-[2.25rem_1fr_3rem] items-center gap-2 text-sm tabular-nums"
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
-                        <span className="font-mono text-xs font-semibold">{formatMonth(month.month, 'short')}</span>
+                        <span>{formatMonth(month.month, 'short')}</span>
                         <span className="h-3 overflow-hidden rounded-full bg-white/20">
                             <span
                                 className={cn(
@@ -49,7 +49,7 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                                 title={`${humanFriendlyNumber(month.calls)} calls`}
                             />
                         </span>
-                        <span className="text-right font-mono text-xs font-semibold">{formatCompact(month.calls)}</span>
+                        <span className="text-right">{formatCompact(month.calls)}</span>
                     </li>
                 ))}
             </ol>
