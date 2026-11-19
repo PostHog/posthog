@@ -84,13 +84,20 @@ export class LazyKafkaProducer implements KafkaProducer {
     }
 
     async checkConnection(timeoutMs = CHECK_TIMEOUT_MS): Promise<void> {
-        await this.waitConnected(timeoutMs)
-        return this.ready().checkConnection(timeoutMs)
+        const remainingMs = await this.connectedWithin(timeoutMs)
+        return this.ready().checkConnection(remainingMs)
     }
 
     async checkTopicExists(topic: string, timeoutMs = CHECK_TIMEOUT_MS): Promise<void> {
+        const remainingMs = await this.connectedWithin(timeoutMs)
+        return this.ready().checkTopicExists(topic, remainingMs)
+    }
+
+    // The connect and the check share one timeout, so a check never takes longer than it was given.
+    private async connectedWithin(timeoutMs: number): Promise<number> {
+        const startedAt = Date.now()
         await this.waitConnected(timeoutMs)
-        return this.ready().checkTopicExists(topic, timeoutMs)
+        return Math.max(timeoutMs - (Date.now() - startedAt), 1)
     }
 
     async disconnect(): Promise<void> {

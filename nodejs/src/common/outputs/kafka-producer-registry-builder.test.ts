@@ -214,6 +214,32 @@ describe('KafkaProducerRegistryBuilder', () => {
         }
     })
 
+    it('registerLazy gives a topic check only the time its connect left over', async () => {
+        jest.useFakeTimers()
+        try {
+            const checkTopicExists = jest.fn().mockResolvedValue(undefined)
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockImplementation(
+                () =>
+                    new Promise((resolve) =>
+                        setTimeout(() => resolve({ checkTopicExists } as unknown as KafkaProducerWrapper), 5_900)
+                    )
+            )
+            const building = new KafkaProducerRegistryBuilder(undefined)
+                .registerLazy('MSK', configMap)
+                .build({ BROKER_LIST: 'msk:9094', LINGER_MS: '5' })
+            await jest.advanceTimersByTimeAsync(5_000)
+            const msk = (await building).getProducer('MSK')
+
+            const check = msk.checkTopicExists('t', 1_000)
+            await jest.advanceTimersByTimeAsync(900)
+            await check
+
+            expect(checkTopicExists).toHaveBeenCalledWith('t', 100)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('stops a lazy producer from retrying when another producer fails the build', async () => {
         jest.useFakeTimers()
         try {
