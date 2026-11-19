@@ -182,3 +182,40 @@ def test_check_rust_applies_the_expected_major_to_the_cli(tmp_path: Path) -> Non
     assert guard.check_rust(tmp_path) == [
         "cli/Cargo.toml: posthog-rs = '=0.30.0', expected major 1. " + guard.MIGRATION_HINT,
     ]
+
+
+@pytest.mark.parametrize(
+    "module,version,problems",
+    [
+        ("github.com/posthog/posthog-go/v2", "v2.1.1", []),
+        (
+            "github.com/posthog/posthog-go",
+            "v1.44.1",
+            [
+                "bin/hobby-installer/go.mod requires github.com/posthog/posthog-go v1, expected github.com/posthog/posthog-go/v2 v2",
+                "bin/hobby-installer/go.sum records posthog-go outside github.com/posthog/posthog-go/v2 v2",
+            ],
+        ),
+        (
+            "github.com/posthog/posthog-go/v3",
+            "v3.0.0",
+            [
+                "bin/hobby-installer/go.mod requires github.com/posthog/posthog-go/v3 v3, expected github.com/posthog/posthog-go/v2 v2",
+                "bin/hobby-installer/go.sum records posthog-go outside github.com/posthog/posthog-go/v2 v2",
+            ],
+        ),
+    ],
+)
+def test_check_go_holds_the_module_path_and_version_to_the_expected_major(
+    tmp_path: Path, module: str, version: str, problems: list[str]
+) -> None:
+    installer = tmp_path / "bin" / "hobby-installer"
+    installer.mkdir(parents=True)
+    (installer / "go.mod").write_text(f"module example\n\nrequire (\n\t{module} {version}\n)\n")
+    (installer / "go.sum").write_text(f"{module} {version} h1:x=\n{module} {version}/go.mod h1:y=\n")
+
+    found = guard.check_go(tmp_path)
+
+    assert len(found) == len(problems)
+    for actual, expected in zip(found, problems):
+        assert actual.startswith(expected)
