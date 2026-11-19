@@ -55,17 +55,25 @@ Use this shape, and leave out any part you have nothing real for.
 Keep the labels plain, without Markdown bold, because the person reviews the ticket in a plain text box.
 
 ```text
-Request: <what happened, in one sentence, with the numbers and dates> <the action they need, if any>
+Request:
+
+<what happened, in one sentence, with the numbers and dates> <the action they need, if any>
 1. <each open question, numbered in the person's order>
+
+---
 
 Details:
 - Project: <name>, ID <id>, <US or EU> Cloud, <link>
 - <a link to the object, a setting that matters, the SDK, or a number>
 
+---
+
 Already checked:
 - Docs: <link> says <what it says, in one line>
 - <your name> checked: <a lookup you ran, and what it showed>
 - I tried: <a step the person took, and what happened>
+
+---
 
 Error:
 <exact text, top frames only>

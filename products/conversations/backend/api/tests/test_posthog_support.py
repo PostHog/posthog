@@ -65,9 +65,9 @@ class TestPostHogSupportAPI(APIBaseTest):
 
         assert draft["review_url"].endswith(f"/project/{self.team.id}/my-tickets?support_draft={draft['id']}")
         assert draft["message"] == (
-            "Request: Our staging build sent test events last week. Please delete the 3,817 events the query below returns.\n\n"
-            "Details:\n- Project: Web app, ID 12345, US Cloud\n\n"
-            "Already checked:\n- Claude Code checked: the query returns 3,817 events"
+            "Request:\n\nOur staging build sent test events last week. Please delete the 3,817 events the query below returns."
+            "\n\n---\n\nDetails:\n- Project: Web app, ID 12345, US Cloud"
+            "\n\n---\n\nAlready checked:\n- Claude Code checked: the query returns 3,817 events"
         )
         assert "Claude Code" not in draft["ticket_context"]
         assert self.client.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_403_FORBIDDEN

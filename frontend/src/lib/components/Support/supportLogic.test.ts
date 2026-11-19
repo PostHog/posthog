@@ -12,6 +12,7 @@ import {
     CONVERSATIONS_MESSAGE_MAX_LENGTH,
     SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
     SupportFormFields,
+    addImageToDraftMessage,
     supportLogic,
     warnIfMessageTooLong,
 } from './supportLogic'
@@ -422,6 +423,38 @@ describe('supportLogic', () => {
             expect(logic.values.lastSubmittedTicketId).toBeNull()
             expect(sendFailures()).toHaveLength(1)
             expect(sendFailures()[0][1]).toMatchObject({ reason: 'invalid_email' })
+        })
+    })
+
+    describe('addImageToDraftMessage', () => {
+        const separator = '\n\n---\n\n'
+
+        it.each([
+            {
+                name: 'puts the first image between Request and Details',
+                message: ['Request:\n\nIt broke.', 'Details:\n- Project: Web app'].join(separator),
+                expected: [
+                    'Request:\n\nIt broke.',
+                    'Images:\n- a.png: https://x/a',
+                    'Details:\n- Project: Web app',
+                ].join(separator),
+            },
+            {
+                name: 'adds a later image to the same Images section',
+                message: ['Request:\n\nIt broke.', 'Images:\n- a.png: https://x/a', 'Details:\n- One'].join(separator),
+                expected: [
+                    'Request:\n\nIt broke.',
+                    'Images:\n- a.png: https://x/a\n- a.png: https://x/a',
+                    'Details:\n- One',
+                ].join(separator),
+            },
+            {
+                name: 'adds an Images section after a draft that is only a Request',
+                message: 'Request:\n\nIt broke.',
+                expected: ['Request:\n\nIt broke.', 'Images:\n- a.png: https://x/a'].join(separator),
+            },
+        ])('$name', ({ message, expected }) => {
+            expect(addImageToDraftMessage(message, 'a.png', 'https://x/a')).toEqual(expected)
         })
     })
 

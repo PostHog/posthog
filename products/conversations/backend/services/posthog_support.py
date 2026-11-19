@@ -16,6 +16,9 @@ from django.db import models
 from posthog.dataclasses import frozen
 
 DRAFT_TTL_SECONDS = 24 * 60 * 60
+# Renders as a horizontal line. It needs the blank lines, because `---` right under text turns that
+# text into a Markdown heading. The support form finds sections by this string to place images.
+SECTION_SEPARATOR = "\n\n---\n\n"
 # A person reviews each draft by hand, so a long list of open drafts means an agent is looping.
 MAX_OPEN_DRAFTS_PER_USER = 5
 
@@ -84,9 +87,11 @@ def compose_ticket_message(
     for title, body in sections:
         if not body or not body.strip():
             continue
-        separator = " " if title == "Request" else "\n"
+        # Markdown joins two lines of prose into one paragraph, so Request needs a blank line to render its
+        # label on its own line. The other sections open with a list, which starts a new block anyway.
+        separator = "\n\n" if title == "Request" else "\n"
         parts.append(f"{title}:{separator}{body.strip()}")
-    return "\n\n".join(parts)
+    return SECTION_SEPARATOR.join(parts)
 
 
 class SupportDraftStore:

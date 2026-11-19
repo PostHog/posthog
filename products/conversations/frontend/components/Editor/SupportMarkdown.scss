@@ -1,4 +1,9 @@
 .SupportMarkdown {
+    // The default line color barely shows against a message bubble, and agent tickets use lines to split sections
+    hr {
+        border-top-color: var(--color-border-secondary);
+    }
+
     .SupportMarkdown__image-wrapper {
         position: relative;
         display: block;

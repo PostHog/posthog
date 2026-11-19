@@ -209,6 +209,24 @@ export function appendExceptionToMessage(message: string, exception_event?: Supp
     return message ? `${message}\n\n-----\n${exception}` : exception
 }
 
+// Must match SECTION_SEPARATOR in products/conversations/backend/services/posthog_support.py, which lays
+// out agent drafts as sections joined by this line.
+const DRAFT_SECTION_SEPARATOR = '\n\n---\n\n'
+const DRAFT_IMAGES_LABEL = 'Images:'
+
+/** Adds an uploaded image to an agent draft, in an Images section right after Request. */
+export function addImageToDraftMessage(message: string, fileName: string, url: string): string {
+    const imageLine = `- ${fileName}: ${url}`
+    const sections = message.split(DRAFT_SECTION_SEPARATOR)
+    const imagesIndex = sections.findIndex((section) => section.startsWith(`${DRAFT_IMAGES_LABEL}\n`))
+    if (imagesIndex === -1) {
+        sections.splice(1, 0, `${DRAFT_IMAGES_LABEL}\n${imageLine}`)
+    } else {
+        sections[imagesIndex] = `${sections[imagesIndex]}\n${imageLine}`
+    }
+    return sections.join(DRAFT_SECTION_SEPARATOR)
+}
+
 // Kept out of the editable draft and appended on send, so the customer can't edit it away
 export function appendTicketContext(message: string, ticket_context?: string | null): string {
     if (!ticket_context) {

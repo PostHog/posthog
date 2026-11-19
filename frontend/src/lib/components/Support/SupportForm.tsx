@@ -12,7 +12,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SUPPORT_TICKET_TEMPLATES, SupportTicketKind, supportLogic } from './supportLogic'
+import { SUPPORT_TICKET_TEMPLATES, SupportTicketKind, addImageToDraftMessage, supportLogic } from './supportLogic'
 
 const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     bug: "What's the bug?",
@@ -57,7 +57,12 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
-            setSendSupportRequestValue('message', sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`)
+            setSendSupportRequestValue(
+                'message',
+                sendSupportRequest.ai_draft_id
+                    ? addImageToDraftMessage(sendSupportRequest.message, fileName, url)
+                    : sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`
+            )
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)

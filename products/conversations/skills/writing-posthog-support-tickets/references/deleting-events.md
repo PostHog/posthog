@@ -48,7 +48,11 @@ Support checks that the requester is a member of the organization that owns the 
 ## Example
 
 ````text
-Request: Our staging build sent test checkout events to our live project in the first week of October 2026. Please delete the 3,817 events the query below returns.
+Request:
+
+Our staging build sent test checkout events to our live project in the first week of October 2026. Please delete the 3,817 events the query below returns.
+
+---
 
 Details:
 - Project: Web app, ID 12345, US Cloud, https://us.posthog.com/project/12345
@@ -63,6 +67,8 @@ WHERE timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')
   AND event IN ('checkout_started', 'checkout_completed')
   AND properties.$host = 'staging.example.com'
 ```
+
+---
 
 Already checked:
 - Claude Code checked: no self-serve route fits, because the same persons have real events that must stay
