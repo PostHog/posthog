@@ -958,7 +958,6 @@ class TestResolver(BaseTest):
             return orig_try(resolver_self, cte)
 
         with patch.object(Resolver, "_try_resolve_scalar_cte", mock_try):
-            # A scalar CTE not referenced in join constraints is never speculatively attempted during joins
             self._print_hogql(
                 """
                 with toStartOfDay(timestamp) as day
@@ -971,10 +970,8 @@ class TestResolver(BaseTest):
                 join numbers(1) n5 on 1=1
                 """
             )
-            # Exactly 1 eager attempt before FROM; zero speculative attempts during the 5 joins
             self.assertEqual(attempts.get("day"), 1)
 
-            # A scalar CTE in join constraints whose required table is not in scope is not attempted during joins
             attempts.clear()
             with self.assertRaises(QueryError) as e:
                 resolve_types(
@@ -994,12 +991,9 @@ class TestResolver(BaseTest):
                     dialect="clickhouse",
                 )
             self.assertIn("Unable to resolve field: bad_alias", str(e.exception))
-            # Exactly 1 eager attempt before FROM; 0 speculative attempts during joins because required table is never in scope
             self.assertEqual(attempts.get("bad_alias"), 1)
 
     def test_ctes_scalar_alias_resolved_in_later_joins(self):
-        # A scalar WITH alias referencing a table joined later is resolved once that table
-        # enters scope, regardless of how many joins precede it.
         self.assertEqual(
             self._print_hogql(
                 """
@@ -1032,12 +1026,9 @@ class TestResolver(BaseTest):
                 """
             )
             self.assertIn("equals(v, n0.number)", printed)
-            # Exactly 1 eager attempt before FROM + 1 attempt when n5 enters scope = 2
             self.assertEqual(attempts.get("v"), 2)
 
     def test_ctes_failed_speculative_resolution_does_not_leak_scopes(self):
-        # A speculative resolution attempt that fails must not leak scopes pushed by nested
-        # visitors (e.g. lambda arguments) into subsequent field resolution.
         with self.assertRaises(QueryError) as e:
             resolve_types(
                 self._select(
@@ -1053,8 +1044,6 @@ class TestResolver(BaseTest):
         self.assertIn("Unable to resolve field: x", str(e.exception))
 
     def test_ctes_scalar_alias_dotted_property_paths_in_joins(self):
-        # A multi-part scalar WITH alias over an unqualified JSON property or another scalar alias
-        # is staged once the underlying column or alias is in scope.
         self.assertEqual(
             self._print_hogql(
                 """

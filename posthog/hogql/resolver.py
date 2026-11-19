@@ -551,8 +551,6 @@ def _expand_cte_dependencies(roots: set[str], pending_ctes: dict[str, ast.CTE]) 
     return candidates
 
 
-# Marker for "name absent from self.ctes" in the staged-alias journal, distinct from a
-# shadowed CTE value (which may legitimately be any ast.CTE).
 _MISSING_CTE: Any = object()
 
 
@@ -600,10 +598,7 @@ class Resolver(CloningVisitor):
         # on a direct-connection table literal (so the external server expands the star); nested and
         # CTE-body stars still expand to explicit columns so enclosing queries can read them.
         self._entered_root_select: bool = False
-        # Deferred scalar ("column") WITH aliases, one frame per SELECT level. A frame holds the
-        # aliases still waiting for the FROM scope ("pending"), the ones already resolved against
-        # it ("staged"), and a journal of names temporarily published onto self.ctes while the
-        # join tree is visited ("published": the name plus the value it shadowed, or _MISSING_CTE).
+        # Separate SELECT frames prevent nested joins from consuming an outer query's deferred aliases.
         self._pending_scalar_ctes: list[dict[str, Any]] = []
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
@@ -1107,8 +1102,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
-        # Each SELECT level gets its own frame of deferred scalar WITH aliases, so joins inside
-        # a subquery can never resolve (or consume) an outer level's pending aliases.
         self._pending_scalar_ctes.append(
             {
                 "pending": {},
@@ -1144,10 +1137,7 @@ class Resolver(CloningVisitor):
         current_level_ctes: dict[str, ast.CTE] | None = None
 
         # First step: resolve the "WITH" CTEs onto "self.ctes" if there are any.
-        # Subquery CTEs must resolve before FROM, which may reference them. Scalar
-        # ("column") aliases are resolved eagerly too when possible, but an alias that
-        # needs the table scope (e.g. `WITH toStartOfDay(timestamp) AS day`) is deferred
-        # until after the FROM clause is visited, matching ClickHouse semantics.
+        # Scalar aliases can need FROM's columns; table CTEs must resolve first so FROM can reference them.
         if node.ctes:
             self.ctes = dict(parent_ctes)
             current_level_ctes = {}
@@ -1178,23 +1168,15 @@ class Resolver(CloningVisitor):
             select=[],
         )
 
-        # Compute which pending scalar WITH aliases are actually referenced (directly or
-        # transitively) by join constraints or table args in the join tree. Only those CTEs
-        # will be speculatively attempted during join traversal.
+        # Avoid speculative resolution for aliases unused by JOINs.
         self._pending_scalar_ctes[-1]["relevant_for_joins"] = _expand_cte_dependencies(
             _collect_join_constraint_field_roots(node.select_from),
             self._pending_scalar_ctes[-1]["pending"],
         )
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1].
-        # While the join tree is visited, deferred scalar WITH aliases resolve ("stage") as soon
-        # as the tables they need are in scope, so a JOIN's ON clause can reference them. Staged
-        # aliases are unpublished again when each join visit returns, so an alias that needs a
-        # later-written table never leaks into the ON clause of an earlier-written join.
         new_node.select_from = self.visit(node.select_from)
 
-        # Publish the aliases staged while visiting FROM and resolve any still pending now that
-        # the FROM scope exists, then restore the WITH clause's written order.
         scalar_cte_frame = self._pending_scalar_ctes[-1]
         if scalar_cte_frame["staged"] or scalar_cte_frame["pending"]:
             assert current_level_ctes is not None
@@ -1667,10 +1649,7 @@ class Resolver(CloningVisitor):
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
-        # Stage the innermost SELECT's deferred scalar WITH aliases that the tables in scope so
-        # far can satisfy, so this join's ON clause can reference them. Aliases staged by deeper
-        # (later-written) joins are unpublished again when this visit returns, keeping each ON
-        # clause limited to the aliases resolvable from the tables written up to that join.
+        # Rollback keeps aliases requiring later tables out of earlier JOIN constraints.
         staged_ctes_mark = self._stage_pending_scalar_ctes()
         try:
             return self._visit_join_expr(node)
@@ -2212,8 +2191,6 @@ class Resolver(CloningVisitor):
         except QueryError:
             resolved_cte = None
         if resolved_cte is None or len(self.context.errors) > errors_before:
-            # A failed attempt leaves no trace, however it failed: drop any errors recorded
-            # along the way, restore scopes, and undo the CTE registration (a visit_cte side effect).
             del self.context.errors[errors_before:]
             del self.context.warnings[warnings_before:]
             del self.context.notices[notices_before:]
@@ -2318,8 +2295,6 @@ class Resolver(CloningVisitor):
                 shadowed = self.ctes.get(name, _MISSING_CTE)
                 resolved_cte = self._try_resolve_scalar_cte(cte)
                 if resolved_cte is None:
-                    # Needs a table that is not in scope yet; a later join (or the post-FROM
-                    # resolution) will try again.
                     frame["failed_table_sets"][name].add(visible_tables)
                     continue
                 frame["staged"][name] = resolved_cte
@@ -2347,9 +2322,7 @@ class Resolver(CloningVisitor):
         if node.constraint is None:
             return None
         if node.next_join is None:
-            # The last join's constraint may reference scalar WITH aliases that need its own
-            # table; stage them now. Earlier-written joins' constraints have already resolved
-            # (next_join is visited first), so these aliases are visible to this constraint only.
+            # Earlier constraints have resolved; the final JOIN can now use aliases requiring its own table.
             self._stage_pending_scalar_ctes()
         if node.constraint.constraint_type == "USING":
             return self._desugar_using_constraint(node, using_column_names)
