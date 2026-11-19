@@ -381,6 +381,7 @@ def _set_attestations(d: dict, *, raw: object) -> None:
                 ("workflow-outside-workflows", [{**_WORKFLOW_ENTRY, "workflow": "tools/proof.yml"}]),
                 ("workflow-without-job", [{k: v for k, v in _WORKFLOW_ENTRY.items() if k != "job"}]),
                 ("app-id-with-job", [{**_ATTESTATION, "job": "publish"}]),
+                ("issuer-outside-self-governance", [{**_ATTESTATION, "issuer": "tools/proof/issuer.yml"}]),
             ]
         ],
         _unknown_top_level_key,
@@ -557,7 +558,12 @@ def test_an_issuer_entry_reads_its_paths_from_the_manifest_in_the_tree(
 ) -> None:
     (tmp_path / ".stamphog").mkdir()
     (tmp_path / ".stamphog" / "policy.yml").write_text(
-        yaml.safe_dump({"attestations": [{**_ATTESTATION, "lifts": ["migrations"], "issuer": _ISSUER}]})
+        yaml.safe_dump(
+            {
+                "deny": {"stamphog_policy": {"match": {"extend_paths": ["^tools/proof/"]}}},
+                "attestations": [{**_ATTESTATION, "lifts": ["migrations"], "issuer": _ISSUER}],
+            }
+        )
     )
     if manifest is not None:
         (tmp_path / "tools" / "proof").mkdir(parents=True)
