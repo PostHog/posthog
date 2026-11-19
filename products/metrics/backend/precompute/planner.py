@@ -43,6 +43,7 @@ from products.metrics.backend.metric_query_runner import (
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import (
+    MAX_METRIC_NAME_LENGTH,
     NOT_STARTED_BY_VIEWER,
     find_precomputed_metric,
     get_or_create_precomputed_metric,
@@ -59,7 +60,6 @@ MAX_RAW_TAIL = dt.timedelta(days=1)
 _LAST_USED_RESOLUTION = dt.timedelta(hours=1)
 # Stored label-set hours that one request may load. Past this, the clause runs raw under ClickHouse's limits.
 MAX_STORED_POINTS = 500_000
-_METRIC_NAME_MAX_LENGTH = MetricPrecomputedMetric._meta.get_field("metric_name").max_length
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +112,7 @@ def plan_clause(
     leaf = leaf_for_clause(clause)
     if isinstance(leaf, str):
         return leaf
-    if _METRIC_NAME_MAX_LENGTH is not None and len(leaf.metric_name) > _METRIC_NAME_MAX_LENGTH:
+    if len(leaf.metric_name) > MAX_METRIC_NAME_LENGTH:
         return "the metric name is too long to precompute"
     try:
         for filter in clause.filters:

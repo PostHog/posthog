@@ -47,6 +47,7 @@ from products.metrics.backend.metric_query_runner import (
 from products.metrics.backend.models import MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import (
     MAX_KEPT_LABELS,
+    MAX_METRIC_NAME_LENGTH,
     NOT_STARTED_BY_VIEWER,
     LabelRef,
     Leaf,
@@ -356,6 +357,8 @@ def parse_promql(text: str) -> PromQLLeafQuery | str:
         return "the PromQL query is not a shape that precomputed metrics answer"
     if len([label for label in query.kept_labels if label != "le"]) > MAX_KEPT_LABELS:
         return f"the query filters or groups by more than {MAX_KEPT_LABELS} labels"
+    if len(query.metric_name) > MAX_METRIC_NAME_LENGTH:
+        return "the metric name is too long to precompute"
     return query
 
 
