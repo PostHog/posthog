@@ -1645,6 +1645,25 @@ class TestAICreditsBillingAPI(APILicensedTest):
             ("purchase_unfinished", "post", "purchase", 503, {}, 503, "ai_credits_purchase_unfinished"),
             ("not_in_rollout", "get", "card", 403, {}, 403, "ai_credits_unavailable"),
             ("settings_refused", "patch", "settings/automatic_reload", 400, {}, 400, "ai_credits_settings_rejected"),
+            ("quote_without_an_address", "get", "quote", 400, {"code": "no_address"}, 400, "ai_credits_no_address"),
+            (
+                "purchase_without_an_address",
+                "post",
+                "purchase",
+                400,
+                {"code": "no_address"},
+                400,
+                "ai_credits_no_address",
+            ),
+            (
+                "reload_without_an_address",
+                "patch",
+                "settings/automatic_reload",
+                400,
+                {"code": "no_address"},
+                400,
+                "ai_credits_no_address",
+            ),
             ("billing_failed", "get", "settings", 500, {}, 502, "billing_service_error"),
         ]
     )

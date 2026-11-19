@@ -245,7 +245,7 @@ export const AICreditPurchaseStatusEnumApi = {
 } as const
 
 export interface AICreditPurchaseResponseApi {
-    /** Paid, waiting for the person to authenticate the payment with their bank, or still processing. A purchase that is still processing finishes on its own, and the history shows it.
+    /** Paid, waiting for the person to finish card authentication, or still processing. A purchase that is still processing finishes on its own. Send it again with the same idempotency key to get its final answer.
      *
      * * `paid` - Paid
      * * `requires_action` - Requires action
@@ -290,6 +290,7 @@ export interface AICreditQuoteResponseApi {
  * * `card_declined` - Card declined
  * * `authentication_required` - Card needs authentication
  * * `no_card` - No card on file
+ * * `no_address` - No billing address on the card
  */
 export type AIReloadDisabledReasonEnumApi =
     (typeof AIReloadDisabledReasonEnumApi)[keyof typeof AIReloadDisabledReasonEnumApi]
@@ -298,6 +299,7 @@ export const AIReloadDisabledReasonEnumApi = {
     CardDeclined: 'card_declined',
     AuthenticationRequired: 'authentication_required',
     NoCard: 'no_card',
+    NoAddress: 'no_address',
 } as const
 
 export interface AIAutomaticReloadSettingsApi {
@@ -319,7 +321,8 @@ export interface AIAutomaticReloadSettingsApi {
      *
      * * `card_declined` - Card declined
      * * `authentication_required` - Card needs authentication
-     * * `no_card` - No card on file */
+     * * `no_card` - No card on file
+     * * `no_address` - No billing address on the card */
     disabled_reason: AIReloadDisabledReasonEnumApi | null
     /**
      * When billing turned automatic reload off after a failed reload.

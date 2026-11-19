@@ -676,6 +676,14 @@ class AICreditsNoCard(APIException):
     default_detail = "Add a card to your billing details, then try again."
 
 
+class AICreditsNoAddress(APIException):
+    """The card on file has no billing address that the tax provider can place, so billing charges nothing."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "ai_credits_no_address"
+    default_detail = "Add a billing address to your card in your billing details, then try again."
+
+
 class AICreditsTaxUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "ai_credits_tax_unavailable"
@@ -685,7 +693,7 @@ class AICreditsTaxUnavailable(APIException):
 class AICreditsCardDeclined(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "ai_credits_card_declined"
-    default_detail = "Your bank declined the card. Update your card, then try again."
+    default_detail = "Your card issuer declined the payment. Update your card, then try again."
 
 
 class AICreditsTotalChanged(APIException):
@@ -720,6 +728,7 @@ class AIReloadDisabledReason(models.TextChoices):
     CARD_DECLINED = "card_declined", "Card declined"
     AUTHENTICATION_REQUIRED = "authentication_required", "Card needs authentication"
     NO_CARD = "no_card", "No card on file"
+    NO_ADDRESS = "no_address", "No billing address on the card"
 
 
 class AICreditPurchaseStatus(models.TextChoices):
@@ -879,8 +888,9 @@ class AICreditPurchaseRequestSerializer(AICreditQuoteRequestSerializer):
 class AICreditPurchaseResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=AICreditPurchaseStatus.choices,
-        help_text="Paid, waiting for the person to authenticate the payment with their bank, or still processing. "
-        "A purchase that is still processing finishes on its own, and the history shows it.",
+        help_text="Paid, waiting for the person to finish card authentication, or still processing. "
+        "A purchase that is still processing finishes on its own. Send it again with the same idempotency key "
+        "to get its final answer.",
     )
     total_usd = _usd_field("What the card is charged, in USD. Absent while the purchase is processing.", required=False)
     payment_id = serializers.CharField(
@@ -1003,7 +1013,7 @@ def _ai_credits_error(
     logger.warning("ai_credits_billing_error", organization_id=str(organization.id), status=error.status_code)
     body = error.body if isinstance(error.body, dict) else {}
     if error.status_code == status.HTTP_400_BAD_REQUEST:
-        return bad_request()
+        return AICreditsNoAddress() if body.get("code") == "no_address" else bad_request()
     if error.status_code == status.HTTP_402_PAYMENT_REQUIRED:
         return AICreditsCardDeclined()
     if error.status_code == status.HTTP_403_FORBIDDEN:
@@ -1769,7 +1779,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=AICreditPurchaseResponseSerializer),
             202: OpenApiResponse(
                 response=AICreditPurchaseResponseSerializer,
-                description="The purchase is still processing. It finishes on its own, and the history shows it.",
+                description="The purchase is still processing. Send it again with the same idempotency key to get "
+                "its final answer.",
             ),
         },
     )
