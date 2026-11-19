@@ -359,7 +359,7 @@ export function WorkflowsTable(): JSX.Element {
                     <div className="flex flex-wrap items-center gap-1">
                         <LemonTag type={config.type}>{config.label}</LemonTag>
                         {isLiveOnSandboxSender(item) && (
-                            <Tooltip title="Only verified members of your organization receive this workflow's emails. Set up your sending domain to reach your users.">
+                            <Tooltip title="Email steps on the PostHog test sender reach only verified members of your organization. To reach your users, set up your sending domain and switch those steps to it.">
                                 <LemonTag type="warning" data-attr="workflow-list-sandbox-sender">
                                     Test sender
                                 </LemonTag>

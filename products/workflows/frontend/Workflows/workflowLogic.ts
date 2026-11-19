@@ -4844,10 +4844,29 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
+            const live = values.originalWorkflow
+            const movesToSandboxSender =
+                !!live && isLiveOnSandboxSender(withStagedDraft(live)) && !isLiveOnSandboxSender(live)
+            if (movesToSandboxSender) {
+                // pinned: analytics event names and property values
+                posthog.capture('workflows sandbox sender enable warning shown', {
+                    workflow_id: props.id,
+                    surface: 'publish',
+                })
+            }
             openPublishConfirmDialog({
                 impact: preview.impact,
                 inFlightRuns: preview.in_flight_runs,
-                onConfirm: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
+                movesToSandboxSender,
+                onConfirm: () => {
+                    if (movesToSandboxSender) {
+                        posthog.capture('workflows sandbox sender enabled anyway', {
+                            workflow_id: props.id,
+                            surface: 'publish',
+                        })
+                    }
+                    actions.confirmPublishDraft(preview.confirm_token ?? '')
+                },
             })
         },
         confirmPublishDraft: async ({ confirmToken }) => {
@@ -4961,7 +4980,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
-            if (enabling && !sandboxSenderConfirmed && isLiveOnSandboxSender(merged)) {
+            // Enabling resumes the stored live config, not the staged draft the form shows, so the
+            // sender check reads the steps that will actually run.
+            const goingLive = stored ? { ...stored, status: 'active' as const } : merged
+            if (enabling && !sandboxSenderConfirmed && isLiveOnSandboxSender(goingLive)) {
                 confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
                 return
             }

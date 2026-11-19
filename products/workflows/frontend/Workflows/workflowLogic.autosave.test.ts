@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-import { createElement } from 'react'
+import { ReactElement, createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -65,6 +65,33 @@ const VALID_TRIGGER = {
     ...TRIGGER,
     config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
 } as HogFlow['actions'][number]
+
+const SANDBOX_EMAIL = {
+    id: 'sandbox_email',
+    type: 'email_sandbox',
+    name: 'Email',
+    description: '',
+    created_at: 0,
+    updated_at: 0,
+    config: {
+        inputs: {
+            email: {
+                templating: 'liquid',
+                value: { to: { email: 'ops@example.com' }, subject: 'Hi', text: 'Hi', html: '<p>Hi</p>' },
+            },
+        },
+    },
+} as HogFlow['actions'][number]
+const withSandboxEmail = (actions: HogFlow['actions']): Pick<HogFlow, 'actions' | 'edges'> => {
+    const [trigger, exit] = actions
+    return {
+        actions: [trigger, SANDBOX_EMAIL, exit],
+        edges: [
+            { from: trigger.id, to: SANDBOX_EMAIL.id, type: 'continue' },
+            { from: SANDBOX_EMAIL.id, to: exit.id, type: 'continue' },
+        ],
+    }
+}
 
 describe('workflowLogic auto-save', () => {
     let logic: ReturnType<typeof workflowLogic.build>
@@ -571,24 +598,20 @@ describe('workflowLogic auto-save', () => {
             captureSpy.mockRestore()
         })
 
-        it('enables a workflow on the test sender only after "Enable anyway"', async () => {
-            const [trigger, exit] = activeWorkflow.actions
-            const sandboxStep = {
-                id: 'sandbox_email',
-                type: 'email_sandbox',
-                name: 'Email',
-                description: '',
-                created_at: 0,
-                updated_at: 0,
-                config: {
-                    inputs: {
-                        email: {
-                            templating: 'liquid',
-                            value: { to: { email: 'ops@example.com' }, subject: 'Hi', text: 'Hi', html: '<p>Hi</p>' },
-                        },
-                    },
-                },
-            } as HogFlow['actions'][number]
+        it.each([
+            ['live on the test sender', 'live', true],
+            // Enabling resumes the stored live config, so a staged test sender step goes live only on publish.
+            ['staging a test sender step only', 'staged', false],
+            ['staging a move off the test sender only', 'live-staged-off', true],
+        ] as const)('enabling a workflow %s (%s) asks first: %s', async (_, layout, asks) => {
+            const withSandbox = withSandboxEmail(activeWorkflow.actions)
+            const withoutSandbox = { actions: activeWorkflow.actions, edges: activeWorkflow.edges }
+            const [live, staged] =
+                layout === 'live'
+                    ? [withSandbox, null]
+                    : layout === 'staged'
+                      ? [withoutSandbox, withSandbox]
+                      : [withSandbox, withoutSandbox]
             const dialogs: LemonDialogProps[] = []
             const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
                 dialogs.push(props)
@@ -597,11 +620,8 @@ describe('workflowLogic auto-save', () => {
                 activeMocks({
                     ...activeWorkflow,
                     status: 'draft',
-                    actions: [trigger, sandboxStep, exit],
-                    edges: [
-                        { from: trigger.id, to: sandboxStep.id, type: 'continue' },
-                        { from: sandboxStep.id, to: exit.id, type: 'continue' },
-                    ],
+                    ...live,
+                    ...(staged ? { draft: staged, draft_updated_at: '2026-05-02T00:00:00.000Z' } : {}),
                 })
             )
             initKeaTests()
@@ -610,17 +630,23 @@ describe('workflowLogic auto-save', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
             try {
-                await expectLogic(logic, () => {
-                    logic.actions.saveWorkflowPartial({ status: 'active' })
-                }).toFinishAllListeners()
-                expect(dialogs.map((dialog) => dialog.title)).toEqual(['Enable on the PostHog test sender?'])
-                expect(patchBodies).toEqual([])
+                if (asks) {
+                    await expectLogic(logic, () => {
+                        logic.actions.saveWorkflowPartial({ status: 'active' })
+                    }).toFinishAllListeners()
+                    expect(dialogs.map((dialog) => dialog.title)).toEqual(['Enable on the PostHog test sender?'])
+                    expect(patchBodies).toEqual([])
 
-                await expectLogic(logic, () => {
-                    ;(dialogs[0].primaryButton?.onClick as () => void)()
-                }).toDispatchActions(['saveWorkflowSuccess'])
+                    await expectLogic(logic, () => {
+                        ;(dialogs[0].primaryButton?.onClick as () => void)()
+                    }).toDispatchActions(['saveWorkflowSuccess'])
+                } else {
+                    await expectLogic(logic, () => {
+                        logic.actions.saveWorkflowPartial({ status: 'active' })
+                    }).toDispatchActions(['saveWorkflowSuccess'])
+                }
                 expect(patchBodies).toMatchObject([{ status: 'active' }])
-                expect(dialogs).toHaveLength(1)
+                expect(dialogs).toHaveLength(asks ? 1 : 0)
             } finally {
                 openDialog.mockRestore()
             }
@@ -1195,6 +1221,38 @@ describe('workflowLogic auto-save', () => {
                 expect(reloads).toBe(1)
                 expect(logic.values.draftActionPending).toBeNull()
             })
+
+            it.each([
+                ['moves the live workflow onto the test sender', false, true],
+                ['keeps a workflow that is already live on the test sender', true, false],
+            ])(
+                'warns in the publish dialog when the draft %s (live on the test sender: %s): %s',
+                async (_, liveOnSandbox, warns) => {
+                    const ownSender = { actions: [VALID_TRIGGER, EXIT], edges: makeWorkflow().edges }
+                    const sandbox = withSandboxEmail([VALID_TRIGGER, EXIT])
+                    const workflowWithDraft = makeWorkflow({
+                        status: 'active',
+                        ...(liveOnSandbox ? sandbox : ownSender),
+                        draft: { name: 'Autosave test', ...sandbox },
+                        draft_updated_at: '2026-05-01T00:01:00.000Z',
+                    })
+                    useMocks({
+                        get: { '/api/environments/:team_id/hog_flows/:id/': workflowWithDraft },
+                        post: { [PUBLISH_URL]: recordPublish(() => [200, preview]) },
+                    })
+                    logic.unmount()
+                    logic = workflowLogic({ id: WORKFLOW_ID })
+                    logic.mount()
+                    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+                    await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+                    const dialog = dialogs.find((d) => d.title === 'Publish staged changes?')
+                    render(dialog?.description as ReactElement)
+                    expect(!!screen.queryByText(/These changes put email steps on the PostHog test sender/)).toBe(warns)
+                    cleanup()
+                }
+            )
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))

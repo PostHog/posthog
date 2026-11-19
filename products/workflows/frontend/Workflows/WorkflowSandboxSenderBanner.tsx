@@ -28,13 +28,14 @@ export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element
             <LemonBanner
                 type="warning"
                 action={{
-                    children: 'Set up your domain',
+                    children: 'Set up your sending domain',
                     'data-attr': 'workflow-sandbox-sender-set-up-domain',
                     onClick: () => startEmailDomainSetup('sandbox_sender_banner'),
                 }}
             >
-                This workflow is live on the PostHog test sender. Only verified members of your organization receive its
-                emails, and everyone else is skipped. Set up your sending domain to reach your users.
+                This live workflow has email steps on the PostHog test sender. Those steps reach only verified members
+                of your organization, and everyone else is skipped. To reach your users, set up your sending domain and
+                switch those steps to it.
             </LemonBanner>
         </div>
     )
