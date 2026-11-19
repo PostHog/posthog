@@ -27,17 +27,17 @@ export function RunLinkTagSettingsLink({
         []
     )
 
-    // The setting changes in another tab, so reload the team once when this tab gets focus back.
+    // The setting changes in another tab, and the reader can come back before saving it there,
+    // so reload the team on every return to this tab after the link opens settings.
     const refreshOnReturn = (): void => {
         if (pendingRefresh.current) {
             return
         }
         const onFocus = (): void => {
-            pendingRefresh.current = null
             refreshCurrentTeam()
         }
         pendingRefresh.current = onFocus
-        window.addEventListener('focus', onFocus, { once: true })
+        window.addEventListener('focus', onFocus)
     }
 
     return (

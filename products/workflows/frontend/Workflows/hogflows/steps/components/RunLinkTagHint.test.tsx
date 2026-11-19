@@ -67,6 +67,30 @@ describe('<RunLinkTagHint />', () => {
         expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
     })
 
+    it('shows a setting saved after an early return to this tab once the reader comes back again', async () => {
+        let saved = false
+        useMocks({
+            get: {
+                '/api/projects/:id/': () => [
+                    200,
+                    { ...MOCK_DEFAULT_TEAM, workflows_config: { email_workflow_run_link_tag_enabled: !saved } },
+                ],
+            },
+        })
+        render(<RunLinkTagHint />)
+
+        fireEvent.click(screen.getByText('Turn it off in settings'))
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+        saved = true
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+
+        expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
+    })
+
     it('reloads the team once per return, and not after the hint is gone', async () => {
         const teamRequests: string[] = []
         useMocks({
