@@ -451,6 +451,18 @@ CONSTANCE_CONFIG = {
         "realtime cohorts miss the person merges of a project that list leaves out.",
         bool,
     ),
+    "WORKOS_RADAR_LOGIN_MODE": (
+        "off",
+        "Whether password logins go to WorkOS Radar. 'off' skips Radar. 'shadow' records the verdict "
+        "and never refuses a login. 'enforce' refuses a login that Radar blocks.",
+        str,
+    ),
+    "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT": (
+        100,
+        "Percentage of email addresses whose password logins go to WorkOS Radar, from 0 to 100. An "
+        "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -522,6 +534,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
     "REALTIME_COHORT_JOIN_OPEN",
+    "WORKOS_RADAR_LOGIN_MODE",
+    "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
