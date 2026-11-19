@@ -913,7 +913,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
         if not can_edit:
             raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-        if membership_being_updated.level == OrganizationMembership.Level.OWNER and not can_manage_owners:
+        if membership_being_updated.effective_level == OrganizationMembership.Level.OWNER and not can_manage_owners:
             raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     def get_scoped_api_keys(self):

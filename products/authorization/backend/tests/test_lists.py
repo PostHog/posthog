@@ -4,6 +4,7 @@ from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import PropertyMock, patch
 
 from django.apps import apps
 from django.db.models import Model
@@ -261,14 +262,32 @@ class TestListsMatchCurrentRules(BaseTest):
         assert entries.exists()
         assert not filtered.exists()
 
-    @parameterized.expand([("member", False, False), ("private_project", True, False), ("org_admin", True, True)])
-    def test_project_list_matches_visible_teams(self, _name: str, private: bool, admin: bool) -> None:
+    @parameterized.expand(
+        [
+            ("member", False, False),
+            ("private_project", True, False),
+            ("org_admin", True, True),
+            ("effective_org_admin", True, False, True),
+        ]
+    )
+    def test_project_list_matches_visible_teams(
+        self, _name: str, private: bool, admin: bool, effective_admin: bool = False
+    ) -> None:
         private_team = Team.objects.create(organization=self.organization, name="Private")
         Team.objects.create(organization=Organization.objects.create(name="Elsewhere"), name="Foreign")
         if private:
             self._rule("project", "none", str(private_team.id), team=private_team)
         if admin:
             self._make_org_admin()
+        if effective_admin:
+            self.enterContext(
+                patch.object(
+                    OrganizationMembership,
+                    "effective_level",
+                    new_callable=PropertyMock,
+                    return_value=OrganizationMembership.Level.ADMIN,
+                )
+            )
 
         result = authorization.list_objects(
             resource=Resource(type=ResourceType.PROJECT, organization_id=self.organization.id),
@@ -283,6 +302,8 @@ class TestListsMatchCurrentRules(BaseTest):
         )
         assert not result.excluded
         assert result.ids == {str(team_id) for team_id in expected.values_list("id", flat=True)}
+        if admin or effective_admin:
+            assert str(private_team.id) in result.ids
         projects = filter_projects(
             Team.objects.filter(organization=self.organization),
             organization_id=self.organization.id,

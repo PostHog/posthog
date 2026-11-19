@@ -208,7 +208,7 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
     if membership.effective_level < OrganizationMembership.Level.ADMIN:
@@ -252,7 +252,7 @@ def user_has_billing_usage_spend_read_access(user: User, organization: Organizat
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
     # Only a confirmed disabled flag lets non-owners through. Unknown flag state fails closed to owners.
@@ -338,8 +338,9 @@ def vercel_invoices_url(organization: Organization | None) -> str | None:
 
 def _find_privileged_authorizer(organization: Organization) -> Optional[User]:
     memberships = (
-        OrganizationMembership.objects.filter(organization=organization, level__gte=OrganizationMembership.Level.ADMIN)
-        .order_by("-level", "joined_at")
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+        .order_by("-resolved_level", "joined_at")
         .select_related("user")
     )
     for membership in memberships:
