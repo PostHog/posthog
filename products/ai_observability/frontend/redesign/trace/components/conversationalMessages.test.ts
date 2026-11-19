@@ -16,7 +16,7 @@ const SYSTEM_ONLY: NodeSideContent = {
 }
 
 function turn(input: NodeSideContent, output: NodeSideContent): ConversationTurn {
-    return { id: 'trace-1', timestamp: '2026-09-01T10:15:00Z', input, output, error: null }
+    return { id: 'trace-1', timestamp: '2026-09-01T10:15:00Z', waitMs: null, input, output, error: null }
 }
 
 describe('turnHasContent', () => {

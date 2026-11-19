@@ -284,6 +284,7 @@ export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-ans
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
+    waitMs: null,
     ...messagesSides(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
     error: null,
 }

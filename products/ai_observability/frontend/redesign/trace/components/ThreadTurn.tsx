@@ -10,6 +10,7 @@ import { conversationalSideMessages } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
 import { IOSection } from './IOSection'
 import { ThreadBubble } from './ThreadBubble'
+import { TurnTiming } from './TurnTiming'
 
 export interface ThreadTurnProps {
     turn: ConversationTurn
@@ -18,6 +19,8 @@ export interface ThreadTurnProps {
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
+    showTiming?: boolean
+    conversationOnly?: boolean
 }
 
 export function ThreadTurn({
@@ -26,21 +29,29 @@ export function ThreadTurn({
     onSelectMessage,
     matchingNodeIds = null,
     highlightQuery = null,
+    showTiming = false,
+    conversationOnly = false,
 }: ThreadTurnProps): JSX.Element {
     const [showInternal, setShowInternal] = useState(false)
     const hiddenCount = [turn.input, turn.output]
         .flatMap(conversationalSideMessages)
         .filter((message) => message.isInternal).length
+    const canShowInternal = showInternal && !conversationOnly
+    const timedMessageId = showTiming
+        ? (conversationalSideMessages(turn.input).find((message) => message.role === 'user' && !message.isInternal)
+              ?.id ?? null)
+        : null
 
     const renderSide = (title: string, side: NodeSideContent): JSX.Element | JSX.Element[] => {
         if (side.kind === 'json') {
             return <IOSection key={title} title={title} value={side.value} highlightQuery={highlightQuery} />
         }
         return conversationalSideMessages(side)
-            .filter((message) => showInternal || !message.isInternal)
+            .filter((message) => canShowInternal || !message.isInternal)
             .map((message) => {
                 const sourceNodeId = message.sourceNodeId
-                return (
+                const isTimed = message.id === timedMessageId
+                const bubble = (
                     <ThreadBubble
                         key={message.id}
                         message={message}
@@ -49,14 +60,24 @@ export function ThreadTurn({
                             matchingNodeIds !== null && sourceNodeId !== null && !matchingNodeIds.has(sourceNodeId)
                         }
                         highlightQuery={highlightQuery}
+                        // A user bubble leaves room on its left for the timing
+                        className={showTiming && message.role === 'user' ? 'max-w-[76%]' : undefined}
                     />
+                )
+                return isTimed ? (
+                    <div key={message.id} className="flex items-start justify-end gap-2">
+                        <TurnTiming timestamp={turn.timestamp} waitMs={turn.waitMs} />
+                        {bubble}
+                    </div>
+                ) : (
+                    bubble
                 )
             })
     }
 
     return (
         <div className={cn('flex flex-col gap-3', isActive && 'rounded-lg p-3 ring-1 ring-[var(--color-accent)]')}>
-            {hiddenCount > 0 ? (
+            {hiddenCount > 0 && !conversationOnly ? (
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
@@ -64,7 +85,7 @@ export function ThreadTurn({
                     onClick={() => setShowInternal(!showInternal)}
                     data-attr="trace-view-toggle-hidden-messages"
                 >
-                    {showInternal ? 'Hide internal messages' : `Show ${pluralize(hiddenCount, 'internal message')}`}
+                    {canShowInternal ? 'Hide internal messages' : `Show ${pluralize(hiddenCount, 'internal message')}`}
                 </LemonButton>
             ) : null}
             {renderSide('Input', turn.input)}

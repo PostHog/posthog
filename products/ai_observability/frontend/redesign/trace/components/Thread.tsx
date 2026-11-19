@@ -1,9 +1,13 @@
+import { Fragment } from 'react'
+
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ConversationState } from '../types'
 import { turnHasContent } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
+import { SilenceDivider } from './SilenceDivider'
 import { ThreadTurn } from './ThreadTurn'
+import { silenceBefore } from './turnTiming'
 import { useSearchHighlight } from './useSearchHighlight'
 
 export interface ThreadProps {
@@ -12,6 +16,8 @@ export interface ThreadProps {
     highlightQuery?: string | null
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
+    showTiming?: boolean
+    conversationOnly?: boolean
 }
 
 export function Thread({
@@ -19,6 +25,8 @@ export function Thread({
     onSelectMessage,
     highlightQuery = null,
     matchingNodeIds = null,
+    showTiming = false,
+    conversationOnly = false,
 }: ThreadProps): JSX.Element {
     const highlightRef = useSearchHighlight(highlightQuery)
     if (conversation.status === 'loading') {
@@ -43,16 +51,23 @@ export function Thread({
     }
     return (
         <div className="flex flex-col gap-3" ref={highlightRef}>
-            {turns.map((turn) => (
-                <ThreadTurn
-                    key={turn.id}
-                    turn={turn}
-                    isActive={turns.length > 1 && turn.id === activeTurnId}
-                    onSelectMessage={onSelectMessage}
-                    matchingNodeIds={matchingNodeIds}
-                    highlightQuery={highlightQuery}
-                />
-            ))}
+            {turns.map((turn, index) => {
+                const silenceMs = showTiming ? silenceBefore(turns[index - 1] ?? null, turn) : null
+                return (
+                    <Fragment key={turn.id}>
+                        {silenceMs !== null ? <SilenceDivider silenceMs={silenceMs} /> : null}
+                        <ThreadTurn
+                            turn={turn}
+                            isActive={turns.length > 1 && turn.id === activeTurnId}
+                            onSelectMessage={onSelectMessage}
+                            matchingNodeIds={matchingNodeIds}
+                            highlightQuery={highlightQuery}
+                            showTiming={showTiming}
+                            conversationOnly={conversationOnly}
+                        />
+                    </Fragment>
+                )
+            })}
         </div>
     )
 }

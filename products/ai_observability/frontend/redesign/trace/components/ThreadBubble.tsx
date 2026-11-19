@@ -12,6 +12,7 @@ export interface ThreadBubbleProps {
     onSelect?: () => void
     isFaded?: boolean
     highlightQuery?: string | null
+    className?: string
 }
 
 export function ThreadBubble({
@@ -19,6 +20,7 @@ export function ThreadBubble({
     onSelect,
     isFaded = false,
     highlightQuery = null,
+    className,
 }: ThreadBubbleProps): JSX.Element {
     const isUser = message.role === 'user'
     const baseClassName = cn(
@@ -26,7 +28,8 @@ export function ThreadBubble({
         'max-w-4/5 rounded-lg px-3 py-2',
         isUser ? 'self-end bg-fill-highlight-100' : 'self-start border border-primary bg-surface-primary',
         message.isInternal && 'text-secondary',
-        isFaded && 'opacity-50'
+        isFaded && 'opacity-50',
+        className
     )
 
     const content = (

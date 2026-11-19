@@ -52,6 +52,8 @@ export type ThreadMessage = TraceMessageApi
 export interface ConversationTurn {
     id: string
     timestamp: string
+    /** How long the user waited for the answer, from the trace's latency; null when not shown. */
+    waitMs: number | null
     input: NodeSideContent
     output: NodeSideContent
     error: string | null

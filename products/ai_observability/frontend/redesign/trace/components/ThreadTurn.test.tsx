@@ -6,8 +6,27 @@ import { ThreadTurn } from './ThreadTurn'
 const turn: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
+    waitMs: null,
     error: null,
-    input: { kind: 'messages', messages: [] },
+    input: {
+        kind: 'messages',
+        messages: [
+            {
+                id: 'gen-1-in-0',
+                role: 'user',
+                parts: [{ kind: 'text', text: 'Add two seats.' }],
+                isInternal: false,
+                sourceNodeId: 'gen-1',
+            },
+            {
+                id: 'gen-1-in-1',
+                role: 'assistant',
+                parts: [{ kind: 'text', text: 'Checking the seat history.' }],
+                isInternal: true,
+                sourceNodeId: 'gen-1',
+            },
+        ],
+    },
     output: {
         kind: 'messages',
         messages: [
@@ -51,7 +70,7 @@ describe('ThreadTurn', () => {
     })
 
     test.each([
-        ['cuts a bubble taller than the window', null, 1],
+        ['cuts a bubble taller than the window', null, 2],
         ['shows a bubble that holds the search query in full', 'seats', 0],
     ])('%s', (_name, highlightQuery, readMoreCount) => {
         const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(window.innerHeight + 1)
@@ -64,5 +83,53 @@ describe('ThreadTurn', () => {
         } finally {
             height.mockRestore()
         }
+    })
+
+    describe('timing', () => {
+        const timed = (waitMs: number | null): JSX.Element => (
+            <ThreadTurn turn={{ ...turn, waitMs }} isActive={false} onSelectMessage={() => {}} showTiming />
+        )
+
+        test('shows timing beside the user message', () => {
+            const { getByText } = render(timed(2_100))
+
+            expect(getByText(/10:15/)).toBeTruthy()
+            expect(getByText(/2\.1s/)).toBeTruthy()
+        })
+
+        test.each([
+            [18_000, true],
+            [2_100, false],
+        ])('marks a %sms wait as slow: %s', (waitMs, slow) => {
+            const { getByText } = render(timed(waitMs))
+
+            expect(getByText(/\ds$/).className.includes('text-warning')).toBe(slow)
+        })
+
+        test('shows no wait when latency is null', () => {
+            const { getByText, queryByText } = render(timed(null))
+
+            expect(getByText(/10:15/)).toBeTruthy()
+            expect(queryByText(/\ds$/)).toBeNull()
+        })
+
+        test('shows no timing unless asked', () => {
+            const { queryByText } = render(
+                <ThreadTurn turn={{ ...turn, waitMs: 2_100 }} isActive={false} onSelectMessage={() => {}} />
+            )
+
+            expect(queryByText(/10:15/)).toBeNull()
+        })
+    })
+
+    test('conversation only hides internal messages and the toggle', () => {
+        const props = { turn, isActive: false, onSelectMessage: () => {} }
+        const { getByText, queryByText, rerender } = render(<ThreadTurn {...props} />)
+        expect(getByText('Show 1 internal message')).toBeTruthy()
+
+        rerender(<ThreadTurn {...props} conversationOnly />)
+        expect(queryByText('Show 1 internal message')).toBeNull()
+        expect(queryByText('Checking the seat history.')).toBeNull()
+        expect(getByText('Add two seats.')).toBeTruthy()
     })
 })
