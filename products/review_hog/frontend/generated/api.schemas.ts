@@ -338,6 +338,8 @@ export interface ReviewRepositoryApi {
     readonly flash_for: AutomaticFlashForEnumApi | null
     /** Whether draft pull requests in this repository get their automatic review when they open. */
     readonly review_drafts: boolean
+    /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+    readonly deep_review_gated_prs: boolean
     /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
     readonly people: readonly ReviewRepositoryPersonApi[]
     /** Who added the repository. */
@@ -372,6 +374,8 @@ export interface ReviewRepositoryWriteApi {
     flash_for?: AutomaticFlashForEnumApi | null
     /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
     review_drafts?: boolean
+    /** True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
+    deep_review_gated_prs?: boolean
 }
 
 export interface ReviewRepositoryWriteResponseApi {
@@ -556,6 +560,8 @@ export interface ReviewRepositoryOverviewEntryApi {
     exception: ReviewRepositoryExceptionApi | null
     /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
     review_drafts: boolean
+    /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+    deep_review_gated_prs: boolean
     /** The requesting user's own choice for this repository: 'flash', 'off', or null.
      *
      * * `flash` - Flash
@@ -593,7 +599,7 @@ export interface ReviewRepositoryOverviewApi {
      * @nullable
      */
     next_offset: number | null
-    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
+    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews, no Deep reviews of pull requests that need a person and no own choice. 0 otherwise. */
     folded: number
     /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
     folded_preview: string[]

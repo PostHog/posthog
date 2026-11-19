@@ -440,6 +440,7 @@ interface StoryRepositoryRow {
     selected: boolean
     flash_for: AutomaticFlashForEnumApi | null
     review_drafts: boolean
+    deep_review_gated_prs: boolean
     people: ReviewRepositoryPersonApi[]
 }
 
@@ -490,6 +491,7 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             selected: true,
             flash_for: 'everyone',
             review_drafts: true,
+            deep_review_gated_prs: true,
             people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(VIEWER, 'excepted')],
         },
         'example-org/api': {
@@ -497,9 +499,17 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             selected: true,
             flash_for: 'listed',
             review_drafts: false,
+            deep_review_gated_prs: false,
             people: [person(MOCK_SECOND_BASIC_USER, 'listed'), person(ADA, 'listed')],
         },
-        'example-org/docs': { id: 'repo-docs', selected: true, flash_for: null, review_drafts: true, people: [] },
+        'example-org/docs': {
+            id: 'repo-docs',
+            selected: true,
+            flash_for: null,
+            review_drafts: true,
+            deep_review_gated_prs: false,
+            people: [],
+        },
     }
 }
 
@@ -553,6 +563,7 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         repository_id: row?.id ?? null,
         exception: own && row?.flash_for ? { flash_for: row.flash_for, people: row.people } : null,
         review_drafts: own && !!row?.review_drafts,
+        deep_review_gated_prs: own && !!row?.deep_review_gated_prs,
         my_choice: own ? (choice?.mode ?? null) : null,
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,
@@ -573,6 +584,7 @@ function saveRepository(write: ReviewRepositoryWriteApi): void {
         selected: false,
         flash_for: null,
         review_drafts: false,
+        deep_review_gated_prs: false,
         people: [],
     }
     const next = {
@@ -580,8 +592,9 @@ function saveRepository(write: ReviewRepositoryWriteApi): void {
         selected: write.selected ?? current.selected,
         flash_for: write.flash_for !== undefined ? write.flash_for : current.flash_for,
         review_drafts: write.review_drafts ?? current.review_drafts,
+        deep_review_gated_prs: write.deep_review_gated_prs ?? current.deep_review_gated_prs,
     }
-    if (!next.selected && next.flash_for === null && !next.review_drafts) {
+    if (!next.selected && next.flash_for === null && !next.review_drafts && !next.deep_review_gated_prs) {
         delete storyState.rows[write.full_name]
         return
     }
@@ -840,12 +853,13 @@ const meta: Meta<typeof CodeReviewScene> = {
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 50)
                         const matching = REPOSITORY_NAMES.filter((name) => name.includes(search)).map(overviewEntry)
-                        // Same rule as the server: this project's settings apply with no exception, no draft reviews and no own choice.
+                        // Same rule as the server: this project's settings apply with no exception, no switch on and no own choice.
                         const follows = (entry: ReviewRepositoryOverviewEntryApi): boolean =>
                             entry.owner === 'this_project' &&
                             entry.in_project &&
                             entry.exception === null &&
                             !entry.review_drafts &&
+                            !entry.deep_review_gated_prs &&
                             entry.my_choice === null
                         const entries = matching.filter(
                             (entry) =>

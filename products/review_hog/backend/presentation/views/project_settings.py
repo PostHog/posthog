@@ -143,6 +143,11 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
         help_text="Whether draft pull requests in this repository get their automatic review when they open. "
         "Authors who turned off reviews of their drafts still get none."
     )
+    deep_review_gated_prs = serializers.BooleanField(
+        help_text="Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person "
+        "gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also "
+        "added to auto-approval."
+    )
     my_choice = serializers.ChoiceField(
         choices=ReviewUserRepositoryChoiceMode.choices,
         allow_null=True,
@@ -175,7 +180,8 @@ class ReviewRepositoryOverviewSerializer(serializers.Serializer):
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset of the next page, or null.")
     folded = serializers.IntegerField(
         help_text="With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out "
-        "because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise."
+        "because this project reviews them with no exception, no draft reviews, no Deep reviews of pull requests "
+        "that need a person and no own choice. 0 otherwise."
     )
     folded_preview = serializers.ListField(
         child=serializers.CharField(),
@@ -212,6 +218,7 @@ def _entry_data(entry: ReviewRepositoryOverviewEntry) -> dict[str, Any]:
         "repository_id": entry.repository_id,
         "exception": exception,
         "review_drafts": entry.review_drafts,
+        "deep_review_gated_prs": entry.deep_review_gated_prs,
         "my_choice": entry.my_choice,
         "my_choice_id": entry.my_choice_id,
         "my_result": decision_data(entry.my_result),

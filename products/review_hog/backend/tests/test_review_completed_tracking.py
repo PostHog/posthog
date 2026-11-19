@@ -426,6 +426,39 @@ class TestTrackReviewCompleted(BaseTest):
         # Each push reports the draft state of its own head.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
 
+    def test_the_gate_lets_an_automatic_deep_turn_review_the_whole_pr(self) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(),
+            pr_comments=[],
+            pr_files=[PRFile(filename="a.py", status="modified", additions=3, deletions=1)],
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = PushGateDecision(skip=True, would_skip=True, reason="merge_only")
+            decision = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=5,
+                    review_mode=REVIEW_MODE_FULL,
+                    delta_band=True,
+                )
+            )
+
+        assert (decision.skip, decision.delta_review) == (False, False)
+        capture.assert_not_called()
+
     @parameterized.expand(
         [
             ("quiet_previous_review", False, False, (True, "quiet_small_push", 0, 400)),

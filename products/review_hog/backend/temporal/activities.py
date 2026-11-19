@@ -1095,7 +1095,7 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
-    """Whether the rules still give this PR its automatic Flash review when the turn starts."""
+    """Whether the rules still give this PR its automatic review when the turn starts, Standard or Deep."""
     if acting_user_id is None or input.repository is None:
         return False
     if input.report_id is not None:
@@ -2622,6 +2622,12 @@ def _head_already_finalized(input: GatePushInput) -> bool:
 
 
 def _gate_push(input: GatePushInput) -> PushGateDecision:
+    # An automatic Deep turn is the PR's first Deep review: the dispatch starts one at most, and a published Deep
+    # review stops every later automatic turn. The gate weighs a push against the last automatic review, which was a
+    # Standard one, so it does not apply. The decision lives here because the workflow calls this activity for every
+    # automatic follow-up, and a new condition there would change its command sequence.
+    if input.review_mode == REVIEW_MODE_FULL:
+        return PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched")
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
     snapshot: PRSnapshotArtefact | None = None

@@ -195,6 +195,13 @@ export interface reviewHogRepositoriesLogicActions {
     setPage: (page: number) => {
         page: number
     }
+    setRepositoryDeepReviews: (
+        entry: ReviewRepositoryOverviewEntryApi,
+        deepReviewGatedPrs: boolean
+    ) => {
+        deepReviewGatedPrs: boolean
+        entry: ReviewRepositoryOverviewEntryApi
+    }
     setRepositoryDrafts: (
         entry: ReviewRepositoryOverviewEntryApi,
         reviewDrafts: boolean
@@ -282,6 +289,10 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
         setRepositoryDrafts: (entry: ReviewRepositoryOverviewEntryApi, reviewDrafts: boolean) => ({
             entry,
             reviewDrafts,
+        }),
+        setRepositoryDeepReviews: (entry: ReviewRepositoryOverviewEntryApi, deepReviewGatedPrs: boolean) => ({
+            entry,
+            deepReviewGatedPrs,
         }),
         addExceptionPerson: (
             entry: ReviewRepositoryOverviewEntryApi,
@@ -603,6 +614,23 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                 )
                 if (saved) {
                     posthog.capture('review hog repository drafts changed', { review_drafts: reviewDrafts })
+                }
+            },
+            setRepositoryDeepReviews: async ({ entry, deepReviewGatedPrs }) => {
+                const saved = await writeRepository(
+                    entry,
+                    async () => {
+                        await codeReviewRepositoriesCreate(currentProjectId(), {
+                            ...repositoryRef(entry),
+                            deep_review_gated_prs: deepReviewGatedPrs,
+                        })
+                    },
+                    'Could not save the Deep review setting. Try again.'
+                )
+                if (saved) {
+                    posthog.capture('review hog repository deep reviews changed', {
+                        deep_review_gated_prs: deepReviewGatedPrs,
+                    })
                 }
             },
             addExceptionPerson: async ({ entry, userId, kind }) => {

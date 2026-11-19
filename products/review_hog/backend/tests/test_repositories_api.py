@@ -97,11 +97,19 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
                 403,
             ),
             ("turn_drafts_on", "all", None, {"review_drafts": True}, 200),
+            ("turn_deep_reviews_on", "all", None, {"deep_review_gated_prs": True}, 200),
             ("lower_everyone_to_off", "all", {"flash_for": "everyone"}, {"flash_for": "off"}, 403),
             ("clear_the_exception", "all", {"flash_for": "everyone"}, {"flash_for": None}, 403),
             ("pin_the_project_default", "all", None, {"flash_for": "off"}, 403),
             ("remove_from_the_project", "selected", {"selected": True}, {"selected": False}, 403),
             ("turn_drafts_off", "all", {"review_drafts": True}, {"review_drafts": False}, 403),
+            (
+                "turn_deep_reviews_off",
+                "all",
+                {"deep_review_gated_prs": True},
+                {"deep_review_gated_prs": False},
+                403,
+            ),
             ("take_from_another_project", "selected_while_other_claims_all", None, {"selected": True}, 403),
         ]
     )
@@ -121,13 +129,14 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
                 ReviewRepositoryPerson.objects.for_team(self.team.id).create(
                     team=self.team, repository=repository, user=self.user, kind=kind
                 )
-        before = list(ReviewRepository.objects.unscoped().values("team_id", "selected", "flash_for", "review_drafts"))
+        compared = ("team_id", "selected", "flash_for", "review_drafts", "deep_review_gated_prs")
+        before = list(ReviewRepository.objects.unscoped().values(*compared))
         self._set_level(OrganizationMembership.Level.MEMBER)
 
         res = self.client.post(self._url("repositories/"), {**WEB, **body}, format="json")
 
         assert res.status_code == expected_status, res.json()
-        after = list(ReviewRepository.objects.unscoped().values("team_id", "selected", "flash_for", "review_drafts"))
+        after = list(ReviewRepository.objects.unscoped().values(*compared))
         assert (after == before) is (expected_status == 403)
 
     @parameterized.expand(
@@ -351,8 +360,10 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         [
             ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
             ("drafts_without_ownership", {**WEB, "review_drafts": True}, 400),
+            ("deep_reviews_without_ownership", {**WEB, "deep_review_gated_prs": True}, 400),
             ("nothing_to_store", {**WEB, "selected": False}, 200),
             ("drafts_off_is_nothing_to_store", {**WEB, "review_drafts": False}, 200),
+            ("deep_reviews_off_is_nothing_to_store", {**WEB, "deep_review_gated_prs": False}, 200),
             ("unknown_to_the_installation", {**WEB, "full_name": "example-org/secret", "selected": True}, 400),
             ("id_of_another_repository", {**WEB, "github_repo_id": 502, "selected": True}, 400),
             (
@@ -477,21 +488,24 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
         assert searched["folded"] == 0
 
+    @parameterized.expand([("review_drafts",), ("deep_review_gated_prs",)])
     @patch(
         "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
     )
-    def test_draft_reviews_alone_keep_a_repository_row_out_of_the_fold(self, _cached: object) -> None:
+    def test_a_repository_switch_alone_keeps_a_repository_row_out_of_the_fold(
+        self, switch: str, _cached: object
+    ) -> None:
         self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
         url = self._url(f"repository_overview/?installation_id={INSTALLATION}&view=differs")
 
-        turned_on = self.client.post(self._url("repositories/"), {**WEB, "review_drafts": True}, format="json")
+        turned_on = self.client.post(self._url("repositories/"), {**WEB, switch: True}, format="json")
 
         assert turned_on.status_code == 200, turned_on.json()
-        assert turned_on.json()["repository"]["review_drafts"] is True
+        assert turned_on.json()["repository"][switch] is True
         [entry] = [entry for entry in self.client.get(url).json()["results"] if entry["full_name"] == "example-org/web"]
-        assert entry["review_drafts"] is True
+        assert entry[switch] is True
 
-        turned_off = self.client.post(self._url("repositories/"), {**WEB, "review_drafts": False}, format="json")
+        turned_off = self.client.post(self._url("repositories/"), {**WEB, switch: False}, format="json")
 
         assert turned_off.json()["repository"] is None
         assert not ReviewRepository.objects.for_team(self.team.id).exists()
