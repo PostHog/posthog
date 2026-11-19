@@ -5,6 +5,7 @@ as `[hour of the day, value]`, where the value is a summed increase or a list of
 replaces the hours it covers and leaves the others, so a repeated fill rewrites the same values.
 """
 
+import math
 import datetime as dt
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -60,7 +61,7 @@ def _decode(day: dt.date, series: list[dict]) -> dict[EntryKey, Entry]:
         entry = Entry(
             labels=tuple(item["labels"]),
             metric_type=item.get("metric_type", ""),
-            bounds=tuple(item.get("bounds", ())),
+            bounds=tuple(float(bound) for bound in item.get("bounds", ())),
             fingerprints=set(item.get("fingerprints", ())),
             points={_day_start(day) + hour * HOUR: value for hour, value in item["points"]},
         )
@@ -81,7 +82,8 @@ def _encode(day: dt.date, entries: dict[EntryKey, Entry]) -> list[dict]:
         }
         if entry.metric_type or entry.bounds:
             item["metric_type"] = entry.metric_type
-            item["bounds"] = list(entry.bounds)
+            # JSONB has no NaN or Infinity, so those bounds are stored as the strings `float()` reads back.
+            item["bounds"] = [bound if math.isfinite(bound) else str(bound) for bound in entry.bounds]
         series.append(item)
     return series
 

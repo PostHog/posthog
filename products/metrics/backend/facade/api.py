@@ -1289,5 +1289,5 @@ def fill_precomputed_metrics(*, team_id: int) -> None:
 
 
 def teams_with_precomputed_metrics() -> list[int]:
-    """The teams with at least one active precomputed metric, for the fill schedule."""
+    """The teams with at least one precomputed metric, active or paused, for the fill schedule."""
     return _teams_with_precomputed_metrics()

@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -11,8 +12,8 @@ from products.metrics.backend.facade.enums import AttributeScope, PrecomputedMet
 from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import LabelRef, Leaf, get_or_create_precomputed_metric
-from products.metrics.backend.precompute.fill import RETENTION, fill_precomputed_metrics
-from products.metrics.backend.precompute.store import read_entries
+from products.metrics.backend.precompute.fill import RETENTION, fill_precomputed_metrics, fill_step
+from products.metrics.backend.precompute.store import Entry, read_entries, write_entries
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 NOW = dt.datetime(2026, 11, 12, 12, 7, tzinfo=dt.UTC)
@@ -155,6 +156,45 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert precomputed.state == MetricPrecomputedMetric.State.ACTIVE
         assert self._stored(precomputed)[("search",)] == dict.fromkeys(_hours(start, 6), 12.0)
 
+    def test_a_split_fill_past_the_deadline_saves_the_hours_it_finished(self):
+        start = SETTLED - dt.timedelta(hours=6)
+        self._seed_delta_counter("checkout", 1.0, start, 6)
+        self._seed_delta_counter("search", 2.0, start, 6)
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        precomputed.covered_from = precomputed.covered_to = start
+        precomputed.save()
+
+        with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 5):
+            fill_step(self.team, precomputed, NOW, deadline=time.monotonic())
+
+        assert precomputed.covered_to == start + dt.timedelta(hours=1)
+        assert self._stored(precomputed) == {("checkout",): {start: 6.0}, ("search",): {start: 12.0}}
+
+    def test_a_long_forward_backlog_is_filled_a_day_at_a_time_in_hours(self):
+        start = SETTLED - dt.timedelta(days=25)
+        self._seed_delta_counter("checkout", 1.0, start, 24)
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        precomputed.covered_from = precomputed.covered_to = start
+        precomputed.save()
+
+        fill_step(self.team, precomputed, NOW)
+
+        assert precomputed.covered_to == start + dt.timedelta(days=1)
+        assert self._stored(precomputed) == {("checkout",): dict.fromkeys(_hours(start, 24), 6.0)}
+
+    def test_stores_non_finite_histogram_bounds(self):
+        precomputed = self._create(PrecomputedMetricKind.HISTOGRAM, "latency")
+        entry = Entry(
+            labels=("checkout",), metric_type="histogram", bounds=(0.1, float("inf")), points={SETTLED: [1.0, 2.0, 3.0]}
+        )
+
+        write_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1), {entry.key: entry})
+
+        stored = read_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1))
+        assert [(stored_entry.bounds, stored_entry.points) for stored_entry in stored.values()] == [
+            ((0.1, float("inf")), {SETTLED: [1.0, 2.0, 3.0]})
+        ]
+
     def test_pauses_when_one_hour_has_too_many_series(self):
         self._seed_delta_counter("checkout", 1.0, SETTLED - dt.timedelta(hours=2), 2)
         self._seed_delta_counter("search", 2.0, SETTLED - dt.timedelta(hours=2), 2)
@@ -200,3 +240,13 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
 
         precomputed.refresh_from_db()
         assert precomputed.covered_to is not None
+
+    def test_the_scheduled_task_sweeps_a_team_whose_metrics_are_all_paused(self):
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        precomputed.state = MetricPrecomputedMetric.State.PAUSED
+        precomputed.last_used_at = timezone.now() - dt.timedelta(days=15)
+        precomputed.save()
+
+        schedule_metrics_precompute_fills()
+
+        assert not MetricPrecomputedMetric.objects.for_team(self.team.pk).exists()

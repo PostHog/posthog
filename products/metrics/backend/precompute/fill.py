@@ -4,9 +4,11 @@ Each pass over a team runs one query at a time through the ordinary metrics quer
 interval grouped by the kept labels. Forward fills store the hours that have settled since the last pass and
 re-read the newest stored hours, so late samples replace what was stored and widen the settle delay. When
 nothing is due forward, the pass backfills one day, newest first, until the retention window is covered.
-A fill that returns too many rows is split in half, down to one hour.
+A fill that returns too many rows is split in half, down to one hour, and saves the halves it finished
+before the pass deadline.
 """
 
+import math
 import time
 import datetime as dt
 from typing import Any
@@ -30,6 +32,7 @@ logger = structlog.get_logger(__name__)
 # Covers the longest range a query allows (31 days) plus the first bucket's alignment.
 RETENTION = dt.timedelta(days=32)
 BACKFILL_STEP = dt.timedelta(days=1)
+MAX_FORWARD_STEP = dt.timedelta(days=1)
 REREAD = dt.timedelta(hours=2)
 MAX_SETTLE_SECONDS = 2 * 60 * 60
 UNUSED_AFTER = dt.timedelta(days=14)
@@ -103,18 +106,39 @@ def _query_hours(
 
 
 def query_hours(
-    team: Team, precomputed_metric: MetricPrecomputedMetric, start: dt.datetime, end: dt.datetime
-) -> dict[EntryKey, Entry]:
-    """The hourly buckets of `[start, end)`, splitting the range while the runner reports too many rows."""
+    team: Team,
+    precomputed_metric: MetricPrecomputedMetric,
+    start: dt.datetime,
+    end: dt.datetime,
+    *,
+    newest_first: bool = False,
+    deadline: float = math.inf,
+) -> tuple[dict[EntryKey, Entry], dt.datetime, dt.datetime]:
+    """The hourly buckets of `[start, end)` and the range they cover, splitting the range while the runner
+    reports too many rows.
+
+    Splits query the half next to the stored hours first: the older half for a forward fill, the newer half
+    for a backfill (`newest_first`). After `deadline` (a `time.monotonic()` value) no further split query
+    runs, so the returned range can be shorter than requested. It always touches the stored hours, so the
+    caller can save it and extend its coverage.
+    """
     try:
-        return _query_hours(team, precomputed_metric, start, end)
+        return _query_hours(team, precomputed_metric, start, end), start, end
     except MetricQueryTooManyRowsError:
         if end - start <= HOUR:
             raise TooManySeriesError("one hour has too many label sets; keep fewer labels")
-        middle = start + (end - start) // 2 // HOUR * HOUR
-        entries = query_hours(team, precomputed_metric, start, middle)
-        merge_entries(entries, query_hours(team, precomputed_metric, middle, end))
-        return entries
+    middle = start + (end - start) // 2 // HOUR * HOUR
+    first, second = ((middle, end), (start, middle)) if newest_first else ((start, middle), (middle, end))
+    entries, covered_start, covered_end = query_hours(
+        team, precomputed_metric, *first, newest_first=newest_first, deadline=deadline
+    )
+    if (covered_start, covered_end) != first or time.monotonic() >= deadline:
+        return entries, covered_start, covered_end
+    more, more_start, more_end = query_hours(
+        team, precomputed_metric, *second, newest_first=newest_first, deadline=deadline
+    )
+    merge_entries(entries, more)
+    return entries, min(covered_start, more_start), max(covered_end, more_end)
 
 
 def _values(entries: dict[EntryKey, Entry], start: dt.datetime, end: dt.datetime) -> dict[tuple, Any]:
@@ -141,7 +165,9 @@ def _any_changed(before: dict[tuple, Any], after: dict[tuple, Any]) -> bool:
     return before.keys() != after.keys() or any(_changed(before[key], after[key]) for key in before)
 
 
-def fill_step(team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.datetime) -> bool:
+def fill_step(
+    team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.datetime, *, deadline: float = math.inf
+) -> bool:
     """Run the one fill that is due, forward before back. Returns False when nothing was due."""
     target = _floor_hour(now - dt.timedelta(seconds=precomputed_metric.settle_seconds))
     retention_start = _floor_hour(now - RETENTION)
@@ -152,20 +178,24 @@ def fill_step(team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.d
         return True
     if target > covered_to:
         start = max(covered_to - REREAD, covered_from)
-        stored = _values(read_entries(precomputed_metric, start, covered_to), start, covered_to)
-        entries = query_hours(team, precomputed_metric, start, target)
-        if _any_changed(stored, _values(entries, start, covered_to)):
+        # The runner coarsens an hourly interval past 500 buckets, which would store multi-hour sums as hours.
+        end = min(target, covered_to + MAX_FORWARD_STEP)
+        entries, _, reached = query_hours(team, precomputed_metric, start, end, deadline=deadline)
+        reread_end = min(covered_to, reached)
+        stored = _values(read_entries(precomputed_metric, start, reread_end), start, reread_end)
+        if _any_changed(stored, _values(entries, start, reread_end)):
             precomputed_metric.settle_seconds = min(int(precomputed_metric.settle_seconds * 1.5), MAX_SETTLE_SECONDS)
-        write_entries(precomputed_metric, start, target, entries)
-        precomputed_metric.covered_to = target
+        write_entries(precomputed_metric, start, reached, entries)
+        precomputed_metric.covered_to = max(covered_to, reached)
         precomputed_metric.save(update_fields=["covered_to", "settle_seconds", "updated_at"])
         return True
     if covered_from > retention_start:
         start = max(covered_from - BACKFILL_STEP, retention_start)
-        write_entries(
-            precomputed_metric, start, covered_from, query_hours(team, precomputed_metric, start, covered_from)
+        entries, reached, _ = query_hours(
+            team, precomputed_metric, start, covered_from, newest_first=True, deadline=deadline
         )
-        precomputed_metric.covered_from = start
+        write_entries(precomputed_metric, reached, covered_from, entries)
+        precomputed_metric.covered_from = reached
         precomputed_metric.save(update_fields=["covered_from", "updated_at"])
         return True
     return False
@@ -211,7 +241,7 @@ def fill_precomputed_metrics(
         while pending and time.monotonic() < deadline:
             for precomputed_metric in list(pending):
                 try:
-                    did_work = fill_step(team, precomputed_metric, now)
+                    did_work = fill_step(team, precomputed_metric, now, deadline=deadline)
                 except TooManySeriesError as error:
                     _record_failure(precomputed_metric, error, pause=True)
                     did_work = False
@@ -232,9 +262,5 @@ def fill_precomputed_metrics(
 
 
 def teams_with_precomputed_metrics() -> list[int]:
-    return list(
-        MetricPrecomputedMetric.objects.unscoped()
-        .filter(state=MetricPrecomputedMetric.State.ACTIVE)
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
+    """Teams with any precomputed metric. Paused metrics count, because only a pass sweeps them away."""
+    return list(MetricPrecomputedMetric.objects.unscoped().values_list("team_id", flat=True).distinct())
