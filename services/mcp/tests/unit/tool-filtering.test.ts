@@ -41,28 +41,21 @@ describe('Tool Filtering - Features', () => {
     })
 
     it.each([
-        { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
+        { scopes: ['evaluation:read'], metadata: true, scores: false, upload: false },
         {
             scopes: ['evaluation:read', 'llm_analytics:read'],
-            enabled: true,
             metadata: true,
             scores: true,
             upload: false,
         },
-        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, metadata: false, scores: false, upload: true },
-        { scopes: ['*'], enabled: false, metadata: false, scores: false, upload: false },
-    ])(
-        'offline tools preserve read/write scope separation and rollout: %j',
-        async ({ scopes, enabled, metadata, scores, upload }) => {
-            const tools = await getToolsFromContext(createMockContext(scopes), {
-                featureFlags: { 'ai-observability-offline-evaluations': enabled },
-            })
-            const names = tools.map((tool) => tool.name)
-            expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
-            expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
-            expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
-        }
-    )
+        { scopes: ['offline_evaluation_ingestion:write'], metadata: false, scores: false, upload: true },
+    ])('offline tools preserve read/write scope separation: %j', async ({ scopes, metadata, scores, upload }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes))
+        const names = tools.map((tool) => tool.name)
+        expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
+        expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
+        expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
+    })
 
     it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
         const context = {
@@ -1212,11 +1205,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'release-objects',
             ])
         )
-        expect(flags).toContain('ai-observability-offline-evaluations')
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
