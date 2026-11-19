@@ -2,13 +2,12 @@ import json
 import time
 from datetime import timedelta
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit
+from urllib.parse import quote
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, Mock, call, patch
 
-from django.conf import settings
 from django.core.cache import cache, caches
 from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
@@ -16,7 +15,6 @@ from django.utils.timezone import now
 from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
-from redis.connection import parse_url
 from redis.exceptions import RedisError
 from rest_framework import exceptions, status
 from rest_framework.request import Request
@@ -42,6 +40,7 @@ from posthog.rate_limit import (
     LLMPromptPublishBurstRateThrottle,
     get_route_from_path,
 )
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.feature_flags.backend.api.feature_flag import (
     RemoteConfigProjectSecretApiKeyTeamThrottle,
@@ -1096,6 +1095,7 @@ class TestReserveUnits(BaseTest):
             scopes=["transactional_email:write"],
         )
         self.view = _TeamView(self.team.pk)
+        self.cache_prefix = unique_key_prefix("test-reserve-units")
 
     def tearDown(self) -> None:
         cache.clear()
@@ -1142,6 +1142,16 @@ class TestReserveUnits(BaseTest):
             self.assertEqual(self._singles_allowed(throttle_class, 3), [True, True, False])
             with self.assertRaises(exceptions.Throttled):
                 self._reserve([throttle_class], 1)
+
+    def test_a_reservation_no_limit_can_hold_raises_and_charges_nothing(self):
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
+            patch.object(_PSAKTeamThrottleForTest, "rate", "3/minute"),
+        ):
+            with self.assertRaises(ValueError):
+                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], 3)
+
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 6), [True] * 5 + [False])
 
     def test_a_refused_reservation_charges_none_of_the_throttles(self):
         with (
@@ -1200,34 +1210,26 @@ class TestReserveUnits(BaseTest):
     def test_a_reused_throttle_advertises_no_wait_left_from_a_refused_reservation(self):
         with (
             patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
-            patch.object(_PSAKTeamThrottleForTest, "rate", "1/hour"),
+            patch.object(_PSAKTeamThrottleForTest, "rate", "3/hour"),
             time_machine.travel("2026-01-01T00:00:00Z", tick=False),
         ):
+            self._singles_allowed(_PSAKTeamThrottleForTest, 2)
             throttles: list[_SendThrottle] = [_PSAKThrottleForTest(), _PSAKTeamThrottleForTest()]
             with self.assertRaises(exceptions.Throttled):
                 rate_limit.reserve_units(throttles, self._request(), self.view, 2)
+            self._singles_allowed(_PSAKThrottleForTest, 2)
             unreachable = RedisCache("redis://127.0.0.1:1/0", {})
 
             with patch.object(_PSAKTeamThrottleForTest, "cache", unreachable):
                 with self.assertRaises(exceptions.Throttled) as refusal:
-                    rate_limit.reserve_units(throttles, self._request(), self.view, 4)
+                    rate_limit.reserve_units(throttles, self._request(), self.view, 2)
 
             response = exception_handler(refusal.exception, {"request": self._request()})
             assert response is not None
             self.assertEqual(response.headers["Retry-After"], "60")
 
     def _lagging_reader_caches(self, primary_location: str | None = None) -> dict[str, Any]:
-        primary = urlsplit(settings.REDIS_URL)
-        reader_db = 14 if int(parse_url(settings.REDIS_URL).get("db", 0)) == 15 else 15
-        query = urlencode([(name, value) for name, value in parse_qsl(primary.query) if name != "db"])
-        reader = f"{primary.scheme}://{primary.netloc}/{reader_db}" + (f"?{query}" if query else "")
-        return {
-            "default": {
-                "BACKEND": "django_redis.cache.RedisCache",
-                "LOCATION": [primary_location or settings.REDIS_URL, reader],
-                "KEY_PREFIX": "test-reserve-units",
-            }
-        }
+        return lagging_reader_caches(self.cache_prefix, primary_location)
 
     def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
         now = time.time()
@@ -1292,8 +1294,10 @@ class TestReserveUnits(BaseTest):
         labels = {"team_id": str(self.team.pk), "scope": _PSAKThrottleForTest.scope, "path": route, "route": route}
         before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
 
-        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"), self.assertRaises(exceptions.Throttled):
-            self._reserve([_PSAKThrottleForTest], 4)
+        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+            self._singles_allowed(_PSAKThrottleForTest, 2)
+            with self.assertRaises(exceptions.Throttled):
+                self._reserve([_PSAKThrottleForTest], 2)
 
         self.assertEqual(REGISTRY.get_sample_value("rate_limit_exceeded_total", labels), before + 1)
 
@@ -1304,30 +1308,28 @@ class TestReserveUnits(BaseTest):
         ]
     )
     def test_an_over_budget_reservation_passes_when_the_settings_say_not_to_refuse(self, _name, setting, value):
-        with override_instance_config(setting, str(self.team.pk) if value == "team" else value):
-            self._clear_policy_caches()
-            with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
-                self._reserve([_PSAKThrottleForTest], 4)
-
-        self._clear_policy_caches()
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
-            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
+            self._singles_allowed(_PSAKThrottleForTest, 2)
+            with override_instance_config(setting, str(self.team.pk) if value == "team" else value):
+                self._clear_policy_caches()
+                self._reserve([_PSAKThrottleForTest], 2)
+
+            self._clear_policy_caches()
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 2), [True, False])
 
     @parameterized.expand(
         [
-            ("read_fails_open_over_budget", "django.core.cache.cache.get", 4),
-            ("write_fails_without_refusing", "django.core.cache.cache.set", 2),
+            ("read_fails_open_over_budget", "django.core.cache.cache.get", 2, [True, False]),
+            ("write_fails_without_refusing", "django.core.cache.cache.set", 0, [True, True, True, False]),
         ]
     )
-    def test_a_reservation_passes_when_the_cache_fails(self, _name, cache_call, units):
-        with (
-            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
-            patch(cache_call, side_effect=RedisError("down")),
-        ):
-            self._reserve([_PSAKThrottleForTest], units)
-
+    def test_a_reservation_passes_when_the_cache_fails(self, _name, cache_call, spent, singles_after):
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
-            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
+            self._singles_allowed(_PSAKThrottleForTest, spent)
+            with patch(cache_call, side_effect=RedisError("down")):
+                self._reserve([_PSAKThrottleForTest], 2)
+
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
 
     @parameterized.expand([("single", 1), ("batch", 3)])
     def test_a_send_passes_when_the_primary_read_fails(self, _name, recipients):

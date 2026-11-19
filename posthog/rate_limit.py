@@ -706,6 +706,9 @@ def reserve_units(
 ) -> None:
     if units < 1:
         return
+    for throttle in throttles:
+        if throttle.num_requests is not None and units + throttle.DRF_UNITS_PER_REQUEST > throttle.num_requests:
+            raise ValueError(f"{units} units can never fit the {throttle.scope} limit of {throttle.num_requests}")
     admitted = [throttle.allow_units(request, view, units) for throttle in throttles]
     if not all(admitted):
         raise exceptions.Throttled(wait=max(throttle.retry_wait for throttle in throttles))

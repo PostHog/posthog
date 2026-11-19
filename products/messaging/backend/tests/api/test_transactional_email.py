@@ -8,10 +8,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
+from django.core.cache import caches
 from django.db import OperationalError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 import requests
+from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -25,6 +28,7 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -36,6 +40,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
+    TransactionalEmailBurstThrottle,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -822,6 +827,41 @@ class TestTransactionalEmail(APIBaseTest):
         response = getattr(client, method)(route, self._code_send(), format="json")
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand(
+        [
+            ("template_with_a_project_secret_key", "template", "secret_key"),
+            ("template_with_a_personal_api_key", "template", "personal_api_key"),
+            ("project_scoped_send_email", "send_email", "secret_key"),
+            ("key_scoped_send_email", "key_scoped", "secret_key"),
+        ]
+    )
+    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
+        self, mock_post, _flag, _capture, _name, route, sender
+    ):
+        self._cdp_accepts(mock_post)
+        client = self._sender_client(sender)
+        with (
+            override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
+            patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
+            patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
+        ):
+            try:
+                statuses = [
+                    (
+                        client.post("/api/messaging/send/email/", self._flat(self.body), format="json")
+                        if route == "key_scoped"
+                        else self._send(client, route, self.body)
+                    ).status_code
+                    for _ in range(3)
+                ]
+            finally:
+                redis_cache = caches["default"]
+                assert isinstance(redis_cache, RedisCache)
+                redis_cache.delete_pattern("*")
+
+        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, status.HTTP_429_TOO_MANY_REQUESTS]
+        assert mock_post.call_count == 2
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
