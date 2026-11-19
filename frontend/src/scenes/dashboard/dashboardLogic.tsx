@@ -342,6 +342,7 @@ interface InsightTileRefresh {
     dashboardV2Ui: boolean
     eventProperties?: Record<string, unknown>
     maxAttempts?: number
+    asyncFallback?: boolean
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
@@ -404,6 +405,7 @@ async function refreshInsightTile(
         dashboardV2Ui,
         eventProperties,
         maxAttempts,
+        asyncFallback,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
@@ -433,7 +435,9 @@ async function refreshInsightTile(
                 filters,
                 variables,
                 tile.filters_overrides,
-                maxAttempts
+                maxAttempts,
+                undefined,
+                asyncFallback
             )
         }, signal)
 

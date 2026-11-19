@@ -172,7 +172,7 @@ export interface BoardStreamOutcome<T extends InsightTile> {
      * How the per-tile path loads `leftTiles`: one request each, because the stream already waited for query capacity
      * and the per-tile retries would wait again.
      */
-    fallback: { eventProperties: Record<string, unknown>; maxAttempts?: number }
+    fallback: { eventProperties: Record<string, unknown>; maxAttempts?: number; asyncFallback?: boolean }
     /** For the `dashboard refreshed` event. */
     refreshEventProperties: Record<string, unknown>
 }
@@ -307,7 +307,7 @@ function boardStreamOutcome<T extends InsightTile>(
         settledTileIds,
         leftTiles,
         aborted,
-        fallback: { eventProperties: { stream_fallback: true }, maxAttempts: 1 },
+        fallback: { eventProperties: { stream_fallback: true }, maxAttempts: 1, asyncFallback: false },
         refreshEventProperties: { board_stream: true, stream_fallback: leftTiles.length > 0, stream_failed: failed },
     }
 }
