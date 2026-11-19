@@ -25,20 +25,11 @@ import { InsightAlertPreview } from './InsightAlertPreview'
 interface AlertListItemProps {
     alert: AlertType
     destinationCount?: number
-    destinationsLoading?: boolean
     onClick: () => void
 }
 
-export function AlertListItem({
-    alert,
-    destinationCount = 0,
-    destinationsLoading = false,
-    onClick,
-}: AlertListItemProps): JSX.Element {
+export function AlertListItem({ alert, destinationCount = 0, onClick }: AlertListItemProps): JSX.Element {
     const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, destinationCount)
-    if (destinationsLoading) {
-        summary.notifies = 'Loading…'
-    }
 
     return (
         <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
@@ -71,7 +62,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
+    const { alerts, alertsLoading } = useValues(logic)
 
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const isEmpty = alerts.length === 0
@@ -135,8 +126,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}
-                                destinationCount={alertDestinationCounts[alert.id] ?? 0}
-                                destinationsLoading={alertDestinationCountsLoading}
+                                destinationCount={alert.destination_count ?? 0}
                                 onClick={() => openAlert(alert.id)}
                             />
                         ))}

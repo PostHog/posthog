@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -116,6 +117,33 @@ describe('anomaliesTabLogic', () => {
         logic.actions.setFilters({ dateFrom: '-30d' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.expandedInsightIds).toEqual({})
+    })
+
+    it('captures a rating once per change and keeps it for the flagged bucket it judged', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const row = logic.values.series[0]
+        const ratedEvents = (): unknown[] =>
+            capture.mock.calls.filter(([event]) => event === 'anomalies tab series rated').map(([, props]) => props)
+
+        logic.actions.rateSeries(row, 'useful', 0)
+        logic.actions.rateSeries(row, 'useful', 0)
+        logic.actions.rateSeries(row, 'not_useful', 0)
+        logic.actions.rateSeries({ ...row, last_flagged_bucket: '2026-11-16T00:00:00+00:00' }, 'useful', 0)
+
+        expect(ratedEvents()).toEqual([
+            expect.objectContaining({
+                rating: 'useful',
+                insight_id: row.insight_id,
+                series_key: row.series_key,
+                flagged_bucket: row.last_flagged_bucket,
+            }),
+            expect.objectContaining({ rating: 'not_useful', flagged_bucket: row.last_flagged_bucket }),
+            expect.objectContaining({ rating: 'useful', flagged_bucket: '2026-11-16T00:00:00+00:00' }),
+        ])
+        expect(Object.values(logic.values.seriesRatings)).toEqual(['not_useful', 'useful'])
     })
 
     it('shows the not available state when the search answers 404', async () => {

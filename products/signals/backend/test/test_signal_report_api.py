@@ -5015,6 +5015,19 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert kwargs["write_path"] == ReportLinkWritePath.MERGE
 
 
+class TestReportTagOptionsAPI(APIBaseTest):
+    def test_returns_this_teams_tags_most_used_first(self) -> None:
+        SignalReport.objects.create(team=self.team, tags=["billing", "on-call"])
+        SignalReport.objects.create(team=self.team, tags=["on-call"])
+        other_team = Team.objects.create(organization=self.organization)
+        SignalReport.objects.create(team=other_team, tags=["other-team-tag"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/tag_options/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"tags": ["on-call", "billing"]}
+
+
 class TestAvailableReviewersAPI(APIBaseTest):
     """GET signals/reports/available_reviewers/: returns a capped, searchable org-member list."""
 
