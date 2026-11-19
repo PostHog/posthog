@@ -5,9 +5,12 @@ These helpers exist outside the activity modules so that any activity in
 between activity files.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from slack_sdk.errors import SlackApiError
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import PersonalGitHubRepoAccess
 
 
 def block_if_team_over_quota(
@@ -82,6 +85,136 @@ def block_if_ai_processing_not_approved(
             slack_user_id=slack_user_id,
             context=context,
         )
+    return True
+
+
+def post_personal_github_prompt(
+    *,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    team_id: int,
+    user_id: int,
+    access: "PersonalGitHubRepoAccess",
+    repository: str | None = None,
+) -> None:
+    """Tell the user why their personal GitHub connection holds the task, with buttons to fix it.
+
+    Every reason links to the personal integrations settings page. Missing repo access also
+    links to the GitHub App install page, where GitHub lets the user add repositories to an
+    installation that already exists.
+    """
+    import structlog
+    from rest_framework.exceptions import ValidationError as ApiValidationError
+
+    from posthog.api.github_callback.types import github_app_install_url_shareable
+
+    from products.slack_app.backend.services.slack_messages import personal_integrations_url, post_slack_thread_reply
+    from products.tasks.backend.facade.contracts import PersonalGitHubRepoAccess
+
+    settings_url = personal_integrations_url(team_id)
+    buttons: list[dict[str, Any]] = []
+    if access == PersonalGitHubRepoAccess.NO_REPO_ACCESS:
+        text = (
+            f"I can't start this task. Your personal GitHub connection can't access `{repository}`, "
+            "so I can't work on it as you. Give the PostHog GitHub app access to this repository, "
+            "then mention me again."
+        )
+        try:
+            buttons.append(_link_button("Manage repository access", github_app_install_url_shareable(), primary=True))
+        except ApiValidationError:
+            pass
+        buttons.append(_link_button("Check connection", settings_url, primary=not buttons))
+    elif access == PersonalGitHubRepoAccess.NEEDS_RECONNECT:
+        text = (
+            "I can't start this task. Your personal GitHub connection has expired, so I can't open "
+            "the pull request as you. Reconnect it, then mention me again."
+        )
+        buttons.append(_link_button("Reconnect GitHub", settings_url, primary=True))
+    else:
+        text = (
+            "I can't start this task yet. You haven't connected your personal GitHub, so I can't open "
+            "the pull request as you. Connect it, then mention me again."
+        )
+        buttons.append(_link_button("Connect GitHub", settings_url, primary=True))
+
+    post_slack_thread_reply(
+        slack.client,
+        channel=channel,
+        thread_ts=thread_ts,
+        text=text,
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {"type": "actions", "elements": buttons},
+        ],
+    )
+    structlog.get_logger(__name__).info(
+        "slack_app_task_blocked_personal_github",
+        user_id=user_id,
+        team_id=team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+        reason=str(access),
+        repository=repository,
+    )
+
+
+def _link_button(label: str, url: str, *, primary: bool) -> dict[str, Any]:
+    button: dict[str, Any] = {
+        "type": "button",
+        "text": {"type": "plain_text", "text": label, "emoji": True},
+        "url": url,
+    }
+    if primary:
+        button["style"] = "primary"
+    return button
+
+
+def block_if_personal_github_cannot_open_repository(
+    *,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    team_id: int,
+    user_id: int,
+    repository: str,
+) -> bool:
+    """Refuse a repo-bound task when the user's personal GitHub connection exists but can't open the repo.
+
+    Slack tasks author pull requests as the user and have no team-app fallback, so a revoked
+    token or a repository outside the user's installation fails the run later with an unclear
+    error. A user with no connection at all is not refused here, because this path did not
+    refuse that case before. Any error in the check lets the task continue. Returns True
+    when the task was blocked.
+    """
+    import structlog
+
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.contracts import PersonalGitHubRepoAccess
+
+    try:
+        access = tasks_facade.check_personal_github_repo_access(user_id, repository)
+    except Exception:
+        structlog.get_logger(__name__).exception(
+            "slack_app_personal_github_repo_access_check_failed",
+            user_id=user_id,
+            team_id=team_id,
+            repository=repository,
+        )
+        return False
+
+    if access not in (PersonalGitHubRepoAccess.NEEDS_RECONNECT, PersonalGitHubRepoAccess.NO_REPO_ACCESS):
+        return False
+
+    post_personal_github_prompt(
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        team_id=team_id,
+        user_id=user_id,
+        access=access,
+        repository=repository,
+    )
     return True
 
 

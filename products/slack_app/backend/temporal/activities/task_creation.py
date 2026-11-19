@@ -40,6 +40,7 @@ from products.slack_app.backend.temporal.attachments import (
 )
 from products.slack_app.backend.temporal.helpers import (
     block_if_ai_processing_not_approved,
+    block_if_personal_github_cannot_open_repository,
     block_if_team_over_quota,
     safe_react,
     safe_unreact,
@@ -682,6 +683,16 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
         context="task_create",
+    ):
+        return False
+
+    if repository and block_if_personal_github_cannot_open_repository(
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        team_id=integration.team_id,
+        user_id=user_id,
+        repository=repository,
     ):
         return False
 

@@ -337,6 +337,39 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == latest_run.id
 
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_repo_task_is_not_created_when_personal_github_cannot_open_the_repository(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={},
+            sensitive_config={"user_access_token": "fake-user-token", "user_refresh_token": "fake-refresh-token"},
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        with patch("posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository", return_value=None):
+            created = create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                inputs.event,
+                [SlackThreadMessage(user="U_ALICE", text="fix the tests")],
+                "example/project",
+            )
+
+        assert created is False
+        assert not self.Task.objects.filter(team=self.team).exists()
+        mock_execute_workflow.assert_not_called()
+        assert "can't access `example/project`" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
+
     @parameterized.expand(
         [
             ("report_notification_thread", True, False, None, False, "channel"),
@@ -451,10 +484,20 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 admission.assert_not_called()
                 return [{"full_name": "example/project"}]
 
-            with patch(
-                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
-                side_effect=refresh_repositories,
-            ) as refresh:
+            with (
+                patch(
+                    "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
+                    side_effect=refresh_repositories,
+                ) as refresh,
+                patch(
+                    "posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository",
+                    return_value="example/project",
+                ),
+                patch(
+                    "posthog.models.github_integration_base.GitHubIntegrationBase.installation_can_access_repository",
+                    return_value=True,
+                ),
+            ):
                 assert create_posthog_code_task_for_repo_activity(*args) is True
             if refresh_repository:
                 refresh.assert_called_once()

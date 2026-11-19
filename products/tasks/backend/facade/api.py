@@ -60,6 +60,7 @@ from rest_framework.exceptions import (
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
@@ -67,8 +68,10 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.github_integration_base import GitHubIntegrationError, ReauthorizationRequired
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
 from posthog.user_permissions import UserPermissions
@@ -6710,6 +6713,50 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     user = User.objects.filter(id=user_id).first()
     integration = get_user_github_integration(user, allow_refresh=False)
     return user_github_integration_is_usable(integration)
+
+
+def check_personal_github_repo_access(user_id: int, repository: str) -> contracts.PersonalGitHubRepoAccess:
+    """Ask GitHub whether the user's personal GitHub connection can open `repository`.
+
+    Unlike `user_has_usable_personal_github`, this makes network calls. A token that GitHub
+    revoked still looks usable in the stored row, and an installation that grants only
+    selected repositories can be healthy but not include this repository. A transient GitHub
+    failure returns OK, so that a GitHub outage does not block a task here.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        user_github_integration_is_usable,
+    )
+
+    integrations = list(
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).order_by(
+            "created_at"
+        )
+    )
+    if not integrations:
+        return contracts.PersonalGitHubRepoAccess.NOT_CONNECTED
+
+    any_usable = False
+    for integration in integrations:
+        github = UserGitHubIntegration(integration, source="slack_app_repo_access_check", priority=Priority.NORMAL)
+        if github.needs_reauthorization or not user_github_integration_is_usable(github):
+            continue
+        try:
+            # Ask for user access first. `installation_can_access_repository` converts
+            # ReauthorizationRequired to False, so without this call a revoked token would
+            # look like missing repo access. The user check result is cached for the second call.
+            if github.user_can_open_repository(repository) and github.installation_can_access_repository(
+                repository, raise_on_transient=True
+            ):
+                return contracts.PersonalGitHubRepoAccess.OK
+        except ReauthorizationRequired:
+            continue
+        except GitHubIntegrationError:
+            return contracts.PersonalGitHubRepoAccess.OK
+        any_usable = True
+
+    if any_usable:
+        return contracts.PersonalGitHubRepoAccess.NO_REPO_ACCESS
+    return contracts.PersonalGitHubRepoAccess.NEEDS_RECONNECT
 
 
 def _ensure_task_team_github_integration(task: Task) -> bool:
