@@ -422,7 +422,7 @@ Diffed against: <https://developer.alegra.com/reference>
 - [x] `Recurring invoices (GET /api/v1/recurring-invoices)` — measures scheduled recurring billing before invoices are generated (medium)
 - [x] `Taxes (GET /api/v1/taxes)` — provides tax definitions and rates for invoice and item tax reports (medium)
 - ~~`Journal entry balances (GET /api/v1/journals/entries-graph)` — provides accounting balances grouped by day or month for financial reports (medium)~~ — skipped: it returns chart data, not records. Each row is an `in`/`out` total for one day or month, with no ID, and the totals mean something only when `resourceType` and `idResource` select one account or document. The reference also gives two different formats for `fromDate` and does not document the default date range. The journal lines behind these totals come from the journals list below.
-- [ ] `Journals (GET /api/v1/journals)` — journal entries with their account, debit, and credit lines, the row-level data for balance and ledger reports (medium)
+- [x] `Journals (GET /api/v1/journals)` — journal entries with their account, debit, and credit lines, the row-level data for balance and ledger reports (medium)
 
 Note: Read the official reference index and parsed embedded OpenAPI GET operations from the linked REST reference pages. All listed gaps use the documented v1 REST API. The existing payments table is already split into incoming and outgoing payments. MCP tool operations, payroll APIs, document uploads, and settings were excluded.
 
