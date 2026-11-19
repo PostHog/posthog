@@ -177,8 +177,16 @@ TRACKING = _object(
 )
 
 
+# zod 4's `z.string().datetime({ offset: true })`: seconds always, then `Z` or an offset with a colon.
+_ZOD_DATETIME = re.compile(
+    r"\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)"
+)
+
+
 def _parse_scheduled_at(value: str) -> datetime | None:
     # Node's `z.string().datetime({ offset: true })`, then `new Date()`, which keeps milliseconds.
+    if not _ZOD_DATETIME.fullmatch(value):
+        return None
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError:

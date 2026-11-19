@@ -85,9 +85,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         keyed: bool = False,
         status_consumer_behind: bool = False,
         first: str = "queued",
+        message_id: str | None = None,
     ) -> str:
         queued_at = NOW - timedelta(minutes=minutes_ago)
-        message_id = (
+        message_id = message_id or (
             str(uuid5(NAMESPACE_URL, f"{recipient}/{minutes_ago}"))
             if keyed
             else str(UUIDT(unix_time_ms=int(queued_at.timestamp() * 1000)))
@@ -284,6 +285,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
+    def test_shows_the_latest_attempt_of_a_key_refused_the_day_before(self, _flag):
+        message_id = self._send(60 * 24, "jane@example.com", [("failed", 1, "recipient_suppressed")], keyed=True)
+        self._send(10, "jane@example.com", [], keyed=True, first="scheduled", message_id=message_id)
+
+        response = self.client.get(self._url(f"{message_id}/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert (body["status"], body["reason"]) == ("queued", None)
+        assert [event["kind"] for event in body["timeline"]] == ["queued"]
+
     def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
         # Missing from email_status hours after it was queued, a send is gone, not waiting on a lagging consumer.
         message_id = self._send(180, "jane@example.com", [("sent", 1, "")], keyed=True, status_consumer_behind=True)
@@ -330,6 +342,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (message_id, shown_as, "jane@example.com")
         ]
         assert [event["kind"] for event in detail["timeline"]] == timeline
+        assert datetime.fromisoformat(detail["timeline"][0]["at"]) == NOW - timedelta(minutes=10)
 
     @parameterized.expand(
         [
