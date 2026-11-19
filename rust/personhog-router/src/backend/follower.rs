@@ -180,9 +180,9 @@ impl FollowerBackend {
             .insert(CHANGELOG_EPOCH_HEADER, HeaderValue::from(epoch));
 
         let started = Instant::now();
-        // Bounded here as well as on the channel: an owner that cannot be connected to
-        // must cost one connect timeout whatever is queued on its channel. The request
-        // is bounded here only, so a timeout is told apart from a failed connection.
+        // Readiness is a place in the channel's queue, which fills behind an owner that
+        // cannot be connected to. The request is bounded here and not on the channel, so
+        // a timeout is told apart from a failed connection.
         match tokio::time::timeout(self.connect_timeout, channel.ready()).await {
             Ok(Ok(_)) => {}
             Ok(Err(_)) | Err(_) => return Attempt::Unreachable,
