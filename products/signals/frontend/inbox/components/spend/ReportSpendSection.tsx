@@ -5,9 +5,19 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { ReportSpendApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { reportSpendLogic } from '../../logics/reportSpendLogic'
 import { DetailSection } from '../detail/DetailSection'
 import { RecordedSpend } from './RecordedSpend'
+
+// Scout runs are shared with the rest of their output, so they stay out of this report's total.
+function reportOwnSpend({ generation, implementation }: ReportSpendApi): number | null {
+    if (generation.total_spend === null && implementation.total_spend === null) {
+        return null
+    }
+    return (generation.total_spend ?? 0) + (implementation.total_spend ?? 0)
+}
 
 export function ReportSpendSection({
     reportId,
@@ -20,11 +30,6 @@ export function ReportSpendSection({
     const logic = reportSpendLogic({ teamId: currentTeamId ?? 0, reportId })
     const { spend, spendLoading, failed } = useValues(logic)
     const { refreshSpend } = useActions(logic)
-    // Scout runs are shared with the rest of their output, so they stay out of this report's total.
-    const reportTotal =
-        spend && (spend.generation.total_spend !== null || spend.implementation.total_spend !== null)
-            ? (spend.generation.total_spend ?? 0) + (spend.implementation.total_spend ?? 0)
-            : null
 
     return (
         <DetailSection
@@ -36,7 +41,10 @@ export function ReportSpendSection({
             meta={
                 spend && !failed ? (
                     <span className="text-xs text-secondary" data-attr="report-spend-total">
-                        <RecordedSpend amount={reportTotal} description="Report generation and implementation." />
+                        <RecordedSpend
+                            amount={reportOwnSpend(spend)}
+                            description="Report generation and implementation."
+                        />
                     </span>
                 ) : null
             }

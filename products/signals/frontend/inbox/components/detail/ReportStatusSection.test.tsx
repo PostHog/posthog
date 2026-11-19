@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -163,19 +164,23 @@ describe('ReportStatusSection', () => {
     })
 
     it('selects a pull request from its line when the report has several', async () => {
-        const onSelectPullRequest = jest.fn()
-        render(
-            <ReportStatusSection
-                report={makeReport({ repo_slug: 'example/app', pull_requests: [pullRequest(1), pullRequest(2)] })}
-                selectedPullRequestUrl={pullRequest(1).url}
-                onSelectPullRequest={onSelectPullRequest}
-            />
-        )
+        function StatusWithSelection(): JSX.Element {
+            const [selectedUrl, setSelectedUrl] = useState(pullRequest(1).url)
+            return (
+                <ReportStatusSection
+                    report={makeReport({ repo_slug: 'example/app', pull_requests: [pullRequest(1), pullRequest(2)] })}
+                    selectedPullRequestUrl={selectedUrl}
+                    onSelectPullRequest={setSelectedUrl}
+                />
+            )
+        }
+        render(<StatusWithSelection />)
 
         expect(screen.getByLabelText('Show #1 in this report')).toHaveAttribute('aria-pressed', 'true')
         await userEvent.click(screen.getByLabelText('Show #2 in this report'))
 
-        expect(onSelectPullRequest).toHaveBeenCalledWith(pullRequest(2).url)
+        expect(screen.getByLabelText('Show #1 in this report')).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByLabelText('Show #2 in this report')).toHaveAttribute('aria-pressed', 'true')
         expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     })
 

@@ -13,7 +13,7 @@ import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.
 import { PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalReport } from '../../types'
 import { reportClaimant } from '../../utils/reportClaim'
-import type { ReportDecisionAttributions } from '../../utils/reportDecisions'
+import type { ReportDecisionAttribution, ReportDecisionAttributions } from '../../utils/reportDecisions'
 import { safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
@@ -59,6 +59,57 @@ function externalClaimLabel(report: SignalReport): string | null {
     return claimant ? `${fullNameOrEmail(claimant)} (via ${agent})` : agent
 }
 
+function PriorityRow({
+    priority,
+    editable,
+    attribution,
+    onChange,
+    saving,
+}: {
+    priority: ReportPriorityApi
+    editable: boolean
+    attribution: ReportDecisionAttribution | null
+    onChange?: (priority: ReportPriorityApi) => void
+    saving: boolean
+}): JSX.Element {
+    if (editable) {
+        return (
+            <ReportDecisionRow<ReportPriorityApi>
+                label="Priority"
+                value={priority}
+                attribution={attribution}
+                options={PRIORITY_OPTIONS}
+                onChange={onChange}
+                saving={saving}
+                data-attr="report-priority-select"
+            />
+        )
+    }
+    return (
+        <StatusRow label="Priority">
+            {onChange ? (
+                <LemonSelect<ReportPriorityApi>
+                    aria-label="Change report priority"
+                    data-attr="report-priority-select"
+                    value={priority}
+                    onChange={onChange}
+                    loading={saving}
+                    disabledReason={saving ? 'Saving priority…' : undefined}
+                    size="xsmall"
+                    type="tertiary"
+                    dropdownPlacement="bottom-end"
+                    dropdownMatchSelectWidth={false}
+                    menu={{ className: 'w-56' }}
+                    options={PRIORITY_OPTIONS}
+                    renderButtonContent={() => <span className="text-default text-xs font-normal">{priority}</span>}
+                />
+            ) : (
+                priority
+            )}
+        </StatusRow>
+    )
+}
+
 export function ReportStatusSection({
     report,
     rightSlot,
@@ -80,7 +131,6 @@ export function ReportStatusSection({
     /** Null before the report's detail loads. */
     decisionAttributions?: ReportDecisionAttributions | null
     selectedPullRequestUrl?: string | null
-    /** Makes each pull request line select that pull request, when the report has more than one. */
     onSelectPullRequest?: (url: string) => void
     onToggleAgentDecisions?: (collapsed: boolean) => void
 }): JSX.Element {
@@ -96,42 +146,15 @@ export function ReportStatusSection({
                 <dl className="m-0 flex flex-col gap-2">
                     <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                     {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
-                    {report.priority &&
-                        (editableDecisions ? (
-                            <ReportDecisionRow<ReportPriorityApi>
-                                label="Priority"
-                                value={report.priority}
-                                attribution={decisionAttributions?.priority ?? null}
-                                options={PRIORITY_OPTIONS}
-                                onChange={onPriorityChange}
-                                saving={prioritySaving}
-                                data-attr="report-priority-select"
-                            />
-                        ) : (
-                            <StatusRow label="Priority">
-                                {onPriorityChange ? (
-                                    <LemonSelect<ReportPriorityApi>
-                                        aria-label="Change report priority"
-                                        data-attr="report-priority-select"
-                                        value={report.priority}
-                                        onChange={onPriorityChange}
-                                        loading={prioritySaving}
-                                        disabledReason={prioritySaving ? 'Saving priority…' : undefined}
-                                        size="xsmall"
-                                        type="tertiary"
-                                        dropdownPlacement="bottom-end"
-                                        dropdownMatchSelectWidth={false}
-                                        menu={{ className: 'w-56' }}
-                                        options={PRIORITY_OPTIONS}
-                                        renderButtonContent={() => (
-                                            <span className="text-default text-xs font-normal">{report.priority}</span>
-                                        )}
-                                    />
-                                ) : (
-                                    report.priority
-                                )}
-                            </StatusRow>
-                        ))}
+                    {report.priority && (
+                        <PriorityRow
+                            priority={report.priority}
+                            editable={editableDecisions}
+                            attribution={decisionAttributions?.priority ?? null}
+                            onChange={onPriorityChange}
+                            saving={prioritySaving}
+                        />
+                    )}
                     {pullRequests.length > 0 && (
                         <div className="flex flex-col gap-1">
                             <dt className="text-xs text-secondary">Pull requests</dt>
