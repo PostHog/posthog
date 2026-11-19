@@ -68,10 +68,7 @@ import {
     conversationsTicketsPartialUpdate,
     conversationsMacrosUsedCreate,
 } from 'products/conversations/frontend/generated/api'
-import type {
-    PatchedTicketUpdateRequestApi,
-    TicketMacroApi,
-} from 'products/conversations/frontend/generated/api.schemas'
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -97,6 +94,7 @@ import type {
 } from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
+import { changedTicketFields } from './ticketFieldChanges'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
@@ -539,6 +537,9 @@ export interface supportTicketSceneLogicActions {
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
     }
+    setSavedTicket: (ticket: Ticket) => {
+        ticket: Ticket
+    }
     setSnoozedUntil: (snoozedUntil: string | null) => {
         snoozedUntil: string | null
     }
@@ -668,6 +669,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     actions({
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
+        // Unlike setTicket, keeps the sidebar fields so edits made during an in-flight save survive.
+        setSavedTicket: (ticket: Ticket) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
         incrementUnreadCustomerCount: true,
         updateTicket: true,
@@ -865,6 +868,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                setSavedTicket: (_, { ticket }) => ticket,
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
@@ -1164,11 +1168,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (!ticket) {
                     return []
                 }
+                const changed = changedTicketFields({ status: null, priority, assignee, tags, snoozedUntil }, ticket)
                 const changes: string[] = []
-                if (priority && priority !== ticket.priority) {
+                if (changed.priority) {
                     changes.push(`Priority: ${priorityOptions.find((o) => o.value === priority)?.label ?? priority}`)
                 }
-                if (JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)) {
+                if ('assignee' in changed) {
                     const resolved = resolveAssignee(assignee)
                     const label =
                         resolved?.type === 'user'
@@ -1180,13 +1185,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                                 : 'unassigned'
                     changes.push(`Assignee: ${label}`)
                 }
-                if (JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())) {
+                if (changed.tags) {
                     changes.push(tags.length > 0 ? `Tags: ${tags.join(', ')}` : 'Tags: none')
                 }
-                if (
-                    (snoozedUntil ? dayjs(snoozedUntil).unix() : null) !==
-                    (ticket.snoozed_until ? dayjs(ticket.snoozed_until).unix() : null)
-                ) {
+                if ('snoozed_until' in changed) {
                     changes.push(
                         snoozedUntil
                             ? `Snoozed until ${dayjs(snoozedUntil).format('D MMM YYYY, h:mm A')}`
@@ -1427,6 +1429,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicketLoading(false)
             }
         },
+        setStatus: () => actions.updateTicket(),
+        setPriority: () => actions.updateTicket(),
+        setAssignee: () => actions.updateTicket(),
+        setTags: () => actions.updateTicket(),
+        setSnoozedUntil: () => actions.updateTicket(),
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
@@ -1447,32 +1454,37 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             breakpoint()
 
-            const data: PatchedTicketUpdateRequestApi = {}
-
-            if (values.status && values.status !== values.ticket?.status) {
-                data.status = values.status
+            if (!values.ticket) {
+                actions.setTicketUpdating(false)
+                return
             }
-            if (values.priority && values.priority !== values.ticket?.priority) {
-                data.priority = values.priority
+            const data = changedTicketFields(values, values.ticket)
+            if (Object.keys(data).length === 0) {
+                actions.setTicketUpdating(false)
+                return
             }
-            data.assignee = values.assignee
-            data.tags = values.tags
-            data.snoozed_until = values.snoozedUntil
 
             const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
-                const ticket = await request
+                const ticket = (await request) as Ticket
+                actions.setSavedTicket(ticket)
                 breakpoint()
-                actions.setTicket(ticket as Ticket)
-                lemonToast.success('Ticket updated')
+                actions.setTicket(ticket)
+                lemonToast.success('Ticket saved')
                 actions.loadTickets()
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                lemonToast.error('Failed to update ticket')
+                lemonToast.error("Couldn't save the ticket change. Try again.")
+                // A newer edit is already queued and will send the latest local values, so only the
+                // last failed save rolls the fields back to what the server holds.
+                breakpoint()
+                if (values.ticket) {
+                    actions.setTicket(values.ticket)
+                }
             } finally {
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
@@ -1685,7 +1697,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             if (statusAfterSend) {
                 actions.setStatus(statusAfterSend)
-                actions.updateTicket()
             }
             actions.loadTickets()
         },

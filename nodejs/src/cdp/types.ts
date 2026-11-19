@@ -507,15 +507,6 @@ export type MessageOptOutRecord = {
     categoryId: string
 }
 
-export type QueuedIdempotencyKey = {
-    hash: string
-    fingerprint: string
-    currentFingerprint?: string
-    senderKind?: 'email_sandbox'
-    scheduledAt?: string
-    replayFields?: Record<string, number>
-}
-
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -649,7 +640,6 @@ export type HogFlowInvocationContext = {
     senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
-    idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
