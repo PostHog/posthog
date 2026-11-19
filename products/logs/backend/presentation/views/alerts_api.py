@@ -472,6 +472,20 @@ class PlatformCopyDictField(serializers.DictField):
         return {}
 
 
+def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
+    # Scheduled checks read pipeline logs without a user, so a restricted member must not point an alert at them.
+    services = set(filters.get("serviceNames") or [])
+    if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+        return
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        team_id=team_id, user=user if isinstance(user, User) else None
+    ):
+        raise PermissionDenied(
+            "Your property access permissions do not allow alerts on pipeline logs. "
+            "Pick the services this alert watches, without PostHog pipeline services."
+        )
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -959,19 +973,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         ]
 
     def _require_pipeline_log_access(self, filters: dict) -> None:
-        # Scheduled checks read pipeline logs without a user, so a restricted member must not point an alert at them.
-        services = set(filters.get("serviceNames") or [])
-        if services and not services & PIPELINE_LOG_SERVICE_NAMES:
-            return
         request = self.context.get("request")
-        user = request.user if request is not None and isinstance(request.user, User) else None
-        if access_control_api.get_restricted_properties_with_group_type_index_for_team(
-            team_id=self.context["get_team"]().id, user=user
-        ):
-            raise PermissionDenied(
-                "Your property access permissions do not allow alerts on pipeline logs. "
-                "Pick the services this alert watches, without PostHog pipeline services."
-            )
+        require_pipeline_log_access(
+            team_id=self.context["get_team"]().id, user=request.user if request is not None else None, filters=filters
+        )
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
@@ -1954,6 +1959,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            require_pipeline_log_access(team_id=alert.team_id, user=request.user, filters=alert.filters or {})
             configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
             try:
                 hog_function_ids = create_alert_destination_hog_functions(

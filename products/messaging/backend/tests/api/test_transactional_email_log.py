@@ -202,9 +202,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
         message_id = self._send(10, "a@example.com", [("sent", 1, "")])
 
-        responses = [self.client.get(self._url()), self.client.get(self._url(f"{message_id}/"))]
+        responses = [
+            self.client.get(self._url()),
+            self.client.get(self._url(f"{message_id}/")),
+            self.client.get(self._url(f"{message_id}/activity/")),
+            self.client.get(self._url("stats/")),
+        ]
 
-        assert [response.status_code for response in responses] == [expected, expected]
+        assert [response.status_code == 403 for response in responses] == [expected == 403] * 4
 
     @parameterized.expand(
         [

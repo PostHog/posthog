@@ -137,3 +137,29 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
         assert [alert["name"] for alert in listed] == (["Pipeline alert"] if expected == 201 else [])
+
+    @parameterized.expand([("restricted", 403), ("granted", 201), ("admin", 201)])
+    def test_destination_on_pipeline_log_alert_follows_property_access(
+        self, access: PropertyAccess, expected: int
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/",
+                {
+                    "name": "Pipeline alert",
+                    "filters": {"serviceNames": [_PIPELINE]},
+                    "threshold_count": 0,
+                    "threshold_operator": "above",
+                    "window_minutes": 5,
+                },
+                format="json",
+            ).json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/{alert['id']}/destinations/",
+                {"type": "webhook", "webhook_url": "https://hooks.example.com/alert"},
+                format="json",
+            )
+
+        assert (response.status_code == 403) == (expected == 403), response.json()

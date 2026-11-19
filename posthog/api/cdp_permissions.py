@@ -41,7 +41,13 @@ class CDPPropertyAccessPermission(BasePermission):
 
 
 class CDPLogPropertyAccessPermission(CDPPropertyAccessPermission):
-    sensitive_read_actions = frozenset({"list", "retrieve"})
+    """For a view where every action, read or write, returns pipeline output."""
+
+    def has_permission(self, request: "Request", view: "APIView") -> bool:
+        team_view = cast("TeamAndOrgViewSetMixin", view)
+        return not access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=team_view.team_id, user=cast("User", request.user)
+        )
 
 
 class CDPOrganizationPropertyAccessPermission(CDPPropertyAccessPermission):
