@@ -175,6 +175,10 @@ def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudget
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decisions and the notification stamp cannot straddle a rollover.
     cap = org_credit_cap_for(scanner.team.organization, scanner.team.organization_id)
+    if cap.awaiting_billing_sync:
+        # The zero allowance is a placeholder, so skip without moving the watermark or turning the scanner off.
+        record_sweep_outcome("awaiting_billing_sync")
+        return CheckScannerBudgetOutput(capped=True)
     # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
     if (scanner.has_spend_ceiling or cap.credit_limit is not None) and unrunnable_reason(scanner):
         return CheckScannerBudgetOutput(capped=False)

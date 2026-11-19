@@ -24,6 +24,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 )
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -89,6 +90,7 @@ from products.replay_vision.backend.tests.helpers import (
     create_experiment,
     seed_scanner_spend,
     snapshot_for,
+    unsynced_allowance,
     update_experiment,
 )
 
@@ -1227,7 +1229,7 @@ def test_check_scanner_budget_caps_and_advances_the_watermark(
     )
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=spent_observations)
 
-    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
+    with unsynced_allowance(credit_limit=org_limit):
         output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     scanner.refresh_from_db()
@@ -1244,6 +1246,21 @@ def test_check_scanner_budget_caps_and_advances_the_watermark(
         assert scanner.last_swept_at == stale
         assert scanner.last_seen_session_id == "sess-old"
         assert scanner.deep_swept_through == stale
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unsynced_org_skips_the_tick_without_turning_off_or_skipping_sessions() -> None:
+    scanner = _make_scanner(free_only=True)
+    stale = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(last_swept_at=stale, deep_swept_through=stale)
+
+    with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+        output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    scanner.refresh_from_db()
+    assert output.capped is True
+    assert scanner.enabled and not scanner.sweep_pause_reason
+    assert (scanner.last_swept_at, scanner.deep_swept_through) == (stale, stale)
 
 
 @pytest.mark.parametrize(
@@ -1278,7 +1295,7 @@ def test_free_only_scanner_turns_off_when_the_free_credits_run_out(
     inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
     with (
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification") as mock_notify,
     ):
         first = check_scanner_budget(inputs)
@@ -1309,7 +1326,7 @@ def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> No
     inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
     with (
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification"),
         patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
     ):
@@ -1318,7 +1335,7 @@ def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> No
     assert scanner.enabled is True
 
     with (
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch("products.notifications.backend.facade.api.create_notification"),
         patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
     ):
@@ -1343,7 +1360,7 @@ def test_check_scanner_budget_lets_an_unrunnable_scanner_through_to_be_turned_of
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
 
     org_limit = 1_000_000 if ceiling == "scanner_limit" else limit
-    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
+    with unsynced_allowance(credit_limit=org_limit):
         output = check_scanner_budget(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is False
@@ -1660,7 +1677,7 @@ def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
 
     with (
         _patched_queries() as (MockQuery, _),
-        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        unsynced_allowance(credit_limit=1_000_000),
         patch(
             "products.replay_vision.backend.temporal.activities.sweep_scanner_tick.check_scanner_budget",
             side_effect=RuntimeError("db down") if gate == "budget_check_fails" else check_scanner_budget,

@@ -1,0 +1,2 @@
+config error:
+  bogus: unknown section  [hoglint.toml]

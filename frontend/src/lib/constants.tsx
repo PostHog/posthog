@@ -493,7 +493,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
-    POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD: 'posthog-code-codex-own-subscription-cloud', // owner: #team-desktop, gates the Codex subscription settings and the composer billing row
     POSTHOG_CODE_TASK_ANALYSIS: 'posthog-code-task-analysis', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
@@ -526,7 +525,8 @@ export const FEATURE_FLAGS = {
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature. When it is on for a member, each project they open joins the realtime cohorts beta
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
-    RELEASES_AREA: 'releases-area', // owner: #team-feature-flags, gates the release calendar, list and pages, the Releases rail entry and the releases API; the backend reads the same key
+    RELEASE_OBJECTS: 'release-objects',
+    RELEASES_AREA: 'releases-area',
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_DEBUG_WITH_AI: 'replay-debug-with-ai', // owner: @clr182 #team-replay, player button that sends the recording JSON to PostHog AI
     REPLAY_EVENT_MATCH_SCOPE: 'replay-event-match-scope', // owner: @pauldambra #team-replay, shows the "Match the whole session / only during recording" filter select
