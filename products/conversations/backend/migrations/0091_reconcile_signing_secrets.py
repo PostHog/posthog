@@ -67,6 +67,7 @@ def reconcile_signing_secrets(apps, schema_editor):
                 and (row.team_id, hash_key_value(current_token)) not in batch_revoked
             ):
                 continue
+            replaced_fail_closed = False
             # One short transaction per repaired row (the migration is non-atomic), so a
             # resync's team lock never blocks other teams' writes for the rest of the scan.
             with transaction.atomic(using=alias):
@@ -100,8 +101,12 @@ def reconcile_signing_secrets(apps, schema_editor):
                     SigningSecret.objects.using(alias).filter(pk=row.pk, rotated_independently=False).update(**updates)
                 )
                 resynced += updated
-                if updated and "rotated_independently" in updates:
-                    failed_closed_team_ids.append(row.team_id)
+                replaced_fail_closed = bool(updated) and "rotated_independently" in updates
+            if replaced_fail_closed:
+                failed_closed_team_ids.append(row.team_id)
+                # Logged per commit: a restarted run skips already-repaired rows, so the
+                # summary alone would lose teams replaced before the restart.
+                logger.info("replaced_revoked_conversations_signing_secret", team_id=row.team_id)
 
     logger.info(
         "reconciled_conversations_signing_secrets",
