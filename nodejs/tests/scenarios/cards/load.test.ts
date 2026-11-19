@@ -174,6 +174,23 @@ describe('load', () => {
             'drive.stopOnBreak: stopOnBreak needs a ramp of at least two steps',
         ],
         [
+            'a stop on break with a step that lasts no time',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '0ms' },
+                        { scale: 3, for: '20s' },
+                    ],
+                    stopOnBreak: true,
+                },
+            },
+            undefined,
+            'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
+        ],
+        [
             'a stop on break with a valve the stop could leave due',
             {
                 ...card,
