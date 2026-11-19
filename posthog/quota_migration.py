@@ -1,5 +1,6 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field
+from functools import partial
 from time import monotonic, sleep, time
 
 from django.conf import settings
@@ -9,7 +10,7 @@ import structlog
 from prometheus_client import Counter, Gauge
 
 from posthog.dataclasses import frozen
-from posthog.quota_redis import QuotaRedisClient, get_secondary_quota_redis_client
+from posthog.quota_redis import QuotaRedisClient, get_secondary_quota_redis_client, reconcile_quota_set
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -18,6 +19,8 @@ QUOTA_SECONDARY_OPERATIONS = Counter(
     "billing_quota_secondary_operations_total", "Optional quota Redis operations", ["operation", "result"]
 )
 SECONDARY_RETRY_DELAY_SECONDS = 30
+# Covers the optional store's snapshot and reconcile in one quota run, not the time between them.
+QUOTA_SECONDARY_RUN_BUDGET_SECONDS = 300.0
 _retry_after: dict[str, float] = {}
 
 QUOTA_MIGRATION_ENABLED = Gauge(
@@ -77,6 +80,7 @@ def run_secondary_quota_operation[T](
 class QuotaReconciliationSnapshots:
     shared: Mapping[str, Sequence[str]] = field(repr=False)
     secondary: Mapping[str, Sequence[str]] | None = field(repr=False)
+    secondary_budget_seconds_left: float
 
     def without_tokens(self, protected_tokens: set[str]) -> "QuotaReconciliationSnapshots":
         def exclude(snapshot: Mapping[str, Sequence[str]]) -> dict[str, list[str]]:
@@ -85,21 +89,62 @@ class QuotaReconciliationSnapshots:
             }
 
         return QuotaReconciliationSnapshots(
-            shared=exclude(self.shared), secondary=None if self.secondary is None else exclude(self.secondary)
+            shared=exclude(self.shared),
+            secondary=None if self.secondary is None else exclude(self.secondary),
+            secondary_budget_seconds_left=self.secondary_budget_seconds_left,
         )
 
 
 def snapshot_quota_stores(selected: Mapping[str, Sequence[str]]) -> QuotaReconciliationSnapshots:
     """Every store removes only tokens it contained before this quota run's decisions."""
     now = timezone.now().timestamp()
+    deadline = monotonic() + QUOTA_SECONDARY_RUN_BUDGET_SECONDS
 
     def read(client: QuotaRedisClient) -> dict[str, list[str]]:
-        return {key: [token.decode("utf-8") for token in client.zrangebyscore(key, now, "+inf")] for key in selected}
+        snapshot: dict[str, list[str]] = {}
+        for key in selected:
+            if monotonic() >= deadline:
+                raise TimeoutError("Quota Redis run budget exceeded")
+            snapshot[key] = [token.decode("utf-8") for token in client.zrangebyscore(key, now, "+inf")]
+        return snapshot
 
     return QuotaReconciliationSnapshots(
         shared=selected,
         secondary=run_secondary_quota_operation("snapshot", read, resource="snapshot", maintenance=True),
+        secondary_budget_seconds_left=max(deadline - monotonic(), 0.0),
     )
+
+
+def reconcile_secondary_quota_sets(
+    store_snapshots: QuotaReconciliationSnapshots, tokens_by_key: Mapping[str, Mapping[str, int]]
+) -> None:
+    """Writes a quota run's verdicts to the optional store, within what is left of the run budget."""
+    secondary_snapshot = store_snapshots.secondary
+    if secondary_snapshot is None:
+        return
+    now = timezone.now().timestamp()
+    run_deadline = monotonic() + store_snapshots.secondary_budget_seconds_left
+    skipped_sets = 0
+    for key, tokens in tokens_by_key.items():
+        if monotonic() >= run_deadline:
+            skipped_sets += 1
+            QUOTA_SECONDARY_OPERATIONS.labels(operation="reconcile", result="run_budget_exceeded").inc()
+            continue
+        run_secondary_quota_operation(
+            "reconcile",
+            partial(
+                reconcile_quota_set,
+                key=key,
+                snapshot_tokens=secondary_snapshot[key],
+                tokens=tokens,
+                now=now,
+                run_deadline=run_deadline,
+            ),
+            resource=key,
+            maintenance=True,
+        )
+    if skipped_sets:
+        logger.warning("quota_secondary_run_budget_exceeded", skipped_sets=skipped_sets)
 
 
 @frozen

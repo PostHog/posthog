@@ -16,6 +16,7 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.api.test.test_team import create_team
 from posthog.constants import FlagRequestType
@@ -3559,30 +3560,35 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
                 raise DatabaseError("Period usage unavailable")
             return 0
 
+        key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}"
+        reconcile_labels = {"operation": "reconcile", "result": "success"}
+
+        def count_secondary_reconciles() -> float:
+            return REGISTRY.get_sample_value("billing_quota_secondary_operations_total", reconcile_labels) or 0
+
+        secondary_before_run = (secondary.zrange(key, 0, -1, withscores=True), count_secondary_reconciles())
+        secondary_after_shared_writes: list[object] = []
+
+        def record_progress(phase: str, _progress: str, _detail: str) -> None:
+            if phase == "redis_done":
+                secondary_after_shared_writes.append(
+                    (secondary.zrange(key, 0, -1, withscores=True), count_secondary_reconciles())
+                )
+
         with patch(
             "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", side_effect=count_credits
         ):
-            update_all_orgs_billing_quotas()
+            update_all_orgs_billing_quotas(progress_callback=record_progress)
 
         expected_timestamp = (
             datetime.datetime.fromisoformat(expected_expiry).replace(tzinfo=datetime.UTC).timestamp()
             if expected_expiry
             else None
         )
-        assert (
-            get_client().zscore(
-                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
-                self.team.api_token,
-            )
-            == expected_timestamp
-        )
-        assert (
-            secondary.zscore(
-                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
-                self.team.api_token,
-            )
-            == expected_timestamp
-        )
+        assert secondary_after_shared_writes == [secondary_before_run]
+        assert count_secondary_reconciles() == secondary_before_run[1] + len(QuotaResource) * len(QuotaLimitingCaches)
+        assert get_client().zscore(key, self.team.api_token) == expected_timestamp
+        assert secondary.zscore(key, self.team.api_token) == expected_timestamp
 
     @parameterized.expand([("without_stamp", False), ("with_stamp", True)])
     @patch("posthoganalytics.capture")
@@ -3640,6 +3646,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    @override_settings(QUOTA_LIMITING_REDIS_URL="redis://quota-failed-org.test:6379/0")
     def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(
         self, _name, recount_fails, _feature_enabled, _capture
     ) -> None:
@@ -3655,6 +3662,10 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             {self.team.api_token: 1798761600},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
+        key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}"
+        secondary = get_client("redis://quota-failed-org.test:6379/0")
+        secondary.flushdb()
+        secondary.zadd(key, {self.team.api_token: 1798761600})
         with (
             patch(
                 "posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period",
@@ -3675,6 +3686,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         assert self.team.api_token in list_limited_team_attributes(
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
+        assert secondary.zscore(key, self.team.api_token) is not None
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)

@@ -25,6 +25,7 @@ from posthog.quota_migration import (
     QUOTA_COMPARE_MISMATCHES,
     _retry_after,
     compare_quota_stores,
+    reconcile_secondary_quota_sets,
     snapshot_quota_stores,
 )
 from posthog.quota_redis import clear_quota_redis_clients
@@ -89,6 +90,7 @@ class TestQuotaMigration(SimpleTestCase):
             reconcile_limited_team_tokens(
                 self.resource, ["existing"], {"new": 1900000100}, self.cache, store_snapshots=snapshots
             )
+            reconcile_secondary_quota_sets(snapshots, {self.key: {"new": 1900000100}})
         commands = [call.args[0] for call in shared_commands.call_args_list + secondary_commands.call_args_list]
         commands.extend(call.args[1] for call in pipeline_commands.call_args_list)
         assert not any(str(command).upper().split()[0] in {"EVAL", "EVALSHA", "SCRIPT"} for command in commands)
@@ -128,6 +130,11 @@ class TestQuotaMigration(SimpleTestCase):
             patch.object(self.secondary, "execute_command", wraps=self.secondary.execute_command) as commands,
         ):
             reconcile_limited_team_tokens(self.resource, selected, tokens, self.cache, store_snapshots=snapshots)
+            assert dict(self.secondary.zrange(self.key, 0, -1, withscores=True)) == {
+                token.encode(): float(score) for token, score in initial.items()
+            }
+            commands.reset_mock()
+            reconcile_secondary_quota_sets(snapshots, {self.key: tokens})
         assert dict(self.shared.zrange(self.key, 0, -1, withscores=True)) == expected
         assert dict(self.secondary.zrange(self.key, 0, -1, withscores=True)) == expected
         assert commands.call_args_list[0].args == ("ZREMRANGEBYSCORE", self.key, "-inf", 1794484800.0)
@@ -163,6 +170,7 @@ class TestQuotaMigration(SimpleTestCase):
             patch.object(self.secondary, "execute_command", side_effect=fail_batch) as commands,
         ):
             reconcile_limited_team_tokens(self.resource, list(stale), tokens, self.cache, store_snapshots=snapshots)
+            reconcile_secondary_quota_sets(snapshots, {self.key: tokens})
         expected_prefix = ["ZREMRANGEBYSCORE"]
         if command == "ZADD":
             expected_prefix += ["ZREM"] * 3
@@ -179,18 +187,26 @@ class TestQuotaMigration(SimpleTestCase):
         ):
             snapshots = snapshot_quota_stores({self.key: list(tokens)})
             reconcile_limited_team_tokens(self.resource, list(tokens), tokens, self.cache, store_snapshots=snapshots)
+            reconcile_secondary_quota_sets(snapshots, {self.key: tokens})
         assert self.secondary.zrange(self.key, 0, -1, withscores=True) == self.shared.zrange(
             self.key, 0, -1, withscores=True
         )
         assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
 
-    @parameterized.expand([(completed,) for completed in [0, 1, 3, 4, 6]])
-    def test_expired_write_budget_preserves_shared_write(self, completed: int) -> None:
+    @parameterized.expand(
+        [("set", completed) for completed in [0, 1, 3, 4, 6]] + [("run", completed) for completed in [1, 4]]
+    )
+    def test_expired_write_budget_preserves_shared_write(self, budget: str, completed: int) -> None:
         stale = {f"stale-{index}": 1900000000 for index in range(5)}
         tokens = {f"new-{index}": 1900000100 for index in range(5)}
         for client in (self.shared, self.secondary):
             client.zadd(self.key, stale)  # type: ignore[arg-type]
-        snapshots = snapshot_quota_stores({self.key: list(stale)})
+        set_budget, run_budget = (completed * 10, 300) if budget == "set" else (1000, completed * 10)
+        with (
+            patch("posthog.quota_migration.monotonic", return_value=100),
+            patch("posthog.quota_migration.QUOTA_SECONDARY_RUN_BUDGET_SECONDS", run_budget),
+        ):
+            snapshots = snapshot_quota_stores({self.key: list(stale)})
         labels = {"operation": "reconcile", "result": "failure"}
         before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
         execute = self.secondary.execute_command
@@ -204,12 +220,13 @@ class TestQuotaMigration(SimpleTestCase):
 
         with (
             patch.object(quota_redis, "QUOTA_WRITE_BATCH_SIZE", 2, create=True),
-            patch.object(quota_redis, "QUOTA_WRITE_BUDGET_SECONDS", completed * 10, create=True),
+            patch.object(quota_redis, "QUOTA_WRITE_BUDGET_SECONDS", set_budget, create=True),
             patch.object(quota_redis, "monotonic", side_effect=lambda: 100 + elapsed, create=True),
             patch("posthog.quota_migration.monotonic", return_value=100),
             patch.object(self.secondary, "execute_command", side_effect=advance_clock) as commands,
         ):
             reconcile_limited_team_tokens(self.resource, list(stale), tokens, self.cache, store_snapshots=snapshots)
+            reconcile_secondary_quota_sets(snapshots, {self.key: tokens})
         assert commands.call_count == completed
         assert dict(self.shared.zrange(self.key, 0, -1, withscores=True)) == {
             token.encode(): float(score) for token, score in tokens.items()
@@ -224,7 +241,7 @@ class TestQuotaMigration(SimpleTestCase):
             "posthog.quota_migration.get_secondary_quota_redis_client", return_value=self.secondary
         ) as get_secondary:
             if operation == "reconcile":
-                reconcile_limited_team_tokens(self.resource, [], {}, self.cache, store_snapshots=snapshots)
+                reconcile_secondary_quota_sets(snapshots, {self.key: {}})
             elif operation == "snapshot":
                 snapshot_quota_stores({self.key: []})
             else:
@@ -303,6 +320,7 @@ class TestQuotaMigration(SimpleTestCase):
         reconcile_limited_team_tokens(
             self.resource, selected, {"limited": 1900000100}, self.cache, store_snapshots=snapshots
         )
+        reconcile_secondary_quota_sets(snapshots, {self.key: {"limited": 1900000100}})
         assert set(self.shared.zrange(self.key, 0, -1)) == {b"protected", b"shared-concurrent", b"limited"}
         assert set(self.secondary.zrange(self.key, 0, -1)) == {b"protected", b"secondary-concurrent", b"limited"}
 
@@ -313,8 +331,80 @@ class TestQuotaMigration(SimpleTestCase):
             snapshots = snapshot_quota_stores({self.key: ["old"]})
         _retry_after.clear()
         reconcile_limited_team_tokens(self.resource, ["old"], {}, self.cache, store_snapshots=snapshots)
+        reconcile_secondary_quota_sets(snapshots, {self.key: {}})
         assert self.shared.zcard(self.key) == 0
         assert self.secondary.zrange(self.key, 0, -1) == [b"unknown"]
+
+    @parameterized.expand([("fast_snapshot", 0, 2), ("slow_snapshot", 50, 1)])
+    def test_run_budget_skips_remaining_sets_until_the_next_run(
+        self, _name: str, read_seconds: int, reconciled_sets: int
+    ) -> None:
+        resources = [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.EXCEPTIONS]
+        keys = [f"{self.cache.value}{resource.value}" for resource in resources]
+        for client in (self.shared, self.secondary):
+            for key in keys:
+                client.zadd(key, {"stale": 1900000000})
+        verdict = {"limited": 1900000100}
+        labels = {"operation": "reconcile", "result": "run_budget_exceeded"}
+        before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
+        execute = self.secondary.execute_command
+        delays = {"ZRANGEBYSCORE": read_seconds, "ZADD": 200}
+        clock = 0
+
+        def slow_secondary(*arguments: object, **options: object) -> object:
+            nonlocal clock
+            result = execute(*arguments, **options)
+            clock += delays.get(str(arguments[0]), 0)
+            return result
+
+        with (
+            capture_logs() as logs,
+            patch("posthog.quota_migration.monotonic", side_effect=lambda: clock),
+            patch.object(quota_redis, "monotonic", side_effect=lambda: clock, create=True),
+            patch.object(self.secondary, "execute_command", side_effect=slow_secondary),
+        ):
+            snapshots = snapshot_quota_stores(dict.fromkeys(keys, ["stale"]))
+            for resource in resources:
+                reconcile_limited_team_tokens(resource, ["stale"], verdict, self.cache, store_snapshots=snapshots)
+            clock += 10_000
+            reconcile_secondary_quota_sets(snapshots, dict.fromkeys(keys, verdict))
+        skipped_sets = len(keys) - reconciled_sets
+        assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + skipped_sets
+        assert logs == [
+            {"event": "quota_secondary_run_budget_exceeded", "skipped_sets": skipped_sets, "log_level": "warning"}
+        ]
+        assert [self.shared.zrange(key, 0, -1) for key in keys] == [[b"limited"]] * len(keys)
+        assert [self.secondary.zrange(key, 0, -1) for key in keys] == [[b"limited"]] * reconciled_sets + [
+            [b"stale"]
+        ] * skipped_sets
+        snapshots = snapshot_quota_stores(dict.fromkeys(keys, ["limited"]))
+        reconcile_secondary_quota_sets(snapshots, dict.fromkeys(keys, verdict))
+        assert [self.secondary.zrange(key, 0, -1) for key in keys] == [[b"limited"]] * len(keys)
+
+    def test_snapshot_over_the_run_budget_skips_reconciliation(self) -> None:
+        keys = [self.key, f"{self.cache.value}{QuotaResource.RECORDINGS.value}"]
+        for key in keys:
+            self.secondary.zadd(key, {"unknown": 1900000000})
+        labels = {"operation": "snapshot", "result": "failure"}
+        before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
+        execute = self.secondary.execute_command
+        clock = 0
+
+        def slow_read(*arguments: object, **options: object) -> object:
+            nonlocal clock
+            clock += 300
+            return execute(*arguments, **options)
+
+        with (
+            patch("posthog.quota_migration.monotonic", side_effect=lambda: clock),
+            patch.object(self.secondary, "execute_command", side_effect=slow_read),
+        ):
+            snapshots = snapshot_quota_stores(dict.fromkeys(keys, []))
+        assert snapshots.secondary is None
+        assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
+        _retry_after.clear()
+        reconcile_secondary_quota_sets(snapshots, dict.fromkeys(keys, {}))
+        assert [self.secondary.zrange(key, 0, -1) for key in keys] == [[b"unknown"]] * len(keys)
 
     @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_preserves_shared_writes(self) -> None:

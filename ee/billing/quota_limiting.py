@@ -27,8 +27,12 @@ from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
-from posthog.quota_migration import QuotaReconciliationSnapshots, run_secondary_quota_operation, snapshot_quota_stores
-from posthog.quota_redis import reconcile_quota_set
+from posthog.quota_migration import (
+    QuotaReconciliationSnapshots,
+    reconcile_secondary_quota_sets,
+    run_secondary_quota_operation,
+    snapshot_quota_stores,
+)
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
@@ -242,14 +246,6 @@ def reconcile_limited_team_tokens(
     if tokens:
         pipe.zadd(key, tokens)  # type: ignore[arg-type]
     pipe.execute()
-    if store_snapshots is not None and store_snapshots.secondary is not None:
-        secondary_tokens = store_snapshots.secondary[key]
-        run_secondary_quota_operation(
-            "reconcile",
-            lambda client: reconcile_quota_set(client, key, secondary_tokens, tokens, now),
-            resource=key,
-            maintenance=True,
-        )
 
 
 def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches) -> None:
@@ -2047,6 +2043,21 @@ def update_all_orgs_billing_quotas(
 
         if recordings_transitioned_team_ids:
             dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
+
+        # The optional store goes last so a slow copy cannot delay any authoritative step.
+        reconcile_secondary_quota_sets(
+            store_snapshots,
+            {
+                **{
+                    f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{field}": tokens
+                    for field, tokens in quota_limited_teams.items()
+                },
+                **{
+                    f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY.value}{field}": tokens
+                    for field, tokens in quota_limiting_suspended_teams.items()
+                },
+            },
+        )
 
     # No quota reads AI overage yet, so it runs after every decision is written and cannot delay them.
     ai_overage_mb = _timed_query("ai_overage_mb", _get_ai_overage_mb_by_team, service, period)

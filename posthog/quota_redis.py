@@ -2,6 +2,7 @@ import os
 import threading
 from collections.abc import Iterable, Mapping
 from itertools import batched
+from math import inf
 from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
@@ -164,8 +165,9 @@ def reconcile_quota_set(
     snapshot_tokens: Iterable[str],
     tokens: Mapping[str, int],
     now: float,
+    run_deadline: float = inf,
 ) -> None:
-    deadline = monotonic() + QUOTA_WRITE_BUDGET_SECONDS
+    deadline = min(monotonic() + QUOTA_WRITE_BUDGET_SECONDS, run_deadline)
     _check_quota_write_budget(deadline)
     client.zremrangebyscore(key, "-inf", now)
     stale_tokens = (token for token in snapshot_tokens if token not in tokens)
