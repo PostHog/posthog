@@ -91,8 +91,7 @@ function onceOnly(callback: (error?: unknown) => void): (error?: unknown) => voi
 
 export function createCompressedBodyMiddleware(limitBytes: number): RequestHandler {
     const textLimitBytes = Math.min(limitBytes, DEFAULT_TEXT_PARSER_LIMIT_BYTES)
-    const readRawJson = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(limitBytes) })
-    const readRawText = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(textLimitBytes) })
+    const readRawBody = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(limitBytes) })
 
     const decodeBody = async (
         req: Request,
@@ -134,8 +133,10 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
         if (mediaType === TEXT_MEDIA_TYPE && !TEXT_CHARSETS.has(charsetOf(req))) {
             return refuse(res, 415, 'Unsupported charset')
         }
+        if (mediaType === TEXT_MEDIA_TYPE && Number(req.headers['content-length'] ?? 0) > textLimitBytes) {
+            return next(tooLarge())
+        }
 
-        const readRawBody = mediaType === TEXT_MEDIA_TYPE ? readRawText : readRawJson
         readRawBody(
             req,
             res,

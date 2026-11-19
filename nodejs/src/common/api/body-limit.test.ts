@@ -84,12 +84,13 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['decoded', 100 * 1024, 200, gzipSync('x'.repeat(100 * 1024))],
-        ['decoded', 100 * 1024 + 1, 413, gzipSync('x'.repeat(100 * 1024 + 1))],
-        ['sent', 100 * 1024 + 1, 413, gzipSync(randomBytes(100 * 1024))],
+        ['a decoded size of', 100 * 1024, 'with a length', 200, gzipSync('x'.repeat(100 * 1024))],
+        ['a decoded size of', 100 * 1024 + 1, 'with a length', 413, gzipSync('x'.repeat(100 * 1024 + 1))],
+        ['a sent size over', 100 * 1024, 'with a length', 413, gzipSync(randomBytes(100 * 1024))],
+        ['a sent size over', 100 * 1024, 'chunked', 200, gzipSync(randomBytes(100 * 1024))],
     ])(
-        'caps compressed text at the default text parser limit: %s size %d gets %d',
-        async (_, __, status, compressed) => {
+        'caps compressed text like the default text parser: %s %d bytes sent %s gets %d',
+        async (_, __, framing, status, compressed) => {
             const wideApp = setupExpressApp({ bodyLimitBytes: 1024 * 1024 })
             wideApp.post('/echo-text', express.text(), echoText)
             const wideServer = wideApp.listen(0, () => {})
@@ -99,7 +100,7 @@ describe('setupExpressApp request body handling', () => {
                     .set({
                         'Content-Type': 'text/plain',
                         'Content-Encoding': 'gzip',
-                        'Content-Length': String(compressed.length),
+                        ...(framing === 'chunked' ? {} : { 'Content-Length': String(compressed.length) }),
                     })
                 req.write(compressed)
                 const res = await req
