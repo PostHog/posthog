@@ -72,12 +72,14 @@ describe('accountContextLogic', () => {
     it('keeps account data out of telemetry when a load fails, and recovers on retry', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         const captureException = jest.spyOn(posthog, 'captureException')
-        runEndpoint.mockRejectedValueOnce(new Error('Gateway timeout'))
+        runEndpoint.mockRejectedValueOnce(Object.assign(new Error(`Query failed for ${EXTERNAL_ID}`), { status: 400 }))
         mountWith(SOURCE)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.contextResult).toEqual({ status: 'failed' })
-        expect(captureException).toHaveBeenCalledWith(expect.any(Error), { scope: 'accountContextLogic.loadContext' })
+        const [error, properties] = captureException.mock.calls[0]
+        expect((error as Error).message).toBe('Account context request failed')
+        expect(properties).toEqual({ scope: 'accountContextLogic.loadContext', status: 400 })
         expect(capture).toHaveBeenCalledWith(AccountsEvents.ContextLoadFailed)
 
         runEndpoint.mockResolvedValue(RESPONSE)

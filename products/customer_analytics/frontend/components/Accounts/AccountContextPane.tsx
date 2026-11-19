@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 
@@ -94,6 +94,11 @@ export function AccountContextPane({
     } else {
         content = (
             <>
+                {context.truncated ? (
+                    <LemonBanner type="warning">
+                        This account has more context than the tab can load. Some facts, topics and reasons are missing.
+                    </LemonBanner>
+                ) : null}
                 <AccountContextSummaryStrip summary={summary} />
                 <AccountContextFacts logicProps={logicProps} embedded={embedded} />
                 <AccountContextSignals logicProps={logicProps} embedded={embedded} />

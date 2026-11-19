@@ -167,7 +167,11 @@ export const accountContextLogic = kea<accountContextLogicType>([
                         return { status: 'loaded', context }
                     } catch (error) {
                         breakpoint()
-                        posthog.captureException(error as Error, { scope: 'accountContextLogic.loadContext' })
+                        const status = (error as { status?: unknown } | null)?.status
+                        posthog.captureException(new Error('Account context request failed'), {
+                            scope: 'accountContextLogic.loadContext',
+                            status: typeof status === 'number' ? status : null,
+                        })
                         posthog.capture(AccountsEvents.ContextLoadFailed)
                         return { status: 'failed' }
                     }

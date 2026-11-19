@@ -152,6 +152,7 @@ export function AccountContextFacts({
                     onChange={setTopicFilter}
                     options={filterOptions(options.topics, 'All topics')}
                     data-attr="account-context-topic-filter"
+                    menu={{ className: 'ph-no-capture' }}
                 />
                 <LemonSelect
                     size="small"
@@ -159,6 +160,7 @@ export function AccountContextFacts({
                     onChange={setAuthorFilter}
                     options={filterOptions(options.authors, 'Anyone')}
                     data-attr="account-context-author-filter"
+                    menu={{ className: 'ph-no-capture' }}
                 />
                 <LemonSelect
                     size="small"
@@ -166,6 +168,7 @@ export function AccountContextFacts({
                     onChange={setSourceFilter}
                     options={filterOptions(options.sources, 'All sources')}
                     data-attr="account-context-source-filter"
+                    menu={{ className: 'ph-no-capture' }}
                 />
                 <LemonCheckbox
                     checked={recheckOnly}

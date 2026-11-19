@@ -43,6 +43,7 @@ export interface AccountContext {
     signals: AccountContextSignal[]
     threads: AccountContextThread[]
     expiredFacts: number
+    truncated: boolean
 }
 
 export interface AccountContextSummary {
@@ -76,12 +77,26 @@ const SOURCE_LABELS: Record<string, string> = {
     gong: 'Gong call',
 }
 
-const FIXED_SIGNAL_TITLES: Record<string, string> = {
-    credit_runway: 'Prepaid credit at risk',
-    renewal_window: 'Renewal coming up',
-    cost_cut_request: 'Asked to cut cost',
-    alternative_evaluated: 'Evaluating an alternative',
-    champion_change: 'Champion changed',
+interface TitleParts {
+    subject: string
+    product: string | null
+    amount: string
+    down: boolean
+}
+
+const SIGNAL_TITLES: Record<string, (parts: TitleParts) => string> = {
+    usage_spike: (p) => `${p.subject} usage up${p.amount}`,
+    usage_drop: (p) => `${p.subject} usage down${p.amount}`,
+    product_silent: (p) => `${p.subject} usage stopped`,
+    product_new: (p) => `Started using ${p.subject}`,
+    cap_hit: (p) => (p.product ? `Billing limit hit on ${p.product}` : 'Billing limit hit'),
+    mrr_change: (p) => `Spend ${p.down ? 'down' : 'up'}${p.amount}`,
+    arr_threshold: (p) => (p.down ? 'ARR fell below $20k' : 'ARR rose above $20k'),
+    credit_runway: () => 'Prepaid credit at risk',
+    renewal_window: () => 'Renewal coming up',
+    cost_cut_request: () => 'Asked to cut cost',
+    alternative_evaluated: () => 'Evaluating an alternative',
+    champion_change: () => 'Champion changed',
 }
 
 function text(value: unknown): string {
@@ -127,25 +142,20 @@ export function authorLabel(author: string): string {
 }
 
 export function signalTitle(type: string, direction: string, change: number | null, product: string | null): string {
-    const subject = product ?? 'Product'
-    switch (type) {
-        case 'usage_spike':
-            return `${subject} usage up${changeLabel(change)}`
-        case 'usage_drop':
-            return `${subject} usage down${changeLabel(change)}`
-        case 'product_silent':
-            return `${subject} usage stopped`
-        case 'product_new':
-            return `Started using ${subject}`
-        case 'cap_hit':
-            return product ? `Billing limit hit on ${product}` : 'Billing limit hit'
-        case 'mrr_change':
-            return `Spend ${direction === 'down' ? 'down' : 'up'}${changeLabel(change)}`
-        case 'arr_threshold':
-            return direction === 'down' ? 'ARR fell below $20k' : 'ARR rose above $20k'
-        default:
-            return FIXED_SIGNAL_TITLES[type] ?? sentenceCase(type)
+    const title = SIGNAL_TITLES[type]
+    if (!title) {
+        return sentenceCase(type)
     }
+    return title({ subject: product ?? 'Product', product, amount: changeLabel(change), down: direction === 'down' })
+}
+
+function signalReason(signalLinks: Row[], factText: Map<string, string>): AccountContextReason | null {
+    const reasons = signalLinks.filter((link) => link.relation === 'explains' && factText.has(text(link.to_id)))
+    const reason = reasons.find((link) => link.link_source === 'distiller') ?? reasons[0]
+    if (!reason) {
+        return null
+    }
+    return { text: factText.get(text(reason.to_id)) ?? '', likely: reason.link_source !== 'distiller' }
 }
 
 function toRows(response: EndpointRunResponseApi): Row[] {
@@ -202,10 +212,6 @@ export function parseAccountContext(response: EndpointRunResponseApi): AccountCo
                 .filter((link) => link.relation === 'on')
                 .map((link) => nodeName(text(link.to_id)))
                 .find((name): name is string => name !== null)
-            const reasons = signalLinks
-                .filter((link) => link.relation === 'explains' && factText.has(text(link.to_id)))
-                .sort((a) => (a.link_source === 'distiller' ? -1 : 1))
-            const reason = reasons[0]
             return {
                 id,
                 title: signalTitle(text(row.signal_type), text(row.direction), amount(row.change), product ?? null),
@@ -213,9 +219,7 @@ export function parseAccountContext(response: EndpointRunResponseApi): AccountCo
                 onset: text(row.onset),
                 closedOn: text(row.closed_on),
                 arrAtStake: amount(row.arr_at_stake),
-                reason: reason
-                    ? { text: factText.get(text(reason.to_id)) ?? '', likely: reason.link_source !== 'distiller' }
-                    : null,
+                reason: signalReason(signalLinks, factText),
             }
         })
         .sort((a, b) => b.onset.localeCompare(a.onset))
@@ -225,7 +229,13 @@ export function parseAccountContext(response: EndpointRunResponseApi): AccountCo
         .sort((a, b) => b.observedOn.localeCompare(a.observedOn))
 
     const meta = bySection('meta')[0]
-    return { facts, signals, threads, expiredFacts: amount(meta?.expired_facts) ?? 0 }
+    return {
+        facts,
+        signals,
+        threads,
+        expiredFacts: amount(meta?.expired_facts) ?? 0,
+        truncated: response.hasMore === true,
+    }
 }
 
 export function summarizeContext(context: AccountContext): AccountContextSummary {
@@ -244,15 +254,25 @@ export function summarizeContext(context: AccountContext): AccountContextSummary
 
 export function filterFacts(facts: AccountContextFact[], filters: FactFilters): AccountContextFact[] {
     const search = filters.search.trim().toLowerCase()
-    return facts.filter(
-        (fact) =>
-            fact.confirmed === (filters.confidence === 'confirmed') &&
-            (!search || fact.text.toLowerCase().includes(search)) &&
-            (!filters.topic || fact.topics.includes(filters.topic)) &&
-            (!filters.author || fact.author === filters.author) &&
-            (!filters.source || fact.source === filters.source) &&
-            (!filters.recheckOnly || fact.needsRecheck)
-    )
+    const checks: ((fact: AccountContextFact) => boolean)[] = [
+        (fact) => fact.confirmed === (filters.confidence === 'confirmed'),
+    ]
+    if (search) {
+        checks.push((fact) => fact.text.toLowerCase().includes(search))
+    }
+    if (filters.topic) {
+        checks.push((fact) => fact.topics.includes(filters.topic as string))
+    }
+    if (filters.author) {
+        checks.push((fact) => fact.author === filters.author)
+    }
+    if (filters.source) {
+        checks.push((fact) => fact.source === filters.source)
+    }
+    if (filters.recheckOnly) {
+        checks.push((fact) => fact.needsRecheck)
+    }
+    return facts.filter((fact) => checks.every((check) => check(fact)))
 }
 
 export function factFilterOptions(facts: AccountContextFact[]): {

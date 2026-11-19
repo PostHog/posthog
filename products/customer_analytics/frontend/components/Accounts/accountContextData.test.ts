@@ -138,6 +138,10 @@ describe('accountContextData', () => {
         expect(context.signals[2].title).toBe('Session replay usage down 100%')
         expect(context.threads[0].url).toBe('https://example.slack.com/archives/C1/p1')
         expect(context.expiredFacts).toBe(2)
+        expect([context.truncated, parseAccountContext({ ...RESPONSE, hasMore: true }).truncated]).toEqual([
+            false,
+            true,
+        ])
 
         expect(summarizeContext(context)).toEqual({
             factCount: 2,
