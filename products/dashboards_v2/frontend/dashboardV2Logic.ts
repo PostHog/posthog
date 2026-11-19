@@ -85,8 +85,8 @@ export interface dashboardV2LogicMeta {
         canRedo: (history: History) => boolean
         disabledReasonFor: (dashboard: Dashboard, stacked: boolean) => (action: DashboardV2Action) => string | null
         canEditLayout: (disabledReasonFor: (action: DashboardV2Action) => string | null) => boolean
-        viewedDashboard: (dashboard: Dashboard, folds: any) => Dashboard
-        activeTab: (viewedDashboard: any, activeTabId: string | null) => DashboardTab
+        viewedDashboard: (dashboard: Dashboard, folds: Record<string, boolean>) => Dashboard
+        activeTab: (viewedDashboard: Dashboard, activeTabId: string | null) => DashboardTab
     }
 }
 

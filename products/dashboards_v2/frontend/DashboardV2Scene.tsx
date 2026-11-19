@@ -85,7 +85,7 @@ function DashboardV2(): JSX.Element {
                         tiles={tiles}
                         cols={GRID.columns}
                         width={width}
-                        editable={canEditLayout}
+                        editable={canEditLayout && !stacked}
                     />
                 )}
             </div>
