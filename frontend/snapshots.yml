@@ -10019,9 +10019,9 @@ snapshots:
     scenes-app-ai-observability-trace-view-feedback--with-surveys--light:
         hash: v1.k794b7964.bf831c89fb9249d4e52a983f09857489fea2a096fca6d18d15f86453e2e23991.oYVFY4WtphJ0iSW3tMmGJa3BcWZReKFHkVzn89v1Ldk
     scenes-app-ai-observability-trace-view-input-and-output--empty-object--dark:
-        hash: v1.k794b7964.1dd5f8071ac9eda8d36cf5b64822e73b3f8b51bf8e7ed6050a4afd919ff928c2.ylng96u-YZOBsS3Ku2DBpYaj6IogO5Yp52ZXK73GxhU
+        hash: v1.k794b7964.943fadebdb491579f191877e802634566351a67e81807c5339f552b3401e16e4.J_rFnoqMuybBiNTN41XWHOAGAHM0K7VGiljPBtf8-x4
     scenes-app-ai-observability-trace-view-input-and-output--empty-object--light:
-        hash: v1.k794b7964.f88f6d335dc76c20f6d6825f286762b665d97e02292bc972c9de771a74f6235c.D0yT80fz6N0wEyS4A5yIPgLGr1aT9E8wXgEt-QRmHWU
+        hash: v1.k794b7964.1ecdb1cbb6fd124de32d74a415bc91ceae1b7ed9a7c97ad3e4b561c2d3b5a6c7.9o6WESUxS8AqtjecJL9CtATr1SA1D2vwPO7YdzGpM6Y
     scenes-app-ai-observability-trace-view-input-and-output--key-values--dark:
         hash: v1.k794b7964.5345784686f7bcee97e6ef38f4bd7176307d48815477d1c60fc681c3b03c2738.SyTLxpb4m4Q2uotBX5u12uNAERq8Uw3pSPwHx9N5zNw
     scenes-app-ai-observability-trace-view-input-and-output--key-values--light:
@@ -10046,6 +10046,10 @@ snapshots:
         hash: v1.k794b7964.a04414aee84984341aa0f0f6ac87c45ecc799bfdb00c87e26a9ea38c245ece4f.jtEbqnvazhHMD7qxICXn9DEQxSO0lZx_cc-IA0ret3A
     scenes-app-ai-observability-trace-view-input-and-output--plain-text--light:
         hash: v1.k794b7964.d3d5c1930522a20c9652786e7f1c51da4f6944b4fe159dcd3b023c5231fd8a28.OrnQ7nLyBFirnn52tgZPKOdS9hQkk9QeJk3kHxl5a0I
+    scenes-app-ai-observability-trace-view-json-tree--narrow--dark:
+        hash: v1.k794b7964.208ee6e8ac846a48a28a31bbcd82455a022a37765b6ea0cb3fd4b296f1cee1d7.BEe5NR5og3zjy-rPXW5WQazvJY1imWy8vdPN30HcNzA
+    scenes-app-ai-observability-trace-view-json-tree--narrow--light:
+        hash: v1.k794b7964.3db6d3104887351dc5944623b2b0a5cde83b6a64c76d7d6942bfe96422eb1e6b.mBm_kL_aHJo64-VgCJmX2CENC8kijmh_HVGU_Wrkcio
     scenes-app-ai-observability-trace-view-message-block--assistant--dark:
         hash: v1.k794b7964.cd556a182e7867b028e9ac2d68e7eb0961e2484ba7bae2642116547c141657e5.DUKbPYe9Sc_Wya3lRsP4FdUvkYsgzx8i6JHbGwMfBHk
     scenes-app-ai-observability-trace-view-message-block--assistant--light:
