@@ -49,20 +49,22 @@ describe("createPiToolCallRecord", () => {
 });
 
 describe("parsePiMcpCallDetails", () => {
-  it.each(["mcp_posthog_exec", "mcp__posthog__exec"])(
-    "normalizes a direct PostHog exec call: %s",
-    (name) => {
-      expect(
-        parsePiMcpCallDetails(name, {
-          command: "call feature-flag-get-all",
-        }),
-      ).toEqual({
-        kind: "tool",
-        name,
-        args: '{"command":"call feature-flag-get-all"}',
-      });
-    },
-  );
+  it.each([
+    "mcp_posthog_exec",
+    "mcp__posthog__exec",
+    "mcp_posthog_exec-read",
+    "mcp__posthog__exec-write",
+  ])("normalizes a direct PostHog exec call: %s", (name) => {
+    expect(
+      parsePiMcpCallDetails(name, {
+        command: "call feature-flag-get-all",
+      }),
+    ).toEqual({
+      kind: "tool",
+      name,
+      args: '{"command":"call feature-flag-get-all"}',
+    });
+  });
 
   it("does not normalize other MCP tools", () => {
     expect(

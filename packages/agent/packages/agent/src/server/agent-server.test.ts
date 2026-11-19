@@ -3414,26 +3414,29 @@ describe("AgentServer HTTP Mode", () => {
       ];
     }
 
-    function claudePosthogExecPermissionRequest(command: string) {
+    function claudePosthogExecPermissionRequest(
+      command: string,
+      tool = "exec",
+    ) {
       return {
         options: posthogExecPermissionOptions(),
         toolCall: {
           kind: "other",
-          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          _meta: { claudeCode: { toolName: `mcp__posthog__${tool}` } },
           rawInput: { command },
         },
       };
     }
 
-    function codexPosthogExecPermissionRequest(command: string) {
+    function codexPosthogExecPermissionRequest(command: string, tool = "exec") {
       return {
         options: posthogExecPermissionOptions(),
         toolCall: {
           kind: "other",
           _meta: {
             posthog: {
-              toolName: "mcp__posthog_cloud__exec",
-              mcp: { server: "posthog_cloud", tool: "exec" },
+              toolName: `mcp__posthog_cloud__${tool}`,
+              mcp: { server: "posthog_cloud", tool },
             },
           },
           rawInput: { command },
@@ -3632,21 +3635,29 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
-    it.each([
-      {
-        adapter: "Claude",
-        request: claudePosthogExecPermissionRequest(
-          "call notebooks-destroy {}",
-        ),
-        expectedKinds: ["allow_once", "allow_always", "reject_once"],
-      },
-      {
-        adapter: "Codex",
-        request: codexPosthogExecPermissionRequest("call notebooks-destroy {}"),
-        expectedKinds: ["allow_once", "reject_once"],
-      },
-    ])(
-      "relays a configured PostHog exec match from $adapter with adapter-specific choices",
+    it.each(
+      ["exec", "exec-write"].flatMap((tool) => [
+        {
+          adapter: "Claude",
+          tool,
+          request: claudePosthogExecPermissionRequest(
+            "call notebooks-destroy {}",
+            tool,
+          ),
+          expectedKinds: ["allow_once", "allow_always", "reject_once"],
+        },
+        {
+          adapter: "Codex",
+          tool,
+          request: codexPosthogExecPermissionRequest(
+            "call notebooks-destroy {}",
+            tool,
+          ),
+          expectedKinds: ["allow_once", "reject_once"],
+        },
+      ]),
+    )(
+      "relays a configured PostHog $tool match from $adapter with adapter-specific choices",
       async ({ request, expectedKinds }) => {
         const testServer = exposeCloudClient(createServer());
         testServer.session = null;

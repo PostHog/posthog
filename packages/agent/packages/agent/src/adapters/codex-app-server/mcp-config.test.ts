@@ -60,9 +60,14 @@ describe("toCodexMcpServers", () => {
 
   it.each([
     [
-      "prompts for PostHog exec when gating is enabled",
+      "prompts for PostHog exec and exec-write when gating is enabled",
       { gatePosthogExec: true },
-      { tools: { exec: { approval_mode: "prompt" } } },
+      {
+        tools: {
+          exec: { approval_mode: "prompt" },
+          "exec-write": { approval_mode: "prompt" },
+        },
+      },
     ],
     [
       "marks the PostHog server required when requirePosthogMcp is set",

@@ -1,9 +1,10 @@
 import { z } from "zod/v4";
 
 /**
- * The PostHog MCP exposes a single `exec` dispatcher tool that runs
+ * The PostHog MCP exposes an `exec` dispatcher tool, or `exec-read` and
+ * `exec-write` on a connection that splits writes. Each dispatcher runs
  * subcommands like `call [--flags] <tool-name> [json]`. These helpers identify
- * that dispatcher, extract the delegated tool, and apply the externally
+ * the dispatchers, extract the delegated tool, and apply the externally
  * configured permission regex at sub-tool granularity.
  */
 
@@ -16,7 +17,22 @@ import { z } from "zod/v4";
  * conforming name — a hyphenated or prefixed name (e.g. `posthog-eu`) is not
  * recognized and the exec guard silently won't apply.
  */
-const POSTHOG_EXEC_TOOL_RE = /^mcp__posthog(?:_[^_]+)*__exec$/;
+const POSTHOG_SERVER_PREFIX = "^mcp__posthog(?:_[^_]+)*__";
+
+/**
+ * Dispatchers that can write, so the permission regex gates their sub-tools.
+ * A connection that splits writes lists `exec-read` and `exec-write` instead
+ * of `exec`; the server refuses every write on `exec-read`, so only usage
+ * tracking needs to recognise it.
+ */
+export const POSTHOG_GATED_EXEC_TOOLS = ["exec", "exec-write"] as const;
+
+const POSTHOG_EXEC_TOOL_RE = new RegExp(
+  `${POSTHOG_SERVER_PREFIX}(?:${POSTHOG_GATED_EXEC_TOOLS.join("|")})$`,
+);
+const POSTHOG_DISPATCHER_TOOL_RE = new RegExp(
+  `${POSTHOG_SERVER_PREFIX}exec(?:-read|-write)?$`,
+);
 
 // Skip every `--flag` token after `call` (`--json`, `--confirm`, future ones)
 // before capturing the sub-tool, and require the sub-tool to start with an
@@ -80,6 +96,10 @@ export function resolvePostHogExecPermissionRegex(
 
 export function isPostHogExecTool(toolName: string): boolean {
   return POSTHOG_EXEC_TOOL_RE.test(toolName);
+}
+
+export function isPostHogDispatcherTool(toolName: string): boolean {
+  return POSTHOG_DISPATCHER_TOOL_RE.test(toolName);
 }
 
 export function isPostHogExecDescriptor(descriptor: {
