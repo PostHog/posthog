@@ -21,7 +21,7 @@ from django.contrib.auth.models import Group
 from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import PROTECT, Model
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
@@ -1895,7 +1895,24 @@ class TestAdminConsoleUserDeletion(BaseTest):
         assert deleted_event["properties"]["$unset"] == ["email"]
         assert "delete-me@example.com" not in str(deleted_event)
 
-    def test_a_delete_that_rolls_back_keeps_the_person_email(self) -> None:
+    def test_a_delete_that_fails_in_the_handler_keeps_the_person_email(self) -> None:
+        preview = self._preview()
+        self.client.raise_request_exception = False
+
+        with (
+            record_sent_analytics() as sent_events,
+            self.captureOnCommitCallbacks(execute=True),
+            patch(
+                "posthog.admin.console.user_panels.bulk_log_activity", side_effect=DatabaseError("deadlock detected")
+            ),
+        ):
+            response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 500
+        assert User.objects.filter(pk=self.target.pk).exists()
+        assert self._deleted_account_events(sent_events) == []
+
+    def test_a_delete_rolled_back_after_the_handler_keeps_the_person_email(self) -> None:
         preview = self._preview()
 
         with record_sent_analytics() as sent_events, self.captureOnCommitCallbacks(execute=True):
