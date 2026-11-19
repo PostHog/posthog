@@ -1,0 +1,258 @@
+{
+    "checklist": "agent-security/v1",
+    "callSites": [
+        {
+            "id": "model-call",
+            "at": "products/knowledge_writer/merge_check/judge.py",
+            "call": "messages.parse",
+            "inputs": [
+                {
+                    "name": "whatever parse_structured_output is given",
+                    "writtenBy": "own-code"
+                }
+            ],
+            "capabilities": ["ai-gateway"]
+        },
+        {
+            "id": "merge-judge",
+            "at": "products/knowledge_writer/merge_check/judge.py",
+            "call": "parse_structured_output",
+            "inputs": [
+                {
+                    "name": "merged diff, cut to MAX_DIFF_CHARACTERS",
+                    "writtenBy": "trusted-author"
+                },
+                {
+                    "name": "pull request title",
+                    "writtenBy": "trusted-author"
+                },
+                {
+                    "name": "docs page texts",
+                    "writtenBy": "org-member"
+                }
+            ],
+            "capabilities": ["ai-gateway"]
+        },
+        {
+            "id": "merge-facts",
+            "at": "products/knowledge_writer/merge_check/facts.py",
+            "call": "parse_structured_output",
+            "inputs": [
+                {
+                    "name": "merged diff, cut to MAX_FACTS_DIFF_CHARACTERS",
+                    "writtenBy": "trusted-author"
+                },
+                {
+                    "name": "pull request title and body, only from a trusted author",
+                    "writtenBy": "trusted-author"
+                }
+            ],
+            "capabilities": ["ai-gateway"]
+        },
+        {
+            "id": "draft-grounding",
+            "at": "products/knowledge_writer/backend/logic/grounding.py",
+            "call": "parse_structured_output",
+            "inputs": [
+                {
+                    "name": "merged source diff",
+                    "writtenBy": "trusted-author"
+                },
+                {
+                    "name": "docs lines the writer added, cut to MAX_GROUNDED_LINES",
+                    "writtenBy": "model-output"
+                }
+            ],
+            "capabilities": ["ai-gateway"]
+        },
+        {
+            "id": "writer-task",
+            "at": "products/knowledge_writer/backend/logic/launch.py",
+            "call": "create_and_run_task",
+            "inputs": [
+                {
+                    "name": "merge check evidence, including the judge reason",
+                    "writtenBy": "model-output"
+                },
+                {
+                    "name": "note from the teammate who ran the docs command",
+                    "writtenBy": "org-member"
+                },
+                {
+                    "name": "merged source diff, attached as a file",
+                    "writtenBy": "trusted-author"
+                }
+            ],
+            "capabilities": ["github:read token on the docs repository", "network:allowlist", "wake:180min"]
+        }
+    ],
+    "items": {
+        "A1": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_every_model_call_site_is_in_the_registry"
+                ]
+            }
+        ],
+        "A2": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_every_model_call_site_is_in_the_registry"
+                ]
+            }
+        ],
+        "A3": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_every_model_call_site_is_in_the_registry"
+                ]
+            }
+        ],
+        "B1": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/merge_check/tests/test_merge_check.py::test_only_a_trusted_author_title_and_description_reach_the_models",
+                    "products/knowledge_writer/merge_check/tests/test_merge_check.py::test_a_docs_pull_request_from_a_trusted_person_asks_to_review_it"
+                ]
+            }
+        ],
+        "B2": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/commands/backend/tests/test_dispatch.py::TestDispatchCommentCommand::test_refuses_pull_requests_a_command_must_not_touch",
+                    "products/commands/backend/tests/test_dispatch.py::TestDispatchCommentCommand::test_docs_on_a_merged_pull_request_starts_its_docs_check_with_the_requester_and_note"
+                ]
+            }
+        ],
+        "C1": [
+            {
+                "kind": "prose",
+                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+            }
+        ],
+        "C2": [
+            {
+                "kind": "prose",
+                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+            }
+        ],
+        "D1": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_intake.py::test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_failed_run_is_a_duplicate"
+                ]
+            }
+        ],
+        "D2": [
+            {
+                "kind": "prose",
+                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+            }
+        ],
+        "D3": [
+            {
+                "kind": "prose",
+                "reason": "The model key is the AI gateway credential the tasks platform mints per run, configured outside this product."
+            }
+        ],
+        "E1": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_writer_egress_is_the_pinned_allowlist"
+                ]
+            }
+        ],
+        "E2": [
+            {
+                "kind": "prose",
+                "reason": "The writer's tool set is the sandbox runtime's default, which the tasks platform owns; the profile has no tool allowlist field."
+            }
+        ],
+        "F1": [
+            {
+                "kind": "prose",
+                "reason": "Text that contains the closing marker can still end the untrusted block early; the fix and its check land together in the next change."
+            }
+        ],
+        "F2": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_untrusted_text_reaches_the_writer_prompt_only_inside_untrusted_blocks"
+                ]
+            }
+        ],
+        "F3": [
+            {
+                "kind": "prose",
+                "reason": "A rule for judging the other items, not a property of the code."
+            }
+        ],
+        "G1": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_intake.py::test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_docs_pull_request",
+                    "products/knowledge_writer/backend/tests/test_intake.py::test_without_configured_docs_paths_publish_allows_only_the_docs_folder_the_merge_check_found"
+                ]
+            }
+        ],
+        "G2": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_no_product_code_merges_a_pull_request"
+                ]
+            },
+            {
+                "kind": "prose",
+                "reason": "Required review on the docs repository's default branch is a GitHub setting on that repository, not code here."
+            }
+        ],
+        "G3": [
+            {
+                "kind": "prose",
+                "reason": "A manipulated no-docs verdict only drops a docs pull request; it gates nothing security-relevant."
+            }
+        ],
+        "H1": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_an_oversized_diff_is_cut_before_the_judge_call"
+                ]
+            }
+        ],
+        "H2": [
+            {
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_intake.py::test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert"
+                ]
+            },
+            {
+                "kind": "prose",
+                "reason": "Per-run spend is bounded only by max_wake_minutes=180; the tasks platform reads neither max_cost_usd nor task_budget_usd, so the wake cap lands with its check in the next change."
+            }
+        ],
+        "I1": [
+            {
+                "kind": "prose",
+                "reason": "No mechanical check yet: this needs a hostile run in a real writer sandbox, and the probe suite that does it lands later on this branch."
+            }
+        ],
+        "I2": [
+            {
+                "kind": "prose",
+                "reason": "Run the probes by hand before a model or harness bump; no event fires on a bump that a check could hook."
+            }
+        ]
+    }
+}
