@@ -291,8 +291,8 @@ def deliver_batch_to_destinations(
                 raise
             raise DestinationDeliveryError(destination.name, e) from e
 
-        record_delivery_success(destination)
         rows_written = outcome.rows_written if outcome else 0
+        record_delivery_success(destination, wrote_rows=rows_written > 0)
         duration_seconds = round(time.monotonic() - started_at, 3)
         logger.info(
             "destination_batch_delivered",

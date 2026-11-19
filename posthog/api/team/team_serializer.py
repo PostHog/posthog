@@ -37,6 +37,7 @@ from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.utils import UUIDT
+from posthog.permissions import request_subject
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -47,6 +48,9 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.cohorts.backend.realtime_limits import max_realtime_cohorts, realtime_cohorts_used
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -491,17 +495,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not request:
             return value
 
-        user = request.user
-
         if self.instance:
-            try:
-                membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
-                if membership.level < OrganizationMembership.Level.ADMIN:
-                    raise exceptions.PermissionDenied(
-                        "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
-                    )
-            except OrganizationMembership.DoesNotExist:
+            organization = self.instance.organization
+            resource, subject = Resource.organization(organization.id), request_subject(request)
+            if not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
                 raise exceptions.PermissionDenied("You must be a member of this organization.")
+            if not authorization.check(resource=resource, action=Action.EDIT, subject=subject):
+                raise exceptions.PermissionDenied(
+                    "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
+                )
 
         return value
 

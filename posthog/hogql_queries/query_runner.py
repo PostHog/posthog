@@ -170,6 +170,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
     QueryLane,
+    QueueWait,
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
@@ -177,6 +178,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     add_fallback_query_tags,
     get_query_tag_value,
     get_query_tags,
@@ -297,6 +299,7 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
+DASHBOARD_V2_FLAG = "dashboard-v2"
 
 API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     "posthog_api_queries_budget_limited_total",
@@ -2536,6 +2539,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Which per-organization app limits this run takes its slots from."""
         return QueryLane.ANALYTICS
 
+    def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
+        """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
+        # Shared-link viewers are anonymous, so they fail fast rather than hold a web worker while they wait.
+        if (
+            dashboard_id is None
+            or is_api_key_access
+            or get_query_tag_value("access_method") == AccessMethod.SHARING_TOKEN
+            or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG)
+        ):
+            return None
+        return QueueWait()
+
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
 
@@ -2580,6 +2595,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             team_id=self.team.id,
                             is_api=is_api_key_access,
                         )
+                    )
+                elif queue_wait := self._dashboard_queue_wait(dashboard_id, is_api_key_access=is_api_key_access):
+                    # The dashboard slot comes first here, so a tile waiting for it holds no organization slot.
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                            queue_wait=queue_wait,
+                        )
+                    )
+                    limiter_stack.enter_context(
+                        app_org_concurrency_slot(self.team, task_id=self.query_id, queue_wait=queue_wait)
                     )
                 else:
                     limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
@@ -3034,6 +3064,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         ):
             survey_query_metric_labels = get_survey_query_metric_labels(self.query)
             query_start = perf_counter()
+
+            def previous_entry() -> Optional[dict[str, Any]]:
+                with self.timings.measure("previous_cache_entry"):
+                    entry = cache_manager.lookup().entry
+                    return entry.as_full_response() if entry else None
+
+            self._prepare_blocking_calculation(dashboard_id=query_run.dashboard_id, previous_entry=previous_entry)
             self._phase = RunPhase(name="rate_limiters", stats=query_stats)
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=query_run.dashboard_id)
@@ -3373,7 +3410,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["restricted_properties"] = restricted
             # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
             # so restricted results cached before that change are invalidated.
-            payload["property_access_control_version"] = 2
+            payload["property_access_control_version"] = 3
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
@@ -3592,6 +3629,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}
+
+    def _prepare_blocking_calculation(
+        self, *, dashboard_id: Optional[int], previous_entry: Callable[[], Optional[dict[str, Any]]]
+    ) -> None:
+        """Runs before a blocking calculation that stores its result under this runner's cache key.
+
+        A runner that recomputes only part of a result calls `previous_entry` to read the entry this
+        calculation replaces, with any extra keys that `_cache_entry_with_freshness` stored in it.
+        """
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.

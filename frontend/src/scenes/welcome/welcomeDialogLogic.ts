@@ -254,14 +254,19 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         ],
     }),
 
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         welcomeData: [
             EMPTY_PAYLOAD,
             {
                 loadWelcomeData: async () => {
+                    // Both triggers of this load need the organization ID: shouldShowDialog and resetForOrgChange.
+                    const organizationId = values.user?.organization?.id
+                    if (!organizationId) {
+                        return EMPTY_PAYLOAD
+                    }
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use welcomeCurrentRetrieve() from 'products/platform_features/frontend/generated/api' instead.
-                        return await api.get<WelcomePayload>('api/organizations/@current/welcome/current/')
+                        return await api.get<WelcomePayload>(`api/organizations/${organizationId}/welcome/current/`)
                     } catch (error) {
                         const status =
                             typeof error === 'object' && error !== null && 'status' in error

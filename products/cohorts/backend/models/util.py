@@ -1427,7 +1427,8 @@ def insert_cohort_people_into_pg(
     `min_rows` is how many rows the caller just wrote to ClickHouse. Each query can land on a different replica, and
     a replica that has not received the write yet reads as a smaller cohort, so the copy repeats until it has seen them.
     `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
-    existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
+    existing members can otherwise reach `min_rows` on a replica that has none of the new rows. Passing it also
+    clears the removal marks of the members those rows add back, so a repair, which must keep the marks, leaves it out.
     """
     try:
         for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
@@ -1447,6 +1448,8 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
     """Return how many of the copied rows have a `_timestamp` at or after `written_since`."""
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
+    from products.cohorts.backend.static_reconciliation import clear_static_cohort_member_removals_written_after
+
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
@@ -1459,7 +1462,7 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         nonlocal new_rows_read
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, max(_timestamp) >= %(written_since)s, toUnixTimestamp(max(_timestamp)) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
@@ -1476,7 +1479,11 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         )
         if not rows:
             return [], cursor
-        new_rows_read += sum(1 for _, is_written_since in rows if is_written_since)
+        new_rows_read += sum(1 for _, is_written_since, _ in rows if is_written_since)
+        if written_since is not None:
+            clear_static_cohort_member_removals_written_after(
+                cohort_id=cohort.pk, written_at={str(person_id): written_at for person_id, _, written_at in rows}
+            )
         items = [str(r[0]) for r in rows]
         return items, items[-1]
 

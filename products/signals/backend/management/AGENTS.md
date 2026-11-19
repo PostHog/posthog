@@ -394,7 +394,9 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
     "max_concurrency": 4,
     "max_tick_builds_per_day": 100,
     "max_org_share": 0.25,
-    "max_error_rate": 0.5
+    "max_error_rate": 0.5,
+    "precheck_hours": 0,
+    "precheck_sample_share": 0.1
   }
 }
 ```
@@ -403,6 +405,7 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 - **Due pairs:** a member with a ready activity summary, activity in the last `active_days`, and a latest list that was built or checked longer ago than `target_interval_minutes`, or no list.
 - **Order:** paying organizations first, then the most recent activity, then the oldest list. One organization takes at most `max_org_share` of `max_pairs_per_tick`.
 - **Unchanged inputs:** the pair activity compares the input hash first. A match calls no model and sets `checked_at` on the latest row, so the pair is not due again until `target_interval_minutes` passes, and `for_me` serves that row as fresh. An enabled tick raises `freshness_minutes` to at least `target_interval_minutes`, so a plain read does not rebuild a list inside the tick's interval. A row whose model call failed, timed out or answered outside the schema, or that skipped the model without AI approval, is built again instead.
+- **Pre-check:** `precheck_hours` (default 0, which turns it off, at most 48) lets the pair skip the full gather. A fingerprint (`../personal_ranking/precheck.py`) hashes the facts that can move the input hash: the person's open reports (named as reviewer or claimed) with their status, text checksums, actionability and window membership, the artefacts, pull requests and assignments of those reports, the summary version, the inbox activity counts and exclusions, the flags that change the pools, and the config. A full check that finds no change stores the fingerprint in the cache for `precheck_hours`. A later fingerprint that is the same, for the same latest row, records `checked_at` with no gather. A new row, a cache miss, a read error, or an expired fingerprint runs the full check, so every pair gets a full check at least once in `precheck_hours`. Pull request states that only the tasks product holds are not in the fingerprint, and the expiry covers them. `precheck_sample_share` (0 to 1, default 0.1) of the hits run the full check too. Keep the sample until `precheck_disagreed` stays at 0 in every region.
 - **Limits:** a build that calls the model spends `max_tick_builds_per_day` (one Redis token bucket per region, closed when Redis is unreachable) and then the shared `max_builds_per_day`. `max_tick_builds_per_day` is limited to 80% of `max_builds_per_day`, so `refresh` and `focus` requests keep a reserve. To run the tick above that, raise the shared limit too. The tick stops at the first refusal, at `max_error_rate` after 10 model calls, and when 60% of its interval has passed.
 - **Locks:** the pair takes the same per-person lock as `for_me`, so a tick skips a person whose build is running.
 - **Concurrency:** the tick keeps `max_concurrency` pairs running and starts the next pair as soon as any pair finishes. A stop starts no further pair, and the pairs already running finish. The pairs never started stay due for the next tick.
@@ -410,6 +413,8 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 
 Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
 It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
+`prechecked_pair_seconds_p50` and `prechecked_pair_seconds_p95` time the `unchanged` pairs that the pre-check confirmed, and the `unchanged_*` fields then time only the pairs that the full check confirmed.
+`precheck_hit`, `precheck_miss`, `precheck_agreed` and `precheck_disagreed` count the pairs by pre-check outcome. A disagreement is a sampled hit where the full check found a change, and the pair builds as usual. Each one also logs `signals.personal_ranking.precheck_disagreed`.
 `personal inbox ranking built` and the model call's trace carry `trigger` (`tick`, `on_demand` or `first_summary`), so cost can be split by what started a build.
 
 `due_pairs`, `due_without_list` and `oldest_due_hours` are read when the tick plans, before it does any work.
