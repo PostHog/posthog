@@ -407,6 +407,39 @@ class TestGetPersonUuidsByIds(SimpleTestCase):
             assert [list(call.request.person_ids) for call in calls] == [[1], [2], [3]]
             assert "properties" not in list(calls[0].request.read_options.field_mask)
 
+    def test_fans_out_batches_concurrently_when_not_in_test_mode(self):
+        import contextvars
+        import threading
+
+        first, second = uuid4(), uuid4()
+        marker_var: contextvars.ContextVar[str] = contextvars.ContextVar("marker", default="unset")
+        token = marker_var.set("propagated")
+        barrier = threading.Barrier(2, timeout=5)
+        seen_context_values: list[str] = []
+
+        try:
+            with (
+                fake_personhog_client() as fake,
+                patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 1),
+                patch("posthog.models.person.util.TEST", False),
+            ):
+                fake.add_person(team_id=1, person_id=1, uuid=str(first), distinct_ids=["d1"])
+                fake.add_person(team_id=1, person_id=2, uuid=str(second), distinct_ids=["d2"])
+                real_get_persons = fake.get_persons
+
+                def barrier_get_persons(request):
+                    seen_context_values.append(marker_var.get())
+                    barrier.wait()
+                    return real_get_persons(request)
+
+                with patch.object(fake, "get_persons", side_effect=barrier_get_persons):
+                    result = get_person_uuids_by_ids(1, [1, 2], concurrency=2)
+
+            assert result == {1: str(first), 2: str(second)}
+            assert seen_context_values == ["propagated", "propagated"]
+        finally:
+            marker_var.reset(token)
+
 
 # ── Delegation tests ────────────────────────────────────────────────
 

@@ -694,25 +694,45 @@ def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str], *, concurr
     )
 
 
-def get_person_uuids_by_ids(team_id: int, person_ids: list[int]) -> dict[int, str]:
+def get_person_uuids_by_ids(team_id: int, person_ids: list[int], concurrency: int = 1) -> dict[int, str]:
     """Map person ids to UUIDs for the persons in ``team_id``, one RPC per PERSONHOG_BATCH_SIZE batch.
 
     An id that doesn't resolve is left out. Reads are eventual, so "not found" can mean a person that
     hasn't replicated yet as well as a deleted one. Only the id, UUID and team are fetched.
+
+    Sequential by default. Callers with large lookups opt into a concurrent fan-out by passing
+    ``concurrency``, mirroring ``_batched_get_persons_by_uuids``.
     """
     if not person_ids:
         return {}
 
     def personhog_fn() -> dict[int, str]:
         client = _get_client()
-        resolved: dict[int, str] = {}
-        for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
-            batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
-            for person in _get_persons_for_id_batch(
-                client, team_id, batch, "get_person_uuids_by_ids", _UUID_ONLY_READ_OPTIONS
-            ):
-                resolved[person.id] = str(UUID(person.uuid))
-        return resolved
+        batches = [person_ids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE)]
+        max_workers = min(len(batches), concurrency)
+
+        if TEST or max_workers <= 1:
+            batch_results = [
+                _get_persons_for_id_batch(client, team_id, batch, "get_person_uuids_by_ids", _UUID_ONLY_READ_OPTIONS)
+                for batch in batches
+            ]
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="personhog-id-batch") as executor:
+                futures = [
+                    executor.submit(
+                        contextvars.copy_context().run,
+                        _get_persons_for_id_batch,
+                        client,
+                        team_id,
+                        batch,
+                        "get_person_uuids_by_ids",
+                        _UUID_ONLY_READ_OPTIONS,
+                    )
+                    for batch in batches
+                ]
+                batch_results = [future.result() for future in futures]
+
+        return {person.id: str(UUID(person.uuid)) for batch_valid in batch_results for person in batch_valid}
 
     return personhog_call("get_person_uuids_by_ids", personhog_fn)
 

@@ -2033,7 +2033,7 @@ def prune_members_absent_from_replace(
     for batch in _member_id_batches(team_id, cohort.pk):
         require_current_population_marker(cohort.pk, marker)
         # An id that doesn't resolve is left out, so the prune keeps it.
-        uuids_by_id = get_person_uuids_by_ids(team_id, batch)
+        uuids_by_id = get_person_uuids_by_ids(team_id, batch, concurrency=4)
         present = _uuids_present_at_marker(cohort.pk, team_id, list(uuids_by_id.values()), marker, floor)
         stale_items = [(person_id, uuid_) for person_id, uuid_ in uuids_by_id.items() if uuid_ not in present]
         for start in range(0, len(stale_items), PRUNE_DELETE_CHUNK):
