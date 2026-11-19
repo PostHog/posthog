@@ -41,7 +41,7 @@ const minutes = (from: number, to: number, max: number, avg: number): ReaderMinu
     Array.from({ length: to - from + 1 }, (_, i) => ({ minute: from + i, max, avg }))
 
 const IDLE_THEN_PROMOTED = [
-    ...minutes(-3, -3, 1, 1),
+    ...minutes(-5, -3, 1, 1),
     ...minutes(-2, -2, 2, 1.6),
     ...minutes(-1, -1, 1.5, 1.2),
     ...minutes(0, 0, 4, 2.4),
@@ -486,11 +486,11 @@ describe('cloud controller', () => {
     it.each<[string, () => void]>([
         ['after the runner profile is gone', () => rmSync(path.join(dir, 'runner.yaml'))],
         [
-            'after its idle limit was edited to zero, below the reader minimum',
+            'after its idle limit was edited to a negative value, below the reader minimum',
             () =>
                 writeFileSync(
                     profilePath(),
-                    stringify({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax: 0 } })
+                    stringify({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax: -0.5 } })
                 ),
         ],
     ])('cleans up with only the cloud profile, %s', async (_, edit) => {
@@ -1018,7 +1018,7 @@ describe('cloud controller', () => {
             'a complete minute before T0 above the idle limit',
             {
                 readerAcu: [
-                    ...minutes(-3, -3, 1, 1),
+                    ...minutes(-5, -3, 1, 1),
                     ...minutes(-2, -2, 3, 2.6),
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
@@ -1033,7 +1033,7 @@ describe('cloud controller', () => {
             'a minute before T0 above the idle limit whose average CloudWatch left out',
             {
                 readerAcu: [
-                    ...minutes(-3, -3, 1, 1),
+                    ...minutes(-5, -3, 1, 1),
                     { minute: -2, max: 3 },
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
@@ -1048,7 +1048,7 @@ describe('cloud controller', () => {
             'a minute before T0 under the idle limit whose maximum CloudWatch left out',
             {
                 readerAcu: [
-                    ...minutes(-3, -3, 1, 1),
+                    ...minutes(-5, -3, 1, 1),
                     { minute: -2, avg: 2 },
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
@@ -1063,7 +1063,7 @@ describe('cloud controller', () => {
             'a minute before T0 above the idle limit whose maximum CloudWatch left out',
             {
                 readerAcu: [
-                    ...minutes(-3, -3, 1, 1),
+                    ...minutes(-5, -3, 1, 1),
                     { minute: -2, avg: 3 },
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
@@ -1080,6 +1080,13 @@ describe('cloud controller', () => {
             () => undefined,
             'invalid',
             'no reader maximum for the minute before T0',
+        ],
+        [
+            'a whole minute missing from the five before T0',
+            { readerAcu: IDLE_THEN_PROMOTED.filter(({ minute }) => minute !== -2) },
+            () => undefined,
+            'invalid',
+            'no reader capacity in the 5 minutes before T0 for',
         ],
         [
             'a series that ends before T0',

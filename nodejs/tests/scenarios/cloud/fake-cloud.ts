@@ -92,7 +92,7 @@ const FAILOVER_CARD = 'cyclotron-failover-under-load'
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
 const DEFAULT_READER_ACU: ReaderMinute[] = [
-    ...[-3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
+    ...[-5, -4, -3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
     { minute: 0, max: 2, avg: 1.5 },
     ...[1, 2, 3].map((minute) => ({ minute, max: 6, avg: 5 })),
 ]

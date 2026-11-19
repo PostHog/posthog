@@ -72,7 +72,7 @@ export const CloudProfile = z
             .object({
                 min: z.literal(1),
                 max: z.number().int().positive(),
-                idleMax: z.number().nonnegative().optional(),
+                idleMax: z.number().optional(),
             })
             .strict(),
         host: z

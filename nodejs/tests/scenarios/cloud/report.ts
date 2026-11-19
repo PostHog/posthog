@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { CAPACITY_MINUTES } from '../environment/failover'
 import { EXIT_CODE, Status } from '../runner/status'
 import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
@@ -162,11 +163,15 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
     const pre = minutes.filter(({ at }) => at < t0Minute)
     const above = pre.filter(({ max, avg }) => (max ?? avg ?? 0) > idleMax)
     const unshown = pre.filter(({ max, avg }) => max === undefined && avg !== undefined && avg > min && avg <= idleMax)
+    const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
+    const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
     const reasons = [
         above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
         unshown.length > 0 &&
             `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+        missing.length > 0 &&
+            `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
         readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
     ].filter((reason): reason is string => typeof reason === 'string')
     return reasons.length === 0 ? { scalars, readerAtT0 } : { scalars, readerAtT0, reason: reasons.join('; ') }
