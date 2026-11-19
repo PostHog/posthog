@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconLock } from '@posthog/icons'
+import { LemonBanner, LemonCard, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
@@ -19,8 +20,10 @@ export function TransactionalPushTabs({
     id: string
     editDisabledReason: string | undefined
 }): JSX.Element {
-    const { tab, transactionalHogFlowId, savedVariables, hasChanges } = useValues(transactionalPushLogic({ id }))
-    const { setTab, makeTransactional } = useActions(transactionalPushLogic({ id }))
+    const { tab, transactionalHogFlowId, savedVariables, hasChanges, template, templateLoading } = useValues(
+        transactionalPushLogic({ id })
+    )
+    const { setTab, makeTransactional, setSensitive } = useActions(transactionalPushLogic({ id }))
 
     const workflowTabs = transactionalHogFlowId
         ? [
@@ -44,7 +47,33 @@ export function TransactionalPushTabs({
                     key: 'api',
                     label: 'API',
                     content: transactionalHogFlowId ? (
-                        <TransactionalPushApiExample templateId={id} variables={savedVariables} />
+                        <div className="flex flex-col gap-4">
+                            <LemonCard hoverEffect={false} className="max-w-200 p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <IconLock className="text-xl text-secondary shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="font-semibold">Protect sensitive data</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                For push notifications with login codes or reset links. PostHog keeps no
+                                                copy of what each notification contained.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={!!template?.sensitive}
+                                        onChange={setSensitive}
+                                        loading={templateLoading}
+                                        disabledReason={
+                                            editDisabledReason ?? (templateLoading ? 'Saving the setting' : undefined)
+                                        }
+                                        aria-label="Protect sensitive data"
+                                        data-attr="transactional-push-sensitive-toggle"
+                                    />
+                                </div>
+                            </LemonCard>
+                            <TransactionalPushApiExample templateId={id} variables={savedVariables} />
+                        </div>
                     ) : (
                         <LemonBanner
                             type="info"
