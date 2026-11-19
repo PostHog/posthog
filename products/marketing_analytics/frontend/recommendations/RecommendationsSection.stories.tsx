@@ -210,6 +210,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
+        minor: true,
     }),
     recommendation({
         rule: 'content_gap',
@@ -235,9 +236,42 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'policy_limited',
         level: 'campaign',
-        subject: 'Performance Max - All products',
-        action: 'Check the affected ads in Policy manager',
-        reason: 'Some asset groups are limited by policy, so they show less often.',
+        subject: 'Search - Product',
+        action: 'Fix or appeal the policy issues in this campaign',
+        reason: "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Product',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            {
+                text: 'Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. Saving sends the ad to review again. A limited ad may need a certification from Google instead.',
+                url: 'https://ads.google.com/aw/ads',
+                linkText: 'Ads',
+            },
+            {
+                text: 'The ad "Acme alternative for teams" breaks the policy "Trademarks in ad text" (flagged text: "Acme").',
+                copyValue: 'Acme alternative for teams',
+            },
+            {
+                text: 'The ad "Product analytics pricing" breaks the policy "Destination mismatch".',
+                copyValue: 'Product analytics pricing',
+            },
+            {
+                text: 'The ad "Analytics for clinics" is limited by the policy "Healthcare and medicines".',
+                copyValue: 'Analytics for clinics',
+            },
+            {
+                text: 'If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.',
+                url: 'https://ads.google.com/aw/policy/ads/issues',
+                linkText: 'Policy manager',
+            },
+            {
+                text: 'Come back here after Google reviews the changes, usually within a business day.',
+            },
+        ],
     }),
     recommendation({
         rule: 'keyword_tracking',

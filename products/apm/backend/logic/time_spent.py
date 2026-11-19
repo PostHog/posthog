@@ -24,7 +24,12 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.enums import LabeledStrEnum
 from posthog.models import Team
 
-from products.apm.backend.logic.health.sources import environment_where, window_where
+from products.apm.backend.logic.health.sources import (
+    endpoint_expr,
+    endpoint_span_names,
+    environment_where,
+    window_where,
+)
 from products.tracing.backend.facade.api import annotate_self_time
 
 TIME_SPENT_REQUEST_LIMIT = 200
@@ -103,7 +108,7 @@ def _entry_spans_query(
         """
         SELECT trace_id, span_id, end_time
         FROM posthog.trace_spans
-        WHERE {where} AND {env_where} AND service_name = {service} AND name = {endpoint}
+        WHERE {where} AND {env_where} AND service_name = {service} AND name IN {span_names} AND {endpoint_expr} = {endpoint}
             AND (is_root_span OR kind IN (2, 5))
         LIMIT {limit}
         """,
@@ -111,6 +116,9 @@ def _entry_spans_query(
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
             "service": ast.Constant(value=service),
+            # The raw name check lets the name index skip other spans before the label is computed.
+            "span_names": ast.Tuple(exprs=[ast.Constant(value=name) for name in endpoint_span_names(endpoint)]),
+            "endpoint_expr": endpoint_expr(),
             "endpoint": ast.Constant(value=endpoint),
             "limit": ast.Constant(value=TIME_SPENT_REQUEST_LIMIT),
         },
