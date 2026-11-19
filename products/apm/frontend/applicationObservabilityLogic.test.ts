@@ -356,7 +356,7 @@ describe('applicationObservabilityLogic', () => {
             deployments.unmount()
         })
 
-        it('opens a tab link on a numeric-looking service and keeps a later picked service', async () => {
+        it('follows the URL service on the deployments tab: numeric-looking, picked, then cleared', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/apm/deployments/': () => [
@@ -382,6 +382,10 @@ describe('applicationObservabilityLogic', () => {
             logic.actions.setTimeRange('-24h')
             await expectLogic(deployments).toFinishAllListeners()
             expect(deployments.values.deploymentsService).toBe('payments')
+
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'deployments' })
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deployments.values.pickedService).toBeNull()
             deployments.unmount()
         })
 

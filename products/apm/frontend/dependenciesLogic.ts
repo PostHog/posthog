@@ -215,7 +215,8 @@ export const dependenciesLogic = kea<dependenciesLogicType>([
     urlToAction(({ actions, values }) => ({
         [APPLICATION_OBSERVABILITY_PATH]: (_, searchParams) => {
             const service = readScopeParam(searchParams.service)
-            if (searchParams.tab === 'dependencies' && service && service !== values.dependencyService) {
+            // A URL without `service` (Back to the unscoped view) clears the pick too.
+            if (searchParams.tab === 'dependencies' && service !== values.dependencyService) {
                 actions.setDependencyService(service)
             }
         },

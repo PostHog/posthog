@@ -205,7 +205,8 @@ export const deploymentsLogic = kea<deploymentsLogicType>([
     urlToAction(({ actions, values }) => ({
         [APPLICATION_OBSERVABILITY_PATH]: (_, searchParams) => {
             const service = readScopeParam(searchParams.service)
-            if (searchParams.tab === 'deployments' && service && service !== values.pickedService) {
+            // A URL without `service` (Back to the unscoped view) clears the pick too.
+            if (searchParams.tab === 'deployments' && service !== values.pickedService) {
                 actions.setDeploymentsService(service)
             }
         },
