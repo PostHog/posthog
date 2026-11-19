@@ -143,7 +143,7 @@ export function DependenciesTab(): JSX.Element {
                 />
                 {dependencies?.sampled && (
                     <span className="text-xs text-secondary" data-attr="apm-dependencies-sampled">
-                        Estimated from a sample of the time range.
+                        Built from {dependencies.trace_count.toLocaleString()} sampled traces.
                     </span>
                 )}
                 <span className="text-xs text-secondary">

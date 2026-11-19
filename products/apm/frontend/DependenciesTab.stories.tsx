@@ -130,7 +130,7 @@ export const Sampled: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/apm/dependencies/': { ...dependencies, sampled: true, sample_rate: 0.1 },
+                '/api/projects/:team_id/apm/dependencies/': { ...dependencies, sampled: true, trace_count: 2000 },
             },
         }),
     ],

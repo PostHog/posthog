@@ -12,7 +12,7 @@ const RESPONSE: DependenciesResponseApi = {
     ],
     truncated: false,
     sampled: false,
-    sample_rate: 1,
+    trace_count: 1,
     environment: null,
     service: null,
     date_from: '2026-06-02T08:00:00Z',
