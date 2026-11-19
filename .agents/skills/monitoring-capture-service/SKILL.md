@@ -221,10 +221,19 @@ synced to EU).
 4. Call `posthog:query-metrics` with the existing PromQL in `query.promql` as written.
    Scope new expressions by `namespace` or `container`. Check `environment` where it exists.
 
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
+This preserves failing cache keys when quota loading stays at zero.
 All query parameters go inside `query`. For a range summary:
 
 ```json
-{"query":{"promql":"capture_kafka_any_brokers_down","dateFrom":"-1h","output":"summary"}}
+{
+  "query": {
+    "promql": "capture_kafka_any_brokers_down",
+    "dateFrom": "-1h",
+    "output": "summary",
+    "dropEmptySeries": false
+  }
+}
 ```
 
 Use `query.instant: true` for current values. Omit `dateFrom` and `dateTo` for instant queries.
@@ -244,7 +253,13 @@ If PromQL is unavailable or a metric is missing, report the limit before using t
 Example after confirming the service name:
 
 ```json
-{"query":{"serviceNames":["capture-analytics"],"dateRange":{"date_from":"-1h"},"severityLevels":["error","fatal"]}}
+{
+  "query": {
+    "serviceNames": ["capture-analytics"],
+    "dateRange": { "date_from": "-1h" },
+    "severityLevels": ["error", "fatal"]
+  }
+}
 ```
 
 ### Pyroscope (profiling)

@@ -333,10 +333,18 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 4. Call `posthog:query-metrics` with the existing PromQL in `query.promql` as written.
    Scope new expressions by `app` or `ingestion_pipeline`. Check `environment` where it exists.
 
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
 All query parameters go inside `query`. For a range summary:
 
 ```json
-{"query":{"promql":"ingestion_lag_ms{groupId=~\"ingestion-analytics-main\"}","dateFrom":"-1h","output":"summary"}}
+{
+  "query": {
+    "promql": "ingestion_lag_ms{groupId=~\"ingestion-analytics-main\"}",
+    "dateFrom": "-1h",
+    "output": "summary",
+    "dropEmptySeries": false
+  }
+}
 ```
 
 Use `query.instant: true` for current values. Omit `dateFrom` and `dateTo` for instant queries.
@@ -359,7 +367,13 @@ Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
 Example after confirming the service name:
 
 ```json
-{"query":{"serviceNames":["ingestion-analytics-main"],"dateRange":{"date_from":"-1h"},"severityLevels":["error","fatal"]}}
+{
+  "query": {
+    "serviceNames": ["ingestion-analytics-main"],
+    "dateRange": { "date_from": "-1h" },
+    "severityLevels": ["error", "fatal"]
+  }
+}
 ```
 
 ### Pyroscope (profiling)

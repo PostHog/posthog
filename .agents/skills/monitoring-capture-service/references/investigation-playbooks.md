@@ -5,6 +5,7 @@ Each playbook describes **what to check and in what order** —
 use the discovery workflow from the main skill doc.
 Discover exact names with `posthog:metric-names-list`, then send PromQL as written in `posthog:query-metrics`'s `query.promql`.
 Use `query.output: "summary"` for range summaries or `query.instant: true` for current values.
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
 Share the returned `_posthogUrl`. Use the same region's `posthog:query-logs` for log checks.
 Set its discovered `query.serviceNames` and an explicit `query.dateRange`; add severity and text filters as needed.
 

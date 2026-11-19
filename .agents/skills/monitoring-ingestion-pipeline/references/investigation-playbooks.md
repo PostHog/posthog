@@ -5,6 +5,7 @@ Each playbook describes **what to check and in what order** —
 use the discovery workflow from the main skill doc.
 Discover exact names with `posthog:metric-names-list`, then send PromQL as written in `posthog:query-metrics`'s `query.promql`.
 Use `query.output: "summary"` for range summaries or `query.instant: true` for current values.
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
 Share the returned `_posthogUrl`. Use the same region's `posthog:query-logs` for log checks.
 Set its discovered `query.serviceNames` and an explicit `query.dateRange`; add severity and text filters as needed.
 
@@ -139,7 +140,8 @@ Diagnose layer by layer, from consumer to output:
 1. **Broker RTT** — `kafka_broker_rtt_us` by `broker_name` and `consumer_group`.
    Identify if a single broker is slow vs all brokers.
 2. **Broker connectivity** — use `posthog:query-logs` for the discovered analytics ingestion services.
-   Set the time window, `query.severityLevels: ["error", "fatal"]`, and `query.searchTerm: "broker"`.
+   Set the time window and `query.searchTerm: "broker"`. Omit the severity filter.
+   Nonfatal broker errors use `warn`, and librdkafka diagnostics use `info`.
 3. **MSK JMX metrics** — `posthog:metric-names-list` with `match: "regex"` and `value` `"aws_msk_kafka.*"`.
    Key signals: throttle time, network processor idle %, request queue size.
 4. **WarpStream agent health** — `warpstream_agent_*` metrics. Ingestion workers

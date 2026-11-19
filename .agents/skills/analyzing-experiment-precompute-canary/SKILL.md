@@ -100,10 +100,17 @@ For **each** region, use its PostHog MCP connection:
 3. Send each existing PromQL expression as written in `posthog:query-metrics`'s `query.promql`.
    Keep selectors, grouping, and functions in PromQL. Do not translate them into builder fields.
 
+Set `query.dropEmptySeries: false` so zero-valued outcomes and deviations remain visible.
 All query parameters go inside `query`. For current values:
 
 ```json
-{"query":{"promql":"time() - experiment_precompute_canary_last_run_timestamp","instant":true}}
+{
+  "query": {
+    "promql": "time() - experiment_precompute_canary_last_run_timestamp",
+    "instant": true,
+    "dropEmptySeries": false
+  }
+}
 ```
 
 For a range summary, omit `instant` and set `query.dateFrom` and `query.output: "summary"`.
