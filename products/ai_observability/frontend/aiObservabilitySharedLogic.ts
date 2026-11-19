@@ -146,16 +146,14 @@ export function buildApplyUrlStatePayload({
     }
 }
 
-const REDESIGNED_LIST_PATH = new RegExp(
-    `^(${urls.aiObservabilityTraces()}|${urls.aiObservabilitySessions()}(/[^/]+)?)/?$`
-)
+const SHELL_LIST_PATH = new RegExp(`^(${urls.aiObservabilityTraces()}|${urls.aiObservabilitySessions()}(/[^/]+)?)/?$`)
 
 // Under the navigation flag the traces list, the sessions list and the session page keep their own filters, dates and
 // search in the URL, and two writers would fight over them.
-export function redesignedListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
+export function shellListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
         !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
-        REDESIGNED_LIST_PATH.test(removeProjectIdIfPresent(router.values.location.pathname))
+        SHELL_LIST_PATH.test(removeProjectIdIfPresent(router.values.location.pathname))
     )
 }
 
@@ -711,7 +709,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
         // Session links carry `timestamp`, so unlike the traces path nothing is stripped here.
         function applySessions(searchParams: Record<string, unknown>): void {
-            if (redesignedListOwnsUrl(values.featureFlags)) {
+            if (shellListOwnsUrl(values.featureFlags)) {
                 enterRedesignedList()
                 return
             }
@@ -761,7 +759,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyNonDashboard(searchParams)
             },
             [urls.aiObservabilityTraces()]: (_, searchParams) => {
-                if (redesignedListOwnsUrl(values.featureFlags)) {
+                if (shellListOwnsUrl(values.featureFlags)) {
                     enterRedesignedList()
                     stripStaleParams(searchParams)
                     return
@@ -826,7 +824,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         type UrlWrite = [string, Record<string, unknown>, Record<string, unknown>]
 
         function unlessRedesignedListOwnsUrl<P>(write: (payload: P) => UrlWrite): (payload: P) => UrlWrite | undefined {
-            return (payload) => (redesignedListOwnsUrl(values.featureFlags) ? undefined : write(payload))
+            return (payload) => (shellListOwnsUrl(values.featureFlags) ? undefined : write(payload))
         }
 
         return {

@@ -15,7 +15,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { chunk } from 'lib/utils/arrays'
 
 import { aiObservabilityTracesList, aiObservabilityTracesTurnsCreate } from '../../generated/api'
@@ -293,12 +293,25 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
                     breakpoint
                 ): Promise<TraceListApi> => {
                     cache.pageRequestedAt = performance.now()
-                    return readAbortablePage(
-                        cache,
-                        (signal) =>
-                            aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), params, { signal }),
-                        breakpoint
-                    )
+                    const read = (pageParams: AiObservabilityTracesListParams): Promise<TraceListApi> =>
+                        readAbortablePage(
+                            cache,
+                            (signal) =>
+                                aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), pageParams, {
+                                    signal,
+                                }),
+                            breakpoint
+                        )
+                    const { around, ...withoutAround } = params
+                    try {
+                        return await read(params)
+                    } catch (error) {
+                        // A link can name a trace that is not in this session, and the server refuses it with a 400.
+                        if (around === undefined || !(error instanceof ApiError && error.status === 400)) {
+                            throw error
+                        }
+                        return read(withoutAround)
+                    }
                 },
             },
         ],

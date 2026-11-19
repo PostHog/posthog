@@ -97,11 +97,11 @@ export function ThreadTurn({
                             matchingNodeIds !== null && sourceNodeId !== null && !matchingNodeIds.has(sourceNodeId)
                         }
                         highlightQuery={highlightQuery}
-                        // A user bubble leaves room on its left for the timing
                         className={showTiming && message.role === 'user' ? 'max-w-[76%]' : undefined}
                     />
                 )
                 return isTimed ? (
+                    // The timing sits in the room that the user bubble's narrower cap leaves on its left.
                     <div key={message.id} className="flex items-start justify-end gap-2">
                         {timing}
                         {bubble}

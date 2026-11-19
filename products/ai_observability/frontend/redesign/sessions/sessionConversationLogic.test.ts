@@ -201,6 +201,18 @@ describe('sessionConversationLogic', () => {
         expect(logic.values).toMatchObject({ olderEdge: 'end', newerEdge: 'end' })
     })
 
+    it('a trace outside the session opens the session from its first turn', async () => {
+        answerPage = (params) =>
+            params.has('around')
+                ? [400, { detail: 'The trace is not in this session.' }]
+                : [200, makeSessionTurnsPage([1, 2])]
+
+        await mount({ aroundTraceId: 'trace-elsewhere' })
+
+        expect(pageRequests).toEqual([{ ...FIRST_PAGE_PARAMS, around: 'trace-elsewhere' }, FIRST_PAGE_PARAMS])
+        expect(readyTurns().map((turn) => turn.id)).toEqual(['trace-1', 'trace-2'])
+    })
+
     async function openTurnAt(traceId: string): Promise<void> {
         router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id, trace: traceId }).url)
         await expectLogic(logic).toFinishAllListeners()
