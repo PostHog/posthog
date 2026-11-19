@@ -16,7 +16,7 @@ export function TodayTabBar(): JSX.Element {
     const { toggleCommand } = useActions(commandLogic)
 
     return (
-        <div className="TodayTabBar" data-quill data-search-open={isCommandOpen}>
+        <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
                 {railPanes.map((pane) => {
                     const active = !isCommandOpen && activePane === pane

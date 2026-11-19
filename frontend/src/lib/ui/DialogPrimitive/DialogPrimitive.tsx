@@ -20,6 +20,7 @@ function DialogPrimitive({
     disablePointerDismissal = false,
     initialFocus,
     modal = true,
+    backdrop = true,
 }: {
     children: React.ReactNode
     open: boolean
@@ -28,6 +29,7 @@ function DialogPrimitive({
     disablePointerDismissal?: boolean
     initialFocus?: React.ComponentProps<typeof Dialog.Popup>['initialFocus']
     modal?: React.ComponentProps<typeof Dialog.Root>['modal']
+    backdrop?: boolean
 }): JSX.Element {
     return (
         <Dialog.Root
@@ -38,7 +40,9 @@ function DialogPrimitive({
         >
             {open && (
                 <Dialog.Portal>
-                    <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
+                    {backdrop && (
+                        <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
+                    )}
                     <Dialog.Popup
                         initialFocus={initialFocus}
                         // dvh override is support-gated so browsers without dvh keep the vh cap.

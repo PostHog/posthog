@@ -302,10 +302,6 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     border-top: 1px solid var(--border);
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
-
-    &[data-search-open='true'] {
-        z-index: calc(var(--z-modal) + 1);
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
