@@ -11,7 +11,7 @@ https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send
 
 import re
 from collections.abc import Mapping
-from dataclasses import field
+from dataclasses import field, replace
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
@@ -75,6 +75,8 @@ class _Block:
     saved_go_variables: Mapping[str, str] | None = None
     # The names an `else` sees. Go keeps a range's declared variables there, holding the collection.
     fallback_go_variables: Mapping[str, str] | None = None
+    # Ifs opened by `else if`, which Liquid can only test after the `assign` its test needs, so each closes here.
+    nested_ifs: int = 0
 
 
 @frozen
@@ -448,7 +450,8 @@ class _Converter:
         args = parts[1:]
         if helper in ("if", "unless") and len(args) == 1 and (path := self._value(args[0])) is not None:
             self.blocks.append(_Block(closer=helper))
-            return f"{{% {helper} {self._truthy(path)} %}}"
+            test = self._handlebars_test(path)
+            return f"{test.setup}{{% {helper} {test.condition} %}}"
         if helper == "with" and len(args) == 1 and (path := self._path(args[0])) is not None:
             # Handlebars adds a parent level only when the context changes, so `../` inside `with this` stays put.
             changes_context = path != self.frames[-1].expression
@@ -456,7 +459,8 @@ class _Converter:
             if changes_context:
                 self.frames.append(_Frame(expression=path))
             # Unlike `if`, `with` renders 0.
-            return f"{{% if {path} and {path}.length != 0 %}}"
+            test = self._handlebars_test(path, zero_is_empty=False)
+            return f"{test.setup}{{% if {test.condition} %}}"
         if helper == "each" and len(args) == 1 and (path := self._path(args[0])) is not None:
             return self._open_loop(path, closer="each")
         if helper == "each" and (names := _block_params(args[1:])) and (path := self._path(args[0])) is not None:
@@ -491,10 +495,18 @@ class _Converter:
         )
 
     def _truthy(self, path: str) -> str:
-        # Liquid treats "", 0 and empty lists as true. Handlebars treats an empty object as true and Go as false.
-        if self.engine == "go":
-            return f"{path} and {path} != empty and {path} != 0"
-        return f"{path} and {path}.length != 0 and {path} != 0"
+        # Liquid treats "", 0 and empty lists as true, and Go treats them and an empty map as false.
+        return f"{path} and {path} != empty and {path} != 0"
+
+    def _handlebars_test(self, path: str, *, zero_is_empty: bool = True) -> _Comparison:
+        """Handlebars renders a block unless the value is missing, false, null, "", an empty list or, for `if`, 0. An
+        object always renders, even one with a `length` field. Its JSON tells these apart where Liquid's own test
+        can't."""
+        self.compare_count += 1
+        name = f"tested{self.compare_count}"
+        empty = ['"false"', '"null"', """'""'""", '"[]"', *(['"0"'] if zero_is_empty else [])]
+        condition = " and ".join([f"{name} != nil", *(f"{name} != {value}" for value in empty)])
+        return _Comparison(setup=f"{{% assign {name} = {path} | json %}}", condition=condition)
 
     def _equal(self, left: str, right: str) -> _Comparison | None:
         # Mailgun's `equal` compares both sides as strings, so 5 equals "5". Liquid can't filter inside an `if`.
@@ -535,9 +547,11 @@ class _Converter:
             self.frames.pop()
         if not block.converted:
             return ""
-        return {"each": "{% endfor %}", "range": "{% endfor %}", "unless": "{% endunless %}"}.get(
-            block.closer, "{% endif %}"
-        )
+        return "{% endif %}" * block.nested_ifs + {
+            "each": "{% endfor %}",
+            "range": "{% endfor %}",
+            "unless": "{% endunless %}",
+        }.get(block.closer, "{% endif %}")
 
     def _else(self, token: str) -> str:
         if not self.blocks or not self.blocks[-1].converted:
@@ -551,7 +565,7 @@ class _Converter:
             fallback = block.fallback_go_variables or block.saved_go_variables
             if fallback is not None:
                 self.go_variables = dict(fallback)
-            self.blocks[-1] = _Block(closer=block.closer, pops_frame=False, saved_go_variables=block.saved_go_variables)
+            self.blocks[-1] = replace(block, pops_frame=False, fallback_go_variables=None)
         self.took_branch = True
         return "{% else %}"
 
@@ -561,7 +575,9 @@ class _Converter:
         parts = _ARGUMENT.findall(source)
         if len(parts) == 2 and parts[0] == "if" and (path := self._value(parts[1])) is not None:
             self.took_branch = True
-            return f"{{% elsif {self._truthy(path)} %}}"
+            test = self._handlebars_test(path)
+            self.blocks[-1] = replace(self.blocks[-1], nested_ifs=self.blocks[-1].nested_ifs + 1)
+            return f"{{% else %}}{test.setup}{{% if {test.condition} %}}"
         return self._unsupported(token)
 
     def _output(self, token: str, source: str, *, raw: bool) -> str:

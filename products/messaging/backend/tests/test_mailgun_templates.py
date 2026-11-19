@@ -13,6 +13,10 @@ from products.messaging.backend.provider_imports import mailgun_templates
 from products.messaging.backend.provider_imports.mailgun_templates import convert_text, convert_version
 
 ESCAPED_X = '{{ variables.x | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}'
+IF_A = (
+    '{% assign tested1 = variables.a | json %}{% if tested1 != nil and tested1 != "false" and tested1 != "null" '
+    """and tested1 != '""' and tested1 != "[]" and tested1 != "0" %}"""
+)
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "mailgun_template_renders.json").read_text())
 
 
@@ -59,33 +63,33 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             (
                 "a_value_named_like_else_is_not_a_branch",
                 "{{#if a}}<a title={{else-label}} href={{url}}>{{/if}}",
-                "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}<a title="
+                IF_A + "<a title="
                 '{{ variables.else-label | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }} href='
                 '{{ variables.url | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}>{% endif %}',
             ),
             (
                 "a_value_named_else_with_a_trailing_dash_is_not_a_branch",
                 "{{#if a}}<a title={{else-}} href={{url}}>{{/if}}",
-                "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}<a title="
+                IF_A + "<a title="
                 '{{ variables.else- | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }} href='
                 '{{ variables.url | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}>{% endif %}',
             ),
             (
                 "either_branch_leaving_a_tag_open_keeps_the_value_escaped",
                 "{{#if a}}<a title={{else}}<a>{{/if}}{{url}}",
-                "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}<a title={% else %}<a>{% endif %}"
+                IF_A + "<a title={% else %}<a>{% endif %}"
                 '{{ variables.url | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
             ),
             (
                 "a_block_that_renders_nothing_keeps_the_value_escaped",
                 "<a title={{#if a}}>ok{{/if}}{{x}}>",
-                "<a title={% if variables.a and variables.a.length != 0 and variables.a != 0 %}>ok{% endif %}"
+                "<a title=" + IF_A + ">ok{% endif %}"
                 '{{ variables.x | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}>',
             ),
             (
                 "unclosed_block_is_closed",
                 "{{#if a}}x",
-                "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}x{% endif %}",
+                IF_A + "x{% endif %}",
             ),
         ]
     )
